@@ -27,6 +27,10 @@ pub struct AppState {
     pub fragmap_scroll_offset: usize,
     /// Current display mode.
     pub mode: AppMode,
+    /// Vertical scroll offset for the detail view.
+    pub detail_scroll_offset: usize,
+    /// Maximum vertical scroll offset for the detail view (updated during render).
+    pub max_detail_scroll: usize,
 }
 
 impl AppState {
@@ -40,6 +44,8 @@ impl AppState {
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,
+            detail_scroll_offset: 0,
+            max_detail_scroll: 0,
         }
     }
 
@@ -54,6 +60,8 @@ impl AppState {
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,
+            detail_scroll_offset: 0,
+            max_detail_scroll: 0,
         }
     }
 
@@ -85,12 +93,28 @@ impl AppState {
         self.fragmap_scroll_offset += 1;
     }
 
+    /// Scroll detail view up (decrease offset).
+    pub fn scroll_detail_up(&mut self) {
+        if self.detail_scroll_offset > 0 {
+            self.detail_scroll_offset -= 1;
+        }
+    }
+
+    /// Scroll detail view down (increase offset).
+    pub fn scroll_detail_down(&mut self) {
+        if self.detail_scroll_offset < self.max_detail_scroll {
+            self.detail_scroll_offset += 1;
+        }
+    }
+
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
         self.mode = match self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
         };
+        // Reset scroll offset when toggling views
+        self.detail_scroll_offset = 0;
     }
 }
 
