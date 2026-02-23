@@ -79,6 +79,39 @@ Guidelines:
   (Flags: V2)
 - [x] T043 P2 feat - Remove Commits border from commit list table (Flags: V2)
 
+## Fragmap — Diff Extraction (V3)
+- [x] T044 P0 feat - Add diff domain types: FileDiff, Hunk, DiffLine, CommitDiff
+  (Flags: V3)
+- [ ] T045 P0 feat - Add commit_diff(oid) function in repo.rs using git2 to
+  extract CommitDiff for a single commit (Flags: V3)
+- [ ] T046 P1 feat - Add integration tests for commit_diff using fixture repos
+  (Flags: V3)
+
+## Fragmap — Span Extraction (V3)
+- [ ] T047 P0 feat - Add FileSpan type and extract_spans function in fragmap
+  module (Flags: V3)
+- [ ] T048 P1 feat - Add unit tests for span extraction (Flags: V3)
+
+## Fragmap — Matrix Generation (V3)
+- [ ] T049 P0 feat - Build fragmap matrix: commits x chunks with TouchKind
+  cells, one column per hunk (Flags: V3)
+- [ ] T050 P1 feat - Add unit tests for matrix generation with fabricated
+  CommitDiff data (Flags: V3)
+
+## Fragmap — Conflict & Squashability Analysis (V3)
+- [ ] T051 P0 feat - Determine squashability between commit pairs sharing a
+  column: yellow if trivial, red if conflicting (Flags: V3)
+- [ ] T052 P1 feat - Add unit tests for squashability logic (Flags: V3)
+
+## Fragmap — TUI Rendering (V3)
+- [ ] T053 P0 feat - Compute fragmap data in main.rs and store in AppState
+  (Flags: V3)
+- [ ] T054 P0 feat - Render fragmap grid right of commit title: white squares
+  for touched chunks, colored lines between related commits (Flags: V3)
+- [ ] T055 P1 feat - Add snapshot tests for fragmap grid rendering (Flags: V3)
+- [ ] T056 P2 feat - Horizontal scrolling for fragmap columns exceeding
+  available width (Flags: V3)
+
 ## Bugs
 - [x] T042 P0 bug - Commit list shows commits from repo start to reference point
   instead of from HEAD to reference point (Flags: V2)
