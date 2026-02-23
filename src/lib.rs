@@ -1,6 +1,7 @@
 // Core library for git-scissors
 
 pub mod app;
+pub mod event;
 pub mod repo;
 
 /// Represents commit metadata extracted from git repository.
