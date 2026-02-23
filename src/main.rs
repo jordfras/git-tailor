@@ -7,7 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use git2::Repository;
-use git_scissors::{
+use git_tailor::{
     app::{AppMode, AppState},
     event, fragmap, repo, views, CommitInfo,
 };
@@ -23,7 +23,7 @@ use std::io;
 
 /// Interactive TUI for working with Git commits.
 #[derive(Parser)]
-#[command(name = "git-scissors")]
+#[command(name = "gt")]
 struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
     commit_ish: String,

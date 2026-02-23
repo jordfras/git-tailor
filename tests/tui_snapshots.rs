@@ -1,6 +1,6 @@
 // TUI snapshot tests with TestBackend
 
-use git_scissors::{
+use git_tailor::{
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views, CommitInfo,

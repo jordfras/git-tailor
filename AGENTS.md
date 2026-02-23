@@ -1,11 +1,11 @@
-# AI Agent Guidelines for git-scissors
+# AI Agent Guidelines for git-tailor
 
 This document describes the architecture, design decisions, and conventions for
-the git-scissors project.
+the git-tailor project.
 
 ## Project Overview
 
-git-scissors is an open-source console tool for working with Git commits,
+git-tailor is an open-source console tool for working with Git commits,
 combining features from **tig** (interactive commit browsing) and **fragmap**
 (chunk-cluster visualization showing how commits relate). It enables users to
 browse, analyze, reorder, squash, and split commits on a branch.
@@ -19,7 +19,7 @@ browse, analyze, reorder, squash, and split commits on a branch.
 ### Crate Structure
 
 ```
-git-scissors/
+git-tailor/
 ├── Cargo.toml              # package manifest
 ├── src/
 │   ├── lib.rs              # Library root

@@ -1,5 +1,5 @@
 use git2::{Repository, Signature};
-use git_scissors::list_commits_in;
+use git_tailor::list_commits_in;
 use std::fs;
 use tempfile::TempDir;
 
