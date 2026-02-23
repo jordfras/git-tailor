@@ -127,22 +127,31 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     // Determine which cluster columns are non-empty (at least one commit touches them)
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
-            .filter(|&ci| {
-                fragmap
-                    .matrix
-                    .iter()
-                    .any(|row| row[ci] != TouchKind::None)
-            })
+            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
             .collect()
     } else {
         vec![]
     };
 
+    // Apply horizontal scroll: determine how many cluster columns fit
+    let fragmap_available_width = table_area
+        .width
+        .saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
+    let scroll_offset = app.fragmap_scroll_offset.min(
+        visible_clusters.len().saturating_sub(fragmap_available_width.max(1)),
+    );
+    let display_clusters: Vec<usize> = if visible_clusters.is_empty() {
+        vec![]
+    } else {
+        let end = (scroll_offset + fragmap_available_width).min(visible_clusters.len());
+        visible_clusters[scroll_offset..end].to_vec()
+    };
+
     let mut header_cells = vec![Cell::from("SHA"), Cell::from("Title")];
     let mut constraints = vec![Constraint::Length(10), Constraint::Min(20)];
-    if !visible_clusters.is_empty() {
+    if !display_clusters.is_empty() {
         header_cells.push(Cell::from("Hunk groups"));
-        constraints.push(Constraint::Length(visible_clusters.len() as u16));
+        constraints.push(Constraint::Length(display_clusters.len() as u16));
     }
     let header = Row::new(header_cells).style(HEADER_STYLE);
 
@@ -187,25 +196,25 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         .enumerate()
         .map(|(visible_index, commit)| {
             let visual_index = scroll_offset + visible_index;
-            
+
             // Map visual_index to commit_idx in fragmap (chronological order)
             let commit_idx_in_fragmap = if app.reverse {
-                app.commits.len().saturating_sub(1).saturating_sub(visual_index)
+                app.commits
+                    .len()
+                    .saturating_sub(1)
+                    .saturating_sub(visual_index)
             } else {
                 visual_index
             };
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
-            
-            let mut cells = vec![
-                Cell::from(short_sha),
-                Cell::from(commit.summary.clone()),
-            ];
+
+            let mut cells = vec![Cell::from(short_sha), Cell::from(commit.summary.clone())];
 
             // Add single fragmap cell composed of per-cluster spans
             if let Some(ref fragmap) = app.fragmap {
-                if !visible_clusters.is_empty() {
-                    let spans: Vec<Span> = visible_clusters
+                if !display_clusters.is_empty() {
+                    let spans: Vec<Span> = display_clusters
                         .iter()
                         .map(|&cluster_idx| {
                             if let Some((symbol, style)) =

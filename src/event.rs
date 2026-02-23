@@ -8,6 +8,8 @@ use crossterm::event::{self, Event, KeyEvent};
 pub enum AppAction {
     MoveUp,
     MoveDown,
+    ScrollLeft,
+    ScrollRight,
     Quit,
     None,
 }
@@ -29,6 +31,8 @@ pub fn parse_key_event(event: Event) -> AppAction {
         Event::Key(KeyEvent { code, .. }) => match code {
             KeyCode::Up => AppAction::MoveUp,
             KeyCode::Down => AppAction::MoveDown,
+            KeyCode::Left => AppAction::ScrollLeft,
+            KeyCode::Right => AppAction::ScrollRight,
             KeyCode::Char('q') | KeyCode::Char('Q') => AppAction::Quit,
             _ => AppAction::None,
         },

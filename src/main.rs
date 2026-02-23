@@ -81,6 +81,8 @@ fn main() -> Result<()> {
             event::AppAction::MoveDown if app.reverse => app.move_up(),
             event::AppAction::MoveUp => app.move_up(),
             event::AppAction::MoveDown => app.move_down(),
+            event::AppAction::ScrollLeft => app.scroll_fragmap_left(),
+            event::AppAction::ScrollRight => app.scroll_fragmap_right(),
             event::AppAction::Quit => app.should_quit = true,
             event::AppAction::None => {}
         }

@@ -418,3 +418,54 @@ fn test_fragmap_adjacent_squashable() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+
+/// Narrow terminal with many clusters — verifies horizontal scrolling.
+/// Width 40: SHA(10) + gap(1) + Title(min 20) + gap(1) = 32, leaving ~8 chars for fragmap.
+/// With 12 clusters and scroll_offset=4, should show clusters 4..12.
+#[test]
+fn test_fragmap_horizontal_scroll() {
+    let backend = TestBackend::new(40, 8);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let oids: Vec<&str> = vec!["aaa1", "bbb2", "ccc3"];
+    let commits: Vec<CommitInfo> = oids
+        .iter()
+        .map(|oid| create_test_commit(oid, &format!("Commit {}", oid)))
+        .collect();
+
+    // 12 clusters, each touched by exactly one commit
+    let clusters: Vec<SpanCluster> = (0u32..12)
+        .map(|i| simple_cluster("file.rs", i * 10, i * 10 + 5, &[oids[i as usize % 3]]))
+        .collect();
+
+    let matrix: Vec<Vec<TouchKind>> = (0..3)
+        .map(|commit_idx| {
+            (0..12)
+                .map(|cluster_idx| {
+                    if cluster_idx % 3 == commit_idx {
+                        TouchKind::Added
+                    } else {
+                        TouchKind::None
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    let mut app = AppState::new();
+    app.commits = commits;
+    app.selection_index = 0;
+    app.fragmap_scroll_offset = 4;
+    app.fragmap = Some(create_fragmap(
+        oids,
+        clusters,
+        matrix,
+    ));
+
+    terminal
+        .draw(|frame| views::commit_list::render(&app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
