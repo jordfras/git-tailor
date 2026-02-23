@@ -920,4 +920,319 @@ mod tests {
         assert_ne!(fragmap.matrix[0][0], TouchKind::None);
         assert_ne!(fragmap.matrix[0][1], TouchKind::None);
     }
+
+    // Squashability analysis tests
+
+    #[test]
+    fn test_analyze_cluster_relation_no_relation_neither_touches() {
+        // Two commits that don't touch the same cluster
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 1, 0, 1, 5)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("b.txt"), Some("b.txt"), 1, 0, 1, 5)],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Two clusters, c1 only touches cluster 0
+        assert_eq!(fragmap.clusters.len(), 2);
+
+        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        assert_eq!(relation, SquashRelation::NoRelation);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_no_relation_only_one_touches() {
+        // Only one commit touches the cluster
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    100,
+                    0,
+                    100,
+                    5, // Far away, different cluster
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        assert_eq!(fragmap.clusters.len(), 2);
+
+        // c1 touches cluster 0, c2 doesn't
+        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        assert_eq!(relation, SquashRelation::NoRelation);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_squashable_no_collisions() {
+        // Two commits touch same cluster, no commits in between
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    3,
+                    3,
+                    3,
+                    4, // Overlaps with c1
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Should have one cluster (overlapping)
+        assert_eq!(fragmap.clusters.len(), 1);
+
+        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        assert_eq!(relation, SquashRelation::Squashable);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_conflicting_with_collision() {
+        // Three commits touch same cluster - middle one is collision
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    3,
+                    2,
+                    3,
+                    3, // Overlaps - collision
+                )],
+            ),
+            make_commit_diff(
+                "c3",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    2,
+                    3,
+                    2,
+                    4, // Also overlaps
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // All three commits in one cluster
+        assert_eq!(fragmap.clusters.len(), 1);
+        assert_eq!(fragmap.clusters[0].commit_oids.len(), 3);
+
+        // c1 and c3 have a collision (c2 in between)
+        let relation = analyze_cluster_relation(&fragmap, 0, 2, 0);
+        assert_eq!(relation, SquashRelation::Conflicting);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_invalid_indices() {
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 1, 0, 1, 5)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 3, 2, 3, 3)],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Out of range commit index
+        let relation = analyze_cluster_relation(&fragmap, 0, 10, 0);
+        assert_eq!(relation, SquashRelation::NoRelation);
+
+        // Out of range cluster index
+        let relation = analyze_cluster_relation(&fragmap, 0, 1, 10);
+        assert_eq!(relation, SquashRelation::NoRelation);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_earlier_not_less_than_later() {
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 1, 0, 1, 5)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 3, 2, 3, 3)],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Same index
+        let relation = analyze_cluster_relation(&fragmap, 1, 1, 0);
+        assert_eq!(relation, SquashRelation::NoRelation);
+
+        // Earlier > later
+        let relation = analyze_cluster_relation(&fragmap, 1, 0, 0);
+        assert_eq!(relation, SquashRelation::NoRelation);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_multiple_clusters() {
+        // Complex scenario with multiple clusters
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![
+                    make_file_diff(Some("a.txt"), Some("a.txt"), 1, 0, 1, 5),
+                    make_file_diff(Some("b.txt"), Some("b.txt"), 1, 0, 1, 5),
+                ],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("a.txt"), Some("a.txt"), 3, 2, 3, 3)],
+            ),
+            make_commit_diff(
+                "c3",
+                vec![make_file_diff(Some("b.txt"), Some("b.txt"), 3, 2, 3, 3)],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Should have two clusters (a.txt and b.txt)
+        assert_eq!(fragmap.clusters.len(), 2);
+
+        // Find which cluster is which by checking first span path
+        let a_cluster_idx = fragmap
+            .clusters
+            .iter()
+            .position(|c| c.spans[0].path == "a.txt")
+            .unwrap();
+        let b_cluster_idx = fragmap
+            .clusters
+            .iter()
+            .position(|c| c.spans[0].path == "b.txt")
+            .unwrap();
+
+        // c1 and c2 both touch a.txt cluster - squashable (no collision)
+        let relation = analyze_cluster_relation(&fragmap, 0, 1, a_cluster_idx);
+        assert_eq!(relation, SquashRelation::Squashable);
+
+        // c1 and c3 both touch b.txt cluster - squashable (no collision)
+        let relation = analyze_cluster_relation(&fragmap, 0, 2, b_cluster_idx);
+        assert_eq!(relation, SquashRelation::Squashable);
+
+        // c2 and c3 don't share any cluster
+        let relation = analyze_cluster_relation(&fragmap, 1, 2, a_cluster_idx);
+        assert_eq!(relation, SquashRelation::NoRelation);
+
+        let relation = analyze_cluster_relation(&fragmap, 1, 2, b_cluster_idx);
+        assert_eq!(relation, SquashRelation::NoRelation);
+    }
+
+    #[test]
+    fn test_analyze_cluster_relation_squashable_with_gap() {
+        // Four commits: c1 and c4 touch cluster, c2 and c3 don't
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("other.txt"),
+                    Some("other.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c3",
+                vec![make_file_diff(
+                    Some("another.txt"),
+                    Some("another.txt"),
+                    1,
+                    0,
+                    1,
+                    5,
+                )],
+            ),
+            make_commit_diff(
+                "c4",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    3,
+                    2,
+                    3,
+                    3,
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Find the file.txt cluster
+        let file_cluster_idx = fragmap
+            .clusters
+            .iter()
+            .position(|c| c.spans[0].path == "file.txt")
+            .unwrap();
+
+        // c1 and c4 touch file.txt, c2 and c3 don't - squashable
+        let relation = analyze_cluster_relation(&fragmap, 0, 3, file_cluster_idx);
+        assert_eq!(relation, SquashRelation::Squashable);
+    }
 }

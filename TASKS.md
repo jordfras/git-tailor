@@ -101,7 +101,7 @@ Guidelines:
 ## Fragmap — Conflict & Squashability Analysis (V3)
 - [X] T051 P0 feat - Determine squashability between commit pairs sharing a
   column: yellow if trivial, red if conflicting (Flags: V3)
-- [ ] T052 P1 feat - Add unit tests for squashability logic (Flags: V3)
+- [X] T052 P1 feat - Add unit tests for squashability logic (Flags: V3)
 
 ## Fragmap — TUI Rendering (V3)
 - [ ] T053 P0 feat - Compute fragmap data in main.rs and store in AppState
