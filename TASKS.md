@@ -115,7 +115,7 @@ Guidelines:
   (Flags: V3)
 - [X] T058 P1 feat - Align fragmap matrix to the left, adjacent to title column
   (Flags: V3)
-- [ ] T059 P1 feat - Colorize SHA and title of commits where all touched
+- [X] T059 P1 feat - Colorize SHA and title of commits where all touched
   clusters are squashable into the same single other commit (Flags: V3)
 
 ## Bugs
