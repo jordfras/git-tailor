@@ -243,7 +243,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1 + 1) as usize;
+    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize;
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -261,7 +261,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     let fragmap_col_width = display_clusters.len() as u16;
     let title_width = if fragmap_col_width > 0 {
         effective_width
-            .saturating_sub(10 + 2 + 1 + fragmap_col_width)
+            .saturating_sub(10 + 2 + fragmap_col_width)
             .min(MAX_TITLE_WIDTH)
     } else {
         0
@@ -305,7 +305,6 @@ fn build_header(layout: &LayoutInfo) -> Row<'static> {
         vec![
             Cell::from("SHA"),
             Cell::from("Title"),
-            Cell::from(""),
             Cell::from("Hunk groups"),
         ]
     } else {
@@ -319,7 +318,6 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
         vec![
             Constraint::Length(10),
             Constraint::Length(layout.title_width),
-            Constraint::Length(1),
             Constraint::Length(layout.fragmap_col_width),
         ]
     } else {
@@ -441,12 +439,6 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
             if let Some(ref fragmap) = app.fragmap {
                 if !layout.display_clusters.is_empty() {
-                    let sep_style = if is_selected {
-                        Style::default().reversed()
-                    } else {
-                        Style::default()
-                    };
-                    cells.push(Cell::from(Span::styled("", sep_style)));
                     cells.push(build_fragmap_cell(
                         fragmap,
                         commit_idx_in_fragmap,
@@ -502,7 +494,7 @@ fn render_horizontal_scrollbar(
     content_area: Rect,
     layout: &LayoutInfo,
 ) {
-    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1 + 1;
+    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1;
     let area = Rect {
         x: fragmap_x,
         width: layout.fragmap_col_width,

@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
     .areas(area);
 
     // Render header
-    let header_text = " Commit information";
+    let header_text = "Commit information";
     let header = Paragraph::new(header_text).style(HEADER_STYLE);
     frame.render_widget(header, header_area);
 
