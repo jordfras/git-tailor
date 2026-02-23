@@ -56,7 +56,7 @@ Guidelines:
   (Flags: V2)
 - [X] T029 P0 feat - Call list_commits with HEAD and reference point from CLI
   arg (Flags: V2)
-- [ ] T030 P0 feat - Handle 'q' key to exit and restore terminal (Flags: V2)
+- [X] T030 P0 feat - Handle 'q' key to exit and restore terminal (Flags: V2)
 - [X] T031 P1 feat - Add integration test for list_commits returning correct
   order (Flags: V2)
 - [ ] T032 P1 feat - Add unit test for AppState selection movement (Flags: V2)
