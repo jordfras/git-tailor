@@ -173,8 +173,8 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
                         use crate::DiffLineKind;
 
                         let (prefix, style) = match line.kind {
-                            DiffLineKind::Addition => ("+", Style::default().fg(Color::White)),
-                            DiffLineKind::Deletion => ("-", Style::default().fg(Color::White)),
+                            DiffLineKind::Addition => ("+", Style::default().fg(Color::Green)),
+                            DiffLineKind::Deletion => ("-", Style::default().fg(Color::Red)),
                             DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
                         };
 

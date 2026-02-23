@@ -28,7 +28,7 @@ Guidelines:
   status indicators (Flags: V4)
 - [X] T064d P0 feat - Add complete diff rendering with +/- lines (plain text, no
   colors) (Flags: V4)
-- [ ] T065 P1 feat - Color diff output in commit detail view similar to tig:
+- [X] T065 P1 feat - Color diff output in commit detail view similar to tig:
   green for additions, red for deletions, cyan for hunk headers (Flags: V4)
 - [ ] T066 P1 feat - Support scrolling in commit detail view for long diffs
   (Flags: V4)
