@@ -108,7 +108,7 @@ Guidelines:
   (Flags: V3)
 - [X] T054 P0 feat - Render fragmap grid right of commit title: white squares
   for touched chunks, colored lines between related commits (Flags: V3)
-- [ ] T055 P1 feat - Add snapshot tests for fragmap grid rendering (Flags: V3)
+- [X] T055 P1 feat - Add snapshot tests for fragmap grid rendering (Flags: V3)
 - [ ] T056 P2 feat - Horizontal scrolling for fragmap columns exceeding
   available width (Flags: V3)
 
