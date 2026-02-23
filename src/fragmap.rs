@@ -243,6 +243,77 @@ fn determine_touch_kind(commit_diff: &CommitDiff, cluster: &SpanCluster) -> Touc
     TouchKind::None
 }
 
+/// The relationship between two commits within a specific cluster.
+///
+/// Used to determine if commits that touch the same cluster can be
+/// safely squashed together, following the original fragmap logic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SquashRelation {
+    /// Neither commit (or only one) touches this cluster.
+    NoRelation,
+    /// Both commits touch the cluster with no collisions in between.
+    /// These commits can potentially be squashed (yellow in UI).
+    Squashable,
+    /// Both commits touch the cluster with collisions (commits in between
+    /// also touch it). Squashing would conflict (red in UI).
+    Conflicting,
+}
+
+/// Analyze squashability between two commits for a specific cluster.
+///
+/// Determines if two commits that both touch a cluster can be safely
+/// squashed together, based on whether there are collisions (other commits
+/// in between that also touch the same cluster).
+///
+/// # Arguments
+/// * `fragmap` - The fragmap containing the matrix
+/// * `earlier_commit_idx` - Index of the earlier commit (smaller index)
+/// * `later_commit_idx` - Index of the later commit (larger index)
+/// * `cluster_idx` - Index of the cluster to analyze
+///
+/// # Returns
+/// * `NoRelation` - One or both commits don't touch this cluster
+/// * `Squashable` - Both touch it, no collisions in between
+/// * `Conflicting` - Both touch it, with collisions in between
+pub fn analyze_cluster_relation(
+    fragmap: &FragMap,
+    earlier_commit_idx: usize,
+    later_commit_idx: usize,
+    cluster_idx: usize,
+) -> SquashRelation {
+    // Ensure indices are in range
+    if earlier_commit_idx >= fragmap.commits.len()
+        || later_commit_idx >= fragmap.commits.len()
+        || cluster_idx >= fragmap.clusters.len()
+    {
+        return SquashRelation::NoRelation;
+    }
+
+    // Ensure earlier_commit_idx < later_commit_idx
+    if earlier_commit_idx >= later_commit_idx {
+        return SquashRelation::NoRelation;
+    }
+
+    // Check if both commits touch this cluster
+    let earlier_touches = fragmap.matrix[earlier_commit_idx][cluster_idx] != TouchKind::None;
+    let later_touches = fragmap.matrix[later_commit_idx][cluster_idx] != TouchKind::None;
+
+    if !earlier_touches || !later_touches {
+        return SquashRelation::NoRelation;
+    }
+
+    // Check for collisions: commits in between that also touch this cluster
+    for commit_idx in (earlier_commit_idx + 1)..later_commit_idx {
+        if fragmap.matrix[commit_idx][cluster_idx] != TouchKind::None {
+            // Found a collision
+            return SquashRelation::Conflicting;
+        }
+    }
+
+    // Both touch the cluster, no collisions
+    SquashRelation::Squashable
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

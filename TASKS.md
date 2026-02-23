@@ -99,7 +99,7 @@ Guidelines:
   CommitDiff data (Flags: V3)
 
 ## Fragmap — Conflict & Squashability Analysis (V3)
-- [ ] T051 P0 feat - Determine squashability between commit pairs sharing a
+- [X] T051 P0 feat - Determine squashability between commit pairs sharing a
   column: yellow if trivial, red if conflicting (Flags: V3)
 - [ ] T052 P1 feat - Add unit tests for squashability logic (Flags: V3)
 
