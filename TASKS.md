@@ -64,7 +64,7 @@ Guidelines:
   (Flags: V2)
 
 ## TUI Enhancements (V2)
-- [ ] T035 P1 feat - Start application with HEAD commit selected instead of
+- [x] T035 P1 feat - Start application with HEAD commit selected instead of
   first commit (Flags: V2)
 - [X] T036 P2 feat - Highlight table column headers with background color or
   style (Flags: V2)

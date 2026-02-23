@@ -34,8 +34,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stderr);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = AppState::new();
-    app.commits = commits;
+    let mut app = AppState::with_commits(commits);
 
     loop {
         terminal.draw(|frame| {
