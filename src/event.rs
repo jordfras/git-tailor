@@ -24,7 +24,7 @@ pub fn read() -> Result<Event> {
 
 /// Parse a terminal event into an application action.
 ///
-/// Recognizes arrow keys for navigation and 'q' for quit.
+/// Recognizes arrow keys for navigation and Esc for quit.
 /// Returns AppAction::None for unrecognized events.
 pub fn parse_key_event(event: Event) -> AppAction {
     match event {
@@ -33,7 +33,7 @@ pub fn parse_key_event(event: Event) -> AppAction {
             KeyCode::Down => AppAction::MoveDown,
             KeyCode::Left => AppAction::ScrollLeft,
             KeyCode::Right => AppAction::ScrollRight,
-            KeyCode::Char('q') | KeyCode::Char('Q') => AppAction::Quit,
+            KeyCode::Esc => AppAction::Quit,
             _ => AppAction::None,
         },
         _ => AppAction::None,
