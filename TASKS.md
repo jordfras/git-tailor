@@ -48,7 +48,7 @@ Guidelines:
   V2)
 - [X] T025 P0 feat - Render commits oldest-to-newest with short SHA (7 chars)
   and summary (Flags: V2)
-- [ ] T026 P0 feat - Highlight selected row with different color/style (Flags:
+- [X] T026 P0 feat - Highlight selected row with different color/style (Flags:
   V2)
 - [ ] T027 P0 feat - Update main.rs to initialize terminal with crossterm
   backend (Flags: V2)
