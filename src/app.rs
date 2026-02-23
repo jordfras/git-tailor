@@ -22,6 +22,8 @@ pub struct AppState {
     pub commits: Vec<CommitInfo>,
     pub selection_index: usize,
     pub reverse: bool,
+    /// Show all hunk-group columns without deduplication (--full flag).
+    pub full_fragmap: bool,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'r' reload can rescan from HEAD down to the same base.
     pub reference_oid: String,
@@ -52,6 +54,7 @@ impl AppState {
             commits: Vec::new(),
             selection_index: 0,
             reverse: false,
+            full_fragmap: false,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
@@ -72,6 +75,7 @@ impl AppState {
             commits,
             selection_index,
             reverse: false,
+            full_fragmap: false,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,

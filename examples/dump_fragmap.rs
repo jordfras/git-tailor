@@ -56,7 +56,7 @@ fn main() {
         return;
     }
 
-    let fm = fragmap::build_fragmap(&commit_diffs);
+    let fm = fragmap::build_fragmap(&commit_diffs, true);
 
     // Dump clusters
     eprintln!("\n=== CLUSTERS ({}) ===", fm.clusters.len());
