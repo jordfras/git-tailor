@@ -38,10 +38,11 @@ struct Cli {
 /// Fetches diffs for all commits and builds the fragmap visualization data.
 /// Returns None if any step fails (gracefully handles errors).
 fn compute_fragmap(commits: &[CommitInfo]) -> Option<fragmap::FragMap> {
-    // Compute diffs for all commits
+    // Use zero-context diffs so each logical change is its own hunk,
+    // matching the original fragmap's fine-grained span tracking
     let commit_diffs: Vec<_> = commits
         .iter()
-        .filter_map(|commit| repo::commit_diff(&commit.oid).ok())
+        .filter_map(|commit| repo::commit_diff_for_fragmap(&commit.oid).ok())
         .collect();
 
     // If we couldn't get all diffs, return None

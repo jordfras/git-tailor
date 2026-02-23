@@ -119,6 +119,44 @@ pub fn commit_diff(oid: &str) -> Result<CommitDiff> {
     commit_diff_in(".", oid)
 }
 
+/// Extract commit diff with zero context lines, suitable for fragmap analysis.
+///
+/// The fragmap algorithm needs each logical change as its own hunk. With
+/// the default 3-line context, git merges adjacent hunks together which
+/// produces fewer but larger hunks — breaking the SPG's fine-grained
+/// span tracking.
+pub fn commit_diff_for_fragmap(oid: &str) -> Result<CommitDiff> {
+    commit_diff_for_fragmap_in(".", oid)
+}
+
+/// Internal: extract commit diff for fragmap in a specific repository path.
+pub fn commit_diff_for_fragmap_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
+    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
+
+    let object = repo
+        .revparse_single(oid)
+        .context(format!("Failed to resolve '{}'", oid))?;
+    let commit = object
+        .peel_to_commit()
+        .context("Resolved object is not a commit")?;
+
+    let new_tree = commit.tree().context("Failed to get commit tree")?;
+
+    let parent_tree = if commit.parent_count() > 0 {
+        Some(commit.parent(0)?.tree()?)
+    } else {
+        None
+    };
+
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(0);
+    opts.interhunk_lines(0);
+
+    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+
+    extract_commit_diff(&repo, &diff, &commit)
+}
+
 /// Internal: extract commit diff in a specific repository path.
 pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
     let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
@@ -141,6 +179,14 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
 
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
 
+    extract_commit_diff(&repo, &diff, &commit)
+}
+
+fn extract_commit_diff(
+    _repo: &git2::Repository,
+    diff: &git2::Diff,
+    commit: &git2::Commit,
+) -> Result<CommitDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
 
     for delta_idx in 0..diff.deltas().len() {
@@ -169,7 +215,7 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
             git2::Delta::Conflicted => crate::DeltaStatus::Conflicted,
         };
 
-        let patch = git2::Patch::from_diff(&diff, delta_idx)?
+        let patch = git2::Patch::from_diff(diff, delta_idx)?
             .context("Failed to extract patch from diff")?;
 
         let mut hunks = Vec::new();
@@ -206,7 +252,7 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
     }
 
     Ok(CommitDiff {
-        commit: commit_info_from(&commit),
+        commit: commit_info_from(commit),
         files,
     })
 }
