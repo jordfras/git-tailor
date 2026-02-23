@@ -1,6 +1,5 @@
 ---
 source: tests/tui_snapshots.rs
-assertion_line: 146
 expression: buffer
 ---
 Buffer {
@@ -8,18 +7,19 @@ Buffer {
     content: [
         "┌Commits───────────────────────────────────────────────────┐",
         "│SHA        Title                                          │",
-        "│00000000   Commit number 5                                │",
         "│00000000   Commit number 6                                │",
         "│00000000   Commit number 7                                │",
-        "█00000000   Commit number 8                                │",
+        "│00000000   Commit number 8                                │",
         "█00000000   Commit number 9                                │",
         "└──────────────────────────────────────────────────────────┘",
+        " 000000000009 1/10                                          ",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 1, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 1, y: 1, fg: White, bg: Green, underline: Reset, modifier: NONE,
         x: 59, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 1, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 59, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 59, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

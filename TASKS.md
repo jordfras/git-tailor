@@ -72,7 +72,7 @@ Guidelines:
   height (Flags: V2)
 - [X] T038 P1 feat - Render scrollbar for commit list when content exceeds
   visible area (Flags: V2)
-- [ ] T039 P1 feat - Add footer showing selected commit info (long SHA, commit
+- [x] T039 P1 feat - Add footer showing selected commit info (long SHA, commit
   position) (Flags: V2)
 - [ ] T040 P1 feat - Add clap dependency for CLI argument parsing (Flags: V2)
 - [ ] T041 P1 feat - Add --reverse flag to display commits in reverse order
