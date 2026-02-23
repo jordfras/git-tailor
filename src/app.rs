@@ -22,6 +22,9 @@ pub struct AppState {
     pub commits: Vec<CommitInfo>,
     pub selection_index: usize,
     pub reverse: bool,
+    /// The reference OID (merge-base) used when the session started.
+    /// Stored here so 'r' reload can rescan from HEAD down to the same base.
+    pub reference_oid: String,
     /// Optional fragmap visualization data.
     /// None if fragmap computation failed or was not performed.
     pub fragmap: Option<FragMap>,
@@ -49,6 +52,7 @@ impl AppState {
             commits: Vec::new(),
             selection_index: 0,
             reverse: false,
+            reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,
@@ -68,6 +72,7 @@ impl AppState {
             commits,
             selection_index,
             reverse: false,
+            reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,

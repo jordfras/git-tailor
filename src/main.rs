@@ -94,6 +94,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
+    app.reference_oid = reference_oid;
     app.fragmap = fragmap;
 
     loop {
@@ -157,6 +158,11 @@ fn main() -> Result<()> {
                 }
             }
             event::AppAction::ShowHelp => app.toggle_help(),
+            event::AppAction::Reload => {
+                if app.mode != AppMode::Help {
+                    reload_commits(&mut app);
+                }
+            }
             event::AppAction::Quit => match app.mode {
                 AppMode::Help => app.close_help(), // Close help dialog
                 AppMode::CommitDetail => app.toggle_detail_view(), // Return to commit list
@@ -174,6 +180,39 @@ fn main() -> Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
+}
+
+/// Reload commits from HEAD down to the stored reference OID, then recompute the fragmap.
+///
+/// Keeps the current selection clamped to the new list bounds. Resets
+/// detail scroll so a stale offset does not exceed the new content height.
+fn reload_commits(app: &mut AppState) {
+    let git_repo = match Repository::open(".") {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let head_oid = match git_repo.head().ok().and_then(|h| h.target()) {
+        Some(oid) => oid.to_string(),
+        None => return,
+    };
+
+    let commits = match repo::list_commits(&head_oid, &app.reference_oid) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let commits: Vec<CommitInfo> = commits
+        .into_iter()
+        .filter(|c| c.oid != app.reference_oid)
+        .collect();
+
+    let fragmap = compute_fragmap(&commits);
+
+    app.selection_index = app.selection_index.min(commits.len().saturating_sub(1));
+    app.commits = commits;
+    app.fragmap = fragmap;
+    app.fragmap_scroll_offset = 0;
+    app.detail_scroll_offset = 0;
 }
 
 /// Render the main view with split screen (commit list on left, detail on right).

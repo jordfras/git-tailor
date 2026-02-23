@@ -23,7 +23,7 @@ Guidelines:
   groups column (Flags: V4)
 - [X] T063 P1 feat - Add help dialog on 'h' key showing all interactive
   keybindings (q=quit, i=info, s=split, m=move, h=help) (Flags: V4)
-- [ ] T085 P2 feat - Add 'r' key to reload: re-read the commit list from HEAD
+- [X] T085 P2 feat - Add 'r' key to reload: re-read the commit list from HEAD
   down to the originally calculated reference point (merge-base), refreshing
   after external git operations without restarting the tool (Flags: V4)
 - [ ] T086 P2 feat - Show staged and unstaged working-tree changes as synthetic
@@ -32,7 +32,7 @@ Guidelines:
   hunk overlap with commits is visible (Flags: V4)
 
 ## Interactivity — Fragmap View (V4)
-- [ ] T082 P1 feat - Improve selected row highlighting in the hunk group matrix;
+- [X] T082 P1 feat - Improve selected row highlighting in the hunk group matrix;
   the current inverse-color style is hard to read — use a subtler approach such
   as a bold/bright foreground, a dim background tint, or a side marker (Flags:
   V4)
