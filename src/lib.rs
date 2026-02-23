@@ -10,9 +10,6 @@ pub mod views;
 #[doc(hidden)]
 pub use repo::{commit_diff_in, list_commits_in};
 
-// Re-export fragmap types
-pub use fragmap::FileSpan;
-
 /// Represents commit metadata extracted from git repository.
 ///
 /// This is a pure data structure containing commit information

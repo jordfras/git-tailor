@@ -93,7 +93,7 @@ Guidelines:
 - [X] T048 P1 feat - Add unit tests for span extraction (Flags: V3)
 
 ## Fragmap — Matrix Generation (V3)
-- [ ] T049 P0 feat - Build fragmap matrix: commits x chunks with TouchKind
+- [X] T049 P0 feat - Build fragmap matrix: commits x chunks with TouchKind
   cells, one column per hunk (Flags: V3)
 - [ ] T050 P1 feat - Add unit tests for matrix generation with fabricated
   CommitDiff data (Flags: V3)
