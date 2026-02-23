@@ -5,6 +5,10 @@ pub mod event;
 pub mod repo;
 pub mod views;
 
+// Re-export internal functions for integration tests
+#[doc(hidden)]
+pub use repo::{commit_diff_in, list_commits_in};
+
 /// Represents commit metadata extracted from git repository.
 ///
 /// This is a pure data structure containing commit information

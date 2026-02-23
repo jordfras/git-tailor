@@ -13,7 +13,12 @@ use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 ///
 /// Returns the OID of the common ancestor as a string.
 pub fn find_reference_point(commit_ish: &str) -> Result<String> {
-    let repo = git2::Repository::open(".").context("Failed to open git repository")?;
+    find_reference_point_in(".", commit_ish)
+}
+
+/// Internal: find reference point in a specific repository path.
+pub(crate) fn find_reference_point_in(repo_path: &str, commit_ish: &str) -> Result<String> {
+    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
 
     let target_object = repo
         .revparse_single(commit_ish)
@@ -49,7 +54,12 @@ fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
 /// Both `from_oid` and `to_oid` can be any commit-ish (branch, tag, hash).
 /// The range includes both endpoints.
 pub fn list_commits(from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
-    let repo = git2::Repository::open(".").context("Failed to open git repository")?;
+    list_commits_in(".", from_oid, to_oid)
+}
+
+/// Internal: list commits in a specific repository path.
+pub fn list_commits_in(repo_path: &str, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
+    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
 
     let from_object = repo
         .revparse_single(from_oid)
@@ -86,7 +96,12 @@ pub fn list_commits(from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
 /// files show as additions. Returns a `CommitDiff` containing the commit
 /// metadata and every file/hunk/line changed.
 pub fn commit_diff(oid: &str) -> Result<CommitDiff> {
-    let repo = git2::Repository::open(".").context("Failed to open git repository")?;
+    commit_diff_in(".", oid)
+}
+
+/// Internal: extract commit diff in a specific repository path.
+pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
+    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
 
     let object = repo
         .revparse_single(oid)
