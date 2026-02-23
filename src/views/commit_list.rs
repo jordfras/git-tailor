@@ -1,10 +1,11 @@
 // Commit list view rendering
 
 use crate::app::AppState;
+use crate::fragmap::{self, TouchKind};
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
-    text::Span,
+    text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
     Frame,
 };
@@ -15,6 +16,107 @@ const SHORT_SHA_LENGTH: usize = 8;
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
+// Fragmap visualization symbols
+const CLUSTER_TOUCHED_CONFLICTING: &str = "█";
+const CLUSTER_TOUCHED_SQUASHABLE: &str = "█";
+const CLUSTER_CONNECTOR_CONFLICTING: &str = "│";
+const CLUSTER_CONNECTOR_SQUASHABLE: &str = "│";
+
+// Connector colors
+const COLOR_CONFLICTING: Color = Color::Red;
+const COLOR_SQUASHABLE: Color = Color::Yellow;
+
+// Cell colors
+const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
+const COLOR_TOUCHED_SQUASHABLE: Color = Color::Gray;
+/// Determine a commit's relationship to the earliest earlier commit in a cluster.
+///
+/// Returns None if the commit doesn't touch the cluster or no earlier commit does.
+fn cluster_relation(
+    fragmap: &fragmap::FragMap,
+    commit_idx: usize,
+    cluster_idx: usize,
+) -> Option<fragmap::SquashRelation> {
+    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
+        return None;
+    }
+    for earlier_idx in 0..commit_idx {
+        if fragmap.matrix[earlier_idx][cluster_idx] != TouchKind::None {
+            return Some(fragmap::analyze_cluster_relation(
+                fragmap,
+                earlier_idx,
+                commit_idx,
+                cluster_idx,
+            ));
+        }
+    }
+    None
+}
+
+/// Determine cell content and style for a commit-cluster intersection.
+///
+/// Returns None if the commit doesn't touch the cluster.
+fn fragmap_cell_content(
+    fragmap: &fragmap::FragMap,
+    commit_idx: usize,
+    cluster_idx: usize,
+) -> Option<(&'static str, Style)> {
+    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
+        return None;
+    }
+
+    match cluster_relation(fragmap, commit_idx, cluster_idx) {
+        Some(fragmap::SquashRelation::Squashable) => Some((
+            CLUSTER_TOUCHED_SQUASHABLE,
+            Style::new().fg(COLOR_TOUCHED_SQUASHABLE),
+        )),
+        Some(fragmap::SquashRelation::Conflicting) => Some((
+            CLUSTER_TOUCHED_CONFLICTING,
+            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
+        )),
+        _ => Some((
+            CLUSTER_TOUCHED_CONFLICTING,
+            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
+        )),
+    }
+}
+
+/// Determine connector content for a cell where the commit does NOT touch the cluster.
+///
+/// If there are touching commits both above and below this row in the same
+/// column, draw a vertical connector line colored by the relationship that
+/// the lower square has with an earlier commit.
+fn fragmap_connector_content(
+    fragmap: &fragmap::FragMap,
+    commit_idx: usize,
+    cluster_idx: usize,
+) -> Option<(&'static str, Style)> {
+    let has_above = (0..commit_idx)
+        .rev()
+        .any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
+
+    let below = ((commit_idx + 1)..fragmap.commits.len())
+        .find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
+
+    match (has_above, below) {
+        (true, Some(below_idx)) => {
+            // Color connector by the lower square's relationship
+            match cluster_relation(fragmap, below_idx, cluster_idx) {
+                Some(fragmap::SquashRelation::Conflicting) => Some((
+                    CLUSTER_CONNECTOR_CONFLICTING,
+                    Style::new().fg(COLOR_CONFLICTING),
+                )),
+                Some(fragmap::SquashRelation::Squashable) => Some((
+                    CLUSTER_CONNECTOR_SQUASHABLE,
+                    Style::new().fg(COLOR_SQUASHABLE),
+                )),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
@@ -22,7 +124,27 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     let [table_area, footer_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-    let header = Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(HEADER_STYLE);
+    // Determine which cluster columns are non-empty (at least one commit touches them)
+    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
+        (0..fragmap.clusters.len())
+            .filter(|&ci| {
+                fragmap
+                    .matrix
+                    .iter()
+                    .any(|row| row[ci] != TouchKind::None)
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let mut header_cells = vec![Cell::from("SHA"), Cell::from("Title")];
+    let mut constraints = vec![Constraint::Length(10), Constraint::Min(20)];
+    if !visible_clusters.is_empty() {
+        header_cells.push(Cell::from("Hunk groups"));
+        constraints.push(Constraint::Length(visible_clusters.len() as u16));
+    }
+    let header = Row::new(header_cells).style(HEADER_STYLE);
 
     // Available height for data rows: table area minus header (1)
     let available_height = table_area.height.saturating_sub(1) as usize;
@@ -65,11 +187,47 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         .enumerate()
         .map(|(visible_index, commit)| {
             let visual_index = scroll_offset + visible_index;
+            
+            // Map visual_index to commit_idx in fragmap (chronological order)
+            let commit_idx_in_fragmap = if app.reverse {
+                app.commits.len().saturating_sub(1).saturating_sub(visual_index)
+            } else {
+                visual_index
+            };
+
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
-            let row = Row::new(vec![
+            
+            let mut cells = vec![
                 Cell::from(short_sha),
                 Cell::from(commit.summary.clone()),
-            ]);
+            ];
+
+            // Add single fragmap cell composed of per-cluster spans
+            if let Some(ref fragmap) = app.fragmap {
+                if !visible_clusters.is_empty() {
+                    let spans: Vec<Span> = visible_clusters
+                        .iter()
+                        .map(|&cluster_idx| {
+                            if let Some((symbol, style)) =
+                                fragmap_cell_content(fragmap, commit_idx_in_fragmap, cluster_idx)
+                            {
+                                Span::styled(symbol, style)
+                            } else if let Some((symbol, style)) = fragmap_connector_content(
+                                fragmap,
+                                commit_idx_in_fragmap,
+                                cluster_idx,
+                            ) {
+                                Span::styled(symbol, style)
+                            } else {
+                                Span::raw(" ")
+                            }
+                        })
+                        .collect();
+                    cells.push(Cell::from(Line::from(spans)));
+                }
+            }
+
+            let row = Row::new(cells);
 
             if visual_index == visual_selection {
                 row.style(Style::default().reversed())
@@ -90,7 +248,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         (None, table_area)
     };
 
-    let table = Table::new(rows, [Constraint::Length(10), Constraint::Min(20)]).header(header);
+    let table = Table::new(rows, constraints).header(header);
 
     frame.render_widget(table, content_area);
 
