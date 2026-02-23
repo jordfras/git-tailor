@@ -1,12 +1,12 @@
 // Fragmap: chunk clustering for visualizing commit relationships
 
-use crate::CommitDiff;
+use crate::{CommitDiff, DiffLineKind};
 
 /// A span of line numbers within a specific file.
 ///
 /// Represents a contiguous range of lines that were touched by a commit.
-/// This is extracted from a hunk's position in the NEW (post-commit) version
-/// of the file.
+/// This is extracted from the actually-changed (non-context) lines in
+/// a hunk's NEW (post-commit) version of the file.
 ///
 /// FileSpans are the building blocks of the fragmap visualization: they get
 /// clustered across commits to show which commits touch overlapping regions.
@@ -22,38 +22,82 @@ pub struct FileSpan {
 
 /// Extract all FileSpans from a commit's diff.
 ///
-/// Converts each hunk in the commit into a FileSpan representing the line
-/// range in the NEW (post-commit) version of the file. Deleted files and
-/// empty hunks are skipped.
+/// For each hunk, computes the tight range of actually-changed lines in the
+/// NEW file version (skipping context lines that git includes for
+/// orientation). This prevents false overlaps between hunks that only
+/// share context lines but modify different code regions.
 ///
-/// The resulting spans are used for clustering in the fragmap matrix to
-/// identify which commits touch overlapping code regions.
+/// Deleted files, pure deletions, and empty hunks are skipped since they
+/// don't occupy any lines in the new file.
 pub fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
     let mut spans = Vec::new();
 
     for file in &commit_diff.files {
-        // Skip deleted files (no new path means the file was removed)
         let path = match &file.new_path {
             Some(p) => p.clone(),
             None => continue,
         };
 
         for hunk in &file.hunks {
-            // Skip hunks with no new lines (pure deletions in context)
             if hunk.new_lines == 0 {
                 continue;
             }
 
-            // Create span from hunk's position in the new file
-            spans.push(FileSpan {
-                path: path.clone(),
-                start_line: hunk.new_start,
-                end_line: hunk.new_start + hunk.new_lines - 1,
-            });
+            if let Some(span) = tight_new_span(&path, hunk) {
+                spans.push(span);
+            }
         }
     }
 
     spans
+}
+
+/// Compute the tight new-side span from a hunk, covering only lines that
+/// are actually additions (not context). Falls back to the full hunk range
+/// when line data is unavailable.
+///
+/// Returns None if the hunk contains no additions in the new file (e.g. a
+/// pure deletion with context only).
+fn tight_new_span(path: &str, hunk: &crate::Hunk) -> Option<FileSpan> {
+    // When no line-level data is available, use the full hunk range
+    if hunk.lines.is_empty() {
+        return Some(FileSpan {
+            path: path.to_string(),
+            start_line: hunk.new_start,
+            end_line: hunk.new_start + hunk.new_lines - 1,
+        });
+    }
+
+    let mut new_line = hunk.new_start;
+    let mut first_addition: Option<u32> = None;
+    let mut last_addition: Option<u32> = None;
+
+    for line in &hunk.lines {
+        match line.kind {
+            DiffLineKind::Addition => {
+                if first_addition.is_none() {
+                    first_addition = Some(new_line);
+                }
+                last_addition = Some(new_line);
+                new_line += 1;
+            }
+            DiffLineKind::Context => {
+                new_line += 1;
+            }
+            DiffLineKind::Deletion => {
+                // Deletions don't occupy a line in the new file
+            }
+        }
+    }
+
+    match (first_addition, last_addition) {
+        (Some(first), Some(last)) => Some(FileSpan {
+            path: path.to_string(),
+            start_line: first,
+            end_line: last,
+        }),
+        _ => None,
+    }
 }
 
 /// The kind of change a commit makes to a code region.
@@ -220,9 +264,8 @@ fn cluster_spans(commit_spans: &[(String, Vec<FileSpan>)]) -> Vec<SpanCluster> {
             // Find if this span belongs to an existing cluster
             let mut found = false;
             for cluster in &mut clusters {
-                if cluster_contains_or_adjacent(cluster, span) {
-                    // Add this span to the cluster
-                    merge_span_into_cluster(cluster, span, commit_oid);
+                if cluster_overlaps(cluster, span) {
+                    add_span_to_cluster(cluster, span, commit_oid);
                     found = true;
                     break;
                 }
@@ -241,36 +284,30 @@ fn cluster_spans(commit_spans: &[(String, Vec<FileSpan>)]) -> Vec<SpanCluster> {
     clusters
 }
 
-/// Check if a span overlaps or is adjacent to any span in the cluster.
-fn cluster_contains_or_adjacent(cluster: &SpanCluster, span: &FileSpan) -> bool {
+/// Check if a span overlaps any span in the cluster.
+///
+/// Only actual overlap counts — adjacent spans (touching but not overlapping)
+/// are kept separate, matching the original fragmap behavior. This prevents
+/// unrelated changes in the same file (e.g., different functions) from being
+/// grouped together.
+fn cluster_overlaps(cluster: &SpanCluster, span: &FileSpan) -> bool {
     cluster.spans.iter().any(|cluster_span| {
         if cluster_span.path != span.path {
             return false;
         }
 
-        // Check overlap or adjacency
-        let overlaps =
-            !(span.end_line < cluster_span.start_line || span.start_line > cluster_span.end_line);
-        let adjacent = span.end_line + 1 == cluster_span.start_line
-            || cluster_span.end_line + 1 == span.start_line;
-
-        overlaps || adjacent
+        !(span.end_line < cluster_span.start_line || span.start_line > cluster_span.end_line)
     })
 }
 
-/// Merge a span into a cluster, extending the cluster's range and adding the commit.
-fn merge_span_into_cluster(cluster: &mut SpanCluster, span: &FileSpan, commit_oid: &str) {
-    // Find the span for this file in the cluster, or add it
-    if let Some(cluster_span) = cluster.spans.iter_mut().find(|s| s.path == span.path) {
-        // Extend the range
-        cluster_span.start_line = cluster_span.start_line.min(span.start_line);
-        cluster_span.end_line = cluster_span.end_line.max(span.end_line);
-    } else {
-        // New file in this cluster
-        cluster.spans.push(span.clone());
-    }
+/// Add a span to a cluster without extending existing span ranges.
+///
+/// Each span is kept as-is so that future overlap checks are against the
+/// original hunk boundaries, not an expanded super-range. This prevents
+/// the snowball effect where an expanded cluster absorbs distant spans.
+fn add_span_to_cluster(cluster: &mut SpanCluster, span: &FileSpan, commit_oid: &str) {
+    cluster.spans.push(span.clone());
 
-    // Add commit OID if not already present
     if !cluster.commit_oids.contains(&commit_oid.to_string()) {
         cluster.commit_oids.push(commit_oid.to_string());
     }
@@ -346,7 +383,7 @@ pub enum SquashRelation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CommitDiff, CommitInfo, FileDiff, Hunk};
+    use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 
     fn make_commit_info() -> CommitInfo {
         CommitInfo {
@@ -610,6 +647,205 @@ mod tests {
         assert_eq!(spans.len(), 0);
     }
 
+    fn ctx(content: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Context,
+            content: content.to_string(),
+        }
+    }
+
+    fn add(content: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Addition,
+            content: content.to_string(),
+        }
+    }
+
+    fn del(content: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Deletion,
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_tight_span_strips_context() {
+        // Hunk with 3 context, 1 addition, 3 context → tight span is just line 54
+        let hunk = Hunk {
+            old_start: 50,
+            old_lines: 7,
+            new_start: 50,
+            new_lines: 7,
+            lines: vec![
+                ctx("}"),       // new line 50
+                ctx(""),        // new line 51
+                ctx("/// doc"), // new line 52
+                add("pub fn"),  // new line 53 ← the only addition
+                ctx("let x"),   // new line 54
+                ctx("if y"),    // new line 55
+                ctx("z"),       // new line 56
+            ],
+        };
+
+        let span = tight_new_span("f.rs", &hunk).unwrap();
+        assert_eq!(span.start_line, 53);
+        assert_eq!(span.end_line, 53);
+    }
+
+    #[test]
+    fn test_tight_span_deletion_only_returns_none() {
+        // Hunk that only deletes a line (no additions) → no span
+        let hunk = Hunk {
+            old_start: 50,
+            old_lines: 7,
+            new_start: 50,
+            new_lines: 6,
+            lines: vec![
+                ctx("}"),       // new line 50
+                ctx(""),        // new line 51
+                ctx("/// doc"), // new line 52
+                del("#[dead]"), // deleted, no new line
+                ctx("pub fn"),  // new line 53
+                ctx("let x"),   // new line 54
+                ctx("if y"),    // new line 55
+            ],
+        };
+
+        assert!(tight_new_span("f.rs", &hunk).is_none());
+    }
+
+    #[test]
+    fn test_tight_span_multiple_additions() {
+        let hunk = Hunk {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+            lines: vec![
+                ctx("a"),    // new line 10
+                ctx("b"),    // new line 11
+                add("new1"), // new line 12
+                del("old1"), // deleted
+                add("new2"), // new line 13
+                add("new3"), // new line 14
+                ctx("c"),    // new line 15
+                ctx("d"),    // new line 16
+                ctx("e"),    // new line 17
+            ],
+        };
+
+        let span = tight_new_span("f.rs", &hunk).unwrap();
+        assert_eq!(span.start_line, 12);
+        assert_eq!(span.end_line, 14);
+    }
+
+    #[test]
+    fn test_tight_span_context_free_hunks_dont_false_overlap() {
+        // Simulates the ranger4 bug: two commits touch different functions
+        // in the same file, but the full hunk ranges (with context) overlap.
+        // With tight spans, they should be separate.
+
+        // Commit 1: removes #[expect(dead_code)] at line 53
+        // Hunk: @@ -50,7 +50,6 @$ (3 ctx before, 1 del, 3 ctx after)
+        let commit1 = CommitDiff {
+            commit: make_commit_info_with_oid("c1"),
+            files: vec![FileDiff {
+                old_path: Some("aurora.rs".to_string()),
+                new_path: Some("aurora.rs".to_string()),
+                status: crate::DeltaStatus::Modified,
+                hunks: vec![Hunk {
+                    old_start: 50,
+                    old_lines: 7,
+                    new_start: 50,
+                    new_lines: 6,
+                    lines: vec![
+                        ctx("}"),
+                        ctx(""),
+                        ctx("/// Verify"),
+                        del("#[expect(dead_code)]"),
+                        ctx("pub(crate) fn check_mpsoc_pll_lock"),
+                        ctx("    let status"),
+                        ctx("    if status"),
+                    ],
+                }],
+            }],
+        };
+
+        // Commit 2: rewrites wait_for_aurora_channel_up, lines 26-58 new
+        // Hunk: @@ -26,25 +26,33 $$ — many changes in lines 29-55
+        let commit2 = CommitDiff {
+            commit: make_commit_info_with_oid("c2"),
+            files: vec![FileDiff {
+                old_path: Some("aurora.rs".to_string()),
+                new_path: Some("aurora.rs".to_string()),
+                status: crate::DeltaStatus::Modified,
+                hunks: vec![Hunk {
+                    old_start: 26,
+                    old_lines: 25,
+                    new_start: 26,
+                    new_lines: 33,
+                    lines: vec![
+                        ctx("    }"),       // 26
+                        ctx(""),            // 27
+                        ctx("    fn wait"), // 28
+                        del("        let timeout = 5"),
+                        add("        let timeout = 10"), // 29
+                        ctx("        let start"),        // 30
+                        ctx("        info!"),            // 31
+                        add(""),                         // 32
+                        add("        let mut lane"),     // 33
+                        ctx("        loop {"),           // 34
+                        ctx("            let status"),   // 35
+                        del("            if status"),
+                        add(""),                           // 36
+                        add("            let channel"),    // 37
+                        add("            let prev"),       // 38
+                        add("            lane_up"),        // 39
+                        add("            if prev"),        // 40
+                        add("                info!("),     // 41
+                        add("                    \"S\""),  // 42
+                        add("                    s"),      // 43
+                        add("                    s"),      // 44
+                        add("                );"),         // 45
+                        add("            }"),              // 46
+                        add(""),                           // 47
+                        add("            if channel"),     // 48
+                        ctx("                return Ok"),  // 49
+                        ctx("            }"),              // 50
+                        add(""),                           // 51
+                        ctx("            if start"),       // 52
+                        ctx("                log::warn"),  // 53
+                        ctx("                return Err"), // 54
+                        ctx("            }"),              // 55
+                        del(""),
+                        del("            info!("),
+                        del("                \"Status\""),
+                        del("                status"),
+                        del("                status"),
+                        del("            );"),
+                        del("            std::thread"),
+                        ctx("        }"), // 56
+                        ctx("    }"),     // 57
+                        ctx("}"),         // 58
+                    ],
+                }],
+            }],
+        };
+
+        let fragmap = build_fragmap(&[commit1, commit2]);
+
+        // commit1 has no additions (only a deletion) → no span for aurora.rs
+        // commit2 has additions in lines 29-51 → one span
+        // They should NOT be in the same cluster.
+        //
+        // With context-inflated spans (the old code), commit1 would have
+        // span 50-55 and commit2 would have span 26-58, falsely overlapping.
+
+        // commit1 produces no span (deletion only), so it shouldn't be in
+        // any cluster for aurora.rs; commit2 should be in its own cluster.
+        assert!(!fragmap.shares_cluster_with(0, 1));
+    }
+
     // Helper functions for matrix generation tests
 
     fn make_commit_info_with_oid(oid: &str) -> CommitInfo {
@@ -797,8 +1033,9 @@ mod tests {
     }
 
     #[test]
-    fn test_build_fragmap_adjacent_spans_merge() {
-        // Adjacent spans (end_line + 1 == start_line) should merge
+    fn test_build_fragmap_adjacent_spans_stay_separate() {
+        // Adjacent spans (end_line + 1 == start_line) should NOT merge.
+        // Only actual overlap causes clustering, matching the original fragmap.
         let commits = vec![
             make_commit_diff(
                 "c1",
@@ -819,7 +1056,7 @@ mod tests {
                     6,
                     2,
                     6,
-                    3, // lines 6-8 (adjacent to c1)
+                    3, // lines 6-8 (adjacent to c1, NOT overlapping)
                 )],
             ),
         ];
@@ -828,9 +1065,125 @@ mod tests {
 
         assert_eq!(fragmap.commits.len(), 2);
 
-        // Should have one cluster (spans are adjacent)
-        assert_eq!(fragmap.clusters.len(), 1);
-        assert_eq!(fragmap.clusters[0].commit_oids.len(), 2);
+        // Should have two clusters (adjacent but not overlapping)
+        assert_eq!(fragmap.clusters.len(), 2);
+    }
+
+    #[test]
+    fn test_no_snowball_effect_on_cluster_ranges() {
+        // Regression test: the old algorithm extended cluster ranges on merge,
+        // causing a snowball effect where distant spans got absorbed.
+        //
+        // Commit 1: lines 1-5, Commit 2: lines 3-12 (overlaps c1),
+        // Commit 3: lines 50-60 (should NOT be absorbed)
+        //
+        // Old bug: after merging c2, cluster range became (1-12). With range
+        // expansion, if c2 had been (3-55), the cluster would grow to (1-55),
+        // absorbing c3. Now individual spans are kept, preventing this.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    1,
+                    0,
+                    1,
+                    5, // lines 1-5
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    3,
+                    5,
+                    3,
+                    10, // lines 3-12 (overlaps c1)
+                )],
+            ),
+            make_commit_diff(
+                "c3",
+                vec![make_file_diff(
+                    Some("file.txt"),
+                    Some("file.txt"),
+                    50,
+                    3,
+                    50,
+                    4, // lines 50-53 (far away, separate)
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // c1 and c2 share a cluster, c3 is in a separate one
+        assert_eq!(fragmap.clusters.len(), 2);
+
+        let shared_cluster = fragmap
+            .clusters
+            .iter()
+            .position(|c| c.commit_oids.len() == 2)
+            .unwrap();
+        let solo_cluster = fragmap
+            .clusters
+            .iter()
+            .position(|c| c.commit_oids.len() == 1)
+            .unwrap();
+
+        assert!(fragmap.clusters[shared_cluster]
+            .commit_oids
+            .contains(&"c1".to_string()));
+        assert!(fragmap.clusters[shared_cluster]
+            .commit_oids
+            .contains(&"c2".to_string()));
+        assert!(fragmap.clusters[solo_cluster]
+            .commit_oids
+            .contains(&"c3".to_string()));
+    }
+
+    #[test]
+    fn test_different_functions_same_file_separate_clusters() {
+        // Real-world scenario: two commits touch different functions in the
+        // same file. They should be in separate clusters (separate columns),
+        // not squashable into each other.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(
+                    Some("lib.rs"),
+                    Some("lib.rs"),
+                    10,
+                    3,
+                    10,
+                    5, // function foo() at lines 10-14
+                )],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(
+                    Some("lib.rs"),
+                    Some("lib.rs"),
+                    80,
+                    2,
+                    80,
+                    4, // function bar() at lines 80-83
+                )],
+            ),
+        ];
+
+        let fragmap = build_fragmap(&commits);
+
+        // Separate clusters — these are different code regions
+        assert_eq!(fragmap.clusters.len(), 2);
+
+        // Neither commit is squashable into the other
+        assert!(!fragmap.is_fully_squashable(0));
+        assert!(!fragmap.is_fully_squashable(1));
+
+        // They don't share any cluster
+        assert!(!fragmap.shares_cluster_with(0, 1));
     }
 
     #[test]

@@ -134,11 +134,13 @@ clear structure instead of comments.
 After modifying any Rust code, run these commands in order:
 
 1. **`cargo fmt`** — Format code according to Rust style guidelines
-2. **`cargo clippy`** — Run linter to catch common mistakes and suggest improvements
+2. **`cargo clippy`** — Run linter to catch common mistakes and suggest
+   improvements
 3. **`cargo check`** — Verify code compiles
 4. **`cargo test`** — Run test suite
 
-Fix any clippy warnings before committing. The codebase should maintain zero warnings.
+Fix any clippy warnings before committing. The codebase should maintain zero
+warnings.
 
 ## Key Domain Model
 
