@@ -20,9 +20,14 @@ Guidelines:
   keybindings (q=quit, i=info, s=split, m=move, h=help) (Flags: V4)
 
 ## Interactivity — Commit Detail View (V4)
-- [ ] T064 P0 feat - Add commit detail view toggled by 'i' key: show full commit
-  message, author, author date, commit date, list of changed/added/removed
-  files, and complete diff with +/- lines (Flags: V4)
+- [ ] T064a P0 feat - Add DetailView app mode and 'i' key toggle, create basic
+  commit_detail view module with placeholder rendering (Flags: V4)
+- [ ] T064b P0 feat - Display commit metadata in detail view: full message,
+  author name, author date, commit date (Flags: V4)
+- [ ] T064c P0 feat - Add file list showing changed/added/removed files with
+  status indicators (Flags: V4)
+- [ ] T064d P0 feat - Add complete diff rendering with +/- lines (plain text, no
+  colors) (Flags: V4)
 - [ ] T065 P1 feat - Color diff output in commit detail view similar to tig:
   green for additions, red for deletions, cyan for hunk headers (Flags: V4)
 - [ ] T066 P1 feat - Support scrolling in commit detail view for long diffs
