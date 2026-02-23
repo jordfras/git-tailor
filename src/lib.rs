@@ -2,12 +2,16 @@
 
 pub mod app;
 pub mod event;
+pub mod fragmap;
 pub mod repo;
 pub mod views;
 
 // Re-export internal functions for integration tests
 #[doc(hidden)]
 pub use repo::{commit_diff_in, list_commits_in};
+
+// Re-export fragmap types
+pub use fragmap::FileSpan;
 
 /// Represents commit metadata extracted from git repository.
 ///

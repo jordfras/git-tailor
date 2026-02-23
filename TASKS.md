@@ -88,7 +88,7 @@ Guidelines:
   (Flags: V3)
 
 ## Fragmap — Span Extraction (V3)
-- [ ] T047 P0 feat - Add FileSpan type and extract_spans function in fragmap
+- [X] T047 P0 feat - Add FileSpan type and extract_spans function in fragmap
   module (Flags: V3)
 - [ ] T048 P1 feat - Add unit tests for span extraction (Flags: V3)
 
