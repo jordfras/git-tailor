@@ -23,6 +23,22 @@ Guidelines:
   groups column (Flags: V4)
 - [X] T063 P1 feat - Add help dialog on 'h' key showing all interactive
   keybindings (q=quit, i=info, s=split, m=move, h=help) (Flags: V4)
+- [ ] T085 P2 feat - Add 'r' key to reload: re-read the commit list from HEAD
+  down to the originally calculated reference point (merge-base), refreshing
+  after external git operations without restarting the tool (Flags: V4)
+- [ ] T086 P2 feat - Show staged and unstaged working-tree changes as synthetic
+  rows at the top of the commit list (above HEAD), displayed with distinct
+  labels ("staged" / "unstaged") and included in the fragmap matrix so their
+  hunk overlap with commits is visible (Flags: V4)
+
+## Interactivity — Fragmap View (V4)
+- [ ] T082 P1 feat - Improve selected row highlighting in the hunk group matrix;
+  the current inverse-color style is hard to read — use a subtler approach such
+  as a bold/bright foreground, a dim background tint, or a side marker (Flags:
+  V4)
+- [ ] T083 P2 feat - Add CLI flag `--no-dedup-columns` (or similar) to disable
+  deduplication of identical hunk-group columns in the fragmap view, useful for
+  debugging and understanding the raw cluster layout (Flags: V4)
 
 ## Interactivity — Commit Detail View (V4)
 - [X] T064a P0 feat - Add DetailView app mode and 'i' key toggle, create basic
@@ -51,6 +67,11 @@ Guidelines:
   fragmap cluster column (Flags: V4)
 - [ ] T072 P1 feat - Add numbering n/total to split commit messages in the
   subject line (Flags: V4)
+
+## Interactivity — Drop Commit (V4)
+- [ ] T084 P1 feat - Add drop mode on 'd' key: prompt for confirmation, then
+  remove the selected commit from the branch by rebasing its descendants onto
+  its parent via git2 cherry-pick; abort and notify user on conflict (Flags: V4)
 
 ## Interactivity — Move Commit (V4)
 - [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
