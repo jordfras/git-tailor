@@ -4,7 +4,7 @@ use crate::app::AppState;
 use ratatui::{
     layout::Constraint,
     style::{Style, Stylize},
-    widgets::{Block, Borders, Cell, Row, Table},
+    widgets::{Block, Borders, Cell, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
     Frame,
 };
 
@@ -63,4 +63,23 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         .block(Block::default().borders(Borders::ALL).title("Commits"));
 
     frame.render_widget(table, frame.area());
+
+    // Render scrollbar if content exceeds visible area
+    if !app.commits.is_empty() && app.commits.len() > available_height {
+        let mut scrollbar_state =
+            ScrollbarState::new(app.commits.len().saturating_sub(1)).position(app.selection_index);
+
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"));
+
+        // Constrain scrollbar to the data area (skip top border + header, bottom border)
+        let scrollbar_area = ratatui::layout::Rect {
+            y: frame.area().y + 2,
+            height: available_height as u16,
+            ..frame.area()
+        };
+        frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+    }
 }

@@ -70,7 +70,7 @@ Guidelines:
   style (Flags: V2)
 - [X] T037 P1 feat - Make commit list scrollable when commits exceed screen
   height (Flags: V2)
-- [ ] T038 P1 feat - Render scrollbar for commit list when content exceeds
+- [X] T038 P1 feat - Render scrollbar for commit list when content exceeds
   visible area (Flags: V2)
 - [ ] T039 P1 feat - Add footer showing selected commit info (long SHA, commit
   position) (Flags: V2)

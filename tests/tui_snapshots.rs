@@ -100,3 +100,48 @@ fn test_commit_list_long_summary() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+
+#[test]
+fn test_commit_list_scrolled_to_top() {
+    // Terminal height 8: borders(2) + header(1) = 3 overhead, so 5 rows visible.
+    // 10 commits total → scrollbar should appear.
+    let backend = TestBackend::new(60, 8);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = (0..10)
+        .map(|i| create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i)))
+        .collect();
+    app.selection_index = 0;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_commit_list_scrolled_to_bottom() {
+    // Same setup as above, but selection at last commit.
+    let backend = TestBackend::new(60, 8);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = (0..10)
+        .map(|i| create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i)))
+        .collect();
+    app.selection_index = 9;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
