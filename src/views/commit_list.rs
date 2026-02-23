@@ -45,12 +45,7 @@ fn cluster_relation(
     }
     for earlier_idx in 0..commit_idx {
         if fragmap.matrix[earlier_idx][cluster_idx] != TouchKind::None {
-            return Some(fragmap::analyze_cluster_relation(
-                fragmap,
-                earlier_idx,
-                commit_idx,
-                cluster_idx,
-            ));
+            return Some(fragmap.cluster_relation(earlier_idx, commit_idx, cluster_idx));
         }
     }
     None
