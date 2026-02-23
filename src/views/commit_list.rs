@@ -136,8 +136,14 @@ fn fragmap_connector_content(
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
+/// If `area` is provided, uses that instead of the full frame area.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
-    let layout = compute_layout(app, frame.area());
+    render_in_area(app, frame, frame.area());
+}
+
+/// Render the commit list view in a specific area.
+pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
+    let layout = compute_layout(app, area);
 
     let header = build_header(&layout);
     let rows = build_rows(app, &layout);

@@ -10,6 +10,7 @@ pub enum AppAction {
     MoveDown,
     ScrollLeft,
     ScrollRight,
+    ToggleDetail,
     Quit,
     None,
 }
@@ -24,7 +25,7 @@ pub fn read() -> Result<Event> {
 
 /// Parse a terminal event into an application action.
 ///
-/// Recognizes arrow keys for navigation and Esc for quit.
+/// Recognizes arrow keys for navigation, 'i' to toggle detail view, and Esc for quit.
 /// Returns AppAction::None for unrecognized events.
 pub fn parse_key_event(event: Event) -> AppAction {
     match event {
@@ -33,6 +34,7 @@ pub fn parse_key_event(event: Event) -> AppAction {
             KeyCode::Down => AppAction::MoveDown,
             KeyCode::Left => AppAction::ScrollLeft,
             KeyCode::Right => AppAction::ScrollRight,
+            KeyCode::Char('i') => AppAction::ToggleDetail,
             KeyCode::Esc => AppAction::Quit,
             _ => AppAction::None,
         },

@@ -7,8 +7,18 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use git2::Repository;
-use git_scissors::{app::AppState, event, fragmap, repo, views, CommitInfo};
-use ratatui::{backend::CrosstermBackend, Terminal};
+use git_scissors::{
+    app::{AppMode, AppState},
+    event, fragmap, repo, views, CommitInfo,
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+    Terminal,
+};
 use std::io;
 
 /// Interactive TUI for working with Git commits.
@@ -69,8 +79,59 @@ fn main() -> Result<()> {
     app.fragmap = fragmap;
 
     loop {
-        terminal.draw(|frame| {
-            views::commit_list::render(&mut app, frame);
+        terminal.draw(|frame| match app.mode {
+            AppMode::CommitList => views::commit_list::render(&mut app, frame),
+            AppMode::CommitDetail => {
+                let area = frame.area();
+                // Split screen: commit list on left (up to title column),
+                // commit detail on right (where fragmap would be)
+                let split_x = 72; // SHA(10) + sep(1) + title(60) + sep(1)
+                let left_width = split_x.min(area.width);
+                let right_width = area.width.saturating_sub(left_width);
+
+                if right_width > 0 {
+                    let left_area = Rect {
+                        x: area.x,
+                        y: area.y,
+                        width: left_width,
+                        height: area.height,
+                    };
+                    let right_area = Rect {
+                        x: area.x + left_width,
+                        y: area.y,
+                        width: right_width,
+                        height: area.height,
+                    };
+
+                    // Temporarily hide fragmap so commit list renders without it
+                    let saved_fragmap = app.fragmap.take();
+                    views::commit_list::render_in_area(&mut app, frame, left_area);
+                    app.fragmap = saved_fragmap;
+
+                    // Render separator between left and right
+                    let sep_height = area.height.saturating_sub(1); // exclude footer row
+                    let separator_spans: Vec<Line> = (0..sep_height)
+                        .map(|_| {
+                            Line::from(Span::styled(
+                                "│",
+                                Style::new().fg(Color::White).bg(Color::Blue),
+                            ))
+                        })
+                        .collect();
+                    let sep_area = Rect {
+                        x: left_area.x + left_width - 1,
+                        y: area.y,
+                        width: 1,
+                        height: sep_height,
+                    };
+                    frame.render_widget(Paragraph::new(separator_spans), sep_area);
+
+                    views::commit_detail::render(frame, &app, right_area);
+                } else {
+                    // Screen too narrow, just show commit list
+                    views::commit_list::render(&mut app, frame);
+                }
+            }
         })?;
 
         let event = event::read()?;
@@ -83,6 +144,7 @@ fn main() -> Result<()> {
             event::AppAction::MoveDown => app.move_down(),
             event::AppAction::ScrollLeft => app.scroll_fragmap_left(),
             event::AppAction::ScrollRight => app.scroll_fragmap_right(),
+            event::AppAction::ToggleDetail => app.toggle_detail_view(),
             event::AppAction::Quit => app.should_quit = true,
             event::AppAction::None => {}
         }
