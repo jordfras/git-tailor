@@ -145,3 +145,50 @@ fn test_commit_list_scrolled_to_bottom() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+
+#[test]
+fn test_commit_list_reversed_with_commits() {
+    let backend = TestBackend::new(80, 15);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        create_test_commit("abc123def456", "Initial commit"),
+        create_test_commit("def456ghi789", "Add feature X"),
+        create_test_commit("ghi789jkl012", "Fix bug in parser"),
+    ];
+    app.selection_index = 2; // HEAD
+    app.reverse = true;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_commit_list_reversed_scrolled() {
+    // 10 commits, reverse mode with HEAD selected (index 9) → visual index 0 (top).
+    let backend = TestBackend::new(60, 8);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = (0..10)
+        .map(|i| create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i)))
+        .collect();
+    app.selection_index = 9; // HEAD
+    app.reverse = true;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}

@@ -17,6 +17,10 @@ use std::io;
 struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
     commit_ish: String,
+
+    /// Display commits in reverse order (HEAD at top).
+    #[arg(short, long)]
+    reverse: bool,
 }
 
 fn main() -> Result<()> {
@@ -38,6 +42,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = AppState::with_commits(commits);
+    app.reverse = cli.reverse;
 
     loop {
         terminal.draw(|frame| {
@@ -48,6 +53,8 @@ fn main() -> Result<()> {
         let action = event::parse_key_event(event);
 
         match action {
+            event::AppAction::MoveUp if app.reverse => app.move_down(),
+            event::AppAction::MoveDown if app.reverse => app.move_up(),
             event::AppAction::MoveUp => app.move_up(),
             event::AppAction::MoveDown => app.move_down(),
             event::AppAction::Quit => app.should_quit = true,

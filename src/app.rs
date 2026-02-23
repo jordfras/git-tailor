@@ -10,6 +10,7 @@ pub struct AppState {
     pub should_quit: bool,
     pub commits: Vec<CommitInfo>,
     pub selection_index: usize,
+    pub reverse: bool,
 }
 
 impl AppState {
@@ -19,6 +20,7 @@ impl AppState {
             should_quit: false,
             commits: Vec::new(),
             selection_index: 0,
+            reverse: false,
         }
     }
 
@@ -29,6 +31,7 @@ impl AppState {
             should_quit: false,
             commits,
             selection_index,
+            reverse: false,
         }
     }
 
