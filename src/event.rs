@@ -1,7 +1,16 @@
 // Event handling for terminal input
 
 use anyhow::Result;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, Event, KeyEvent};
+
+/// Application actions derived from keyboard input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppAction {
+    MoveUp,
+    MoveDown,
+    Quit,
+    None,
+}
 
 /// Read the next terminal event.
 ///
@@ -9,6 +18,22 @@ use crossterm::event::{self, Event};
 /// to handle potential I/O errors.
 pub fn read() -> Result<Event> {
     Ok(event::read()?)
+}
+
+/// Parse a terminal event into an application action.
+///
+/// Recognizes arrow keys for navigation and 'q' for quit.
+/// Returns AppAction::None for unrecognized events.
+pub fn parse_key_event(event: Event) -> AppAction {
+    match event {
+        Event::Key(KeyEvent { code, .. }) => match code {
+            KeyCode::Up => AppAction::MoveUp,
+            KeyCode::Down => AppAction::MoveDown,
+            KeyCode::Char('q') | KeyCode::Char('Q') => AppAction::Quit,
+            _ => AppAction::None,
+        },
+        _ => AppAction::None,
+    }
 }
 
 // Re-export commonly used types for convenience
