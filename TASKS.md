@@ -50,7 +50,7 @@ Guidelines:
   and summary (Flags: V2)
 - [X] T026 P0 feat - Highlight selected row with different color/style (Flags:
   V2)
-- [ ] T027 P0 feat - Update main.rs to initialize terminal with crossterm
+- [X] T027 P0 feat - Update main.rs to initialize terminal with crossterm
   backend (Flags: V2)
 - [ ] T028 P0 feat - Implement main event loop: draw, handle input, update state
   (Flags: V2)

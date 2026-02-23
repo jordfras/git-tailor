@@ -1,18 +1,25 @@
 // TUI application entry point
 
 use anyhow::Result;
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    enable_raw_mode()?;
+    let mut stderr = io::stderr();
+    execute!(stderr, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stderr);
+    let mut terminal = Terminal::new(backend)?;
 
-    if args.len() != 2 {
-        anyhow::bail!("Usage: git-scissors <commit-ish>");
-    }
+    // Event loop will be implemented in T028
+    terminal.clear()?;
 
-    let commit_ish = &args[1];
-
-    let reference_oid = git_scissors::repo::find_reference_point(commit_ish)?;
-    println!("{}", reference_oid);
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
 }
