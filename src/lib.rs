@@ -3,6 +3,7 @@
 pub mod app;
 pub mod event;
 pub mod repo;
+pub mod views;
 
 /// Represents commit metadata extracted from git repository.
 ///
