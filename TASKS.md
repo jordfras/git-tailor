@@ -21,7 +21,7 @@ Guidelines:
 - [X] T061 P0 feat - Change exit key from 'q' to Esc (Flags: V4)
 - [X] T062 P1 feat - Add vertical separator line between title column and hunk
   groups column (Flags: V4)
-- [ ] T063 P1 feat - Add help dialog on 'h' key showing all interactive
+- [X] T063 P1 feat - Add help dialog on 'h' key showing all interactive
   keybindings (q=quit, i=info, s=split, m=move, h=help) (Flags: V4)
 
 ## Interactivity — Commit Detail View (V4)
