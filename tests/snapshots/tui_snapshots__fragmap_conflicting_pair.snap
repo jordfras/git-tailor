@@ -1,6 +1,5 @@
 ---
 source: tests/tui_snapshots.rs
-assertion_line: 299
 expression: buffer
 ---
 Buffer {
@@ -22,10 +21,13 @@ Buffer {
         x: 71, y: 0, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
         x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 71, y: 1, fg: White, bg: Blue, underline: Reset, modifier: REVERSED,
-        x: 72, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 74, y: 1, fg: White, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 75, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 8, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 21, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 71, y: 1, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 72, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 74, y: 1, fg: White, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
+        x: 75, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 8, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 11, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,

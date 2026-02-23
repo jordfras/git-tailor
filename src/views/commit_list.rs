@@ -31,6 +31,11 @@ const COLOR_SQUASHABLE: Color = Color::Yellow;
 const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
 const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
 
+// Background applied to the fragmap matrix columns of the selected row.
+// Kept separate from the text-cell highlight (which uses terminal Reversed)
+// so that the vertical lines and filled squares keep their foreground colors.
+const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
+
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
 
@@ -348,22 +353,32 @@ fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_id
 }
 
 /// Build a single fragmap cell from the visible cluster columns.
+///
+/// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
+/// background of every span so the row is visually highlighted without
+/// inverting the foreground colors of the symbols.
 fn build_fragmap_cell<'a>(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
     display_clusters: &[usize],
+    is_selected: bool,
 ) -> Cell<'a> {
     let spans: Vec<Span> = display_clusters
         .iter()
         .map(|&cluster_idx| {
+            let base_style = if is_selected {
+                Style::new().bg(COLOR_SELECTED_FRAGMAP_BG)
+            } else {
+                Style::new()
+            };
             if let Some((symbol, style)) = fragmap_cell_content(fragmap, commit_idx, cluster_idx) {
-                Span::styled(symbol, style)
+                Span::styled(symbol, base_style.patch(style))
             } else if let Some((symbol, style)) =
                 fragmap_connector_content(fragmap, commit_idx, cluster_idx)
             {
-                Span::styled(symbol, style)
+                Span::styled(symbol, base_style.patch(style))
             } else {
-                Span::raw(" ")
+                Span::styled(" ", base_style)
             }
         })
         .collect();
@@ -412,28 +427,36 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 Style::default()
             };
 
+            let is_selected = visual_index == layout.visual_selection;
+            let text_cell_style = if is_selected {
+                text_style.reversed()
+            } else {
+                text_style
+            };
+
             let mut cells = vec![
-                Cell::from(Span::styled(short_sha, text_style)),
-                Cell::from(Span::styled(commit.summary.clone(), text_style)),
+                Cell::from(Span::styled(short_sha, text_cell_style)),
+                Cell::from(Span::styled(commit.summary.clone(), text_cell_style)),
             ];
 
             if let Some(ref fragmap) = app.fragmap {
                 if !layout.display_clusters.is_empty() {
-                    cells.push(Cell::from(""));
+                    let sep_style = if is_selected {
+                        Style::default().reversed()
+                    } else {
+                        Style::default()
+                    };
+                    cells.push(Cell::from(Span::styled("", sep_style)));
                     cells.push(build_fragmap_cell(
                         fragmap,
                         commit_idx_in_fragmap,
                         &layout.display_clusters,
+                        is_selected,
                     ));
                 }
             }
 
-            let row = Row::new(cells);
-            if visual_index == layout.visual_selection {
-                row.style(Style::default().reversed())
-            } else {
-                row
-            }
+            Row::new(cells)
         })
         .collect()
 }
