@@ -44,3 +44,88 @@ impl Default for AppState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
+        CommitInfo {
+            oid: oid.to_string(),
+            summary: summary.to_string(),
+            author: "Test Author".to_string(),
+            date: "2024-01-01".to_string(),
+            parent_oids: vec![],
+        }
+    }
+
+    #[test]
+    fn test_move_up_with_empty_list() {
+        let mut app = AppState::new();
+        assert_eq!(app.selection_index, 0);
+        app.move_up();
+        assert_eq!(app.selection_index, 0);
+    }
+
+    #[test]
+    fn test_move_up_at_top() {
+        let mut app = AppState::new();
+        app.commits = vec![
+            create_test_commit("abc123", "First"),
+            create_test_commit("def456", "Second"),
+        ];
+        app.selection_index = 0;
+        app.move_up();
+        assert_eq!(app.selection_index, 0);
+    }
+
+    #[test]
+    fn test_move_up_from_middle() {
+        let mut app = AppState::new();
+        app.commits = vec![
+            create_test_commit("abc123", "First"),
+            create_test_commit("def456", "Second"),
+            create_test_commit("ghi789", "Third"),
+        ];
+        app.selection_index = 2;
+        app.move_up();
+        assert_eq!(app.selection_index, 1);
+        app.move_up();
+        assert_eq!(app.selection_index, 0);
+    }
+
+    #[test]
+    fn test_move_down_with_empty_list() {
+        let mut app = AppState::new();
+        assert_eq!(app.selection_index, 0);
+        app.move_down();
+        assert_eq!(app.selection_index, 0);
+    }
+
+    #[test]
+    fn test_move_down_at_bottom() {
+        let mut app = AppState::new();
+        app.commits = vec![
+            create_test_commit("abc123", "First"),
+            create_test_commit("def456", "Second"),
+        ];
+        app.selection_index = 1;
+        app.move_down();
+        assert_eq!(app.selection_index, 1);
+    }
+
+    #[test]
+    fn test_move_down_from_middle() {
+        let mut app = AppState::new();
+        app.commits = vec![
+            create_test_commit("abc123", "First"),
+            create_test_commit("def456", "Second"),
+            create_test_commit("ghi789", "Third"),
+        ];
+        app.selection_index = 0;
+        app.move_down();
+        assert_eq!(app.selection_index, 1);
+        app.move_down();
+        assert_eq!(app.selection_index, 2);
+    }
+}
