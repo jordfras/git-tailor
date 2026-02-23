@@ -78,6 +78,10 @@ Guidelines:
 - [ ] T041 P1 feat - Add --reverse flag to display commits in reverse order
   (Flags: V2)
 
+## Bugs
+- [x] T042 P0 bug - Commit list shows commits from repo start to reference point
+  instead of from HEAD to reference point (Flags: V2)
+
 ## Code Organization & Refactoring
 - [X] T034 P2 feat - Move find_reference_point and list_commits from lib.rs to
   repo module (Flags: V2)

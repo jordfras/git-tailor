@@ -26,7 +26,7 @@ fn main() -> Result<()> {
         .target()
         .ok_or_else(|| anyhow::anyhow!("HEAD does not point to a commit"))?;
 
-    let commits = repo::list_commits(&reference_oid, &head_oid.to_string())?;
+    let commits = repo::list_commits(&head_oid.to_string(), &reference_oid)?;
 
     enable_raw_mode()?;
     let mut stderr = io::stderr();
