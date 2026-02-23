@@ -11,7 +11,7 @@ fn main() -> Result<()> {
 
     let commit_ish = &args[1];
 
-    let reference_oid = git_scissors::find_reference_point(commit_ish)?;
+    let reference_oid = git_scissors::repo::find_reference_point(commit_ish)?;
     println!("{}", reference_oid);
 
     Ok(())
