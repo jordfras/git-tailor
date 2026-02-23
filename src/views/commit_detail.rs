@@ -104,7 +104,12 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         ]));
 
         // Add file list with status indicators
-        if let Ok(diff) = repo::commit_diff(&selected.oid) {
+        let diff_opt = match selected.oid.as_str() {
+            "staged" => repo::staged_diff(),
+            "unstaged" => repo::unstaged_diff(),
+            oid => repo::commit_diff(oid).ok(),
+        };
+        if let Some(diff) = diff_opt {
             content.push(Line::from(""));
             content.push(Line::from(Span::styled(
                 "Changed Files:",
