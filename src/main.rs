@@ -151,7 +151,10 @@ fn main() -> Result<()> {
             event::AppAction::ScrollLeft => app.scroll_fragmap_left(),
             event::AppAction::ScrollRight => app.scroll_fragmap_right(),
             event::AppAction::ToggleDetail => app.toggle_detail_view(),
-            event::AppAction::Quit => app.should_quit = true,
+            event::AppAction::Quit => match app.mode {
+                AppMode::CommitDetail => app.toggle_detail_view(), // Return to commit list
+                AppMode::CommitList => app.should_quit = true,     // Quit application
+            },
             event::AppAction::None => {}
         }
 

@@ -32,7 +32,7 @@ Guidelines:
   green for additions, red for deletions, cyan for hunk headers (Flags: V4)
 - [X] T066 P1 feat - Support scrolling in commit detail view for long diffs
   (Flags: V4)
-- [ ] T067 P1 feat - Pressing 'i' again or Esc in detail view returns to the
+- [X] T067 P1 feat - Pressing 'i' again or Esc in detail view returns to the
   commit list with hunk groups (Flags: V4)
 
 ## Interactivity — Split Commit (V4)

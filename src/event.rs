@@ -25,7 +25,8 @@ pub fn read() -> Result<Event> {
 
 /// Parse a terminal event into an application action.
 ///
-/// Recognizes arrow keys for navigation, 'i' to toggle detail view, and Esc for quit.
+/// Recognizes arrow keys for navigation, 'i' to toggle detail view, and Esc to
+/// exit detail view or quit application.
 /// Returns AppAction::None for unrecognized events.
 pub fn parse_key_event(event: Event) -> AppAction {
     match event {
