@@ -111,6 +111,12 @@ Guidelines:
 - [X] T055 P1 feat - Add snapshot tests for fragmap grid rendering (Flags: V3)
 - [X] T056 P2 feat - Horizontal scrolling for fragmap columns exceeding
   available width (Flags: V3)
+- [X] T057 P2 feat - Add horizontal scrollbar indicator for fragmap matrix
+  (Flags: V3)
+- [ ] T058 P1 feat - Align fragmap matrix to the left, adjacent to title column
+  (Flags: V3)
+- [ ] T059 P1 feat - Colorize SHA and title of commits where all touched
+  clusters are squashable into the same single other commit (Flags: V3)
 
 ## Bugs
 - [x] T042 P0 bug - Commit list shows commits from repo start to reference point

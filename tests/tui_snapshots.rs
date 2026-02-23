@@ -3,8 +3,7 @@
 use git_scissors::{
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
-    views,
-    CommitInfo,
+    views, CommitInfo,
 };
 use ratatui::{backend::TestBackend, Terminal};
 
@@ -23,11 +22,11 @@ fn test_commit_list_empty() {
     let backend = TestBackend::new(80, 10);
     let mut terminal = Terminal::new(backend.clone()).unwrap();
 
-    let app = AppState::new();
+    let mut app = AppState::new();
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -50,7 +49,7 @@ fn test_commit_list_with_commits() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -73,7 +72,7 @@ fn test_commit_list_with_selection() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -98,7 +97,7 @@ fn test_commit_list_long_summary() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -121,7 +120,7 @@ fn test_commit_list_scrolled_to_top() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -143,7 +142,7 @@ fn test_commit_list_scrolled_to_bottom() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -167,7 +166,7 @@ fn test_commit_list_reversed_with_commits() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -190,7 +189,7 @@ fn test_commit_list_reversed_scrolled() {
 
     terminal
         .draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })
         .unwrap();
 
@@ -254,7 +253,7 @@ fn test_fragmap_squashable_pair() {
     ));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
@@ -293,7 +292,7 @@ fn test_fragmap_conflicting_pair() {
     ));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
@@ -330,7 +329,12 @@ fn test_fragmap_mixed_columns() {
                 "feature_a.rs",
                 10,
                 30,
-                &["aaaa11112222", "bbbb33334444", "cccc55556666", "dddd77778888"],
+                &[
+                    "aaaa11112222",
+                    "bbbb33334444",
+                    "cccc55556666",
+                    "dddd77778888",
+                ],
             ),
             simple_cluster("tests.rs", 1, 10, &["aaaa11112222", "dddd77778888"]),
         ],
@@ -343,7 +347,7 @@ fn test_fragmap_mixed_columns() {
     ));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
@@ -380,7 +384,7 @@ fn test_fragmap_reversed() {
     ));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
@@ -412,7 +416,7 @@ fn test_fragmap_adjacent_squashable() {
     ));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
@@ -456,14 +460,10 @@ fn test_fragmap_horizontal_scroll() {
     app.commits = commits;
     app.selection_index = 0;
     app.fragmap_scroll_offset = 4;
-    app.fragmap = Some(create_fragmap(
-        oids,
-        clusters,
-        matrix,
-    ));
+    app.fragmap = Some(create_fragmap(oids, clusters, matrix));
 
     terminal
-        .draw(|frame| views::commit_list::render(&app, frame))
+        .draw(|frame| views::commit_list::render(&mut app, frame))
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();
