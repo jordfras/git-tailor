@@ -5,10 +5,7 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Style, Stylize},
     text::Span,
-    widgets::{
-        Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        Table,
-    },
+    widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
     Frame,
 };
 
@@ -27,8 +24,8 @@ pub fn render(app: &AppState, frame: &mut Frame) {
 
     let header = Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(HEADER_STYLE);
 
-    // Available height for data rows: table area minus borders (2) and header (1)
-    let available_height = table_area.height.saturating_sub(3) as usize;
+    // Available height for data rows: table area minus header (1)
+    let available_height = table_area.height.saturating_sub(1) as usize;
 
     // Calculate scroll offset to keep selection visible
     let scroll_offset = if app.commits.is_empty()
@@ -67,14 +64,23 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         })
         .collect();
 
-    let table = Table::new(rows, [Constraint::Length(10), Constraint::Min(20)])
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Commits"));
+    let has_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
 
-    frame.render_widget(table, table_area);
+    // Reserve left column for scrollbar when needed
+    let (scrollbar_area, content_area) = if has_scrollbar {
+        let [sb, content] =
+            Layout::horizontal([Constraint::Length(1), Constraint::Min(0)]).areas(table_area);
+        (Some(sb), content)
+    } else {
+        (None, table_area)
+    };
+
+    let table = Table::new(rows, [Constraint::Length(10), Constraint::Min(20)]).header(header);
+
+    frame.render_widget(table, content_area);
 
     // Render scrollbar if content exceeds visible area
-    if !app.commits.is_empty() && app.commits.len() > available_height {
+    if let Some(sb_area) = scrollbar_area {
         let mut scrollbar_state =
             ScrollbarState::new(app.commits.len().saturating_sub(1)).position(app.selection_index);
 
@@ -83,12 +89,12 @@ pub fn render(app: &AppState, frame: &mut Frame) {
             .end_symbol(None)
             .track_symbol(Some("│"));
 
-        let scrollbar_area = ratatui::layout::Rect {
-            y: table_area.y + 2,
+        let sb_data_area = ratatui::layout::Rect {
+            y: sb_area.y + 1,
             height: available_height as u16,
-            ..table_area
+            ..sb_area
         };
-        frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        frame.render_stateful_widget(scrollbar, sb_data_area, &mut scrollbar_state);
     }
 
     // Render footer with selected commit info
