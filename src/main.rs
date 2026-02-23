@@ -148,6 +148,16 @@ fn main() -> Result<()> {
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
             },
+            event::AppAction::PageUp => match app.mode {
+                AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
+                AppMode::CommitList => app.page_up(app.commit_list_visible_height),
+                AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
+            },
+            event::AppAction::PageDown => match app.mode {
+                AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
+                AppMode::CommitList => app.page_down(app.commit_list_visible_height),
+                AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
+            },
             event::AppAction::ScrollLeft => app.scroll_fragmap_left(),
             event::AppAction::ScrollRight => app.scroll_fragmap_right(),
             event::AppAction::ToggleDetail => app.toggle_detail_view(),
