@@ -26,7 +26,7 @@ enum FileStatus {
 ///
 /// Displays commit metadata and diff in the right panel.
 /// Currently a placeholder showing the selected commit's summary.
-pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
+pub fn render(repo: &git2::Repository, frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, and footer
     let [header_area, content_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
@@ -107,7 +107,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         let diff_opt = match selected.oid.as_str() {
             "staged" => repo::staged_diff(),
             "unstaged" => repo::unstaged_diff(),
-            oid => repo::commit_diff(oid).ok(),
+            oid => repo::commit_diff(repo, oid).ok(),
         };
         if let Some(diff) = diff_opt {
             content.push(Line::from(""));

@@ -1,5 +1,5 @@
 use git2::{Repository, Signature};
-use git_tailor::list_commits_in;
+use git_tailor::repo::list_commits;
 use std::fs;
 use tempfile::TempDir;
 
@@ -69,8 +69,7 @@ fn test_list_commits_returns_oldest_to_newest() {
     let c2_str = c2.to_string();
     let c3_str = c3.to_string();
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let commits = list_commits_in(repo_path, &c3_str, &c1_str).unwrap();
+    let commits = list_commits(&test.repo, &c3_str, &c1_str).unwrap();
 
     assert_eq!(commits.len(), 3);
     assert_eq!(commits[0].oid, c1_str);
@@ -89,8 +88,7 @@ fn test_list_commits_with_same_commit() {
     let c1 = test.commit_file("file.txt", "content", "Single commit");
     let c1_str = c1.to_string();
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let commits = list_commits_in(repo_path, &c1_str, &c1_str).unwrap();
+    let commits = list_commits(&test.repo, &c1_str, &c1_str).unwrap();
 
     assert_eq!(commits.len(), 1);
     assert_eq!(commits[0].oid, c1_str);
@@ -107,8 +105,7 @@ fn test_list_commits_metadata() {
     let c1_str = c1.to_string();
     let c2_str = c2.to_string();
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let commits = list_commits_in(repo_path, &c2_str, &c1_str).unwrap();
+    let commits = list_commits(&test.repo, &c2_str, &c1_str).unwrap();
 
     assert_eq!(commits.len(), 2);
 
@@ -133,8 +130,7 @@ fn test_list_commits_with_branch_name() {
     let c1_str = c1.to_string();
     let c2_str = c2.to_string();
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let commits = list_commits_in(repo_path, "HEAD", &c1_str).unwrap();
+    let commits = list_commits(&test.repo, "HEAD", &c1_str).unwrap();
 
     assert_eq!(commits.len(), 3);
     assert_eq!(commits[0].oid, c1_str);

@@ -435,6 +435,7 @@ fn test_fragmap_full_duplicate_columns_visible() {
     insta::assert_debug_snapshot!(buffer);
 }
 
+#[test]
 fn test_fragmap_adjacent_squashable() {
     let backend = TestBackend::new(80, 8);
     let mut terminal = Terminal::new(backend.clone()).unwrap();

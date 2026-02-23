@@ -1,5 +1,5 @@
 use git2::{Repository, Signature};
-use git_tailor::commit_diff_in;
+use git_tailor::repo::commit_diff;
 use git_tailor::DiffLineKind;
 use std::fs;
 use tempfile::TempDir;
@@ -89,8 +89,7 @@ fn test_commit_diff_root_commit_all_additions() {
     let test = TestRepo::new();
     let c1 = test.commit_file("hello.txt", "Hello, world!\n", "Initial commit");
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c1.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c1.to_string()).unwrap();
 
     assert_eq!(diff.commit.oid, c1.to_string());
     assert_eq!(diff.commit.summary, "Initial commit");
@@ -118,8 +117,7 @@ fn test_commit_diff_file_modification() {
     test.commit_file("file.txt", "line 1\nline 2\nline 3\n", "First");
     let c2 = test.commit_file("file.txt", "line 1\nmodified line 2\nline 3\n", "Modify");
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c2.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c2.to_string()).unwrap();
 
     assert_eq!(diff.commit.summary, "Modify");
     assert_eq!(diff.files.len(), 1);
@@ -151,8 +149,7 @@ fn test_commit_diff_file_deletion() {
     test.commit_file("to_delete.txt", "This will be deleted\n", "Add file");
     let c2 = test.delete_file("to_delete.txt", "Delete file");
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c2.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c2.to_string()).unwrap();
 
     assert_eq!(diff.commit.summary, "Delete file");
     assert_eq!(diff.files.len(), 1);
@@ -200,8 +197,7 @@ fn test_commit_diff_multiple_files() {
         .commit(Some("HEAD"), &sig, &sig, "Add two files", &tree, &[&parent])
         .unwrap();
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c2.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c2.to_string()).unwrap();
 
     assert_eq!(diff.commit.summary, "Add two files");
     assert_eq!(diff.files.len(), 2);
@@ -226,8 +222,7 @@ fn test_commit_diff_multiple_hunks() {
     let modified = "MODIFIED 1\nline 2\nline 3\nkeep 1\nkeep 2\nkeep 3\nkeep 4\nkeep 5\nkeep 6\nkeep 7\nkeep 8\nkeep 9\nkeep 10\nline 20\nMODIFIED 21\nline 22\n";
     let c2 = test.commit_file("multi.txt", modified, "Modify two regions");
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c2.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c2.to_string()).unwrap();
 
     assert_eq!(diff.files.len(), 1);
     let file = &diff.files[0];
@@ -245,8 +240,7 @@ fn test_commit_diff_metadata() {
     let test = TestRepo::new();
     let c1 = test.commit_file("test.txt", "content\n", "Test commit");
 
-    let repo_path = test.repo.workdir().unwrap().to_str().unwrap();
-    let diff = commit_diff_in(repo_path, &c1.to_string()).unwrap();
+    let diff = commit_diff(&test.repo, &c1.to_string()).unwrap();
 
     assert_eq!(diff.commit.oid, c1.to_string());
     assert_eq!(diff.commit.summary, "Test commit");
