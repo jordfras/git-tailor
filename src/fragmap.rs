@@ -371,6 +371,7 @@ mod tests {
             files: vec![FileDiff {
                 old_path: Some("file.txt".to_string()),
                 new_path: Some("file.txt".to_string()),
+                status: crate::DeltaStatus::Modified,
                 hunks: vec![Hunk {
                     old_start: 10,
                     old_lines: 3,
@@ -396,6 +397,7 @@ mod tests {
             files: vec![FileDiff {
                 old_path: Some("file.txt".to_string()),
                 new_path: Some("file.txt".to_string()),
+                status: crate::DeltaStatus::Modified,
                 hunks: vec![
                     Hunk {
                         old_start: 5,
@@ -435,6 +437,7 @@ mod tests {
                 FileDiff {
                     old_path: Some("a.txt".to_string()),
                     new_path: Some("a.txt".to_string()),
+                    status: crate::DeltaStatus::Modified,
                     hunks: vec![Hunk {
                         old_start: 1,
                         old_lines: 1,
@@ -446,6 +449,7 @@ mod tests {
                 FileDiff {
                     old_path: Some("b.txt".to_string()),
                     new_path: Some("b.txt".to_string()),
+                    status: crate::DeltaStatus::Modified,
                     hunks: vec![Hunk {
                         old_start: 10,
                         old_lines: 3,
@@ -477,6 +481,7 @@ mod tests {
                 FileDiff {
                     old_path: Some("file.txt".to_string()),
                     new_path: Some("file.txt".to_string()),
+                    status: crate::DeltaStatus::Modified,
                     hunks: vec![Hunk {
                         old_start: 1,
                         old_lines: 1,
@@ -488,6 +493,7 @@ mod tests {
                 FileDiff {
                     old_path: Some("deleted.txt".to_string()),
                     new_path: None, // File was deleted
+                    status: crate::DeltaStatus::Deleted,
                     hunks: vec![Hunk {
                         old_start: 1,
                         old_lines: 5,
@@ -513,6 +519,7 @@ mod tests {
             files: vec![FileDiff {
                 old_path: Some("file.txt".to_string()),
                 new_path: Some("file.txt".to_string()),
+                status: crate::DeltaStatus::Modified,
                 hunks: vec![
                     Hunk {
                         old_start: 5,
@@ -547,6 +554,7 @@ mod tests {
             files: vec![FileDiff {
                 old_path: None, // File was added
                 new_path: Some("new_file.txt".to_string()),
+                status: crate::DeltaStatus::Added,
                 hunks: vec![Hunk {
                     old_start: 0,
                     old_lines: 0,
@@ -572,6 +580,7 @@ mod tests {
             files: vec![FileDiff {
                 old_path: Some("file.txt".to_string()),
                 new_path: Some("file.txt".to_string()),
+                status: crate::DeltaStatus::Modified,
                 hunks: vec![Hunk {
                     old_start: 42,
                     old_lines: 1,
@@ -630,6 +639,7 @@ mod tests {
         FileDiff {
             old_path: old_path.map(|s| s.to_string()),
             new_path: new_path.map(|s| s.to_string()),
+            status: crate::DeltaStatus::Modified,
             hunks: vec![Hunk {
                 old_start,
                 old_lines,

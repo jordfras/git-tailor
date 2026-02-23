@@ -86,6 +86,22 @@ pub struct Hunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// Git delta status indicating the type of file change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeltaStatus {
+    Unmodified,
+    Added,
+    Deleted,
+    Modified,
+    Renamed,
+    Copied,
+    Ignored,
+    Untracked,
+    Typechange,
+    Unreadable,
+    Conflicted,
+}
+
 /// The diff for a single file between a commit and its parent commit.
 ///
 /// Represents all changes made to one file in a single commit. A file may
@@ -97,6 +113,8 @@ pub struct FileDiff {
     pub old_path: Option<String>,
     /// Path in the new (commit) version, or None if the file was deleted.
     pub new_path: Option<String>,
+    /// The git delta status indicating the type of change.
+    pub status: DeltaStatus,
     /// The list of changed regions in this file. A simple one-line change
     /// produces one hunk; scattered edits produce multiple hunks.
     pub hunks: Vec<Hunk>,
