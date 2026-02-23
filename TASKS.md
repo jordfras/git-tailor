@@ -113,7 +113,7 @@ Guidelines:
   available width (Flags: V3)
 - [X] T057 P2 feat - Add horizontal scrollbar indicator for fragmap matrix
   (Flags: V3)
-- [ ] T058 P1 feat - Align fragmap matrix to the left, adjacent to title column
+- [X] T058 P1 feat - Align fragmap matrix to the left, adjacent to title column
   (Flags: V3)
 - [ ] T059 P1 feat - Colorize SHA and title of commits where all touched
   clusters are squashable into the same single other commit (Flags: V3)
