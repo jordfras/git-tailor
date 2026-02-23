@@ -68,7 +68,7 @@ Guidelines:
   first commit (Flags: V2)
 - [X] T036 P2 feat - Highlight table column headers with background color or
   style (Flags: V2)
-- [ ] T037 P1 feat - Make commit list scrollable when commits exceed screen
+- [X] T037 P1 feat - Make commit list scrollable when commits exceed screen
   height (Flags: V2)
 - [ ] T038 P1 feat - Render scrollbar for commit list when content exceeds
   visible area (Flags: V2)
