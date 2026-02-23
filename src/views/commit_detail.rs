@@ -37,27 +37,62 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
         frame.render_widget(placeholder, content_area);
     } else {
         let selected = &app.commits[app.selection_index];
-        let content = vec![
+
+        // Build metadata lines
+        let mut content = vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
                 Span::raw(&selected.oid),
             ]),
             Line::from(""),
-            Line::from(vec![Span::styled(
-                &selected.summary,
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "(Detailed metadata and diff",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(Span::styled(
-                " will be in T064b-T064d)",
-                Style::default().fg(Color::DarkGray),
-            )),
         ];
+
+        // Add full message (split into lines)
+        for line in selected.message.lines() {
+            content.push(Line::from(Span::styled(
+                line,
+                Style::default().fg(Color::White),
+            )));
+        }
+
+        content.push(Line::from(""));
+        content.push(Line::from(vec![
+            Span::styled("Author: ", Style::default().fg(Color::Yellow)),
+            Span::raw(format!("{} <{}>", selected.author, selected.author_email)),
+        ]));
+
+        // Format dates as "YYYY-MM-DD HH:MM:SS ±HHMM"
+        let format = time::format_description::parse(
+            "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
+        ).unwrap();
+
+        let author_date_formatted = selected
+            .author_date
+            .format(&format)
+            .unwrap_or_else(|_| String::from("Invalid date"));
+
+        let commit_date_formatted = selected
+            .commit_date
+            .format(&format)
+            .unwrap_or_else(|_| String::from("Invalid date"));
+
+        content.push(Line::from(vec![
+            Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
+            Span::raw(author_date_formatted),
+        ]));
+        content.push(Line::from(""));
+        content.push(Line::from(vec![
+            Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
+            Span::raw(format!(
+                "{} <{}>",
+                selected.committer, selected.committer_email
+            )),
+        ]));
+        content.push(Line::from(vec![
+            Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
+            Span::raw(commit_date_formatted),
+        ]));
 
         let paragraph = Paragraph::new(content);
         frame.render_widget(paragraph, content_area);

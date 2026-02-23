@@ -14,6 +14,12 @@ fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         author: "Test Author <test@example.com>".to_string(),
         date: "2024-01-15 10:30:00".to_string(),
         parent_oids: vec!["parent123".to_string()],
+        message: summary.to_string(),
+        author_email: "test@example.com".to_string(),
+        author_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
+        committer: "Test Committer".to_string(),
+        committer_email: "committer@example.com".to_string(),
+        commit_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
     }
 }
 

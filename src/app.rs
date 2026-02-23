@@ -111,6 +111,12 @@ mod tests {
             author: "Test Author".to_string(),
             date: "2024-01-01".to_string(),
             parent_oids: vec![],
+            message: summary.to_string(),
+            author_email: "test@example.com".to_string(),
+            author_date: time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap(),
+            committer: "Test Committer".to_string(),
+            committer_email: "committer@example.com".to_string(),
+            commit_date: time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap(),
         }
     }
 

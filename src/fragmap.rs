@@ -355,6 +355,12 @@ mod tests {
             author: "Test Author".to_string(),
             date: "123456789".to_string(),
             parent_oids: vec![],
+            message: "Test commit".to_string(),
+            author_email: "test@example.com".to_string(),
+            author_date: time::OffsetDateTime::from_unix_timestamp(123456789).unwrap(),
+            committer: "Test Committer".to_string(),
+            committer_email: "committer@example.com".to_string(),
+            commit_date: time::OffsetDateTime::from_unix_timestamp(123456789).unwrap(),
         }
     }
 
@@ -604,6 +610,12 @@ mod tests {
             author: "Test Author".to_string(),
             date: "123456789".to_string(),
             parent_oids: vec![],
+            message: format!("Commit {}", oid),
+            author_email: "test@example.com".to_string(),
+            author_date: time::OffsetDateTime::from_unix_timestamp(123456789).unwrap(),
+            committer: "Test Committer".to_string(),
+            committer_email: "committer@example.com".to_string(),
+            commit_date: time::OffsetDateTime::from_unix_timestamp(123456789).unwrap(),
         }
     }
 

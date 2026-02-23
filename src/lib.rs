@@ -21,6 +21,18 @@ pub struct CommitInfo {
     pub author: String,
     pub date: String,
     pub parent_oids: Vec<String>,
+    /// Full commit message including body (all lines).
+    pub message: String,
+    /// Author email address.
+    pub author_email: String,
+    /// Author date with timezone.
+    pub author_date: time::OffsetDateTime,
+    /// Committer name.
+    pub committer: String,
+    /// Committer email address.
+    pub committer_email: String,
+    /// Commit date with timezone.
+    pub commit_date: time::OffsetDateTime,
 }
 
 /// The kind of change a diff line represents.

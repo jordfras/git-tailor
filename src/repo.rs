@@ -35,14 +35,34 @@ pub(crate) fn find_reference_point_in(repo_path: &str, commit_ish: &str) -> Resu
     Ok(reference_oid.to_string())
 }
 
+/// Convert git2::Time to time::OffsetDateTime.
+fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
+    let offset_seconds = git_time.offset_minutes() * 60;
+    let utc_offset =
+        time::UtcOffset::from_whole_seconds(offset_seconds).unwrap_or(time::UtcOffset::UTC);
+
+    time::OffsetDateTime::from_unix_timestamp(git_time.seconds())
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
+        .to_offset(utc_offset)
+}
+
 /// Extract `CommitInfo` metadata from a `git2::Commit`.
 fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
+    let author_time = commit.author().when();
+    let commit_time = commit.time();
+
     CommitInfo {
         oid: commit.id().to_string(),
         summary: commit.summary().unwrap_or("").to_string(),
         author: commit.author().name().unwrap_or("").to_string(),
         date: commit.time().seconds().to_string(),
         parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
+        message: commit.message().unwrap_or("").to_string(),
+        author_email: commit.author().email().unwrap_or("").to_string(),
+        author_date: git_time_to_offset_datetime(author_time),
+        committer: commit.committer().name().unwrap_or("").to_string(),
+        committer_email: commit.committer().email().unwrap_or("").to_string(),
+        commit_date: git_time_to_offset_datetime(commit_time),
     }
 }
 
