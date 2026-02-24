@@ -269,8 +269,7 @@ fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
 /// Return a synthetic `CommitDiff` for changes staged in the index (index vs HEAD).
 ///
 /// Returns `None` when the index is clean (no staged changes).
-pub fn staged_diff() -> Option<CommitDiff> {
-    let repo = git2::Repository::open(".").ok()?;
+pub fn staged_diff(repo: &git2::Repository) -> Option<CommitDiff> {
     let head = repo.head().ok()?.peel_to_tree().ok();
 
     let mut opts = git2::DiffOptions::new();
@@ -295,9 +294,7 @@ pub fn staged_diff() -> Option<CommitDiff> {
 /// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir vs index).
 ///
 /// Returns `None` when the working tree is clean relative to the index.
-pub fn unstaged_diff() -> Option<CommitDiff> {
-    let repo = git2::Repository::open(".").ok()?;
-
+pub fn unstaged_diff(repo: &git2::Repository) -> Option<CommitDiff> {
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(0);
     opts.interhunk_lines(0);

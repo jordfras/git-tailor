@@ -111,10 +111,10 @@ fn main() -> Result<()> {
     // bottom of the commit list (newest position). Recompute fragmap with
     // the extra diffs so their hunk overlap with commits is visible.
     let mut extra_diffs: Vec<CommitDiff> = Vec::new();
-    if let Some(d) = repo::staged_diff() {
+    if let Some(d) = repo::staged_diff(&git_repo) {
         extra_diffs.push(d);
     }
-    if let Some(d) = repo::unstaged_diff() {
+    if let Some(d) = repo::unstaged_diff(&git_repo) {
         extra_diffs.push(d);
     }
     let n_regular = app.commits.len();
@@ -188,7 +188,7 @@ fn main() -> Result<()> {
             event::AppAction::ShowHelp => app.toggle_help(),
             event::AppAction::Reload => {
                 if app.mode != AppMode::Help {
-                    reload_commits(&mut app);
+                    reload_commits(&git_repo, &mut app);
                 }
             }
             event::AppAction::Quit => match app.mode {
@@ -226,17 +226,13 @@ fn select_initial_index(commits: &[CommitInfo]) -> usize {
 ///
 /// Keeps the current selection clamped to the new list bounds. Resets
 /// detail scroll so a stale offset does not exceed the new content height.
-fn reload_commits(app: &mut AppState) {
-    let git_repo = match Repository::open(".") {
-        Ok(r) => r,
-        Err(_) => return,
-    };
+fn reload_commits(git_repo: &Repository, app: &mut AppState) {
     let head_oid = match git_repo.head().ok().and_then(|h| h.target()) {
         Some(oid) => oid.to_string(),
         None => return,
     };
 
-    let commits = match repo::list_commits(&git_repo, &head_oid, &app.reference_oid) {
+    let commits = match repo::list_commits(git_repo, &head_oid, &app.reference_oid) {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -248,10 +244,10 @@ fn reload_commits(app: &mut AppState) {
 
     // Append staged/unstaged as synthetic rows, same as at startup.
     let mut extra_diffs: Vec<CommitDiff> = Vec::new();
-    if let Some(d) = repo::staged_diff() {
+    if let Some(d) = repo::staged_diff(git_repo) {
         extra_diffs.push(d);
     }
-    if let Some(d) = repo::unstaged_diff() {
+    if let Some(d) = repo::unstaged_diff(git_repo) {
         extra_diffs.push(d);
     }
 
@@ -262,7 +258,7 @@ fn reload_commits(app: &mut AppState) {
     }
 
     let fragmap = compute_fragmap(
-        &git_repo,
+        git_repo,
         &commits[..n_regular],
         &extra_diffs,
         app.full_fragmap,

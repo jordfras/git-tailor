@@ -105,8 +105,8 @@ pub fn render(repo: &git2::Repository, frame: &mut Frame, app: &mut AppState, ar
 
         // Add file list with status indicators
         let diff_opt = match selected.oid.as_str() {
-            "staged" => repo::staged_diff(),
-            "unstaged" => repo::unstaged_diff(),
+            "staged" => repo::staged_diff(repo),
+            "unstaged" => repo::unstaged_diff(repo),
             oid => repo::commit_diff(repo, oid).ok(),
         };
         if let Some(diff) = diff_opt {
