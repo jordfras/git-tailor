@@ -12,6 +12,11 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Core Behavior & Constraints (V4)
+- [ ] T081 P0 feat - Exclude the reference point (merge-base) commit from the
+  commit list and all operations — it is shared with the target branch and must
+  not be squashed, moved, or split (Flags: V4)
+
 ## Interactivity — Basic UI (V4)
 - [X] T061 P0 feat - Change exit key from 'q' to Esc (Flags: V4)
 - [X] T062 P1 feat - Add vertical separator line between title column and hunk
