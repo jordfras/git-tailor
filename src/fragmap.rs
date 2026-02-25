@@ -274,7 +274,13 @@ pub struct FragMap {
 /// and inactive nodes (propagated surviving spans) are connected by overlap
 /// edges. Columns correspond to unique paths through the DAG, with each
 /// path's active nodes determining which commits have CHANGE in that column.
-pub fn build_fragmap(commit_diffs: &[CommitDiff]) -> FragMap {
+/// Build a fragmap from a list of commit diffs.
+///
+/// When `deduplicate` is `true` (the normal view), columns whose set of touching
+/// commits is identical are merged into one, producing a compact matrix. Pass
+/// `false` to keep every raw hunk cluster as its own column, which is useful
+/// for debugging the cluster layout.
+pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap {
     let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
 
     for (commit_idx, diff) in commit_diffs.iter().enumerate() {
@@ -320,7 +326,9 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff]) -> FragMap {
         clusters.extend(build_file_clusters(path, commits_for_file, commit_diffs));
     }
 
-    deduplicate_clusters(&mut clusters);
+    if deduplicate {
+        deduplicate_clusters(&mut clusters);
+    }
 
     let commits: Vec<String> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
     let matrix = build_matrix(&commits, &clusters, commit_diffs);
@@ -848,7 +856,7 @@ mod tests {
             },
         ];
 
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(!fm.shares_cluster_with(0, 1));
     }
 
@@ -889,7 +897,7 @@ mod tests {
             },
         ];
 
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(fm.shares_cluster_with(0, 1));
     }
 
@@ -929,7 +937,7 @@ mod tests {
             },
         ];
 
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(!fm.shares_cluster_with(0, 1));
     }
 
@@ -984,7 +992,7 @@ mod tests {
 
     #[test]
     fn test_build_fragmap_empty_commits() {
-        let fragmap = build_fragmap(&[]);
+        let fragmap = build_fragmap(&[], true);
 
         assert_eq!(fragmap.commits.len(), 0);
         assert_eq!(fragmap.clusters.len(), 0);
@@ -1005,7 +1013,7 @@ mod tests {
             )],
         )];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.commits.len(), 1);
         assert_eq!(fragmap.commits[0], "c1");
@@ -1050,7 +1058,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.commits.len(), 2);
 
@@ -1104,7 +1112,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.commits.len(), 2);
 
@@ -1154,7 +1162,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.commits.len(), 2);
 
@@ -1204,7 +1212,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // c1 and c2 share a cluster, c3 does not overlap with either
         assert!(fragmap.shares_cluster_with(0, 1));
@@ -1242,7 +1250,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Separate clusters — these are different code regions
         assert_eq!(fragmap.clusters.len(), 2);
@@ -1270,7 +1278,7 @@ mod tests {
             )],
         )];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.matrix[0][0], TouchKind::Added);
     }
@@ -1290,7 +1298,7 @@ mod tests {
             )],
         )];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.matrix[0][0], TouchKind::Modified);
     }
@@ -1314,7 +1322,7 @@ mod tests {
             )],
         )];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Should still generate a valid fragmap
         assert_eq!(fragmap.commits.len(), 1);
@@ -1342,7 +1350,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.commits.len(), 2);
 
@@ -1383,7 +1391,7 @@ mod tests {
             3, // lines 20-22 (separate region)
         ));
 
-        let fragmap = build_fragmap(&[c1]);
+        let fragmap = build_fragmap(&[c1], true);
 
         assert_eq!(fragmap.commits.len(), 1);
 
@@ -1409,7 +1417,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Two clusters, c1 only touches cluster 0
         assert_eq!(fragmap.clusters.len(), 2);
@@ -1446,7 +1454,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         assert_eq!(fragmap.clusters.len(), 2);
 
@@ -1483,7 +1491,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Find the shared cluster
         let shared_idx = fragmap
@@ -1538,7 +1546,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // All three commits should share at least one cluster
         let all_three_idx = fragmap
@@ -1569,7 +1577,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Out of range commit index
         let relation = fragmap.cluster_relation(0, 10, 0);
@@ -1593,7 +1601,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Same index
         let relation = fragmap.cluster_relation(1, 1, 0);
@@ -1625,7 +1633,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Find shared clusters by file
         let a_cluster_idx = fragmap
@@ -1709,7 +1717,7 @@ mod tests {
             ),
         ];
 
-        let fragmap = build_fragmap(&commits);
+        let fragmap = build_fragmap(&commits, true);
 
         // Find the shared file.txt cluster containing c1 and c4
         let file_cluster_idx = fragmap
@@ -1915,7 +1923,7 @@ mod tests {
                 vec![make_file_diff(Some("f.rs"), Some("f.rs"), 7, 3, 7, 3)],
             ),
         ];
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(fm.shares_cluster_with(0, 1));
     }
 
@@ -1945,7 +1953,7 @@ mod tests {
                 }],
             ),
         ];
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(!fm.shares_cluster_with(0, 1));
     }
 
@@ -1967,7 +1975,7 @@ mod tests {
                 }],
             }],
         };
-        let fm = build_fragmap(&[c1]);
+        let fm = build_fragmap(&[c1], true);
         assert_eq!(fm.clusters.len(), 1);
         assert_eq!(fm.clusters[0].spans[0].path, "bar.rs");
     }
@@ -1982,9 +1990,26 @@ mod tests {
         );
         c1.files
             .push(make_file_diff(Some("f.rs"), Some("f.rs"), 100, 0, 100, 5));
-        let fm = build_fragmap(&[c1]);
+        let fm = build_fragmap(&[c1], true);
         assert_eq!(fm.clusters.len(), 1);
         assert_ne!(fm.matrix[0][0], TouchKind::None);
+    }
+
+    #[test]
+    fn build_fragmap_no_dedup_keeps_identical_activation_pattern_columns() {
+        // Same scenario as the dedup test above, but with deduplicate=false.
+        // Both clusters have the same activation pattern {c1}, but they must
+        // NOT be merged — the full view should expose all raw columns.
+        let mut c1 = make_commit_diff(
+            "c1",
+            vec![make_file_diff(Some("f.rs"), Some("f.rs"), 1, 0, 1, 5)],
+        );
+        c1.files
+            .push(make_file_diff(Some("f.rs"), Some("f.rs"), 100, 0, 100, 5));
+        let fm = build_fragmap(&[c1], false);
+        assert_eq!(fm.clusters.len(), 2);
+        assert_ne!(fm.matrix[0][0], TouchKind::None);
+        assert_ne!(fm.matrix[0][1], TouchKind::None);
     }
 
     #[test]
@@ -2000,7 +2025,7 @@ mod tests {
                 vec![make_file_diff(Some("f.rs"), Some("f.rs"), 100, 0, 100, 5)],
             ),
         ];
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert_eq!(fm.clusters.len(), 2);
     }
 
@@ -2022,7 +2047,7 @@ mod tests {
                 vec![make_file_diff(Some("f.rs"), Some("f.rs"), 11, 2, 11, 2)],
             ),
         ];
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert!(fm.shares_cluster_with(0, 1));
         assert!(fm.shares_cluster_with(0, 2));
         assert!(fm.shares_cluster_with(1, 2));
@@ -2043,7 +2068,7 @@ mod tests {
                 vec![make_file_diff(Some("f.rs"), Some("f.rs"), 20, 1, 20, 1)],
             ),
         ];
-        let fm = build_fragmap(&commits);
+        let fm = build_fragmap(&commits, true);
         assert_eq!(fm.commits.len(), 2);
     }
 }

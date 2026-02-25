@@ -397,8 +397,44 @@ fn test_fragmap_reversed() {
     insta::assert_debug_snapshot!(buffer);
 }
 
-/// Adjacent commits both touching same cluster (no gap between squares).
+/// Full (non-deduplicated) fragmap: two clusters with the same per-commit
+/// activation pattern remain as separate columns (--full / deduplicate=false).
+/// Visually this is identical to having two independent clusters side by side.
 #[test]
+fn test_fragmap_full_duplicate_columns_visible() {
+    let backend = TestBackend::new(80, 8);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        create_test_commit("aaaa11112222", "Add handler"),
+        create_test_commit("bbbb33334444", "Unrelated change"),
+    ];
+    app.selection_index = 0;
+
+    // Two clusters both touched only by commit 0 — identical activation pattern.
+    // In deduplicated (default) mode these would merge to one column; in full
+    // mode they stay as two separate columns.
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444"],
+        vec![
+            simple_cluster("handler.rs", 1, 10, &["aaaa11112222"]),
+            simple_cluster("handler.rs", 100, 110, &["aaaa11112222"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::Added],
+            vec![TouchKind::None, TouchKind::None],
+        ],
+    ));
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
 fn test_fragmap_adjacent_squashable() {
     let backend = TestBackend::new(80, 8);
     let mut terminal = Terminal::new(backend.clone()).unwrap();

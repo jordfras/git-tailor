@@ -31,6 +31,15 @@ struct Cli {
     /// Display commits in reverse order (HEAD at top).
     #[arg(short, long)]
     reverse: bool,
+
+    /// Show all hunk-group columns without deduplication.
+    ///
+    /// By default the hunk-group matrix merges columns whose set of touching
+    /// commits is identical, producing a compact view. With this flag every
+    /// raw hunk cluster gets its own column, which is useful for debugging
+    /// the cluster layout.
+    #[arg(short = 'f', long)]
+    full: bool,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -42,6 +51,7 @@ struct Cli {
 fn compute_fragmap(
     regular_commits: &[CommitInfo],
     extra_diffs: &[CommitDiff],
+    full: bool,
 ) -> Option<fragmap::FragMap> {
     let mut commit_diffs: Vec<CommitDiff> = regular_commits
         .iter()
@@ -54,7 +64,7 @@ fn compute_fragmap(
     }
 
     commit_diffs.extend_from_slice(extra_diffs);
-    Some(fragmap::build_fragmap(&commit_diffs))
+    Some(fragmap::build_fragmap(&commit_diffs, !full))
 }
 
 fn main() -> Result<()> {
@@ -110,7 +120,8 @@ fn main() -> Result<()> {
     for d in &extra_diffs {
         app.commits.push(d.commit.clone());
     }
-    app.fragmap = compute_fragmap(&app.commits[..n_regular], &extra_diffs);
+    app.full_fragmap = cli.full;
+    app.fragmap = compute_fragmap(&app.commits[..n_regular], &extra_diffs, cli.full);
     app.selection_index = select_initial_index(&app.commits);
 
     loop {
@@ -249,7 +260,7 @@ fn reload_commits(app: &mut AppState) {
         commits.push(d.commit.clone());
     }
 
-    let fragmap = compute_fragmap(&commits[..n_regular], &extra_diffs);
+    let fragmap = compute_fragmap(&commits[..n_regular], &extra_diffs, app.full_fragmap);
 
     app.selection_index = select_initial_index(&commits);
     app.commits = commits;

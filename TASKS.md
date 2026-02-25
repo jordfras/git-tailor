@@ -36,7 +36,7 @@ Guidelines:
   the current inverse-color style is hard to read — use a subtler approach such
   as a bold/bright foreground, a dim background tint, or a side marker (Flags:
   V4)
-- [ ] T083 P2 feat - Add CLI flag `--no-dedup-columns` (or similar) to disable
+- [X] T083 P2 feat - Add CLI flag `--no-dedup-columns` (or similar) to disable
   deduplication of identical hunk-group columns in the fragmap view, useful for
   debugging and understanding the raw cluster layout (Flags: V4)
 
