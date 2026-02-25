@@ -46,7 +46,7 @@ Guidelines:
   render function (Flags: V2)
 - [X] T024 P0 feat - Render table with "SHA" and "Title" column headers (Flags:
   V2)
-- [ ] T025 P0 feat - Render commits oldest-to-newest with short SHA (7 chars)
+- [X] T025 P0 feat - Render commits oldest-to-newest with short SHA (7 chars)
   and summary (Flags: V2)
 - [ ] T026 P0 feat - Highlight selected row with different color/style (Flags:
   V2)
