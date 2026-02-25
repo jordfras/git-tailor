@@ -3,7 +3,7 @@
 use crate::app::AppState;
 use crate::fragmap::{self, TouchKind};
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
@@ -32,6 +32,23 @@ const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
+
+/// Pre-computed layout information shared between rendering functions.
+struct LayoutInfo {
+    table_area: Rect,
+    footer_area: Rect,
+    h_scrollbar_area: Option<Rect>,
+    available_height: usize,
+    has_v_scrollbar: bool,
+    visible_clusters: Vec<usize>,
+    display_clusters: Vec<usize>,
+    fragmap_col_width: u16,
+    title_width: u16,
+    fragmap_available_width: usize,
+    h_scroll_offset: usize,
+    visual_selection: usize,
+    scroll_offset: usize,
+}
 /// Determine a commit's relationship to the earliest earlier commit in a cluster.
 ///
 /// Returns None if the commit doesn't touch the cluster or no earlier commit does.
@@ -119,7 +136,37 @@ fn fragmap_connector_content(
 ///
 /// Takes application state and renders the commit list to the terminal frame.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
-    // Determine if fragmap needs horizontal scrolling (pre-compute for layout)
+    let layout = compute_layout(app, frame.area());
+
+    let header = build_header(&layout);
+    let rows = build_rows(app, &layout);
+
+    let constraints = build_constraints(&layout);
+
+    let (scrollbar_area, content_area) = if layout.has_v_scrollbar {
+        let [sb, content] = Layout::horizontal([Constraint::Length(1), Constraint::Min(0)])
+            .areas(layout.table_area);
+        (Some(sb), content)
+    } else {
+        (None, layout.table_area)
+    };
+
+    let table = Table::new(rows, constraints).header(header);
+    frame.render_widget(table, content_area);
+
+    if let Some(sb_area) = scrollbar_area {
+        render_vertical_scrollbar(frame, sb_area, &layout, app.commits.len());
+    }
+
+    render_footer(frame, app, layout.footer_area);
+
+    if let Some(hs_area) = layout.h_scrollbar_area {
+        render_horizontal_scrollbar(frame, hs_area, content_area, &layout);
+    }
+}
+
+/// Compute all layout dimensions, scroll offsets, and visible cluster indices.
+fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     let visible_cluster_count = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
             .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
@@ -128,7 +175,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         0
     };
 
-    let frame_area = frame.area();
     let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1) as usize;
     let needs_h_scrollbar =
         visible_cluster_count > 0 && visible_cluster_count > preliminary_fragmap_width;
@@ -147,7 +193,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         (t, None, f)
     };
 
-    // Compute effective table width accounting for vertical scrollbar
     let available_height = table_area.height.saturating_sub(1) as usize;
     let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
     let effective_width = if has_v_scrollbar {
@@ -156,7 +201,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         table_area.width
     };
 
-    // Determine which cluster columns are non-empty (at least one commit touches them)
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
             .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
@@ -165,14 +209,14 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         vec![]
     };
 
-    // Apply horizontal scroll: determine how many cluster columns fit
-    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
+    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize;
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
             .saturating_sub(fragmap_available_width.max(1)),
     );
     app.fragmap_scroll_offset = h_scroll_offset;
+
     let display_clusters: Vec<usize> = if visible_clusters.is_empty() {
         vec![]
     } else {
@@ -189,28 +233,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         0
     };
 
-    let (header_cells, constraints) = if fragmap_col_width > 0 {
-        (
-            vec![
-                Cell::from("SHA"),
-                Cell::from("Title"),
-                Cell::from("Hunk groups"),
-            ],
-            vec![
-                Constraint::Length(10),
-                Constraint::Length(title_width),
-                Constraint::Length(fragmap_col_width),
-            ],
-        )
-    } else {
-        (
-            vec![Cell::from("SHA"), Cell::from("Title")],
-            vec![Constraint::Length(10), Constraint::Min(20)],
-        )
-    };
-    let header = Row::new(header_cells).style(HEADER_STYLE);
-
-    // Map selection_index to visual position depending on display order
     let visual_selection = if app.reverse {
         app.commits
             .len()
@@ -220,7 +242,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         app.selection_index
     };
 
-    // Calculate scroll offset to keep visual selection visible
     let scroll_offset =
         if app.commits.is_empty() || available_height == 0 || visual_selection < available_height {
             0
@@ -228,28 +249,108 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
             visual_selection.saturating_sub(available_height - 1)
         };
 
-    // Build commits in display order
+    LayoutInfo {
+        table_area,
+        footer_area,
+        h_scrollbar_area,
+        available_height,
+        has_v_scrollbar,
+        visible_clusters,
+        display_clusters,
+        fragmap_col_width,
+        title_width,
+        fragmap_available_width,
+        h_scroll_offset,
+        visual_selection,
+        scroll_offset,
+    }
+}
+
+fn build_header(layout: &LayoutInfo) -> Row<'static> {
+    let cells = if layout.fragmap_col_width > 0 {
+        vec![
+            Cell::from("SHA"),
+            Cell::from("Title"),
+            Cell::from("Hunk groups"),
+        ]
+    } else {
+        vec![Cell::from("SHA"), Cell::from("Title")]
+    };
+    Row::new(cells).style(HEADER_STYLE)
+}
+
+fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
+    if layout.fragmap_col_width > 0 {
+        vec![
+            Constraint::Length(10),
+            Constraint::Length(layout.title_width),
+            Constraint::Length(layout.fragmap_col_width),
+        ]
+    } else {
+        vec![Constraint::Length(10), Constraint::Min(20)]
+    }
+}
+
+/// Determine the text style for a non-selected commit row based on its
+/// relationship to the selected commit and its squashability.
+fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_idx: usize) -> Style {
+    match fragmap.commit_relation(selection_idx, commit_idx) {
+        Some(fragmap::SquashRelation::Conflicting) => Style::new().fg(COLOR_CONFLICTING),
+        Some(fragmap::SquashRelation::Squashable) => Style::new().fg(COLOR_SQUASHABLE),
+        _ => {
+            if fragmap.is_fully_squashable(commit_idx) {
+                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+            } else {
+                Style::default()
+            }
+        }
+    }
+}
+
+/// Build a single fragmap cell from the visible cluster columns.
+fn build_fragmap_cell<'a>(
+    fragmap: &fragmap::FragMap,
+    commit_idx: usize,
+    display_clusters: &[usize],
+) -> Cell<'a> {
+    let spans: Vec<Span> = display_clusters
+        .iter()
+        .map(|&cluster_idx| {
+            if let Some((symbol, style)) = fragmap_cell_content(fragmap, commit_idx, cluster_idx) {
+                Span::styled(symbol, style)
+            } else if let Some((symbol, style)) =
+                fragmap_connector_content(fragmap, commit_idx, cluster_idx)
+            {
+                Span::styled(symbol, style)
+            } else {
+                Span::raw(" ")
+            }
+        })
+        .collect();
+    Cell::from(Line::from(spans))
+}
+
+/// Build all visible table rows.
+fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let display_commits: Vec<&crate::CommitInfo> = if app.reverse {
         app.commits.iter().rev().collect()
     } else {
         app.commits.iter().collect()
     };
 
-    // Slice to visible range
     let visible_commits = if display_commits.is_empty() {
         &display_commits[..]
     } else {
-        let end = (scroll_offset + available_height).min(display_commits.len());
-        &display_commits[scroll_offset..end]
+        let end = (layout.scroll_offset + layout.available_height).min(display_commits.len());
+        &display_commits[layout.scroll_offset..end]
     };
 
-    let rows: Vec<Row> = visible_commits
+    visible_commits
         .iter()
         .enumerate()
         .map(|(visible_index, commit)| {
-            let visual_index = scroll_offset + visible_index;
+            let visual_index = layout.scroll_offset + visible_index;
 
-            // Map visual_index to commit_idx in fragmap (chronological order)
             let commit_idx_in_fragmap = if app.reverse {
                 app.commits
                     .len()
@@ -261,28 +362,9 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-            // Determine text style: selection-related highlight > fully-squashable > default
-            let text_style = if visual_index != visual_selection {
+            let text_style = if visual_index != layout.visual_selection {
                 if let Some(ref fm) = app.fragmap {
-                    match fm.commit_relation(app.selection_index, commit_idx_in_fragmap) {
-                        Some(fragmap::SquashRelation::Conflicting) => {
-                            Style::new().fg(COLOR_CONFLICTING)
-                        }
-                        Some(fragmap::SquashRelation::Squashable) => {
-                            Style::new().fg(COLOR_SQUASHABLE)
-                        }
-                        _ => {
-                            if app
-                                .fragmap
-                                .as_ref()
-                                .is_some_and(|fm| fm.is_fully_squashable(commit_idx_in_fragmap))
-                            {
-                                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
-                            } else {
-                                Style::default()
-                            }
-                        }
-                    }
+                    commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
                 } else {
                     Style::default()
                 }
@@ -295,74 +377,28 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
                 Cell::from(Span::styled(commit.summary.clone(), text_style)),
             ];
 
-            // Add single fragmap cell composed of per-cluster spans
             if let Some(ref fragmap) = app.fragmap {
-                if !display_clusters.is_empty() {
-                    let spans: Vec<Span> = display_clusters
-                        .iter()
-                        .map(|&cluster_idx| {
-                            if let Some((symbol, style)) =
-                                fragmap_cell_content(fragmap, commit_idx_in_fragmap, cluster_idx)
-                            {
-                                Span::styled(symbol, style)
-                            } else if let Some((symbol, style)) = fragmap_connector_content(
-                                fragmap,
-                                commit_idx_in_fragmap,
-                                cluster_idx,
-                            ) {
-                                Span::styled(symbol, style)
-                            } else {
-                                Span::raw(" ")
-                            }
-                        })
-                        .collect();
-                    cells.push(Cell::from(Line::from(spans)));
+                if !layout.display_clusters.is_empty() {
+                    cells.push(build_fragmap_cell(
+                        fragmap,
+                        commit_idx_in_fragmap,
+                        &layout.display_clusters,
+                    ));
                 }
             }
 
             let row = Row::new(cells);
-
-            if visual_index == visual_selection {
+            if visual_index == layout.visual_selection {
                 row.style(Style::default().reversed())
             } else {
                 row
             }
         })
-        .collect();
+        .collect()
+}
 
-    // Reserve left column for scrollbar when needed
-    let (scrollbar_area, content_area) = if has_v_scrollbar {
-        let [sb, content] =
-            Layout::horizontal([Constraint::Length(1), Constraint::Min(0)]).areas(table_area);
-        (Some(sb), content)
-    } else {
-        (None, table_area)
-    };
-
-    let table = Table::new(rows, constraints).header(header);
-
-    frame.render_widget(table, content_area);
-
-    // Render scrollbar if content exceeds visible area
-    if let Some(sb_area) = scrollbar_area {
-        let mut scrollbar_state =
-            ScrollbarState::new(app.commits.len().saturating_sub(1)).position(visual_selection);
-
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some("│"));
-
-        let sb_data_area = ratatui::layout::Rect {
-            y: sb_area.y + 1,
-            height: available_height as u16,
-            ..sb_area
-        };
-        frame.render_stateful_widget(scrollbar, sb_data_area, &mut scrollbar_state);
-    }
-
-    // Render footer with selected commit info
-    let footer_text = if app.commits.is_empty() {
+fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+    let text = if app.commits.is_empty() {
         String::from("No commits")
     } else {
         let commit = &app.commits[app.selection_index];
@@ -370,31 +406,57 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         format!(" {} {}/{}", commit.oid, position, app.commits.len())
     };
 
-    let footer = Paragraph::new(Span::styled(footer_text, FOOTER_STYLE)).style(FOOTER_STYLE);
-    frame.render_widget(footer, footer_area);
+    let footer = Paragraph::new(Span::styled(text, FOOTER_STYLE)).style(FOOTER_STYLE);
+    frame.render_widget(footer, area);
+}
 
-    // Render horizontal scrollbar for fragmap if needed
-    if let Some(hs_area) = h_scrollbar_area {
-        // Position scrollbar under the fragmap column
-        let fragmap_x = content_area.x + 10 + 1 + title_width + 1;
-        let hs_fragmap_area = ratatui::layout::Rect {
-            x: fragmap_x,
-            width: fragmap_col_width,
-            ..hs_area
-        };
+fn render_vertical_scrollbar(
+    frame: &mut Frame,
+    sb_area: Rect,
+    layout: &LayoutInfo,
+    commit_count: usize,
+) {
+    let mut state =
+        ScrollbarState::new(commit_count.saturating_sub(1)).position(layout.visual_selection);
 
-        let mut h_scrollbar_state = ScrollbarState::new(
-            visible_clusters
-                .len()
-                .saturating_sub(fragmap_available_width),
-        )
-        .position(h_scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"));
 
-        let h_scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some("─"));
+    let data_area = Rect {
+        y: sb_area.y + 1,
+        height: layout.available_height as u16,
+        ..sb_area
+    };
+    frame.render_stateful_widget(scrollbar, data_area, &mut state);
+}
 
-        frame.render_stateful_widget(h_scrollbar, hs_fragmap_area, &mut h_scrollbar_state);
-    }
+fn render_horizontal_scrollbar(
+    frame: &mut Frame,
+    hs_area: Rect,
+    content_area: Rect,
+    layout: &LayoutInfo,
+) {
+    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1;
+    let area = Rect {
+        x: fragmap_x,
+        width: layout.fragmap_col_width,
+        ..hs_area
+    };
+
+    let mut state = ScrollbarState::new(
+        layout
+            .visible_clusters
+            .len()
+            .saturating_sub(layout.fragmap_available_width),
+    )
+    .position(layout.h_scroll_offset);
+
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("─"));
+
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }
