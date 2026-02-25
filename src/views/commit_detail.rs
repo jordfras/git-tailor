@@ -202,8 +202,34 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         // Clamp scroll offset to valid range
         let scroll_offset = app.detail_scroll_offset.min(max_scroll);
 
+        // Split content area to make room for scrollbar
+        let scrollbar_width = if max_scroll > 0 { 1 } else { 0 };
+        let scrollbar_area = Rect {
+            x: content_area.x,
+            y: content_area.y,
+            width: scrollbar_width,
+            height: content_area.height,
+        };
+        let text_area = Rect {
+            x: content_area.x + scrollbar_width,
+            y: content_area.y,
+            width: content_area.width.saturating_sub(scrollbar_width),
+            height: content_area.height,
+        };
+
         let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, 0));
-        frame.render_widget(paragraph, content_area);
+        frame.render_widget(paragraph, text_area);
+
+        // Render scrollbar if content doesn't fit
+        if max_scroll > 0 && visible_height > 0 {
+            render_scrollbar(
+                frame,
+                scrollbar_area,
+                scroll_offset,
+                total_lines,
+                visible_height,
+            );
+        }
     }
 
     // Render footer
@@ -257,4 +283,51 @@ fn get_status_color(status: FileStatus) -> Color {
         FileStatus::Deleted => Color::Red,
         FileStatus::Renamed => Color::Cyan,
     }
+}
+
+/// Render a vertical scrollbar indicating scroll position.
+fn render_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll_offset: usize,
+    total_lines: usize,
+    visible_height: usize,
+) {
+    if area.height == 0 || total_lines == 0 {
+        return;
+    }
+
+    let scrollbar_height = area.height as usize;
+
+    // Calculate thumb size (proportional to visible content)
+    let thumb_size = ((visible_height as f64 / total_lines as f64) * scrollbar_height as f64)
+        .ceil()
+        .max(1.0) as usize;
+    let thumb_size = thumb_size.min(scrollbar_height);
+
+    // Calculate thumb position
+    let scrollable_height = scrollbar_height.saturating_sub(thumb_size);
+    let thumb_position = if total_lines > visible_height {
+        ((scroll_offset as f64 / (total_lines - visible_height) as f64) * scrollable_height as f64)
+            .round() as usize
+    } else {
+        0
+    };
+
+    // Build scrollbar lines
+    let mut scrollbar_lines = Vec::new();
+    for i in 0..scrollbar_height {
+        let char = if i >= thumb_position && i < thumb_position + thumb_size {
+            "█" // Solid block for thumb
+        } else {
+            "│" // Light vertical line for track
+        };
+        scrollbar_lines.push(Line::from(Span::styled(
+            char,
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+
+    let scrollbar = Paragraph::new(scrollbar_lines);
+    frame.render_widget(scrollbar, area);
 }
