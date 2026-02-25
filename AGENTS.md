@@ -94,6 +94,39 @@ src/
 
 This keeps the module tree clear and avoids the old `mod.rs` pattern.
 
+### Code Comments Convention
+
+**Avoid redundant comments.** Comments should explain *why* or provide context,
+not restate what the code already clearly expresses.
+
+❌ Bad (comment restates the obvious):
+```rust
+// Open repository from current directory
+let repo = git2::Repository::open(".")?;
+
+// Get HEAD as Oid
+let head = repo.head()?;
+```
+
+✅ Good (explains *why* or provides non-obvious context):
+```rust
+// Use current directory since we want to operate on the active repo
+let repo = git2::Repository::open(".")?;
+
+// HEAD might be detached, so target() can fail
+let head_oid = repo.head()?.target()?;
+```
+
+✅ Also good (doc comments for public APIs):
+```rust
+/// Find the merge-base (reference point) between HEAD and a given commit-ish.
+/// Returns the OID of the common ancestor.
+pub fn find_reference_point(commit_ish: &str) -> Result<String> {
+```
+
+When in doubt, let the code speak for itself. Use meaningful variable names and
+clear structure instead of comments.
+
 ## Key Domain Model
 
 ### Commit & Diff Types
