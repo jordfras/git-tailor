@@ -2,24 +2,33 @@
 
 use crate::app::AppState;
 use ratatui::{
-    layout::Constraint,
-    style::{Style, Stylize},
-    widgets::{Block, Borders, Cell, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
+    layout::{Constraint, Layout},
+    style::{Color, Style, Stylize},
+    text::Span,
+    widgets::{
+        Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        Table,
+    },
     Frame,
 };
 
 /// Number of characters to display for short SHA.
 const SHORT_SHA_LENGTH: usize = 8;
 
+const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
+const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
+
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
 pub fn render(app: &AppState, frame: &mut Frame) {
-    let header =
-        Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(Style::default().bold());
+    let [table_area, footer_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
-    // Calculate available height for table content (excluding borders and header)
-    let available_height = frame.area().height.saturating_sub(3) as usize; // 2 for borders, 1 for header
+    let header = Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(HEADER_STYLE);
+
+    // Available height for data rows: table area minus borders (2) and header (1)
+    let available_height = table_area.height.saturating_sub(3) as usize;
 
     // Calculate scroll offset to keep selection visible
     let scroll_offset = if app.commits.is_empty()
@@ -62,7 +71,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         .header(header)
         .block(Block::default().borders(Borders::ALL).title("Commits"));
 
-    frame.render_widget(table, frame.area());
+    frame.render_widget(table, table_area);
 
     // Render scrollbar if content exceeds visible area
     if !app.commits.is_empty() && app.commits.len() > available_height {
@@ -74,12 +83,23 @@ pub fn render(app: &AppState, frame: &mut Frame) {
             .end_symbol(None)
             .track_symbol(Some("│"));
 
-        // Constrain scrollbar to the data area (skip top border + header, bottom border)
         let scrollbar_area = ratatui::layout::Rect {
-            y: frame.area().y + 2,
+            y: table_area.y + 2,
             height: available_height as u16,
-            ..frame.area()
+            ..table_area
         };
         frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
     }
+
+    // Render footer with selected commit info
+    let footer_text = if app.commits.is_empty() {
+        String::from("No commits")
+    } else {
+        let commit = &app.commits[app.selection_index];
+        let position = app.commits.len() - app.selection_index;
+        format!(" {} {}/{}", commit.oid, position, app.commits.len())
+    };
+
+    let footer = Paragraph::new(Span::styled(footer_text, FOOTER_STYLE)).style(FOOTER_STYLE);
+    frame.render_widget(footer, footer_area);
 }
