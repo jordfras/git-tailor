@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Core Behavior & Constraints (V4)
-- [ ] T081 P0 feat - Exclude the reference point (merge-base) commit from the
+- [X] T081 P0 feat - Exclude the reference point (merge-base) commit from the
   commit list and all operations — it is shared with the target branch and must
   not be squashed, moved, or split (Flags: V4)
 

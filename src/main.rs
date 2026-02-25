@@ -65,6 +65,23 @@ fn main() -> Result<()> {
 
     let commits = repo::list_commits(&head_oid.to_string(), &reference_oid)?;
 
+    // Exclude the merge-base commit - it's shared with the target branch
+    // and must not be modified (squashed, moved, or split)
+    let commits: Vec<CommitInfo> = commits
+        .into_iter()
+        .filter(|c| c.oid != reference_oid)
+        .collect();
+
+    // Handle edge case: HEAD is at merge-base (no commits on current branch)
+    if commits.is_empty() {
+        eprintln!(
+            "No commits to display: HEAD is at the merge-base with '{}'",
+            cli.commit_ish
+        );
+        eprintln!("The current branch has no commits beyond the common ancestor.");
+        return Ok(());
+    }
+
     // Compute fragmap for visualization
     let fragmap = compute_fragmap(&commits);
 
