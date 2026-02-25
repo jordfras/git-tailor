@@ -3,6 +3,7 @@
 use crate::app::AppState;
 use ratatui::{
     layout::Constraint,
+    style::{Style, Stylize},
     widgets::{Block, Borders, Cell, Row, Table},
     Frame,
 };
@@ -19,12 +20,19 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     let rows: Vec<Row> = app
         .commits
         .iter()
-        .map(|commit| {
+        .enumerate()
+        .map(|(index, commit)| {
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
-            Row::new(vec![
+            let row = Row::new(vec![
                 Cell::from(short_sha),
                 Cell::from(commit.summary.clone()),
-            ])
+            ]);
+
+            if index == app.selection_index {
+                row.style(Style::default().reversed())
+            } else {
+                row
+            }
         })
         .collect();
 
