@@ -120,9 +120,34 @@ fn fragmap_connector_content(
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
-pub fn render(app: &AppState, frame: &mut Frame) {
-    let [table_area, footer_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+pub fn render(app: &mut AppState, frame: &mut Frame) {
+    // Determine if fragmap needs horizontal scrolling (pre-compute for layout)
+    let visible_cluster_count = if let Some(ref fragmap) = app.fragmap {
+        (0..fragmap.clusters.len())
+            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
+            .count()
+    } else {
+        0
+    };
+
+    let frame_area = frame.area();
+    let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1) as usize;
+    let needs_h_scrollbar =
+        visible_cluster_count > 0 && visible_cluster_count > preliminary_fragmap_width;
+
+    let (table_area, h_scrollbar_area, footer_area) = if needs_h_scrollbar {
+        let [t, hs, f] = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas(frame_area);
+        (t, Some(hs), f)
+    } else {
+        let [t, f] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame_area);
+        (t, None, f)
+    };
 
     // Determine which cluster columns are non-empty (at least one commit touches them)
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
@@ -134,17 +159,18 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     };
 
     // Apply horizontal scroll: determine how many cluster columns fit
-    let fragmap_available_width = table_area
-        .width
-        .saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
-    let scroll_offset = app.fragmap_scroll_offset.min(
-        visible_clusters.len().saturating_sub(fragmap_available_width.max(1)),
+    let fragmap_available_width = table_area.width.saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
+    let h_scroll_offset = app.fragmap_scroll_offset.min(
+        visible_clusters
+            .len()
+            .saturating_sub(fragmap_available_width.max(1)),
     );
+    app.fragmap_scroll_offset = h_scroll_offset;
     let display_clusters: Vec<usize> = if visible_clusters.is_empty() {
         vec![]
     } else {
-        let end = (scroll_offset + fragmap_available_width).min(visible_clusters.len());
-        visible_clusters[scroll_offset..end].to_vec()
+        let end = (h_scroll_offset + fragmap_available_width).min(visible_clusters.len());
+        visible_clusters[h_scroll_offset..end].to_vec()
     };
 
     let mut header_cells = vec![Cell::from("SHA"), Cell::from("Title")];
@@ -290,4 +316,30 @@ pub fn render(app: &AppState, frame: &mut Frame) {
 
     let footer = Paragraph::new(Span::styled(footer_text, FOOTER_STYLE)).style(FOOTER_STYLE);
     frame.render_widget(footer, footer_area);
+
+    // Render horizontal scrollbar for fragmap if needed
+    if let Some(hs_area) = h_scrollbar_area {
+        // Position scrollbar under the fragmap column (right side of content)
+        let fragmap_col_width = display_clusters.len() as u16;
+        let fragmap_x = content_area.x + content_area.width - fragmap_col_width;
+        let hs_fragmap_area = ratatui::layout::Rect {
+            x: fragmap_x,
+            width: fragmap_col_width,
+            ..hs_area
+        };
+
+        let mut h_scrollbar_state = ScrollbarState::new(
+            visible_clusters
+                .len()
+                .saturating_sub(fragmap_available_width),
+        )
+        .position(h_scroll_offset);
+
+        let h_scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("─"));
+
+        frame.render_stateful_widget(h_scrollbar, hs_fragmap_area, &mut h_scrollbar_state);
+    }
 }

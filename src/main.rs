@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 
     loop {
         terminal.draw(|frame| {
-            views::commit_list::render(&app, frame);
+            views::commit_list::render(&mut app, frame);
         })?;
 
         let event = event::read()?;
