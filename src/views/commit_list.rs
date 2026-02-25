@@ -291,19 +291,21 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
     }
 }
 
-/// Determine the text style for a non-selected commit row based on its
-/// relationship to the selected commit and its squashability.
+/// Determine the text style for a non-selected commit row.
+///
+/// Yellow: the selected commit is fully squashable and this commit is its
+/// squash target. DarkGray: this commit is itself fully squashable. Otherwise
+/// default.
 fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_idx: usize) -> Style {
-    match fragmap.commit_relation(selection_idx, commit_idx) {
-        Some(fragmap::SquashRelation::Conflicting) => Style::new().fg(COLOR_CONFLICTING),
-        Some(fragmap::SquashRelation::Squashable) => Style::new().fg(COLOR_SQUASHABLE),
-        _ => {
-            if fragmap.is_fully_squashable(commit_idx) {
-                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
-            } else {
-                Style::default()
-            }
-        }
+    if fragmap
+        .squash_target(selection_idx)
+        .is_some_and(|t| t == commit_idx)
+    {
+        Style::new().fg(COLOR_SQUASHABLE)
+    } else if fragmap.is_fully_squashable(commit_idx) {
+        Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+    } else {
+        Style::default()
     }
 }
 

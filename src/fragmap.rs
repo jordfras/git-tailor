@@ -125,56 +125,12 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff]) -> FragMap {
 }
 
 impl FragMap {
-    /// Determine the relationship between two commits across all shared clusters.
+    /// Find the single commit this commit can be squashed into, if any.
     ///
-    /// Returns `Conflicting` if any shared cluster is conflicting,
-    /// `Squashable` if all shared clusters are squashable, or `None` if the
-    /// commits share no clusters.
-    pub fn commit_relation(&self, commit_a: usize, commit_b: usize) -> Option<SquashRelation> {
-        if commit_a == commit_b {
-            return None;
-        }
-
-        let (earlier, later) = if commit_a < commit_b {
-            (commit_a, commit_b)
-        } else {
-            (commit_b, commit_a)
-        };
-
-        let mut has_shared = false;
-
-        for cluster_idx in 0..self.clusters.len() {
-            let a_touches = self.matrix[commit_a][cluster_idx] != TouchKind::None;
-            let b_touches = self.matrix[commit_b][cluster_idx] != TouchKind::None;
-
-            if !a_touches || !b_touches {
-                continue;
-            }
-
-            has_shared = true;
-
-            match self.cluster_relation(earlier, later, cluster_idx) {
-                SquashRelation::Conflicting => {
-                    return Some(SquashRelation::Conflicting);
-                }
-                SquashRelation::Squashable => {}
-                _ => {}
-            }
-        }
-
-        if has_shared {
-            Some(SquashRelation::Squashable)
-        } else {
-            None
-        }
-    }
-
-    /// Check if a commit is fully squashable into a single other commit.
-    ///
-    /// Returns true when every cluster the commit touches is squashable
-    /// (no conflicting commits in between) and all clusters point to the
-    /// same single target commit.
-    pub fn is_fully_squashable(&self, commit_idx: usize) -> bool {
+    /// Returns `Some(target_idx)` when every cluster the commit touches is
+    /// squashable (no conflicting commits in between) and all clusters
+    /// point to the same single earlier commit. Returns `None` otherwise.
+    pub fn squash_target(&self, commit_idx: usize) -> Option<usize> {
         let mut target: Option<usize> = None;
 
         for cluster_idx in 0..self.clusters.len() {
@@ -184,21 +140,24 @@ impl FragMap {
 
             let earlier = (0..commit_idx).find(|&i| self.matrix[i][cluster_idx] != TouchKind::None);
 
-            let Some(earlier_idx) = earlier else {
-                return false;
-            };
+            let earlier_idx = earlier?;
 
             match self.cluster_relation(earlier_idx, commit_idx, cluster_idx) {
                 SquashRelation::Squashable => match target {
                     None => target = Some(earlier_idx),
                     Some(t) if t == earlier_idx => {}
-                    Some(_) => return false,
+                    Some(_) => return None,
                 },
-                _ => return false,
+                _ => return None,
             }
         }
 
-        target.is_some()
+        target
+    }
+
+    /// Check if a commit is fully squashable into a single other commit.
+    pub fn is_fully_squashable(&self, commit_idx: usize) -> bool {
+        self.squash_target(commit_idx).is_some()
     }
 
     /// Determine the relationship between two commits for a specific cluster.
@@ -1321,59 +1280,64 @@ mod tests {
         }
     }
 
-    // commit_relation tests
+    // squash_target tests
 
     #[test]
-    fn commit_relation_no_shared_clusters() {
-        // c0 touches cluster 0, c1 touches cluster 1 — no overlap
+    fn squash_target_no_shared_clusters() {
+        // c0 touches cluster 0, c1 touches cluster 1 — no earlier commit in c1's cluster
         let fm = make_fragmap(&["c0", "c1"], 2, &[(0, 0), (1, 1)]);
-        assert_eq!(fm.commit_relation(0, 1), None);
+        assert_eq!(fm.squash_target(1), None);
     }
 
     #[test]
-    fn commit_relation_squashable_adjacent() {
-        // c0 and c1 both touch cluster 0, no commits in between
+    fn squash_target_adjacent() {
+        // c0 and c1 both touch cluster 0 — c1's target is c0
         let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0), (1, 0)]);
-        assert_eq!(fm.commit_relation(0, 1), Some(SquashRelation::Squashable));
+        assert_eq!(fm.squash_target(1), Some(0));
     }
 
     #[test]
-    fn commit_relation_squashable_with_gap() {
-        // c0 and c2 touch cluster 0, c1 does not
+    fn squash_target_with_gap() {
+        // c0 and c2 touch cluster 0, c1 does not — c2's target is c0
         let fm = make_fragmap(&["c0", "c1", "c2"], 1, &[(0, 0), (2, 0)]);
-        assert_eq!(fm.commit_relation(0, 2), Some(SquashRelation::Squashable));
+        assert_eq!(fm.squash_target(2), Some(0));
     }
 
     #[test]
-    fn commit_relation_conflicting() {
-        // c0, c1, c2 all touch cluster 0 — c0 and c2 have c1 in between
+    fn squash_target_conflicting_returns_none() {
+        // c0, c1, c2 all touch cluster 0 — c2 blocked by c1
         let fm = make_fragmap(&["c0", "c1", "c2"], 1, &[(0, 0), (1, 0), (2, 0)]);
-        assert_eq!(fm.commit_relation(0, 2), Some(SquashRelation::Conflicting));
+        assert_eq!(fm.squash_target(2), None);
     }
 
     #[test]
-    fn commit_relation_mixed_clusters_conflict_wins() {
-        // cluster 0: c0 and c2 squashable (c1 doesn't touch)
-        // cluster 1: c0, c1, c2 all touch — conflicting
-        let fm = make_fragmap(
-            &["c0", "c1", "c2"],
-            2,
-            &[(0, 0), (2, 0), (0, 1), (1, 1), (2, 1)],
-        );
-        assert_eq!(fm.commit_relation(0, 2), Some(SquashRelation::Conflicting));
+    fn squash_target_multiple_clusters_same_target() {
+        // c0 and c1 share clusters 0 and 1 — target is c0
+        let fm = make_fragmap(&["c0", "c1"], 2, &[(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(fm.squash_target(1), Some(0));
     }
 
     #[test]
-    fn commit_relation_is_symmetric() {
+    fn squash_target_multiple_clusters_different_targets() {
+        // cluster 0: c0 and c2 → target c0
+        // cluster 1: c1 and c2 → target c1
+        // c2 has divergent targets → None
+        let fm = make_fragmap(&["c0", "c1", "c2"], 2, &[(0, 0), (1, 1), (2, 0), (2, 1)]);
+        assert_eq!(fm.squash_target(2), None);
+    }
+
+    #[test]
+    fn squash_target_earliest_commit_returns_none() {
+        // c0 is the earliest — nothing earlier to squash into
         let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0), (1, 0)]);
-        assert_eq!(fm.commit_relation(0, 1), fm.commit_relation(1, 0));
+        assert_eq!(fm.squash_target(0), None);
     }
 
     #[test]
-    fn commit_relation_same_commit() {
-        // A commit compared with itself — early-returns None
-        let fm = make_fragmap(&["c0"], 1, &[(0, 0)]);
-        assert_eq!(fm.commit_relation(0, 0), None);
+    fn squash_target_no_clusters_touched() {
+        // c1 doesn't touch any cluster
+        let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0)]);
+        assert_eq!(fm.squash_target(1), None);
     }
 
     // is_fully_squashable tests
