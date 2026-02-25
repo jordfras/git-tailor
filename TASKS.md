@@ -90,7 +90,7 @@ Guidelines:
 ## Fragmap — Span Extraction (V3)
 - [X] T047 P0 feat - Add FileSpan type and extract_spans function in fragmap
   module (Flags: V3)
-- [ ] T048 P1 feat - Add unit tests for span extraction (Flags: V3)
+- [X] T048 P1 feat - Add unit tests for span extraction (Flags: V3)
 
 ## Fragmap — Matrix Generation (V3)
 - [ ] T049 P0 feat - Build fragmap matrix: commits x chunks with TouchKind
