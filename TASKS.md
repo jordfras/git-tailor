@@ -52,7 +52,7 @@ Guidelines:
   V2)
 - [X] T027 P0 feat - Update main.rs to initialize terminal with crossterm
   backend (Flags: V2)
-- [ ] T028 P0 feat - Implement main event loop: draw, handle input, update state
+- [X] T028 P0 feat - Implement main event loop: draw, handle input, update state
   (Flags: V2)
 - [ ] T029 P0 feat - Call list_commits with HEAD and reference point from CLI
   arg (Flags: V2)
