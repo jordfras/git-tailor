@@ -172,14 +172,14 @@ pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
     CommitInfo {
         oid: oid.to_string(),
         summary: summary.to_string(),
-        author: "Test Author <test@example.com>".to_string(),
-        date: "2024-01-15 10:30:00".to_string(),
+        author: Some("Test Author".to_string()),
+        date: Some("1705318200".to_string()),
         parent_oids: vec!["parent123".to_string()],
         message: summary.to_string(),
-        author_email: "test@example.com".to_string(),
-        author_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
-        committer: "Test Committer".to_string(),
-        committer_email: "committer@example.com".to_string(),
-        commit_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
+        author_email: Some("test@example.com".to_string()),
+        author_date: Some(time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap()),
+        committer: Some("Test Committer".to_string()),
+        committer_email: Some("committer@example.com".to_string()),
+        commit_date: Some(time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap()),
     }
 }

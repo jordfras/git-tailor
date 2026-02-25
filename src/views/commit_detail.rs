@@ -80,42 +80,47 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         }
 
         content.push(Line::from(""));
-        content.push(Line::from(vec![
-            Span::styled("Author: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{} <{}>", selected.author, selected.author_email)),
-        ]));
+        if let (Some(author), Some(author_email)) = (&selected.author, &selected.author_email) {
+            content.push(Line::from(vec![
+                Span::styled("Author: ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{} <{}>", author, author_email)),
+            ]));
 
-        // Format dates as "YYYY-MM-DD HH:MM:SS ±HHMM"
-        let format = time::format_description::parse(
-            "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
-        ).unwrap();
+            // Format dates as "YYYY-MM-DD HH:MM:SS ±HHMM"
+            let fmt = time::format_description::parse(
+                "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
+            ).unwrap();
 
-        let author_date_formatted = selected
-            .author_date
-            .format(&format)
-            .unwrap_or_else(|_| String::from("Invalid date"));
+            if let Some(author_date) = &selected.author_date {
+                let formatted = author_date
+                    .format(&fmt)
+                    .unwrap_or_else(|_| String::from("Invalid date"));
+                content.push(Line::from(vec![
+                    Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
+                    Span::raw(formatted),
+                ]));
+            }
 
-        let commit_date_formatted = selected
-            .commit_date
-            .format(&format)
-            .unwrap_or_else(|_| String::from("Invalid date"));
+            if let (Some(committer), Some(committer_email)) =
+                (&selected.committer, &selected.committer_email)
+            {
+                content.push(Line::from(""));
+                content.push(Line::from(vec![
+                    Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
+                    Span::raw(format!("{} <{}>", committer, committer_email)),
+                ]));
+            }
 
-        content.push(Line::from(vec![
-            Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
-            Span::raw(author_date_formatted),
-        ]));
-        content.push(Line::from(""));
-        content.push(Line::from(vec![
-            Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!(
-                "{} <{}>",
-                selected.committer, selected.committer_email
-            )),
-        ]));
-        content.push(Line::from(vec![
-            Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
-            Span::raw(commit_date_formatted),
-        ]));
+            if let Some(commit_date) = &selected.commit_date {
+                let formatted = commit_date
+                    .format(&fmt)
+                    .unwrap_or_else(|_| String::from("Invalid date"));
+                content.push(Line::from(vec![
+                    Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
+                    Span::raw(formatted),
+                ]));
+            }
+        }
 
         // Add file list with status indicators
         let diff_opt = match selected.oid.as_str() {

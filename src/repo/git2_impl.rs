@@ -745,15 +745,15 @@ fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
     CommitInfo {
         oid: commit.id().to_string(),
         summary: commit.summary().unwrap_or("").to_string(),
-        author: commit.author().name().unwrap_or("").to_string(),
-        date: commit.time().seconds().to_string(),
+        author: commit.author().name().map(|s| s.to_string()),
+        date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
         message: commit.message().unwrap_or("").to_string(),
-        author_email: commit.author().email().unwrap_or("").to_string(),
-        author_date: git_time_to_offset_datetime(author_time),
-        committer: commit.committer().name().unwrap_or("").to_string(),
-        committer_email: commit.committer().email().unwrap_or("").to_string(),
-        commit_date: git_time_to_offset_datetime(commit_time),
+        author_email: commit.author().email().map(|s| s.to_string()),
+        author_date: Some(git_time_to_offset_datetime(author_time)),
+        committer: commit.committer().name().map(|s| s.to_string()),
+        committer_email: commit.committer().email().map(|s| s.to_string()),
+        commit_date: Some(git_time_to_offset_datetime(commit_time)),
     }
 }
 
@@ -836,15 +836,15 @@ fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
     CommitInfo {
         oid: oid.to_string(),
         summary: summary.to_string(),
-        author: String::new(),
-        date: String::new(),
+        author: None,
+        date: None,
         parent_oids: vec![],
         message: summary.to_string(),
-        author_email: String::new(),
-        author_date: time::OffsetDateTime::UNIX_EPOCH,
-        committer: String::new(),
-        committer_email: String::new(),
-        commit_date: time::OffsetDateTime::UNIX_EPOCH,
+        author_email: None,
+        author_date: None,
+        committer: None,
+        committer_email: None,
+        commit_date: None,
     }
 }
 

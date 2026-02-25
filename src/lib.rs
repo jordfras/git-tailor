@@ -28,21 +28,23 @@ pub mod views;
 pub struct CommitInfo {
     pub oid: String,
     pub summary: String,
-    pub author: String,
-    pub date: String,
+    /// Author name. `None` for synthetic pseudo-commits (staged/unstaged changes).
+    pub author: Option<String>,
+    /// Raw commit timestamp (seconds since epoch). `None` for synthetic pseudo-commits.
+    pub date: Option<String>,
     pub parent_oids: Vec<String>,
     /// Full commit message including body (all lines).
     pub message: String,
-    /// Author email address.
-    pub author_email: String,
-    /// Author date with timezone.
-    pub author_date: time::OffsetDateTime,
-    /// Committer name.
-    pub committer: String,
-    /// Committer email address.
-    pub committer_email: String,
-    /// Commit date with timezone.
-    pub commit_date: time::OffsetDateTime,
+    /// Author email address. `None` for synthetic pseudo-commits.
+    pub author_email: Option<String>,
+    /// Author date with timezone. `None` for synthetic pseudo-commits.
+    pub author_date: Option<time::OffsetDateTime>,
+    /// Committer name. `None` for synthetic pseudo-commits.
+    pub committer: Option<String>,
+    /// Committer email address. `None` for synthetic pseudo-commits.
+    pub committer_email: Option<String>,
+    /// Commit date with timezone. `None` for synthetic pseudo-commits.
+    pub commit_date: Option<time::OffsetDateTime>,
 }
 
 /// The kind of change a diff line represents.

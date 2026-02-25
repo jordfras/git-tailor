@@ -68,12 +68,12 @@ fn test_list_commits_metadata() {
 
     assert_eq!(commits.len(), 2);
 
-    assert_eq!(commits[0].author, "Test User");
-    assert!(!commits[0].date.is_empty());
+    assert_eq!(commits[0].author.as_deref(), Some("Test User"));
+    assert!(commits[0].date.as_deref().map_or(false, |d| !d.is_empty()));
     assert_eq!(commits[0].parent_oids.len(), 0);
 
-    assert_eq!(commits[1].author, "Test User");
-    assert!(!commits[1].date.is_empty());
+    assert_eq!(commits[1].author.as_deref(), Some("Test User"));
+    assert!(commits[1].date.as_deref().map_or(false, |d| !d.is_empty()));
     assert_eq!(commits[1].parent_oids.len(), 1);
     assert_eq!(commits[1].parent_oids[0], c1_str);
 }

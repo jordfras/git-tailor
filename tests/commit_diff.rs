@@ -178,7 +178,7 @@ fn test_commit_diff_metadata() {
 
     assert_eq!(diff.commit.oid, c1.to_string());
     assert_eq!(diff.commit.summary, "Test commit");
-    assert_eq!(diff.commit.author, "Test User");
-    assert!(!diff.commit.date.is_empty());
+    assert_eq!(diff.commit.author.as_deref(), Some("Test User"));
+    assert!(diff.commit.date.as_deref().map_or(false, |d| !d.is_empty()));
     assert_eq!(diff.commit.parent_oids.len(), 0);
 }
