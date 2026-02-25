@@ -1,7 +1,8 @@
 // Quick utility to dump a fragmap matrix for comparison with the original fragmap tool.
 // Usage: cargo run --example dump_fragmap -- <commit-ish>
 
-use git_tailor::{fragmap, repo, CommitInfo};
+use git_tailor::repo::{Git2Repo, GitRepo};
+use git_tailor::{fragmap, CommitInfo};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -10,12 +11,13 @@ fn main() {
         .expect("Usage: dump_fragmap <commit-ish> [--spg-debug]");
     let spg_debug = args.iter().any(|a| a == "--spg-debug");
 
-    let git_repo = repo::try_open_repo(std::env::current_dir().unwrap()).expect("open repo");
-    let reference_oid =
-        repo::find_reference_point(&git_repo, commit_ish).expect("find reference point");
+    let git_repo = Git2Repo::open(std::env::current_dir().unwrap()).expect("open repo");
+    let reference_oid = git_repo
+        .find_reference_point(commit_ish)
+        .expect("find reference point");
 
-    let head_ref = git_repo.head().unwrap().target().unwrap();
-    let commits = repo::list_commits(&git_repo, &head_ref.to_string(), &reference_oid).unwrap();
+    let head_ref = git_repo.head_oid().unwrap();
+    let commits = git_repo.list_commits(&head_ref, &reference_oid).unwrap();
 
     let commits: Vec<CommitInfo> = commits
         .into_iter()
@@ -25,7 +27,7 @@ fn main() {
     // Get diffs (zero-context for fragmap analysis)
     let commit_diffs: Vec<_> = commits
         .iter()
-        .filter_map(|commit| repo::commit_diff_for_fragmap(&git_repo, &commit.oid).ok())
+        .filter_map(|commit| git_repo.commit_diff_for_fragmap(&commit.oid).ok())
         .collect();
 
     // Dump spans per commit

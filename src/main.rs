@@ -6,10 +6,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use git2::Repository;
+use git_tailor::repo::{Git2Repo, GitRepo};
 use git_tailor::{
     app::{AppMode, AppState},
-    event, fragmap, repo, views, CommitDiff, CommitInfo,
+    event, fragmap, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -49,14 +49,14 @@ struct Cli {
 /// of the regular commit diffs so the fragmap matrix rows match the ordering in
 /// `AppState::commits`.
 fn compute_fragmap(
-    git_repo: &Repository,
+    git_repo: &impl GitRepo,
     regular_commits: &[CommitInfo],
     extra_diffs: &[CommitDiff],
     full: bool,
 ) -> Option<fragmap::FragMap> {
     let mut commit_diffs: Vec<CommitDiff> = regular_commits
         .iter()
-        .filter_map(|commit| repo::commit_diff_for_fragmap(git_repo, &commit.oid).ok())
+        .filter_map(|commit| git_repo.commit_diff_for_fragmap(&commit.oid).ok())
         .collect();
 
     // If we couldn't get all diffs, return None
@@ -71,14 +71,11 @@ fn compute_fragmap(
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let git_repo = repo::try_open_repo(std::env::current_dir()?)?;
-    let reference_oid = repo::find_reference_point(&git_repo, &cli.commit_ish)?;
-    let head_oid = git_repo
-        .head()?
-        .target()
-        .ok_or_else(|| anyhow::anyhow!("HEAD does not point to a commit"))?;
+    let git_repo = Git2Repo::open(std::env::current_dir()?)?;
+    let reference_oid = git_repo.find_reference_point(&cli.commit_ish)?;
+    let head_oid = git_repo.head_oid()?;
 
-    let commits = repo::list_commits(&git_repo, &head_oid.to_string(), &reference_oid)?;
+    let commits = git_repo.list_commits(&head_oid, &reference_oid)?;
 
     // Exclude the merge-base commit - it's shared with the target branch
     // and must not be modified (squashed, moved, or split)
@@ -111,10 +108,10 @@ fn main() -> Result<()> {
     // bottom of the commit list (newest position). Recompute fragmap with
     // the extra diffs so their hunk overlap with commits is visible.
     let mut extra_diffs: Vec<CommitDiff> = Vec::new();
-    if let Some(d) = repo::staged_diff(&git_repo) {
+    if let Some(d) = git_repo.staged_diff() {
         extra_diffs.push(d);
     }
-    if let Some(d) = repo::unstaged_diff(&git_repo) {
+    if let Some(d) = git_repo.unstaged_diff() {
         extra_diffs.push(d);
     }
     let n_regular = app.commits.len();
@@ -226,13 +223,13 @@ fn select_initial_index(commits: &[CommitInfo]) -> usize {
 ///
 /// Keeps the current selection clamped to the new list bounds. Resets
 /// detail scroll so a stale offset does not exceed the new content height.
-fn reload_commits(git_repo: &Repository, app: &mut AppState) {
-    let head_oid = match git_repo.head().ok().and_then(|h| h.target()) {
-        Some(oid) => oid.to_string(),
-        None => return,
+fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
+    let head_oid = match git_repo.head_oid() {
+        Ok(oid) => oid,
+        Err(_) => return,
     };
 
-    let commits = match repo::list_commits(git_repo, &head_oid, &app.reference_oid) {
+    let commits = match git_repo.list_commits(&head_oid, &app.reference_oid) {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -244,10 +241,10 @@ fn reload_commits(git_repo: &Repository, app: &mut AppState) {
 
     // Append staged/unstaged as synthetic rows, same as at startup.
     let mut extra_diffs: Vec<CommitDiff> = Vec::new();
-    if let Some(d) = repo::staged_diff(git_repo) {
+    if let Some(d) = git_repo.staged_diff() {
         extra_diffs.push(d);
     }
-    if let Some(d) = repo::unstaged_diff(git_repo) {
+    if let Some(d) = git_repo.unstaged_diff() {
         extra_diffs.push(d);
     }
 
@@ -272,7 +269,7 @@ fn reload_commits(git_repo: &Repository, app: &mut AppState) {
 }
 
 /// Render the main view with split screen (commit list on left, detail on right).
-fn render_main_view(git_repo: &Repository, app: &mut AppState, frame: &mut ratatui::Frame) {
+fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::Frame) {
     let area = frame.area();
     let split_x = 72; // SHA(10) + sep(1) + title(60) + sep(1)
     let left_width = split_x.min(area.width);
