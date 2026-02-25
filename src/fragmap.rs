@@ -2513,4 +2513,419 @@ mod tests {
         let fm = make_fragmap(&["c0", "c1"], 2, &[(0, 0), (0, 1), (1, 1)]);
         assert!(fm.shares_cluster_with(0, 1));
     }
+
+    // =========================================================
+    // SpgSpan::overlap() — the fundamental SPG primitive
+    // =========================================================
+
+    #[test]
+    fn spgspan_overlap_same_start_interval() {
+        // [0,5) and [0,10): same start → Interval
+        let a = SpgSpan { start: 0, end: 5 };
+        let b = SpgSpan { start: 0, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Interval);
+    }
+
+    #[test]
+    fn spgspan_overlap_same_end_interval() {
+        // [3,10) and [0,10): same end → Interval
+        let a = SpgSpan { start: 3, end: 10 };
+        let b = SpgSpan { start: 0, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Interval);
+    }
+
+    #[test]
+    fn spgspan_overlap_partial_interval() {
+        // [3,8) and [5,12): partial overlap, no shared boundary → Interval
+        let a = SpgSpan { start: 3, end: 8 };
+        let b = SpgSpan { start: 5, end: 12 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Interval);
+    }
+
+    #[test]
+    fn spgspan_overlap_contained_interval() {
+        // [2,7) contained in [0,10), no shared boundary → Interval
+        let a = SpgSpan { start: 2, end: 7 };
+        let b = SpgSpan { start: 0, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Interval);
+    }
+
+    #[test]
+    fn spgspan_overlap_adjacent_is_none() {
+        // [3,5) and [5,8): end of a == start of b in a half-open interval.
+        // Condition: !(5<=5 || 8<=3) = !(true) = false; (3==5||5==8) = false → None
+        let a = SpgSpan { start: 3, end: 5 };
+        let b = SpgSpan { start: 5, end: 8 };
+        assert_eq!(a.overlap(&b), SpgOverlap::None);
+    }
+
+    #[test]
+    fn spgspan_overlap_disjoint_is_none() {
+        let a = SpgSpan { start: 0, end: 3 };
+        let b = SpgSpan { start: 5, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::None);
+    }
+
+    #[test]
+    fn spgspan_overlap_empty_at_shared_start_is_point() {
+        // [5,5) (empty) and [5,10): same start fires → outer true, is_empty → Point
+        let a = SpgSpan { start: 5, end: 5 };
+        let b = SpgSpan { start: 5, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Point);
+    }
+
+    #[test]
+    fn spgspan_overlap_both_empty_same_position_is_point() {
+        let a = SpgSpan { start: 5, end: 5 };
+        let b = SpgSpan { start: 5, end: 5 };
+        assert_eq!(a.overlap(&b), SpgOverlap::Point);
+    }
+
+    #[test]
+    fn spgspan_overlap_empty_not_at_boundary_is_none() {
+        // Empty span [3,3) vs [5,10): no shared endpoint, not adjacent → None
+        let a = SpgSpan { start: 3, end: 3 };
+        let b = SpgSpan { start: 5, end: 10 };
+        assert_eq!(a.overlap(&b), SpgOverlap::None);
+    }
+
+    // =========================================================
+    // SpgSpan::from_old_hunk / from_new_hunk
+    // =========================================================
+
+    #[test]
+    fn from_old_hunk_pure_insertion_start_adjusted() {
+        // old_lines=0 means "insertion before old_start+1" → start is shifted +1
+        let h = HunkInfo {
+            old_start: 10,
+            old_lines: 0,
+            new_start: 10,
+            new_lines: 5,
+        };
+        let sp = SpgSpan::from_old_hunk(&h);
+        // start = 10+1=11, end = 11+0=11 (empty span signals insertion point)
+        assert_eq!(sp, SpgSpan { start: 11, end: 11 });
+    }
+
+    #[test]
+    fn from_new_hunk_pure_deletion_start_adjusted() {
+        // new_lines=0 means "pure deletion, no new lines" → start is shifted +1
+        let h = HunkInfo {
+            old_start: 10,
+            old_lines: 3,
+            new_start: 10,
+            new_lines: 0,
+        };
+        let sp = SpgSpan::from_new_hunk(&h);
+        // start = 10+1=11, end = 11+0=11 (empty span)
+        assert_eq!(sp, SpgSpan { start: 11, end: 11 });
+    }
+
+    #[test]
+    fn from_old_hunk_normal_no_adjustment() {
+        let h = HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        };
+        let sp = SpgSpan::from_old_hunk(&h);
+        assert_eq!(sp, SpgSpan { start: 10, end: 15 });
+    }
+
+    #[test]
+    fn from_new_hunk_normal_no_adjustment() {
+        let h = HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        };
+        let sp = SpgSpan::from_new_hunk(&h);
+        assert_eq!(sp, SpgSpan { start: 10, end: 18 });
+    }
+
+    // =========================================================
+    // spg_map_start / spg_map_end
+    // =========================================================
+
+    // Both functions use HunkInfo { old_start:10, old_lines:5, new_start:10, new_lines:8 }
+    // → from_old_hunk: [10,15), from_new_hunk: [10,18), delta = +3.
+
+    #[test]
+    fn spg_map_start_before_hunk_no_shift() {
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        // line=5 < old.end=15 → break, has_ref=false → no shift
+        assert_eq!(spg_map_start(5, &h), 5);
+    }
+
+    #[test]
+    fn spg_map_start_exactly_at_old_end_boundary() {
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        // line=15 NOT < 15 → ref_old=15, ref_new=18 → 15-15+18=18
+        assert_eq!(spg_map_start(15, &h), 18);
+    }
+
+    #[test]
+    fn spg_map_end_before_hunk_no_shift() {
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        // line=15, check=14 < old.end=15 → break, has_ref=false → no shift
+        assert_eq!(spg_map_end(15, &h), 15);
+    }
+
+    #[test]
+    fn spg_map_end_after_hunk_shifted() {
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        // line=20, check=19 NOT < 15 → ref_old=15, ref_new=18 → 20-15+18=23
+        assert_eq!(spg_map_end(20, &h), 23);
+    }
+
+    // =========================================================
+    // spg_moved_span edge cases
+    // =========================================================
+
+    #[test]
+    fn spg_moved_span_entirely_before_hunk_unchanged() {
+        // Span [1,5) with hunk old=[10,15): span ends before hunk → passes unchanged.
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        let result = spg_moved_span(&SpgSpan { start: 1, end: 5 }, &h);
+        assert_eq!(result, vec![SpgSpan { start: 1, end: 5 }]);
+    }
+
+    #[test]
+    fn spg_moved_span_entirely_after_hunk_shifted() {
+        // Span [20,25) with hunk old=[5,10), new=[5,15): delta +5.
+        // old.end=10, new.end=15. start: 20-10+15=25. end: 25-10+15=30.
+        let h = vec![HunkInfo {
+            old_start: 5,
+            old_lines: 5,
+            new_start: 5,
+            new_lines: 10,
+        }];
+        let result = spg_moved_span(&SpgSpan { start: 20, end: 25 }, &h);
+        assert_eq!(result, vec![SpgSpan { start: 25, end: 30 }]);
+    }
+
+    #[test]
+    fn spg_moved_span_entirely_consumed_by_deletion() {
+        // Span [10,15) with a hunk that deletes exactly [10,15).
+        // After split: neither fragment survives → empty.
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 0,
+        }];
+        let result = spg_moved_span(&SpgSpan { start: 10, end: 15 }, &h);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn spg_moved_span_split_around_hunk() {
+        // Span [5,20) with hunk old=[10,15), new=[10,18): split into before and after.
+        // [5,10) → unchanged. [15,20) → 15-15+18=18, 20-15+18=23.
+        let h = vec![HunkInfo {
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 8,
+        }];
+        let result = spg_moved_span(&SpgSpan { start: 5, end: 20 }, &h);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], SpgSpan { start: 5, end: 10 });
+        assert_eq!(result[1], SpgSpan { start: 18, end: 23 });
+    }
+
+    #[test]
+    fn spg_moved_span_pure_insertion_hunk_shifts_later_span() {
+        // Hunk: pure insertion at old_start=5, old_lines=0 → from_old_hunk gives [6,6) (empty).
+        // Span [10,15) starts after the empty old_span, so splits around [6,6):
+        //   s=10 >= old_end=6 → push (10,15) unchanged in split.
+        // Map: old.end=6, new.end=8 (5+3). ref_old=6, ref_new=8.
+        //   start: 10-6+8=12. end: 15-6+8=17.
+        let h = vec![HunkInfo {
+            old_start: 5,
+            old_lines: 0,
+            new_start: 5,
+            new_lines: 3,
+        }];
+        let result = spg_moved_span(&SpgSpan { start: 10, end: 15 }, &h);
+        assert_eq!(result, vec![SpgSpan { start: 12, end: 17 }]);
+    }
+
+    // =========================================================
+    // build_fragmap SPG edge cases
+    // =========================================================
+
+    #[test]
+    fn build_fragmap_pure_insertion_clusters_with_later_modifier() {
+        // c1 inserts 10 lines starting at position 5 (old_lines=0).
+        // c2 then modifies 3 lines starting at old position 7 (within c1's block).
+        // They overlap → must share a cluster.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 5, 0, 5, 10)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 7, 3, 7, 3)],
+            ),
+        ];
+        let fm = build_fragmap(&commits);
+        assert!(fm.shares_cluster_with(0, 1));
+    }
+
+    #[test]
+    fn build_fragmap_far_deletion_does_not_cluster_with_unrelated_modify() {
+        // c1 modifies lines 1-5 of one region.
+        // c2 only deletes lines 50-53 (far away, different region, new_lines=0).
+        // c2's deletion is far from c1 → separate clusters.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 1, 3, 1, 5)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![FileDiff {
+                    old_path: Some("f.rs".to_string()),
+                    new_path: Some("f.rs".to_string()),
+                    status: crate::DeltaStatus::Modified,
+                    hunks: vec![Hunk {
+                        old_start: 50,
+                        old_lines: 3,
+                        new_start: 50,
+                        new_lines: 0,
+                        lines: vec![],
+                    }],
+                }],
+            ),
+        ];
+        let fm = build_fragmap(&commits);
+        assert!(!fm.shares_cluster_with(0, 1));
+    }
+
+    #[test]
+    fn build_fragmap_file_rename_cluster_uses_new_path() {
+        // A commit that renames foo.rs → bar.rs. The cluster should track bar.rs.
+        let c1 = CommitDiff {
+            commit: make_commit_info_with_oid("c1"),
+            files: vec![FileDiff {
+                old_path: Some("foo.rs".to_string()),
+                new_path: Some("bar.rs".to_string()),
+                status: crate::DeltaStatus::Modified,
+                hunks: vec![Hunk {
+                    old_start: 5,
+                    old_lines: 3,
+                    new_start: 5,
+                    new_lines: 4,
+                    lines: vec![],
+                }],
+            }],
+        };
+        let fm = build_fragmap(&[c1]);
+        assert_eq!(fm.clusters.len(), 1);
+        assert_eq!(fm.clusters[0].spans[0].path, "bar.rs");
+    }
+
+    #[test]
+    fn build_fragmap_single_commit_two_regions_deduped_to_one_column() {
+        // One commit touching two non-overlapping regions of the same file.
+        // Both SPG paths have the same active-node set {c1} → deduplicated to 1 column.
+        let mut c1 = make_commit_diff(
+            "c1",
+            vec![make_file_diff(Some("f.rs"), Some("f.rs"), 1, 0, 1, 5)],
+        );
+        c1.files
+            .push(make_file_diff(Some("f.rs"), Some("f.rs"), 100, 0, 100, 5));
+        let fm = build_fragmap(&[c1]);
+        assert_eq!(fm.clusters.len(), 1);
+        assert_ne!(fm.matrix[0][0], TouchKind::None);
+    }
+
+    #[test]
+    fn build_fragmap_two_commits_separate_regions_not_deduped() {
+        // c1 and c2 each touch a distinct region → different activation patterns → 2 columns.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 1, 0, 1, 5)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 100, 0, 100, 5)],
+            ),
+        ];
+        let fm = build_fragmap(&commits);
+        assert_eq!(fm.clusters.len(), 2);
+    }
+
+    #[test]
+    fn build_fragmap_three_commits_sequential_on_same_region() {
+        // c1 introduces a block, c2 refines it, c3 refines it again.
+        // All three share a cluster; c1 and c3 are also related.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 10, 5, 10, 10)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 12, 3, 12, 3)],
+            ),
+            make_commit_diff(
+                "c3",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 11, 2, 11, 2)],
+            ),
+        ];
+        let fm = build_fragmap(&commits);
+        assert!(fm.shares_cluster_with(0, 1));
+        assert!(fm.shares_cluster_with(0, 2));
+        assert!(fm.shares_cluster_with(1, 2));
+    }
+
+    #[test]
+    fn build_fragmap_empty_span_does_not_panic() {
+        // A commit with a single-line addition (new_lines=1) followed by a
+        // commit that touches an adjacent but non-overlapping line.
+        // Regression guard: no panic or infinite loop in SPG construction.
+        let commits = vec![
+            make_commit_diff(
+                "c1",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 10, 1, 10, 1)],
+            ),
+            make_commit_diff(
+                "c2",
+                vec![make_file_diff(Some("f.rs"), Some("f.rs"), 20, 1, 20, 1)],
+            ),
+        ];
+        let fm = build_fragmap(&commits);
+        assert_eq!(fm.commits.len(), 2);
+    }
 }
