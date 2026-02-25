@@ -117,6 +117,10 @@ Guidelines:
   (Flags: V3)
 - [X] T059 P1 feat - Colorize SHA and title of commits where all touched
   clusters are squashable into the same single other commit (Flags: V3)
+- [X] T060 P1 feat - Highlight related commits when a commit is selected: color
+  SHA and title of squashable targets in yellow (COLOR_SQUASHABLE) and
+  conflicting commits in red (COLOR_CONFLICTING), matching the vertical
+  connector line colors (Flags: V3)
 
 ## Bugs
 - [x] T042 P0 bug - Commit list shows commits from repo start to reference point

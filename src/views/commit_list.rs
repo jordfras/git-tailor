@@ -120,43 +120,6 @@ fn fragmap_connector_content(
     }
 }
 
-/// Check if a commit is fully squashable into a single other commit.
-///
-/// Returns true when every cluster the commit touches is squashable (no
-/// conflicting commits in between) and all clusters point to the same
-/// single target commit.
-fn is_fully_squashable(fragmap: &fragmap::FragMap, commit_idx: usize) -> bool {
-    let mut target: Option<usize> = None;
-
-    for cluster_idx in 0..fragmap.clusters.len() {
-        if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
-            continue;
-        }
-
-        // Find the earliest earlier commit touching this cluster
-        let earlier = (0..commit_idx).find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
-
-        let Some(earlier_idx) = earlier else {
-            // No earlier commit in this cluster — this commit is the first
-            // toucher, so it can't be squashed into anything for this cluster
-            return false;
-        };
-
-        match fragmap::analyze_cluster_relation(fragmap, earlier_idx, commit_idx, cluster_idx) {
-            fragmap::SquashRelation::Squashable => {
-                match target {
-                    None => target = Some(earlier_idx),
-                    Some(t) if t == earlier_idx => {}
-                    Some(_) => return false, // different target
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    target.is_some()
-}
-
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
@@ -303,14 +266,31 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-            // Check if commit is fully squashable into one target
-            let squashable_style = app
-                .fragmap
-                .as_ref()
-                .is_some_and(|fm| is_fully_squashable(fm, commit_idx_in_fragmap));
-
-            let text_style = if squashable_style {
-                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+            // Determine text style: selection-related highlight > fully-squashable > default
+            let text_style = if visual_index != visual_selection {
+                if let Some(ref fm) = app.fragmap {
+                    match fm.commit_relation(app.selection_index, commit_idx_in_fragmap) {
+                        Some(fragmap::SquashRelation::Conflicting) => {
+                            Style::new().fg(COLOR_CONFLICTING)
+                        }
+                        Some(fragmap::SquashRelation::Squashable) => {
+                            Style::new().fg(COLOR_SQUASHABLE)
+                        }
+                        _ => {
+                            if app
+                                .fragmap
+                                .as_ref()
+                                .is_some_and(|fm| fm.is_fully_squashable(commit_idx_in_fragmap))
+                            {
+                                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+                            } else {
+                                Style::default()
+                            }
+                        }
+                    }
+                } else {
+                    Style::default()
+                }
             } else {
                 Style::default()
             };
