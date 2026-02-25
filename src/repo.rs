@@ -75,4 +75,17 @@ pub trait GitRepo {
     ///
     /// Returns `None` when the working tree is clean relative to the index.
     fn unstaged_diff(&self) -> Option<CommitDiff>;
+
+    /// Split a commit into one commit per changed file.
+    ///
+    /// Creates N new commits (one per file touched by `commit_oid`), each applying
+    /// only that file's changes. Rebases all commits between `commit_oid` (exclusive)
+    /// and `head_oid` (inclusive) onto the resulting commits, then fast-forwards the
+    /// branch ref to the new tip.
+    ///
+    /// Fails if:
+    /// - the commit has fewer than 2 changed files (nothing to split)
+    /// - staged or unstaged changes share file paths with the commit being split
+    /// - a rebase conflict occurs while rebuilding descendants
+    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
 }

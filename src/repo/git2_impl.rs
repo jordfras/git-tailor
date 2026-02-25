@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 
 use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 
@@ -196,6 +197,177 @@ impl GitRepo for Git2Repo {
             commit: synthetic_commit_info("unstaged", "Unstaged changes"),
             files,
         })
+    }
+
+    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
+        let repo = &self.inner;
+
+        let commit_git_oid =
+            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
+        let commit = repo.find_commit(commit_git_oid)?;
+
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+        }
+        let parent_commit = commit.parent(0)?;
+        let parent_tree = parent_commit.tree()?;
+        let commit_tree = commit.tree()?;
+
+        // Compute full diff to enumerate files and for the overlap check
+        let full_diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
+        let file_count = full_diff.deltas().len();
+
+        if file_count < 2 {
+            anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
+        }
+
+        // Collect the file paths touched by this commit
+        let commit_paths: HashSet<String> = full_diff
+            .deltas()
+            .filter_map(|d| {
+                d.new_file()
+                    .path()
+                    .or_else(|| d.old_file().path())
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
+            .collect();
+
+        // Dirty overlap check: refuse if staged/unstaged changes share any files
+        let mut overlapping: Vec<String> = Vec::new();
+        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
+            .into_iter()
+            .flatten()
+        {
+            for file in &synthetic_diff.files {
+                let path = file
+                    .new_path
+                    .as_deref()
+                    .or(file.old_path.as_deref())
+                    .unwrap_or("");
+                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
+                    overlapping.push(path.to_string());
+                }
+            }
+        }
+        if !overlapping.is_empty() {
+            overlapping.sort();
+            anyhow::bail!(
+                "Cannot split: staged/unstaged changes overlap with: {}",
+                overlapping.join(", ")
+            );
+        }
+
+        // Create one commit per file, each building on the previous
+        let mut current_base_oid = parent_commit.id();
+        for delta_idx in 0..file_count {
+            let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
+            let path = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .expect("delta has a path")
+                .to_string_lossy()
+                .into_owned();
+
+            // Diff from parent→commit scoped to this specific file
+            let mut opts = git2::DiffOptions::new();
+            opts.pathspec(&path);
+            let file_diff =
+                repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut opts))?;
+
+            let base_commit = repo.find_commit(current_base_oid)?;
+            let base_tree = base_commit.tree()?;
+
+            let mut new_index = repo.apply_to_tree(&base_tree, &file_diff, None)?;
+            if new_index.has_conflicts() {
+                anyhow::bail!("Conflict applying changes for file: {}", path);
+            }
+            let new_tree_oid = new_index.write_tree_to(repo)?;
+            let new_tree = repo.find_tree(new_tree_oid)?;
+
+            let author = commit.author();
+            let committer = commit.committer();
+            let message = format!(
+                "{} ({}/{})",
+                commit.summary().unwrap_or("split"),
+                delta_idx + 1,
+                file_count
+            );
+
+            let new_oid = repo.commit(
+                None,
+                &author,
+                &committer,
+                &message,
+                &new_tree,
+                &[&base_commit],
+            )?;
+            current_base_oid = new_oid;
+        }
+
+        // Rebase descendant commits (those between commit_oid exclusive and head_oid inclusive)
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
+        if head_git_oid != commit_git_oid {
+            let mut revwalk = repo.revwalk()?;
+            revwalk.push(head_git_oid)?;
+
+            // Collect descendants newest-first, stop at (but exclude) the split commit
+            let mut descendants: Vec<git2::Oid> = Vec::new();
+            for oid_result in revwalk {
+                let oid = oid_result?;
+                if oid == commit_git_oid {
+                    break;
+                }
+                descendants.push(oid);
+            }
+            // Reverse to get oldest-first so we cherry-pick in order
+            descendants.reverse();
+
+            for desc_oid in descendants {
+                let desc_commit = repo.find_commit(desc_oid)?;
+                let onto_commit = repo.find_commit(current_base_oid)?;
+
+                let mut cherry_index =
+                    repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
+                if cherry_index.has_conflicts() {
+                    anyhow::bail!(
+                        "Conflict rebasing {} onto split result",
+                        &desc_oid.to_string()[..10]
+                    );
+                }
+                let new_tree_oid = cherry_index.write_tree_to(repo)?;
+                let new_tree = repo.find_tree(new_tree_oid)?;
+
+                let author = desc_commit.author();
+                let committer = desc_commit.committer();
+                let new_oid = repo.commit(
+                    None,
+                    &author,
+                    &committer,
+                    desc_commit.message().unwrap_or(""),
+                    &new_tree,
+                    &[&onto_commit],
+                )?;
+                current_base_oid = new_oid;
+            }
+        }
+
+        // Fast-forward the branch ref that HEAD points to
+        let head_ref = repo.head()?;
+        let branch_refname = head_ref
+            .resolve()
+            .context("HEAD is not a symbolic ref")?
+            .name()
+            .context("Ref has no name")?
+            .to_string();
+        repo.reference(
+            &branch_refname,
+            current_base_oid,
+            true,
+            "git-tailor: split per-file",
+        )?;
+
+        Ok(())
     }
 }
 

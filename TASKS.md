@@ -59,8 +59,10 @@ Guidelines:
 ## Interactivity — Split Commit (V4)
 - [X] T068 P0 feat - Add split mode on 's' key: prompt user to choose split
   strategy — one commit per file, per hunk, or per hunk cluster (Flags: V4)
-- [ ] T069 P0 feat - Implement per-file split: create N commits each applying
-  one file's changes, using git2 cherry-pick/tree manipulation (Flags: V4)
+- [X] T069 P0 feat - Implement per-file split: create N commits each applying
+  one file's changes, using git2 cherry-pick/tree manipulation; refuse if
+  staged/unstaged changes overlap (share file paths) with the commit being
+  split, and report the conflicting file(s) to the user (Flags: V4)
 - [ ] T070 P1 feat - Implement per-hunk split: create one commit per hunk using
   git2 diff apply with filtered patches (Flags: V4)
 - [ ] T071 P1 feat - Implement per-hunk-cluster split: create one commit per

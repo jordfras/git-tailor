@@ -85,6 +85,38 @@ impl TestRepo {
             .unwrap()
     }
 
+    /// Create a single commit that writes (or overwrites) multiple files at once.
+    #[allow(dead_code)]
+    pub fn commit_files(&self, files: &[(&str, &str)], message: &str) -> git2::Oid {
+        let repo_path = self.repo.workdir().unwrap();
+        let mut index = self.repo.index().unwrap();
+
+        for (path, content) in files {
+            let file_path = repo_path.join(path);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&file_path, content).unwrap();
+            index.add_path(std::path::Path::new(path)).unwrap();
+        }
+        index.write().unwrap();
+
+        let tree_oid = index.write_tree().unwrap();
+        let tree = self.repo.find_tree(tree_oid).unwrap();
+        let sig = Signature::now("Test User", "test@example.com").unwrap();
+
+        let parent_commit = if let Ok(head) = self.repo.head() {
+            Some(self.repo.find_commit(head.target().unwrap()).unwrap())
+        } else {
+            None
+        };
+        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
+
+        self.repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .unwrap()
+    }
+
     #[allow(dead_code)]
     pub fn delete_file(&self, path: &str, message: &str) -> git2::Oid {
         let repo_path = self.repo.workdir().unwrap();

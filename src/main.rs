@@ -22,7 +22,7 @@ use crossterm::{
 };
 use git_tailor::repo::{Git2Repo, GitRepo};
 use git_tailor::{
-    app::{AppMode, AppState},
+    app::{AppMode, AppState, SplitStrategy},
     event, fragmap, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
@@ -214,10 +214,30 @@ fn main() -> Result<()> {
             }
             event::AppAction::Confirm => match app.mode {
                 AppMode::SplitSelect => {
-                    // T069-T071 will implement the actual split execution.
-                    // For now, just acknowledge the selection and return.
-                    let _strategy = app.selected_split_strategy();
+                    let strategy = app.selected_split_strategy();
+                    let commit_oid = app.commits[app.selection_index].oid.clone();
+                    // HEAD is the last non-synthetic commit
+                    let head_oid = app
+                        .commits
+                        .iter()
+                        .rev()
+                        .find(|c| c.oid != "staged" && c.oid != "unstaged")
+                        .map(|c| c.oid.clone())
+                        .unwrap_or_default();
                     app.mode = AppMode::CommitList;
+                    match strategy {
+                        SplitStrategy::PerFile => {
+                            match git_repo.split_commit_per_file(&commit_oid, &head_oid) {
+                                Ok(()) => reload_commits(&git_repo, &mut app),
+                                Err(e) => {
+                                    app.status_message = Some(e.to_string());
+                                }
+                            }
+                        }
+                        SplitStrategy::PerHunk | SplitStrategy::PerHunkCluster => {
+                            app.status_message = Some("Not yet implemented".to_string());
+                        }
+                    }
                 }
                 AppMode::CommitList | AppMode::CommitDetail => {
                     app.toggle_detail_view();
