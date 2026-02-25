@@ -18,18 +18,39 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     let header =
         Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(Style::default().bold());
 
-    let rows: Vec<Row> = app
-        .commits
+    // Calculate available height for table content (excluding borders and header)
+    let available_height = frame.area().height.saturating_sub(3) as usize; // 2 for borders, 1 for header
+
+    // Calculate scroll offset to keep selection visible
+    let scroll_offset = if app.commits.is_empty()
+        || available_height == 0
+        || app.selection_index < available_height
+    {
+        0
+    } else {
+        app.selection_index.saturating_sub(available_height - 1)
+    };
+
+    // Slice commits to visible range
+    let visible_commits = if app.commits.is_empty() {
+        &app.commits[..]
+    } else {
+        let end = (scroll_offset + available_height).min(app.commits.len());
+        &app.commits[scroll_offset..end]
+    };
+
+    let rows: Vec<Row> = visible_commits
         .iter()
         .enumerate()
-        .map(|(index, commit)| {
+        .map(|(visible_index, commit)| {
+            let absolute_index = scroll_offset + visible_index;
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
             let row = Row::new(vec![
                 Cell::from(short_sha),
                 Cell::from(commit.summary.clone()),
             ]);
 
-            if index == app.selection_index {
+            if absolute_index == app.selection_index {
                 row.style(Style::default().reversed())
             } else {
                 row
