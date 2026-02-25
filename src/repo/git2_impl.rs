@@ -232,30 +232,7 @@ impl GitRepo for Git2Repo {
             })
             .collect();
 
-        // Dirty overlap check: refuse if staged/unstaged changes share any files
-        let mut overlapping: Vec<String> = Vec::new();
-        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
-            .into_iter()
-            .flatten()
-        {
-            for file in &synthetic_diff.files {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .unwrap_or("");
-                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
-                    overlapping.push(path.to_string());
-                }
-            }
-        }
-        if !overlapping.is_empty() {
-            overlapping.sort();
-            anyhow::bail!(
-                "Cannot split: staged/unstaged changes overlap with: {}",
-                overlapping.join(", ")
-            );
-        }
+        self.check_dirty_overlap(&commit_paths)?;
 
         // Create one commit per file, each building on the previous
         let mut current_base_oid = parent_commit.id();
@@ -305,67 +282,10 @@ impl GitRepo for Git2Repo {
             current_base_oid = new_oid;
         }
 
-        // Rebase descendant commits (those between commit_oid exclusive and head_oid inclusive)
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        if head_git_oid != commit_git_oid {
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-
-            // Collect descendants newest-first, stop at (but exclude) the split commit
-            let mut descendants: Vec<git2::Oid> = Vec::new();
-            for oid_result in revwalk {
-                let oid = oid_result?;
-                if oid == commit_git_oid {
-                    break;
-                }
-                descendants.push(oid);
-            }
-            // Reverse to get oldest-first so we cherry-pick in order
-            descendants.reverse();
-
-            for desc_oid in descendants {
-                let desc_commit = repo.find_commit(desc_oid)?;
-                let onto_commit = repo.find_commit(current_base_oid)?;
-
-                let mut cherry_index =
-                    repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
-                if cherry_index.has_conflicts() {
-                    anyhow::bail!(
-                        "Conflict rebasing {} onto split result",
-                        &desc_oid.to_string()[..10]
-                    );
-                }
-                let new_tree_oid = cherry_index.write_tree_to(repo)?;
-                let new_tree = repo.find_tree(new_tree_oid)?;
-
-                let author = desc_commit.author();
-                let committer = desc_commit.committer();
-                let new_oid = repo.commit(
-                    None,
-                    &author,
-                    &committer,
-                    desc_commit.message().unwrap_or(""),
-                    &new_tree,
-                    &[&onto_commit],
-                )?;
-                current_base_oid = new_oid;
-            }
-        }
-
-        // Fast-forward the branch ref that HEAD points to
-        let head_ref = repo.head()?;
-        let branch_refname = head_ref
-            .resolve()
-            .context("HEAD is not a symbolic ref")?
-            .name()
-            .context("Ref has no name")?
-            .to_string();
-        repo.reference(
-            &branch_refname,
-            current_base_oid,
-            true,
-            "git-tailor: split per-file",
-        )?;
+        current_base_oid =
+            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
+        self.advance_branch_ref(current_base_oid, "git-tailor: split per-file")?;
 
         Ok(())
     }
@@ -418,29 +338,7 @@ impl GitRepo for Git2Repo {
             })
             .collect();
 
-        let mut overlapping: Vec<String> = Vec::new();
-        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
-            .into_iter()
-            .flatten()
-        {
-            for file in &synthetic_diff.files {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .unwrap_or("");
-                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
-                    overlapping.push(path.to_string());
-                }
-            }
-        }
-        if !overlapping.is_empty() {
-            overlapping.sort();
-            anyhow::bail!(
-                "Cannot split: staged/unstaged changes overlap with: {}",
-                overlapping.join(", ")
-            );
-        }
+        self.check_dirty_overlap(&commit_paths)?;
 
         // Build one commit per hunk.
         //
@@ -494,64 +392,10 @@ impl GitRepo for Git2Repo {
             current_base_oid = new_oid;
         }
 
-        // Rebase descendant commits onto the new tip
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        if head_git_oid != commit_git_oid {
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-
-            let mut descendants: Vec<git2::Oid> = Vec::new();
-            for oid_result in revwalk {
-                let oid = oid_result?;
-                if oid == commit_git_oid {
-                    break;
-                }
-                descendants.push(oid);
-            }
-            descendants.reverse();
-
-            for desc_oid in descendants {
-                let desc_commit = repo.find_commit(desc_oid)?;
-                let onto_commit = repo.find_commit(current_base_oid)?;
-
-                let mut cherry_index =
-                    repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
-                if cherry_index.has_conflicts() {
-                    anyhow::bail!(
-                        "Conflict rebasing {} onto split result",
-                        &desc_oid.to_string()[..10]
-                    );
-                }
-                let new_tree_oid = cherry_index.write_tree_to(repo)?;
-                let new_tree = repo.find_tree(new_tree_oid)?;
-
-                let author = desc_commit.author();
-                let committer = desc_commit.committer();
-                let new_oid = repo.commit(
-                    None,
-                    &author,
-                    &committer,
-                    desc_commit.message().unwrap_or(""),
-                    &new_tree,
-                    &[&onto_commit],
-                )?;
-                current_base_oid = new_oid;
-            }
-        }
-
-        // Fast-forward the branch ref that HEAD points to
-        let head_ref = repo.head()?;
-        let branch_refname = head_ref.resolve().context("HEAD is not a symbolic ref")?;
-        let branch_name = branch_refname
-            .name()
-            .context("Ref has no name")?
-            .to_string();
-        repo.reference(
-            &branch_name,
-            current_base_oid,
-            true,
-            "git-tailor: split per-hunk",
-        )?;
+        current_base_oid =
+            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
+        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk")?;
 
         Ok(())
     }
@@ -623,7 +467,6 @@ impl GitRepo for Git2Repo {
             anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
         }
 
-        // Dirty-overlap check (same as per-file and per-hunk)
         let commit_paths: HashSet<String> = full_diff
             .deltas()
             .filter_map(|d| {
@@ -633,36 +476,12 @@ impl GitRepo for Git2Repo {
                     .map(|p| p.to_string_lossy().into_owned())
             })
             .collect();
-
-        let mut overlapping: Vec<String> = Vec::new();
-        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
-            .into_iter()
-            .flatten()
-        {
-            for file in &synthetic_diff.files {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .unwrap_or("");
-                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
-                    overlapping.push(path.to_string());
-                }
-            }
-        }
-        if !overlapping.is_empty() {
-            overlapping.sort();
-            anyhow::bail!(
-                "Cannot split: staged/unstaged changes overlap with: {}",
-                overlapping.join(", ")
-            );
-        }
+        self.check_dirty_overlap(&commit_paths)?;
 
         // Build one commit per cluster using cumulative apply.
         // For cluster k, accept all hunks with global index ≤ cluster_ends[k].
         let mut current_base_oid = parent_commit.id();
         for (target_k, &last_hunk_for_cluster) in cluster_ends.iter().enumerate() {
-
             let cumulative_tree_oid = if target_k == cluster_count - 1 {
                 commit_tree.id()
             } else {
@@ -706,65 +525,114 @@ impl GitRepo for Git2Repo {
             current_base_oid = new_oid;
         }
 
-        // Rebase descendants onto the new tip
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        if head_git_oid != commit_git_oid {
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
+        current_base_oid =
+            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
+        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk-cluster")?;
 
-            let mut descendants: Vec<git2::Oid> = Vec::new();
-            for oid_result in revwalk {
-                let oid = oid_result?;
-                if oid == commit_git_oid {
-                    break;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers for split operations (not part of the GitRepo trait)
+// ---------------------------------------------------------------------------
+
+impl Git2Repo {
+    /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
+    fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
+        let mut overlapping: Vec<String> = Vec::new();
+        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
+            .into_iter()
+            .flatten()
+        {
+            for file in &synthetic_diff.files {
+                let path = file
+                    .new_path
+                    .as_deref()
+                    .or(file.old_path.as_deref())
+                    .unwrap_or("");
+                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
+                    overlapping.push(path.to_string());
                 }
-                descendants.push(oid);
-            }
-            descendants.reverse();
-
-            for desc_oid in descendants {
-                let desc_commit = repo.find_commit(desc_oid)?;
-                let onto_commit = repo.find_commit(current_base_oid)?;
-
-                let mut cherry_index =
-                    repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
-                if cherry_index.has_conflicts() {
-                    anyhow::bail!(
-                        "Conflict rebasing {} onto split result",
-                        &desc_oid.to_string()[..10]
-                    );
-                }
-                let new_tree_oid = cherry_index.write_tree_to(repo)?;
-                let new_tree = repo.find_tree(new_tree_oid)?;
-
-                let author = desc_commit.author();
-                let committer = desc_commit.committer();
-                let new_oid = repo.commit(
-                    None,
-                    &author,
-                    &committer,
-                    desc_commit.message().unwrap_or(""),
-                    &new_tree,
-                    &[&onto_commit],
-                )?;
-                current_base_oid = new_oid;
             }
         }
+        if !overlapping.is_empty() {
+            overlapping.sort();
+            anyhow::bail!(
+                "Cannot split: staged/unstaged changes overlap with: {}",
+                overlapping.join(", ")
+            );
+        }
+        Ok(())
+    }
 
-        // Fast-forward the branch ref that HEAD points to
+    /// Cherry-pick all commits strictly between `stop_oid` (exclusive) and
+    /// `head_oid` (inclusive) onto `tip`, returning the new tip OID.
+    fn rebase_descendants(
+        &self,
+        stop_oid: git2::Oid,
+        head_oid: git2::Oid,
+        mut tip: git2::Oid,
+    ) -> Result<git2::Oid> {
+        let repo = &self.inner;
+        if head_oid == stop_oid {
+            return Ok(tip);
+        }
+
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push(head_oid)?;
+
+        let mut descendants: Vec<git2::Oid> = Vec::new();
+        for oid_result in revwalk {
+            let oid = oid_result?;
+            if oid == stop_oid {
+                break;
+            }
+            descendants.push(oid);
+        }
+        descendants.reverse();
+
+        for desc_oid in descendants {
+            let desc_commit = repo.find_commit(desc_oid)?;
+            let onto_commit = repo.find_commit(tip)?;
+
+            let mut cherry_index = repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
+            if cherry_index.has_conflicts() {
+                anyhow::bail!(
+                    "Conflict rebasing {} onto split result",
+                    &desc_oid.to_string()[..10]
+                );
+            }
+            let new_tree_oid = cherry_index.write_tree_to(repo)?;
+            let new_tree = repo.find_tree(new_tree_oid)?;
+
+            let author = desc_commit.author();
+            let committer = desc_commit.committer();
+            tip = repo.commit(
+                None,
+                &author,
+                &committer,
+                desc_commit.message().unwrap_or(""),
+                &new_tree,
+                &[&onto_commit],
+            )?;
+        }
+
+        Ok(tip)
+    }
+
+    /// Fast-forward the branch ref that HEAD currently points to.
+    fn advance_branch_ref(&self, new_tip: git2::Oid, log_msg: &str) -> Result<()> {
+        let repo = &self.inner;
         let head_ref = repo.head()?;
-        let branch_refname = head_ref.resolve().context("HEAD is not a symbolic ref")?;
-        let branch_name = branch_refname
+        let branch_refname = head_ref
+            .resolve()
+            .context("HEAD is not a symbolic ref")?
             .name()
             .context("Ref has no name")?
             .to_string();
-        repo.reference(
-            &branch_name,
-            current_base_oid,
-            true,
-            "git-tailor: split per-hunk-cluster",
-        )?;
-
+        repo.reference(&branch_refname, new_tip, true, log_msg)?;
         Ok(())
     }
 }
