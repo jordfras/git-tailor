@@ -1,0 +1,30 @@
+---
+source: tests/tui_snapshots.rs
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 15 },
+    content: [
+        "SHA        Title                                                                ",
+        "ghi789jk   Fix bug in parser                                                    ",
+        "def456gh   Add feature X                                                        ",
+        "abc123de   Initial commit                                                       ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        " ghi789jkl012 1/3                                                               ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+    ]
+}

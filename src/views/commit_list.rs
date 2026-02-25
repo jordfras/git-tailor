@@ -27,36 +27,51 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     // Available height for data rows: table area minus header (1)
     let available_height = table_area.height.saturating_sub(1) as usize;
 
-    // Calculate scroll offset to keep selection visible
-    let scroll_offset = if app.commits.is_empty()
-        || available_height == 0
-        || app.selection_index < available_height
-    {
-        0
+    // Map selection_index to visual position depending on display order
+    let visual_selection = if app.reverse {
+        app.commits
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(app.selection_index)
     } else {
-        app.selection_index.saturating_sub(available_height - 1)
+        app.selection_index
     };
 
-    // Slice commits to visible range
-    let visible_commits = if app.commits.is_empty() {
-        &app.commits[..]
+    // Calculate scroll offset to keep visual selection visible
+    let scroll_offset =
+        if app.commits.is_empty() || available_height == 0 || visual_selection < available_height {
+            0
+        } else {
+            visual_selection.saturating_sub(available_height - 1)
+        };
+
+    // Build commits in display order
+    let display_commits: Vec<&crate::CommitInfo> = if app.reverse {
+        app.commits.iter().rev().collect()
     } else {
-        let end = (scroll_offset + available_height).min(app.commits.len());
-        &app.commits[scroll_offset..end]
+        app.commits.iter().collect()
+    };
+
+    // Slice to visible range
+    let visible_commits = if display_commits.is_empty() {
+        &display_commits[..]
+    } else {
+        let end = (scroll_offset + available_height).min(display_commits.len());
+        &display_commits[scroll_offset..end]
     };
 
     let rows: Vec<Row> = visible_commits
         .iter()
         .enumerate()
         .map(|(visible_index, commit)| {
-            let absolute_index = scroll_offset + visible_index;
+            let visual_index = scroll_offset + visible_index;
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
             let row = Row::new(vec![
                 Cell::from(short_sha),
                 Cell::from(commit.summary.clone()),
             ]);
 
-            if absolute_index == app.selection_index {
+            if visual_index == visual_selection {
                 row.style(Style::default().reversed())
             } else {
                 row
@@ -82,7 +97,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     // Render scrollbar if content exceeds visible area
     if let Some(sb_area) = scrollbar_area {
         let mut scrollbar_state =
-            ScrollbarState::new(app.commits.len().saturating_sub(1)).position(app.selection_index);
+            ScrollbarState::new(app.commits.len().saturating_sub(1)).position(visual_selection);
 
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
             .begin_symbol(None)
