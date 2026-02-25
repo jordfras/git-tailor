@@ -15,7 +15,8 @@ const SHORT_SHA_LENGTH: usize = 8;
 ///
 /// Takes application state and renders the commit list to the terminal frame.
 pub fn render(app: &AppState, frame: &mut Frame) {
-    let header = Row::new(vec![Cell::from("SHA"), Cell::from("Title")]);
+    let header =
+        Row::new(vec![Cell::from("SHA"), Cell::from("Title")]).style(Style::default().bold());
 
     let rows: Vec<Row> = app
         .commits

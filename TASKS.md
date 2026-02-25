@@ -63,6 +63,21 @@ Guidelines:
 - [X] T033 P2 feat - Add TUI snapshot test with TestBackend for commit_list view
   (Flags: V2)
 
+## TUI Enhancements (V2)
+- [ ] T035 P1 feat - Start application with HEAD commit selected instead of
+  first commit (Flags: V2)
+- [X] T036 P2 feat - Highlight table column headers with background color or
+  style (Flags: V2)
+- [ ] T037 P1 feat - Make commit list scrollable when commits exceed screen
+  height (Flags: V2)
+- [ ] T038 P1 feat - Render scrollbar for commit list when content exceeds
+  visible area (Flags: V2)
+- [ ] T039 P1 feat - Add footer showing selected commit info (long SHA, commit
+  position) (Flags: V2)
+- [ ] T040 P1 feat - Add clap dependency for CLI argument parsing (Flags: V2)
+- [ ] T041 P1 feat - Add --reverse flag to display commits in reverse order
+  (Flags: V2)
+
 ## Code Organization & Refactoring
 - [X] T034 P2 feat - Move find_reference_point and list_commits from lib.rs to
   repo module (Flags: V2)
