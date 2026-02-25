@@ -160,6 +160,15 @@ impl FragMap {
         self.squash_target(commit_idx).is_some()
     }
 
+    /// Check whether two commits both touch at least one common cluster.
+    pub fn shares_cluster_with(&self, a: usize, b: usize) -> bool {
+        if a == b {
+            return false;
+        }
+        (0..self.clusters.len())
+            .any(|c| self.matrix[a][c] != TouchKind::None && self.matrix[b][c] != TouchKind::None)
+    }
+
     /// Determine the relationship between two commits for a specific cluster.
     ///
     /// Returns `NoRelation` if one or both commits don't touch the cluster,
@@ -1384,5 +1393,44 @@ mod tests {
         // c1 doesn't touch any cluster
         let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0)]);
         assert!(!fm.is_fully_squashable(1));
+    }
+
+    // shares_cluster_with tests
+
+    #[test]
+    fn shares_cluster_with_no_shared_cluster() {
+        let fm = make_fragmap(&["c0", "c1"], 2, &[(0, 0), (1, 1)]);
+        assert!(!fm.shares_cluster_with(0, 1));
+    }
+
+    #[test]
+    fn shares_cluster_with_adjacent_pair() {
+        let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0), (1, 0)]);
+        assert!(fm.shares_cluster_with(0, 1));
+    }
+
+    #[test]
+    fn shares_cluster_with_blocked_by_middle_commit() {
+        let fm = make_fragmap(&["c0", "c1", "c2"], 1, &[(0, 0), (1, 0), (2, 0)]);
+        assert!(fm.shares_cluster_with(0, 2));
+    }
+
+    #[test]
+    fn shares_cluster_with_is_symmetric() {
+        let fm = make_fragmap(&["c0", "c1"], 1, &[(0, 0), (1, 0)]);
+        assert_eq!(fm.shares_cluster_with(0, 1), fm.shares_cluster_with(1, 0));
+    }
+
+    #[test]
+    fn shares_cluster_with_same_commit() {
+        let fm = make_fragmap(&["c0"], 1, &[(0, 0)]);
+        assert!(!fm.shares_cluster_with(0, 0));
+    }
+
+    #[test]
+    fn shares_cluster_with_one_shared_is_enough() {
+        // cluster 0: only c0. cluster 1: c0 and c1
+        let fm = make_fragmap(&["c0", "c1"], 2, &[(0, 0), (0, 1), (1, 1)]);
+        assert!(fm.shares_cluster_with(0, 1));
     }
 }
