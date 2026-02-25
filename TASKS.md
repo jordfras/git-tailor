@@ -44,7 +44,7 @@ Guidelines:
   submodule (Flags: V2)
 - [X] T023 P0 feat - Create commit_list view (src/views/commit_list.rs) with
   render function (Flags: V2)
-- [ ] T024 P0 feat - Render table with "SHA" and "Title" column headers (Flags:
+- [X] T024 P0 feat - Render table with "SHA" and "Title" column headers (Flags:
   V2)
 - [ ] T025 P0 feat - Render commits oldest-to-newest with short SHA (7 chars)
   and summary (Flags: V2)
