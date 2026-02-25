@@ -3,6 +3,7 @@
         "cargo fmt": true,
         "cargo clippy": true,
         "cargo check": true,
-        "cargo test": true
+        "cargo test": true,
+        "cargo build": true
     }
 }

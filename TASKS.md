@@ -24,7 +24,7 @@ Guidelines:
   commit_detail view module with placeholder rendering (Flags: V4)
 - [X] T064b P0 feat - Display commit metadata in detail view: full message,
   author name, author date, commit date (Flags: V4)
-- [ ] T064c P0 feat - Add file list showing changed/added/removed files with
+- [X] T064c P0 feat - Add file list showing changed/added/removed files with
   status indicators (Flags: V4)
 - [ ] T064d P0 feat - Add complete diff rendering with +/- lines (plain text, no
   colors) (Flags: V4)

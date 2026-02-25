@@ -11,7 +11,16 @@ use ratatui::{
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
-use crate::app::AppState;
+use crate::{app::AppState, repo};
+
+/// File status indicator for changed files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
 
 /// Render the commit detail view.
 ///
@@ -94,6 +103,30 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
             Span::raw(commit_date_formatted),
         ]));
 
+        // Add file list with status indicators
+        if let Ok(diff) = repo::commit_diff(&selected.oid) {
+            content.push(Line::from(""));
+            content.push(Line::from(Span::styled(
+                "Changed Files:",
+                Style::default().fg(Color::Yellow),
+            )));
+            content.push(Line::from(""));
+
+            for file in &diff.files {
+                let (status, path) = get_file_status_and_path(file);
+                let status_str = format_file_status(status);
+                let status_color = get_status_color(status);
+
+                content.push(Line::from(vec![
+                    Span::styled(
+                        format!("  {} ", status_str),
+                        Style::default().fg(status_color),
+                    ),
+                    Span::raw(path),
+                ]));
+            }
+        }
+
         let paragraph = Paragraph::new(content);
         frame.render_widget(paragraph, content_area);
     }
@@ -101,4 +134,52 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
     // Render footer
     let footer = Paragraph::new("").style(FOOTER_STYLE);
     frame.render_widget(footer, footer_area);
+}
+
+/// Determine file status and display path from a FileDiff.
+fn get_file_status_and_path(file: &crate::FileDiff) -> (FileStatus, String) {
+    use crate::DeltaStatus;
+
+    let status = match file.status {
+        DeltaStatus::Added => FileStatus::Added,
+        DeltaStatus::Deleted => FileStatus::Deleted,
+        DeltaStatus::Modified => FileStatus::Modified,
+        DeltaStatus::Renamed | DeltaStatus::Copied => FileStatus::Renamed,
+        DeltaStatus::Typechange => FileStatus::Modified,
+        _ => FileStatus::Modified,
+    };
+
+    let path = match (&file.old_path, &file.new_path) {
+        (_, Some(new))
+            if file.status != DeltaStatus::Renamed && file.status != DeltaStatus::Copied =>
+        {
+            new.clone()
+        }
+        (Some(old), Some(new)) => format!("{} → {}", old, new),
+        (Some(old), None) => old.clone(),
+        (None, Some(new)) => new.clone(),
+        (None, None) => String::from("<unknown>"),
+    };
+
+    (status, path)
+}
+
+/// Format file status as a single character indicator.
+fn format_file_status(status: FileStatus) -> &'static str {
+    match status {
+        FileStatus::Added => "A",
+        FileStatus::Modified => "M",
+        FileStatus::Deleted => "D",
+        FileStatus::Renamed => "R",
+    }
+}
+
+/// Get color for file status indicator.
+fn get_status_color(status: FileStatus) -> Color {
+    match status {
+        FileStatus::Added => Color::Green,
+        FileStatus::Modified => Color::Blue,
+        FileStatus::Deleted => Color::Red,
+        FileStatus::Renamed => Color::Cyan,
+    }
 }

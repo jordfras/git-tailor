@@ -155,6 +155,20 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
             .path()
             .map(|p| p.to_string_lossy().into_owned());
 
+        let status = match delta.status() {
+            git2::Delta::Unmodified => crate::DeltaStatus::Unmodified,
+            git2::Delta::Added => crate::DeltaStatus::Added,
+            git2::Delta::Deleted => crate::DeltaStatus::Deleted,
+            git2::Delta::Modified => crate::DeltaStatus::Modified,
+            git2::Delta::Renamed => crate::DeltaStatus::Renamed,
+            git2::Delta::Copied => crate::DeltaStatus::Copied,
+            git2::Delta::Ignored => crate::DeltaStatus::Ignored,
+            git2::Delta::Untracked => crate::DeltaStatus::Untracked,
+            git2::Delta::Typechange => crate::DeltaStatus::Typechange,
+            git2::Delta::Unreadable => crate::DeltaStatus::Unreadable,
+            git2::Delta::Conflicted => crate::DeltaStatus::Conflicted,
+        };
+
         let patch = git2::Patch::from_diff(&diff, delta_idx)?
             .context("Failed to extract patch from diff")?;
 
@@ -186,6 +200,7 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
         files.push(FileDiff {
             old_path,
             new_path,
+            status,
             hunks,
         });
     }
