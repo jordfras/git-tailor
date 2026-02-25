@@ -50,6 +50,10 @@ pub fn render(frame: &mut Frame) {
             Span::styled("  h         ", Style::default().fg(Color::Cyan)),
             Span::raw("Show this help dialog"),
         ]),
+        Line::from(vec![
+            Span::styled("  r         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Reload commit list from HEAD"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Other",
