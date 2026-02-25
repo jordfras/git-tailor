@@ -95,7 +95,7 @@ Guidelines:
 ## Fragmap — Matrix Generation (V3)
 - [X] T049 P0 feat - Build fragmap matrix: commits x chunks with TouchKind
   cells, one column per hunk (Flags: V3)
-- [ ] T050 P1 feat - Add unit tests for matrix generation with fabricated
+- [X] T050 P1 feat - Add unit tests for matrix generation with fabricated
   CommitDiff data (Flags: V3)
 
 ## Fragmap — Conflict & Squashability Analysis (V3)
