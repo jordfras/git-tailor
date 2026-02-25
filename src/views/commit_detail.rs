@@ -11,7 +11,7 @@ use ratatui::{
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
-use crate::{app::AppState, repo};
+use crate::{app::AppState, repo::GitRepo};
 
 /// File status indicator for changed files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +26,7 @@ enum FileStatus {
 ///
 /// Displays commit metadata and diff in the right panel.
 /// Currently a placeholder showing the selected commit's summary.
-pub fn render(repo: &git2::Repository, frame: &mut Frame, app: &mut AppState, area: Rect) {
+pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, and footer
     let [header_area, content_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
@@ -105,9 +105,9 @@ pub fn render(repo: &git2::Repository, frame: &mut Frame, app: &mut AppState, ar
 
         // Add file list with status indicators
         let diff_opt = match selected.oid.as_str() {
-            "staged" => repo::staged_diff(repo),
-            "unstaged" => repo::unstaged_diff(repo),
-            oid => repo::commit_diff(repo, oid).ok(),
+            "staged" => repo.staged_diff(),
+            "unstaged" => repo.unstaged_diff(),
+            oid => repo.commit_diff(oid).ok(),
         };
         if let Some(diff) = diff_opt {
             content.push(Line::from(""));
