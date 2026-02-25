@@ -116,4 +116,13 @@ pub trait GitRepo {
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_per_hunk_cluster(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
+
+    /// Count how many commits `split_commit_per_file` would produce for this commit.
+    fn count_split_per_file(&self, commit_oid: &str) -> Result<usize>;
+
+    /// Count how many commits `split_commit_per_hunk` would produce for this commit.
+    fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize>;
+
+    /// Count how many commits `split_commit_per_hunk_cluster` would produce for this commit.
+    fn count_split_per_hunk_cluster(&self, commit_oid: &str) -> Result<usize>;
 }

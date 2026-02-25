@@ -69,7 +69,7 @@ Guidelines:
   fragmap cluster column (Flags: V4)
 - [X] T072 P1 feat - Add numbering n/total to split commit messages in the
   subject line (Flags: V4)
-- [ ] T087 P2 feat - Before executing a split that would produce more than 5 new
+- [X] T087 P2 feat - Before executing a split that would produce more than 5 new
   commits, show a yes/no confirmation dialog displaying the count and asking the
   user to confirm before proceeding (Flags: V4)
 

@@ -532,6 +532,93 @@ impl GitRepo for Git2Repo {
 
         Ok(())
     }
+
+    fn count_split_per_file(&self, commit_oid: &str) -> Result<usize> {
+        let repo = &self.inner;
+        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
+        let commit = repo.find_commit(oid)?;
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Can only split a commit with exactly one parent");
+        }
+        let parent_tree = commit.parent(0)?.tree()?;
+        let commit_tree = commit.tree()?;
+        let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
+        Ok(diff.deltas().len())
+    }
+
+    fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize> {
+        let repo = &self.inner;
+        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
+        let commit = repo.find_commit(oid)?;
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Can only split a commit with exactly one parent");
+        }
+        let parent_tree = commit.parent(0)?.tree()?;
+        let commit_tree = commit.tree()?;
+        let mut diff_opts = git2::DiffOptions::new();
+        diff_opts.context_lines(0);
+        diff_opts.interhunk_lines(0);
+        let diff =
+            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
+        let mut count = 0usize;
+        diff.foreach(
+            &mut |_, _| true,
+            None,
+            Some(&mut |_, _| {
+                count += 1;
+                true
+            }),
+            None,
+        )?;
+        Ok(count)
+    }
+
+    fn count_split_per_hunk_cluster(&self, commit_oid: &str) -> Result<usize> {
+        let repo = &self.inner;
+        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
+        let commit = repo.find_commit(oid)?;
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Can only split a commit with exactly one parent");
+        }
+        let parent_tree = commit.parent(0)?.tree()?;
+        let commit_tree = commit.tree()?;
+        let mut diff_opts = git2::DiffOptions::new();
+        diff_opts.context_lines(0);
+        diff_opts.interhunk_lines(0);
+        let full_diff =
+            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
+        let mut hunk_meta: Vec<(String, u32, u32)> = Vec::new();
+        full_diff.foreach(
+            &mut |_, _| true,
+            None,
+            Some(&mut |delta, hunk| {
+                let path = delta
+                    .new_file()
+                    .path()
+                    .or_else(|| delta.old_file().path())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                hunk_meta.push((path, hunk.old_start(), hunk.old_lines()));
+                true
+            }),
+            None,
+        )?;
+        let total_hunks = hunk_meta.len();
+        if total_hunks == 0 {
+            return Ok(0);
+        }
+        const CLUSTER_INTERHUNK: u32 = 2;
+        let mut cluster_count = 1usize;
+        for i in 1..total_hunks {
+            let (ref prev_file, prev_start, prev_lines) = hunk_meta[i - 1];
+            let (ref cur_file, cur_start, _) = hunk_meta[i];
+            let gap = cur_start.saturating_sub(prev_start + prev_lines);
+            if cur_file != prev_file || gap > CLUSTER_INTERHUNK {
+                cluster_count += 1;
+            }
+        }
+        Ok(cluster_count)
+    }
 }
 
 // ---------------------------------------------------------------------------

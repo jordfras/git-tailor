@@ -57,8 +57,18 @@ pub enum AppMode {
     CommitDetail,
     /// Split strategy selection dialog.
     SplitSelect,
+    /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
+    SplitConfirm,
     /// Help dialog overlay.
     Help,
+}
+
+/// Data retained while the user is shown the large-split confirmation dialog.
+pub struct PendingSplit {
+    pub strategy: SplitStrategy,
+    pub commit_oid: String,
+    pub head_oid: String,
+    pub count: usize,
 }
 
 /// Application state for the TUI.
@@ -96,6 +106,8 @@ pub struct AppState {
     pub split_strategy_index: usize,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
+    /// Pending split awaiting user confirmation (set when count > SPLIT_CONFIRM_THRESHOLD).
+    pub pending_split: Option<PendingSplit>,
 }
 
 impl AppState {
@@ -118,6 +130,7 @@ impl AppState {
             previous_mode: None,
             split_strategy_index: 0,
             status_message: None,
+            pending_split: None,
         }
     }
 
@@ -141,6 +154,7 @@ impl AppState {
             previous_mode: None,
             split_strategy_index: 0,
             status_message: None,
+            pending_split: None,
         }
     }
 
@@ -215,6 +229,29 @@ impl AppState {
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
+    /// Enter the large-split confirmation dialog.
+    pub fn enter_split_confirm(
+        &mut self,
+        strategy: SplitStrategy,
+        commit_oid: String,
+        head_oid: String,
+        count: usize,
+    ) {
+        self.pending_split = Some(PendingSplit {
+            strategy,
+            commit_oid,
+            head_oid,
+            count,
+        });
+        self.mode = AppMode::SplitConfirm;
+    }
+
+    /// Cancel the large-split confirmation and return to CommitList.
+    pub fn cancel_split_confirm(&mut self) {
+        self.pending_split = None;
+        self.mode = AppMode::CommitList;
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
@@ -257,7 +294,7 @@ impl AppState {
         self.mode = match self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
-            AppMode::Help | AppMode::SplitSelect => return, // Stay in current mode
+            AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => return,
         };
         // Reset scroll offset when toggling views
         self.detail_scroll_offset = 0;

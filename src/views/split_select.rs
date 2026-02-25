@@ -131,3 +131,67 @@ pub fn render(app: &AppState, frame: &mut Frame) {
 
     frame.render_widget(dialog, dialog_area);
 }
+
+/// Render the large-split confirmation dialog as a centered overlay.
+pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
+    let area = frame.area();
+    let pending = match &app.pending_split {
+        Some(p) => p,
+        None => return,
+    };
+    let strategy_name = match pending.strategy {
+        crate::app::SplitStrategy::PerFile => "per file",
+        crate::app::SplitStrategy::PerHunk => "per hunk",
+        crate::app::SplitStrategy::PerHunkCluster => "per hunk group",
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!(
+                " This will create {} commits ({}).",
+                pending.count, strategy_name
+            ),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::raw(" Do you want to proceed?")),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
+            Span::raw("Confirm   "),
+            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
+            Span::raw("Cancel"),
+        ])
+        .alignment(Alignment::Center),
+        Line::from(""),
+    ];
+
+    let dialog_width = 52u16.min(area.width.saturating_sub(4));
+    let dialog_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+    let dialog_area = Rect {
+        x: dialog_x,
+        y: dialog_y,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Confirm Split ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false }),
+        dialog_area,
+    );
+}

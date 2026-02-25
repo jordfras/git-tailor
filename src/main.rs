@@ -144,13 +144,17 @@ fn main() -> Result<()> {
                 views::commit_list::render(&mut app, frame);
                 views::split_select::render(&app, frame);
             }
+            AppMode::SplitConfirm => {
+                views::commit_list::render(&mut app, frame);
+                views::split_select::render_split_confirm(&app, frame);
+            }
             AppMode::Help => {
                 // Render underlying view first (whatever was showing before help)
                 let previous = app.previous_mode.unwrap_or(AppMode::CommitList);
                 match previous {
                     AppMode::CommitList => views::commit_list::render(&mut app, frame),
                     AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-                    AppMode::Help | AppMode::SplitSelect => {
+                    AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {
                         views::commit_list::render(&mut app, frame)
                     }
                 }
@@ -170,26 +174,26 @@ fn main() -> Result<()> {
                 AppMode::CommitList => app.move_up(),
                 AppMode::CommitDetail => app.scroll_detail_up(),
                 AppMode::SplitSelect => app.split_select_up(),
-                AppMode::Help => {}
+                AppMode::Help | AppMode::SplitConfirm => {}
             },
             event::AppAction::MoveDown => match app.mode {
                 AppMode::CommitList if app.reverse => app.move_up(),
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
                 AppMode::SplitSelect => app.split_select_down(),
-                AppMode::Help => {}
+                AppMode::Help | AppMode::SplitConfirm => {}
             },
             event::AppAction::PageUp => match app.mode {
                 AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
-                AppMode::Help | AppMode::SplitSelect => {}
+                AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {}
             },
             event::AppAction::PageDown => match app.mode {
                 AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
-                AppMode::Help | AppMode::SplitSelect => {}
+                AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {}
             },
             event::AppAction::ScrollLeft => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
@@ -216,7 +220,6 @@ fn main() -> Result<()> {
                 AppMode::SplitSelect => {
                     let strategy = app.selected_split_strategy();
                     let commit_oid = app.commits[app.selection_index].oid.clone();
-                    // HEAD is the last non-synthetic commit
                     let head_oid = app
                         .commits
                         .iter()
@@ -224,32 +227,34 @@ fn main() -> Result<()> {
                         .find(|c| c.oid != "staged" && c.oid != "unstaged")
                         .map(|c| c.oid.clone())
                         .unwrap_or_default();
-                    app.mode = AppMode::CommitList;
-                    match strategy {
-                        SplitStrategy::PerFile => {
-                            match git_repo.split_commit_per_file(&commit_oid, &head_oid) {
-                                Ok(()) => reload_commits(&git_repo, &mut app),
-                                Err(e) => {
-                                    app.status_message = Some(e.to_string());
-                                }
-                            }
-                        }
-                        SplitStrategy::PerHunk => {
-                            match git_repo.split_commit_per_hunk(&commit_oid, &head_oid) {
-                                Ok(()) => reload_commits(&git_repo, &mut app),
-                                Err(e) => {
-                                    app.status_message = Some(e.to_string());
-                                }
-                            }
-                        }
+                    let count_result = match strategy {
+                        SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
+                        SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
                         SplitStrategy::PerHunkCluster => {
-                            match git_repo.split_commit_per_hunk_cluster(&commit_oid, &head_oid) {
-                                Ok(()) => reload_commits(&git_repo, &mut app),
-                                Err(e) => {
-                                    app.status_message = Some(e.to_string());
-                                }
-                            }
+                            git_repo.count_split_per_hunk_cluster(&commit_oid)
                         }
+                    };
+                    match count_result {
+                        Err(e) => {
+                            app.mode = AppMode::CommitList;
+                            app.status_message = Some(e.to_string());
+                        }
+                        Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
+                            app.enter_split_confirm(strategy, commit_oid, head_oid, count);
+                        }
+                        Ok(_) => {
+                            app.mode = AppMode::CommitList;
+                            execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
+                        }
+                    }
+                }
+                AppMode::SplitConfirm => {
+                    if let Some(pending) = app.pending_split.take() {
+                        let strategy = pending.strategy;
+                        let commit_oid = pending.commit_oid.clone();
+                        let head_oid = pending.head_oid.clone();
+                        app.mode = AppMode::CommitList;
+                        execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
                     }
                 }
                 AppMode::CommitList | AppMode::CommitDetail => {
@@ -265,6 +270,7 @@ fn main() -> Result<()> {
             event::AppAction::Quit => match app.mode {
                 AppMode::Help => app.close_help(),
                 AppMode::SplitSelect => app.mode = AppMode::CommitList,
+                AppMode::SplitConfirm => app.cancel_split_confirm(),
                 AppMode::CommitDetail => app.toggle_detail_view(),
                 AppMode::CommitList => app.should_quit = true,
             },
@@ -280,6 +286,35 @@ fn main() -> Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
+}
+
+/// Number of output commits above which a split requires explicit confirmation.
+const SPLIT_CONFIRM_THRESHOLD: usize = 5;
+
+/// Execute a split operation and reload commits on success.
+fn execute_split(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    strategy: SplitStrategy,
+    commit_oid: &str,
+    head_oid: &str,
+) {
+    match strategy {
+        SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
+            Ok(()) => reload_commits(git_repo, app),
+            Err(e) => app.status_message = Some(e.to_string()),
+        },
+        SplitStrategy::PerHunk => match git_repo.split_commit_per_hunk(commit_oid, head_oid) {
+            Ok(()) => reload_commits(git_repo, app),
+            Err(e) => app.status_message = Some(e.to_string()),
+        },
+        SplitStrategy::PerHunkCluster => {
+            match git_repo.split_commit_per_hunk_cluster(commit_oid, head_oid) {
+                Ok(()) => reload_commits(git_repo, app),
+                Err(e) => app.status_message = Some(e.to_string()),
+            }
+        }
+    }
 }
 
 /// Choose the initial selection index for a commit list:
