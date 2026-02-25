@@ -29,6 +29,9 @@ const COLOR_SQUASHABLE: Color = Color::Yellow;
 // Cell colors
 const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
 const COLOR_TOUCHED_SQUASHABLE: Color = Color::Gray;
+
+/// Maximum width for the title column, keeping fragmap adjacent to titles.
+const MAX_TITLE_WIDTH: u16 = 60;
 /// Determine a commit's relationship to the earliest earlier commit in a cluster.
 ///
 /// Returns None if the commit doesn't touch the cluster or no earlier commit does.
@@ -149,6 +152,15 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         (t, None, f)
     };
 
+    // Compute effective table width accounting for vertical scrollbar
+    let available_height = table_area.height.saturating_sub(1) as usize;
+    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
+    let effective_width = if has_v_scrollbar {
+        table_area.width.saturating_sub(1)
+    } else {
+        table_area.width
+    };
+
     // Determine which cluster columns are non-empty (at least one commit touches them)
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
@@ -159,7 +171,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     };
 
     // Apply horizontal scroll: determine how many cluster columns fit
-    let fragmap_available_width = table_area.width.saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
+    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize; // SHA + gap + min title + gap
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -173,16 +185,35 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         visible_clusters[h_scroll_offset..end].to_vec()
     };
 
-    let mut header_cells = vec![Cell::from("SHA"), Cell::from("Title")];
-    let mut constraints = vec![Constraint::Length(10), Constraint::Min(20)];
-    if !display_clusters.is_empty() {
-        header_cells.push(Cell::from("Hunk groups"));
-        constraints.push(Constraint::Length(display_clusters.len() as u16));
-    }
-    let header = Row::new(header_cells).style(HEADER_STYLE);
+    let fragmap_col_width = display_clusters.len() as u16;
+    let title_width = if fragmap_col_width > 0 {
+        effective_width
+            .saturating_sub(10 + 2 + fragmap_col_width)
+            .min(MAX_TITLE_WIDTH)
+    } else {
+        0
+    };
 
-    // Available height for data rows: table area minus header (1)
-    let available_height = table_area.height.saturating_sub(1) as usize;
+    let (header_cells, constraints) = if fragmap_col_width > 0 {
+        (
+            vec![
+                Cell::from("SHA"),
+                Cell::from("Title"),
+                Cell::from("Hunk groups"),
+            ],
+            vec![
+                Constraint::Length(10),
+                Constraint::Length(title_width),
+                Constraint::Length(fragmap_col_width),
+            ],
+        )
+    } else {
+        (
+            vec![Cell::from("SHA"), Cell::from("Title")],
+            vec![Constraint::Length(10), Constraint::Min(20)],
+        )
+    };
+    let header = Row::new(header_cells).style(HEADER_STYLE);
 
     // Map selection_index to visual position depending on display order
     let visual_selection = if app.reverse {
@@ -272,10 +303,8 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         })
         .collect();
 
-    let has_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
-
     // Reserve left column for scrollbar when needed
-    let (scrollbar_area, content_area) = if has_scrollbar {
+    let (scrollbar_area, content_area) = if has_v_scrollbar {
         let [sb, content] =
             Layout::horizontal([Constraint::Length(1), Constraint::Min(0)]).areas(table_area);
         (Some(sb), content)
@@ -319,9 +348,8 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
     // Render horizontal scrollbar for fragmap if needed
     if let Some(hs_area) = h_scrollbar_area {
-        // Position scrollbar under the fragmap column (right side of content)
-        let fragmap_col_width = display_clusters.len() as u16;
-        let fragmap_x = content_area.x + content_area.width - fragmap_col_width;
+        // Position scrollbar under the fragmap column
+        let fragmap_x = content_area.x + 10 + 1 + title_width + 1;
         let hs_fragmap_area = ratatui::layout::Rect {
             x: fragmap_x,
             width: fragmap_col_width,
