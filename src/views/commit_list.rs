@@ -28,7 +28,7 @@ const COLOR_SQUASHABLE: Color = Color::Yellow;
 
 // Cell colors
 const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
-const COLOR_TOUCHED_SQUASHABLE: Color = Color::Gray;
+const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -118,6 +118,43 @@ fn fragmap_connector_content(
         }
         _ => None,
     }
+}
+
+/// Check if a commit is fully squashable into a single other commit.
+///
+/// Returns true when every cluster the commit touches is squashable (no
+/// conflicting commits in between) and all clusters point to the same
+/// single target commit.
+fn is_fully_squashable(fragmap: &fragmap::FragMap, commit_idx: usize) -> bool {
+    let mut target: Option<usize> = None;
+
+    for cluster_idx in 0..fragmap.clusters.len() {
+        if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
+            continue;
+        }
+
+        // Find the earliest earlier commit touching this cluster
+        let earlier = (0..commit_idx).find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
+
+        let Some(earlier_idx) = earlier else {
+            // No earlier commit in this cluster — this commit is the first
+            // toucher, so it can't be squashed into anything for this cluster
+            return false;
+        };
+
+        match fragmap::analyze_cluster_relation(fragmap, earlier_idx, commit_idx, cluster_idx) {
+            fragmap::SquashRelation::Squashable => {
+                match target {
+                    None => target = Some(earlier_idx),
+                    Some(t) if t == earlier_idx => {}
+                    Some(_) => return false, // different target
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    target.is_some()
 }
 
 /// Render the commit list view.
@@ -266,7 +303,22 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-            let mut cells = vec![Cell::from(short_sha), Cell::from(commit.summary.clone())];
+            // Check if commit is fully squashable into one target
+            let squashable_style = app
+                .fragmap
+                .as_ref()
+                .is_some_and(|fm| is_fully_squashable(fm, commit_idx_in_fragmap));
+
+            let text_style = if squashable_style {
+                Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+            } else {
+                Style::default()
+            };
+
+            let mut cells = vec![
+                Cell::from(Span::styled(short_sha, text_style)),
+                Cell::from(Span::styled(commit.summary.clone(), text_style)),
+            ];
 
             // Add single fragmap cell composed of per-cluster spans
             if let Some(ref fragmap) = app.fragmap {
