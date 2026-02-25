@@ -22,6 +22,16 @@ impl AppState {
         }
     }
 
+    /// Create a new AppState with the given commits, selecting the last one (HEAD).
+    pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
+        let selection_index = commits.len().saturating_sub(1);
+        Self {
+            should_quit: false,
+            commits,
+            selection_index,
+        }
+    }
+
     /// Move selection up (decrement index) with lower bound check.
     /// Does nothing if already at top or commits list is empty.
     pub fn move_up(&mut self) {
