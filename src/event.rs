@@ -28,8 +28,10 @@ pub enum AppAction {
     ScrollRight,
     ToggleDetail,
     ShowHelp,
+    Split,
     Reload,
     Quit,
+    Confirm,
     None,
 }
 
@@ -57,8 +59,10 @@ pub fn parse_key_event(event: Event) -> AppAction {
                 KeyCode::PageDown => AppAction::PageDown,
                 KeyCode::Left => AppAction::ScrollLeft,
                 KeyCode::Right => AppAction::ScrollRight,
-                KeyCode::Enter | KeyCode::Char('i') => AppAction::ToggleDetail,
+                KeyCode::Enter => AppAction::Confirm,
+                KeyCode::Char('i') => AppAction::ToggleDetail,
                 KeyCode::Char('h') => AppAction::ShowHelp,
+                KeyCode::Char('s') => AppAction::Split,
                 KeyCode::Char('r') => AppAction::Reload,
                 KeyCode::Esc | KeyCode::Char('q') => AppAction::Quit,
                 _ => AppAction::None,

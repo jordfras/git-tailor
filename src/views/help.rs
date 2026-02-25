@@ -30,54 +30,58 @@ pub fn render(frame: &mut Frame) {
     let help_lines = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "Navigation",
+            " Navigation",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
+            Span::styled("   ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
             Span::raw("Move selection up/down"),
         ]),
         Line::from(vec![
-            Span::styled("  PgUp/PgDn ", Style::default().fg(Color::Cyan)),
+            Span::styled("   PgUp/PgDn ", Style::default().fg(Color::Cyan)),
             Span::raw("Move one page up/down"),
         ]),
         Line::from(vec![
-            Span::styled("  ←/→       ", Style::default().fg(Color::Cyan)),
+            Span::styled("   ←/→       ", Style::default().fg(Color::Cyan)),
             Span::raw("Scroll fragmap left/right"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Views",
+            " Views",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  i         ", Style::default().fg(Color::Cyan)),
+            Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
             Span::raw("Toggle commit detail view"),
         ]),
         Line::from(vec![
-            Span::styled("  h         ", Style::default().fg(Color::Cyan)),
+            Span::styled("   s         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Split commit (choose strategy)"),
+        ]),
+        Line::from(vec![
+            Span::styled("   h         ", Style::default().fg(Color::Cyan)),
             Span::raw("Show this help dialog"),
         ]),
         Line::from(vec![
-            Span::styled("  r         ", Style::default().fg(Color::Cyan)),
+            Span::styled("   r         ", Style::default().fg(Color::Cyan)),
             Span::raw("Reload commit list from HEAD"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Other",
+            " Other",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Esc, q    ", Style::default().fg(Color::Cyan)),
+            Span::styled("   Esc, q    ", Style::default().fg(Color::Cyan)),
             Span::raw("Close dialog / Quit application"),
         ]),
         Line::from(""),

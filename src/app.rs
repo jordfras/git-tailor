@@ -16,6 +16,38 @@
 
 use crate::{fragmap::FragMap, CommitInfo};
 
+/// Split strategy options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitStrategy {
+    PerFile,
+    PerHunk,
+    PerHunkCluster,
+}
+
+impl SplitStrategy {
+    pub const ALL: [SplitStrategy; 3] = [
+        SplitStrategy::PerFile,
+        SplitStrategy::PerHunk,
+        SplitStrategy::PerHunkCluster,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SplitStrategy::PerFile => "Per file",
+            SplitStrategy::PerHunk => "Per hunk",
+            SplitStrategy::PerHunkCluster => "Per hunk group",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            SplitStrategy::PerFile => "Create one commit per changed file",
+            SplitStrategy::PerHunk => "Create one commit per diff hunk",
+            SplitStrategy::PerHunkCluster => "Create one commit per hunk group",
+        }
+    }
+}
+
 /// Application display mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -23,6 +55,8 @@ pub enum AppMode {
     CommitList,
     /// Detailed view of a single commit.
     CommitDetail,
+    /// Split strategy selection dialog.
+    SplitSelect,
     /// Help dialog overlay.
     Help,
 }
@@ -58,6 +92,10 @@ pub struct AppState {
     pub detail_visible_height: usize,
     /// Previous mode before showing help (to return to after closing help).
     pub previous_mode: Option<AppMode>,
+    /// Currently highlighted split strategy option (index into SplitStrategy::ALL).
+    pub split_strategy_index: usize,
+    /// Transient status message shown in the footer (cleared on next keypress).
+    pub status_message: Option<String>,
 }
 
 impl AppState {
@@ -78,6 +116,8 @@ impl AppState {
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             previous_mode: None,
+            split_strategy_index: 0,
+            status_message: None,
         }
     }
 
@@ -99,6 +139,8 @@ impl AppState {
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             previous_mode: None,
+            split_strategy_index: 0,
+            status_message: None,
         }
     }
 
@@ -173,12 +215,49 @@ impl AppState {
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
+    /// Enter split strategy selection mode.
+    /// Only allowed for real commits (not staged/unstaged synthetic rows).
+    pub fn enter_split_select(&mut self) {
+        if let Some(commit) = self.commits.get(self.selection_index) {
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                self.status_message = Some("Cannot split staged/unstaged changes".to_string());
+                return;
+            }
+        }
+        self.split_strategy_index = 0;
+        self.mode = AppMode::SplitSelect;
+    }
+
+    /// Clear the transient status message.
+    pub fn clear_status_message(&mut self) {
+        self.status_message = None;
+    }
+
+    /// Move split strategy selection up.
+    pub fn split_select_up(&mut self) {
+        if self.split_strategy_index > 0 {
+            self.split_strategy_index -= 1;
+        }
+    }
+
+    /// Move split strategy selection down.
+    pub fn split_select_down(&mut self) {
+        if self.split_strategy_index < SplitStrategy::ALL.len() - 1 {
+            self.split_strategy_index += 1;
+        }
+    }
+
+    /// Get the currently selected split strategy.
+    pub fn selected_split_strategy(&self) -> SplitStrategy {
+        SplitStrategy::ALL[self.split_strategy_index]
+    }
+
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
         self.mode = match self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
-            AppMode::Help => AppMode::Help, // Stay in help if already there
+            AppMode::Help | AppMode::SplitSelect => return, // Stay in current mode
         };
         // Reset scroll offset when toggling views
         self.detail_scroll_offset = 0;

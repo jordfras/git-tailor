@@ -57,7 +57,7 @@ Guidelines:
   commit list with hunk groups (Flags: V4)
 
 ## Interactivity — Split Commit (V4)
-- [ ] T068 P0 feat - Add split mode on 's' key: prompt user to choose split
+- [X] T068 P0 feat - Add split mode on 's' key: prompt user to choose split
   strategy — one commit per file, per hunk, or per hunk cluster (Flags: V4)
 - [ ] T069 P0 feat - Implement per-file split: create N commits each applying
   one file's changes, using git2 cherry-pick/tree manipulation (Flags: V4)

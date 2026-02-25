@@ -478,6 +478,13 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+    if let Some(msg) = &app.status_message {
+        let style = Style::new().fg(Color::White).bg(Color::Red);
+        let footer = Paragraph::new(Span::styled(format!(" {}", msg), style)).style(style);
+        frame.render_widget(footer, area);
+        return;
+    }
+
     let text = if app.commits.is_empty() {
         String::from("No commits")
     } else {

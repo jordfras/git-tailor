@@ -140,13 +140,19 @@ fn main() -> Result<()> {
         terminal.draw(|frame| match app.mode {
             AppMode::CommitList => views::commit_list::render(&mut app, frame),
             AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
+            AppMode::SplitSelect => {
+                views::commit_list::render(&mut app, frame);
+                views::split_select::render(&app, frame);
+            }
             AppMode::Help => {
                 // Render underlying view first (whatever was showing before help)
                 let previous = app.previous_mode.unwrap_or(AppMode::CommitList);
                 match previous {
                     AppMode::CommitList => views::commit_list::render(&mut app, frame),
                     AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-                    AppMode::Help => views::commit_list::render(&mut app, frame), // Fallback
+                    AppMode::Help | AppMode::SplitSelect => {
+                        views::commit_list::render(&mut app, frame)
+                    }
                 }
                 // Render help dialog on top
                 views::help::render(frame);
@@ -156,56 +162,78 @@ fn main() -> Result<()> {
         let event = event::read()?;
         let action = event::parse_key_event(event);
 
+        app.clear_status_message();
+
         match action {
             event::AppAction::MoveUp => match app.mode {
                 AppMode::CommitList if app.reverse => app.move_down(),
                 AppMode::CommitList => app.move_up(),
                 AppMode::CommitDetail => app.scroll_detail_up(),
-                AppMode::Help => {} // Ignore in help mode
+                AppMode::SplitSelect => app.split_select_up(),
+                AppMode::Help => {}
             },
             event::AppAction::MoveDown => match app.mode {
                 AppMode::CommitList if app.reverse => app.move_up(),
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
-                AppMode::Help => {} // Ignore in help mode
+                AppMode::SplitSelect => app.split_select_down(),
+                AppMode::Help => {}
             },
             event::AppAction::PageUp => match app.mode {
                 AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
-                AppMode::Help => {} // Ignore in help mode
+                AppMode::Help | AppMode::SplitSelect => {}
             },
             event::AppAction::PageDown => match app.mode {
                 AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
-                AppMode::Help => {} // Ignore in help mode
+                AppMode::Help | AppMode::SplitSelect => {}
             },
             event::AppAction::ScrollLeft => {
-                if app.mode != AppMode::Help {
+                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     app.scroll_fragmap_left();
                 }
             }
             event::AppAction::ScrollRight => {
-                if app.mode != AppMode::Help {
+                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     app.scroll_fragmap_right();
                 }
             }
             event::AppAction::ToggleDetail => {
-                if app.mode != AppMode::Help {
+                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     app.toggle_detail_view();
                 }
             }
             event::AppAction::ShowHelp => app.toggle_help(),
+            event::AppAction::Split => {
+                if app.mode == AppMode::CommitList {
+                    app.enter_split_select();
+                }
+            }
+            event::AppAction::Confirm => match app.mode {
+                AppMode::SplitSelect => {
+                    // T069-T071 will implement the actual split execution.
+                    // For now, just acknowledge the selection and return.
+                    let _strategy = app.selected_split_strategy();
+                    app.mode = AppMode::CommitList;
+                }
+                AppMode::CommitList | AppMode::CommitDetail => {
+                    app.toggle_detail_view();
+                }
+                _ => {}
+            },
             event::AppAction::Reload => {
-                if app.mode != AppMode::Help {
+                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     reload_commits(&git_repo, &mut app);
                 }
             }
             event::AppAction::Quit => match app.mode {
-                AppMode::Help => app.close_help(), // Close help dialog
-                AppMode::CommitDetail => app.toggle_detail_view(), // Return to commit list
-                AppMode::CommitList => app.should_quit = true, // Quit application
+                AppMode::Help => app.close_help(),
+                AppMode::SplitSelect => app.mode = AppMode::CommitList,
+                AppMode::CommitDetail => app.toggle_detail_view(),
+                AppMode::CommitList => app.should_quit = true,
             },
             event::AppAction::None => {}
         }
