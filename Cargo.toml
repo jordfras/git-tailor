@@ -12,7 +12,7 @@ path = "src/main.rs"
 git2 = { version = "0.20", default-features = false }
 anyhow = "1.0"
 ratatui = "0.28"
-crossterm = "0.28"
+crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
 
