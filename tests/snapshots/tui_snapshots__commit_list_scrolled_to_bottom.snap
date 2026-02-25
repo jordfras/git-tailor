@@ -1,0 +1,25 @@
+---
+source: tests/tui_snapshots.rs
+assertion_line: 146
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 60, height: 8 },
+    content: [
+        "┌Commits───────────────────────────────────────────────────┐",
+        "│SHA        Title                                          │",
+        "│00000000   Commit number 5                                │",
+        "│00000000   Commit number 6                                │",
+        "│00000000   Commit number 7                                │",
+        "█00000000   Commit number 8                                │",
+        "█00000000   Commit number 9                                │",
+        "└──────────────────────────────────────────────────────────┘",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 59, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 59, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+    ]
+}
