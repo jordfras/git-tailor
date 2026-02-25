@@ -16,26 +16,34 @@ browse, analyze, reorder, squash, and split commits on a branch.
 
 ## Architecture
 
-### Crate Structure (Cargo workspace)
+### Crate Structure
 
 ```
 git-scissors/
-├── Cargo.toml              # workspace root
-├── crates/
-│   ├── scissors-core/       # Domain model + git operations (library)
-│   └── scissors-tui/        # TUI application (binary)
+├── Cargo.toml              # package manifest
+├── src/
+│   ├── lib.rs              # Library root
+│   ├── main.rs             # Binary entry point
+│   ├── repo/               # Repository and git operations
+│   ├── branch/             # Branch utilities
+│   ├── commit/             # Commit types
+│   ├── diff/               # Diff types
+│   ├── fragmap/            # Chunk clustering
+│   ├── rebase/             # Rebase engine
+│   ├── app/                # TUI state machine
+│   ├── event/              # Input handling
+│   ├── views/              # TUI views
+│   └── widgets/            # Reusable TUI components
 └── tests/
     └── fixtures/            # Script-generated test git repos
 ```
 
-**scissors-core** is a pure library containing all git logic, domain types, and
-the rebase engine. It is independently testable without the TUI. This enables
-future non-TUI frontends (CLI batch mode, CI tooling, etc.).
+The project combines a **library** (src/lib.rs) containing all git logic, domain
+types, and the rebase engine with a **binary** (src/main.rs) providing the TUI
+interface. The library is independently testable and can be used for future
+non-TUI frontends (CLI batch mode, CI tooling, etc.).
 
-**scissors-tui** is a thin TUI shell that renders state from core and dispatches
-user actions back to core.
-
-### scissors-core Modules
+### Library Modules
 
 | Module       | Responsibility                                                |
 |--------------|---------------------------------------------------------------|
@@ -46,7 +54,7 @@ user actions back to core.
 | `fragmap`    | Span extraction, overlap clustering, matrix generation        |
 | `rebase`     | Cherry-pick-based reorder, squash, and split engine           |
 
-### scissors-tui Modules
+### TUI Modules
 
 | Module                 | Responsibility                                   |
 |------------------------|--------------------------------------------------|
@@ -61,6 +69,30 @@ user actions back to core.
 | `widgets::diff`        | Syntax-highlighted diff rendering widget         |
 | `widgets::grid`        | Fragmap grid rendering widget                    |
 | `widgets::scrollable`  | Generic scrollable list widget                   |
+
+### Module Organization Convention
+
+**Never use `mod.rs` files.** Follow Rust 2018+ module style:
+
+- A module without sub-modules: `src/repo.rs`
+- A module with sub-modules: `src/repo.rs` + `src/repo/*.rs`
+
+Example:
+```
+src/
+  lib.rs
+  repo.rs              # declares: pub mod git2_impl; pub mod traits;
+  repo/
+    git2_impl.rs
+    traits.rs
+  views.rs             # declares sub-modules
+  views/
+    commit_list.rs
+    commit_detail.rs
+    fragmap.rs
+```
+
+This keeps the module tree clear and avoids the old `mod.rs` pattern.
 
 ## Key Domain Model
 
@@ -179,11 +211,11 @@ behind a trait boundary, integration tested with real temporary repos.
 
 ```
 ┌──────────────────────────────────────────────┐
-│              scissors-tui                    │
+│            TUI (main.rs + views)             │
 │  (thin: renders AppState, dispatches keys)   │
 │  tested with: TestBackend + insta snapshots  │
 ├──────────────────────────────────────────────┤
-│              scissors-core                   │
+│          Library (lib.rs + modules)          │
 │                                              │
 │  ┌──────────────┐  ┌──────────────────────┐  │
 │  │ Pure logic   │  │ trait GitRepo        │  │
@@ -199,7 +231,7 @@ behind a trait boundary, integration tested with real temporary repos.
 
 ### Trait-based abstraction over git2
 
-Don't call `git2` directly from business logic. Define traits in scissors-core:
+Don't call `git2` directly from business logic. Define traits in the library:
 
 ```rust
 pub trait GitRepo {
