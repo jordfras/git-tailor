@@ -4,6 +4,19 @@ use anyhow::{Context, Result};
 
 use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 
+/// Tries to open a git repository by iteratively trying the path and parents
+pub fn try_open_repo(mut path: std::path::PathBuf) -> Result<git2::Repository> {
+    loop {
+        let result = git2::Repository::open(&path);
+        if let Ok(repo) = result {
+            return Ok(repo);
+        }
+        if !path.pop() {
+            anyhow::bail!("Could not find git repository root");
+        }
+    }
+}
+
 /// Find the merge-base (reference point) between HEAD and a given commit-ish.
 ///
 /// The commit-ish can be:
@@ -12,14 +25,7 @@ use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 /// - A commit hash (short or long)
 ///
 /// Returns the OID of the common ancestor as a string.
-pub fn find_reference_point(commit_ish: &str) -> Result<String> {
-    find_reference_point_in(".", commit_ish)
-}
-
-/// Internal: find reference point in a specific repository path.
-pub(crate) fn find_reference_point_in(repo_path: &str, commit_ish: &str) -> Result<String> {
-    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
-
+pub fn find_reference_point(repo: &git2::Repository, commit_ish: &str) -> Result<String> {
     let target_object = repo
         .revparse_single(commit_ish)
         .context(format!("Failed to resolve '{}'", commit_ish))?;
@@ -73,14 +79,11 @@ fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
 ///
 /// Both `from_oid` and `to_oid` can be any commit-ish (branch, tag, hash).
 /// The range includes both endpoints.
-pub fn list_commits(from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
-    list_commits_in(".", from_oid, to_oid)
-}
-
-/// Internal: list commits in a specific repository path.
-pub fn list_commits_in(repo_path: &str, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
-    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
-
+pub fn list_commits(
+    repo: &git2::Repository,
+    from_oid: &str,
+    to_oid: &str,
+) -> Result<Vec<CommitInfo>> {
     let from_object = repo
         .revparse_single(from_oid)
         .context(format!("Failed to resolve '{}'", from_oid))?;
@@ -110,29 +113,13 @@ pub fn list_commits_in(repo_path: &str, from_oid: &str, to_oid: &str) -> Result<
     Ok(commits)
 }
 
-/// Extract the full diff for a single commit compared to its first parent.
-///
-/// For the root commit (no parents), diffs against an empty tree so all
-/// files show as additions. Returns a `CommitDiff` containing the commit
-/// metadata and every file/hunk/line changed.
-pub fn commit_diff(oid: &str) -> Result<CommitDiff> {
-    commit_diff_in(".", oid)
-}
-
 /// Extract commit diff with zero context lines, suitable for fragmap analysis.
 ///
 /// The fragmap algorithm needs each logical change as its own hunk. With
 /// the default 3-line context, git merges adjacent hunks together which
 /// produces fewer but larger hunks — breaking the SPG's fine-grained
 /// span tracking.
-pub fn commit_diff_for_fragmap(oid: &str) -> Result<CommitDiff> {
-    commit_diff_for_fragmap_in(".", oid)
-}
-
-/// Internal: extract commit diff for fragmap in a specific repository path.
-pub fn commit_diff_for_fragmap_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
-    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
-
+pub fn commit_diff_for_fragmap(repo: &git2::Repository, oid: &str) -> Result<CommitDiff> {
     let object = repo
         .revparse_single(oid)
         .context(format!("Failed to resolve '{}'", oid))?;
@@ -154,13 +141,15 @@ pub fn commit_diff_for_fragmap_in(repo_path: &str, oid: &str) -> Result<CommitDi
 
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
-    extract_commit_diff(&repo, &diff, &commit)
+    extract_commit_diff(&diff, &commit)
 }
 
-/// Internal: extract commit diff in a specific repository path.
-pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
-    let repo = git2::Repository::open(repo_path).context("Failed to open git repository")?;
-
+/// Extract the full diff for a single commit compared to its first parent.
+///
+/// For the root commit (no parents), diffs against an empty tree so all
+/// files show as additions. Returns a `CommitDiff` containing the commit
+/// metadata and every file/hunk/line changed.
+pub fn commit_diff(repo: &git2::Repository, oid: &str) -> Result<CommitDiff> {
     let object = repo
         .revparse_single(oid)
         .context(format!("Failed to resolve '{}'", oid))?;
@@ -179,14 +168,10 @@ pub fn commit_diff_in(repo_path: &str, oid: &str) -> Result<CommitDiff> {
 
     let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
 
-    extract_commit_diff(&repo, &diff, &commit)
+    extract_commit_diff(&diff, &commit)
 }
 
-fn extract_commit_diff(
-    _repo: &git2::Repository,
-    diff: &git2::Diff,
-    commit: &git2::Commit,
-) -> Result<CommitDiff> {
+fn extract_commit_diff(diff: &git2::Diff, commit: &git2::Commit) -> Result<CommitDiff> {
     Ok(CommitDiff {
         commit: commit_info_from(commit),
         files: extract_files_from_diff(diff)?,

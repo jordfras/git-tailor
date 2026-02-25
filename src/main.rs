@@ -49,13 +49,14 @@ struct Cli {
 /// of the regular commit diffs so the fragmap matrix rows match the ordering in
 /// `AppState::commits`.
 fn compute_fragmap(
+    git_repo: &Repository,
     regular_commits: &[CommitInfo],
     extra_diffs: &[CommitDiff],
     full: bool,
 ) -> Option<fragmap::FragMap> {
     let mut commit_diffs: Vec<CommitDiff> = regular_commits
         .iter()
-        .filter_map(|commit| repo::commit_diff_for_fragmap(&commit.oid).ok())
+        .filter_map(|commit| repo::commit_diff_for_fragmap(git_repo, &commit.oid).ok())
         .collect();
 
     // If we couldn't get all diffs, return None
@@ -70,14 +71,14 @@ fn compute_fragmap(
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let reference_oid = repo::find_reference_point(&cli.commit_ish)?;
-    let git_repo = Repository::open(".")?;
+    let git_repo = repo::try_open_repo(std::env::current_dir()?)?;
+    let reference_oid = repo::find_reference_point(&git_repo, &cli.commit_ish)?;
     let head_oid = git_repo
         .head()?
         .target()
         .ok_or_else(|| anyhow::anyhow!("HEAD does not point to a commit"))?;
 
-    let commits = repo::list_commits(&head_oid.to_string(), &reference_oid)?;
+    let commits = repo::list_commits(&git_repo, &head_oid.to_string(), &reference_oid)?;
 
     // Exclude the merge-base commit - it's shared with the target branch
     // and must not be modified (squashed, moved, or split)
@@ -121,19 +122,19 @@ fn main() -> Result<()> {
         app.commits.push(d.commit.clone());
     }
     app.full_fragmap = cli.full;
-    app.fragmap = compute_fragmap(&app.commits[..n_regular], &extra_diffs, cli.full);
+    app.fragmap = compute_fragmap(&git_repo, &app.commits[..n_regular], &extra_diffs, cli.full);
     app.selection_index = select_initial_index(&app.commits);
 
     loop {
         terminal.draw(|frame| match app.mode {
             AppMode::CommitList => views::commit_list::render(&mut app, frame),
-            AppMode::CommitDetail => render_main_view(&mut app, frame),
+            AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
             AppMode::Help => {
                 // Render underlying view first (whatever was showing before help)
                 let previous = app.previous_mode.unwrap_or(AppMode::CommitList);
                 match previous {
                     AppMode::CommitList => views::commit_list::render(&mut app, frame),
-                    AppMode::CommitDetail => render_main_view(&mut app, frame),
+                    AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
                     AppMode::Help => views::commit_list::render(&mut app, frame), // Fallback
                 }
                 // Render help dialog on top
@@ -235,7 +236,7 @@ fn reload_commits(app: &mut AppState) {
         None => return,
     };
 
-    let commits = match repo::list_commits(&head_oid, &app.reference_oid) {
+    let commits = match repo::list_commits(&git_repo, &head_oid, &app.reference_oid) {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -260,7 +261,12 @@ fn reload_commits(app: &mut AppState) {
         commits.push(d.commit.clone());
     }
 
-    let fragmap = compute_fragmap(&commits[..n_regular], &extra_diffs, app.full_fragmap);
+    let fragmap = compute_fragmap(
+        &git_repo,
+        &commits[..n_regular],
+        &extra_diffs,
+        app.full_fragmap,
+    );
 
     app.selection_index = select_initial_index(&commits);
     app.commits = commits;
@@ -270,7 +276,7 @@ fn reload_commits(app: &mut AppState) {
 }
 
 /// Render the main view with split screen (commit list on left, detail on right).
-fn render_main_view(app: &mut AppState, frame: &mut ratatui::Frame) {
+fn render_main_view(git_repo: &Repository, app: &mut AppState, frame: &mut ratatui::Frame) {
     let area = frame.area();
     let split_x = 72; // SHA(10) + sep(1) + title(60) + sep(1)
     let left_width = split_x.min(area.width);
@@ -313,7 +319,7 @@ fn render_main_view(app: &mut AppState, frame: &mut ratatui::Frame) {
         };
         frame.render_widget(Paragraph::new(separator_spans), sep_area);
 
-        views::commit_detail::render(frame, app, right_area);
+        views::commit_detail::render(git_repo, frame, app, right_area);
     } else {
         // Screen too narrow, just show commit list
         views::commit_list::render(app, frame);
