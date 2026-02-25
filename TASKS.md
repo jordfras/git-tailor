@@ -35,7 +35,7 @@ Guidelines:
 - [X] T017 P0 feat - Create app module (src/app.rs) with AppState struct (Flags:
   V2)
 - [X] T018 P0 feat - Add commit list and selection index to AppState (Flags: V2)
-- [ ] T019 P0 feat - Implement methods for moving selection up/down in AppState
+- [X] T019 P0 feat - Implement methods for moving selection up/down in AppState
   (Flags: V2)
 - [ ] T020 P0 feat - Create event module (src/event.rs) for input handling
   (Flags: V2)
