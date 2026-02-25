@@ -26,7 +26,7 @@ Guidelines:
 - [X] T085 P2 feat - Add 'r' key to reload: re-read the commit list from HEAD
   down to the originally calculated reference point (merge-base), refreshing
   after external git operations without restarting the tool (Flags: V4)
-- [ ] T086 P2 feat - Show staged and unstaged working-tree changes as synthetic
+- [X] T086 P2 feat - Show staged and unstaged working-tree changes as synthetic
   rows at the top of the commit list (above HEAD), displayed with distinct
   labels ("staged" / "unstaged") and included in the fragmap matrix so their
   hunk overlap with commits is visible (Flags: V4)

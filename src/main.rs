@@ -9,7 +9,7 @@ use crossterm::{
 use git2::Repository;
 use git_tailor::{
     app::{AppMode, AppState},
-    event, fragmap, repo, views, CommitInfo,
+    event, fragmap, repo, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -33,24 +33,27 @@ struct Cli {
     reverse: bool,
 }
 
-/// Compute fragmap from commits.
+/// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
 ///
-/// Fetches diffs for all commits and builds the fragmap visualization data.
-/// Returns None if any step fails (gracefully handles errors).
-fn compute_fragmap(commits: &[CommitInfo]) -> Option<fragmap::FragMap> {
-    // Use zero-context diffs so each logical change is its own hunk,
-    // matching the original fragmap's fine-grained span tracking
-    let commit_diffs: Vec<_> = commits
+/// Extra diffs are for synthetic pseudo-commits (staged/unstaged working-tree
+/// changes) whose diff cannot be fetched by OID. They are appended at the end
+/// of the regular commit diffs so the fragmap matrix rows match the ordering in
+/// `AppState::commits`.
+fn compute_fragmap(
+    regular_commits: &[CommitInfo],
+    extra_diffs: &[CommitDiff],
+) -> Option<fragmap::FragMap> {
+    let mut commit_diffs: Vec<CommitDiff> = regular_commits
         .iter()
         .filter_map(|commit| repo::commit_diff_for_fragmap(&commit.oid).ok())
         .collect();
 
     // If we couldn't get all diffs, return None
-    if commit_diffs.len() != commits.len() {
+    if commit_diffs.len() != regular_commits.len() {
         return None;
     }
 
-    // Build fragmap
+    commit_diffs.extend_from_slice(extra_diffs);
     Some(fragmap::build_fragmap(&commit_diffs))
 }
 
@@ -83,9 +86,6 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Compute fragmap for visualization
-    let fragmap = compute_fragmap(&commits);
-
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
@@ -95,7 +95,23 @@ fn main() -> Result<()> {
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
     app.reference_oid = reference_oid;
-    app.fragmap = fragmap;
+
+    // Append staged/unstaged working-tree changes as synthetic rows at the
+    // bottom of the commit list (newest position). Recompute fragmap with
+    // the extra diffs so their hunk overlap with commits is visible.
+    let mut extra_diffs: Vec<CommitDiff> = Vec::new();
+    if let Some(d) = repo::staged_diff() {
+        extra_diffs.push(d);
+    }
+    if let Some(d) = repo::unstaged_diff() {
+        extra_diffs.push(d);
+    }
+    let n_regular = app.commits.len();
+    for d in &extra_diffs {
+        app.commits.push(d.commit.clone());
+    }
+    app.fragmap = compute_fragmap(&app.commits[..n_regular], &extra_diffs);
+    app.selection_index = select_initial_index(&app.commits);
 
     loop {
         terminal.draw(|frame| match app.mode {
@@ -182,6 +198,18 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Choose the initial selection index for a commit list:
+/// unstaged row if present, else staged row if present, else the last commit.
+fn select_initial_index(commits: &[CommitInfo]) -> usize {
+    if let Some(i) = commits.iter().rposition(|c| c.oid == "unstaged") {
+        return i;
+    }
+    if let Some(i) = commits.iter().rposition(|c| c.oid == "staged") {
+        return i;
+    }
+    commits.len().saturating_sub(1)
+}
+
 /// Reload commits from HEAD down to the stored reference OID, then recompute the fragmap.
 ///
 /// Keeps the current selection clamped to the new list bounds. Resets
@@ -206,9 +234,24 @@ fn reload_commits(app: &mut AppState) {
         .filter(|c| c.oid != app.reference_oid)
         .collect();
 
-    let fragmap = compute_fragmap(&commits);
+    // Append staged/unstaged as synthetic rows, same as at startup.
+    let mut extra_diffs: Vec<CommitDiff> = Vec::new();
+    if let Some(d) = repo::staged_diff() {
+        extra_diffs.push(d);
+    }
+    if let Some(d) = repo::unstaged_diff() {
+        extra_diffs.push(d);
+    }
 
-    app.selection_index = app.selection_index.min(commits.len().saturating_sub(1));
+    let n_regular = commits.len();
+    let mut commits = commits;
+    for d in &extra_diffs {
+        commits.push(d.commit.clone());
+    }
+
+    let fragmap = compute_fragmap(&commits[..n_regular], &extra_diffs);
+
+    app.selection_index = select_initial_index(&commits);
     app.commits = commits;
     app.fragmap = fragmap;
     app.fragmap_scroll_offset = 0;

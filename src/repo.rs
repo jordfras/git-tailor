@@ -187,6 +187,16 @@ fn extract_commit_diff(
     diff: &git2::Diff,
     commit: &git2::Commit,
 ) -> Result<CommitDiff> {
+    Ok(CommitDiff {
+        commit: commit_info_from(commit),
+        files: extract_files_from_diff(diff)?,
+    })
+}
+
+/// Extract `FileDiff` entries from a `git2::Diff`.
+///
+/// Shared by both commit-based diffs and synthetic (staged/unstaged) diffs.
+fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
     let mut files: Vec<FileDiff> = Vec::new();
 
     for delta_idx in 0..diff.deltas().len() {
@@ -251,8 +261,71 @@ fn extract_commit_diff(
         });
     }
 
-    Ok(CommitDiff {
-        commit: commit_info_from(commit),
+    Ok(files)
+}
+
+/// Build a minimal synthetic `CommitInfo` for staged/unstaged pseudo-commits.
+fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
+    CommitInfo {
+        oid: oid.to_string(),
+        summary: summary.to_string(),
+        author: String::new(),
+        date: String::new(),
+        parent_oids: vec![],
+        message: summary.to_string(),
+        author_email: String::new(),
+        author_date: time::OffsetDateTime::UNIX_EPOCH,
+        committer: String::new(),
+        committer_email: String::new(),
+        commit_date: time::OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+/// Return a synthetic `CommitDiff` for changes staged in the index (index vs HEAD).
+///
+/// Returns `None` when the index is clean (no staged changes).
+pub fn staged_diff() -> Option<CommitDiff> {
+    let repo = git2::Repository::open(".").ok()?;
+    let head = repo.head().ok()?.peel_to_tree().ok();
+
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(0);
+    opts.interhunk_lines(0);
+
+    let diff = repo
+        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))
+        .ok()?;
+
+    let files = extract_files_from_diff(&diff).ok()?;
+    if files.iter().all(|f| f.hunks.is_empty()) {
+        return None;
+    }
+
+    Some(CommitDiff {
+        commit: synthetic_commit_info("staged", "Staged changes"),
+        files,
+    })
+}
+
+/// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir vs index).
+///
+/// Returns `None` when the working tree is clean relative to the index.
+pub fn unstaged_diff() -> Option<CommitDiff> {
+    let repo = git2::Repository::open(".").ok()?;
+
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(0);
+    opts.interhunk_lines(0);
+
+    let diff = repo.diff_index_to_workdir(None, Some(&mut opts)).ok()?;
+
+    let files = extract_files_from_diff(&diff).ok()?;
+    if files.iter().all(|f| f.hunks.is_empty()) {
+        return None;
+    }
+
+    Some(CommitDiff {
+        commit: synthetic_commit_info("unstaged", "Unstaged changes"),
         files,
     })
 }

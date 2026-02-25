@@ -36,6 +36,10 @@ const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
 // so that the vertical lines and filled squares keep their foreground colors.
 const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 
+// Foreground color for synthetic working-tree rows (staged / unstaged).
+// Applied when the row is not selected so they are visually distinct from commits.
+const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
+
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
 
@@ -415,8 +419,14 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
+            // Synthetic working-tree rows (staged/unstaged) use a fixed label
+            // color rather than the commit-relationship coloring.
+            let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
+
             let text_style = if visual_index != layout.visual_selection {
-                if let Some(ref fm) = app.fragmap {
+                if is_synthetic {
+                    Style::new().fg(COLOR_SYNTHETIC_LABEL)
+                } else if let Some(ref fm) = app.fragmap {
                     commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
                 } else {
                     Style::default()
