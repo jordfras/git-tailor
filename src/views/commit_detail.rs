@@ -26,7 +26,7 @@ enum FileStatus {
 ///
 /// Displays commit metadata and diff in the right panel.
 /// Currently a placeholder showing the selected commit's summary.
-pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, and footer
     let [header_area, content_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
@@ -191,7 +191,18 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
             }
         }
 
-        let paragraph = Paragraph::new(content);
+        // Calculate scrolling bounds
+        let total_lines = content.len();
+        let visible_height = content_area.height as usize;
+        let max_scroll = total_lines.saturating_sub(visible_height);
+
+        // Update max scroll in app state for scroll bound checking
+        app.max_detail_scroll = max_scroll;
+
+        // Clamp scroll offset to valid range
+        let scroll_offset = app.detail_scroll_offset.min(max_scroll);
+
+        let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, 0));
         frame.render_widget(paragraph, content_area);
     }
 

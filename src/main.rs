@@ -126,7 +126,7 @@ fn main() -> Result<()> {
                     };
                     frame.render_widget(Paragraph::new(separator_spans), sep_area);
 
-                    views::commit_detail::render(frame, &app, right_area);
+                    views::commit_detail::render(frame, &mut app, right_area);
                 } else {
                     // Screen too narrow, just show commit list
                     views::commit_list::render(&mut app, frame);
@@ -138,10 +138,16 @@ fn main() -> Result<()> {
         let action = event::parse_key_event(event);
 
         match action {
-            event::AppAction::MoveUp if app.reverse => app.move_down(),
-            event::AppAction::MoveDown if app.reverse => app.move_up(),
-            event::AppAction::MoveUp => app.move_up(),
-            event::AppAction::MoveDown => app.move_down(),
+            event::AppAction::MoveUp => match app.mode {
+                AppMode::CommitList if app.reverse => app.move_down(),
+                AppMode::CommitList => app.move_up(),
+                AppMode::CommitDetail => app.scroll_detail_up(),
+            },
+            event::AppAction::MoveDown => match app.mode {
+                AppMode::CommitList if app.reverse => app.move_up(),
+                AppMode::CommitList => app.move_down(),
+                AppMode::CommitDetail => app.scroll_detail_down(),
+            },
             event::AppAction::ScrollLeft => app.scroll_fragmap_left(),
             event::AppAction::ScrollRight => app.scroll_fragmap_right(),
             event::AppAction::ToggleDetail => app.toggle_detail_view(),

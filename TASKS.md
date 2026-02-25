@@ -30,7 +30,7 @@ Guidelines:
   colors) (Flags: V4)
 - [X] T065 P1 feat - Color diff output in commit detail view similar to tig:
   green for additions, red for deletions, cyan for hunk headers (Flags: V4)
-- [ ] T066 P1 feat - Support scrolling in commit detail view for long diffs
+- [X] T066 P1 feat - Support scrolling in commit detail view for long diffs
   (Flags: V4)
 - [ ] T067 P1 feat - Pressing 'i' again or Esc in detail view returns to the
   commit list with hunk groups (Flags: V4)
