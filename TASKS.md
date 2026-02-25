@@ -104,7 +104,7 @@ Guidelines:
 - [X] T052 P1 feat - Add unit tests for squashability logic (Flags: V3)
 
 ## Fragmap — TUI Rendering (V3)
-- [ ] T053 P0 feat - Compute fragmap data in main.rs and store in AppState
+- [X] T053 P0 feat - Compute fragmap data in main.rs and store in AppState
   (Flags: V3)
 - [ ] T054 P0 feat - Render fragmap grid right of commit title: white squares
   for touched chunks, colored lines between related commits (Flags: V3)

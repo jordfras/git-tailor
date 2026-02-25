@@ -7,7 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use git2::Repository;
-use git_scissors::{app::AppState, event, repo, views};
+use git_scissors::{app::AppState, event, fragmap, repo, views, CommitInfo};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
@@ -23,6 +23,26 @@ struct Cli {
     reverse: bool,
 }
 
+/// Compute fragmap from commits.
+///
+/// Fetches diffs for all commits and builds the fragmap visualization data.
+/// Returns None if any step fails (gracefully handles errors).
+fn compute_fragmap(commits: &[CommitInfo]) -> Option<fragmap::FragMap> {
+    // Compute diffs for all commits
+    let commit_diffs: Vec<_> = commits
+        .iter()
+        .filter_map(|commit| repo::commit_diff(&commit.oid).ok())
+        .collect();
+
+    // If we couldn't get all diffs, return None
+    if commit_diffs.len() != commits.len() {
+        return None;
+    }
+
+    // Build fragmap
+    Some(fragmap::build_fragmap(&commit_diffs))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -35,6 +55,9 @@ fn main() -> Result<()> {
 
     let commits = repo::list_commits(&head_oid.to_string(), &reference_oid)?;
 
+    // Compute fragmap for visualization
+    let fragmap = compute_fragmap(&commits);
+
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
@@ -43,6 +66,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
+    app.fragmap = fragmap;
 
     loop {
         terminal.draw(|frame| {

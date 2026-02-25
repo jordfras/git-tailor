@@ -1,6 +1,6 @@
 // TUI application state management
 
-use crate::CommitInfo;
+use crate::{fragmap::FragMap, CommitInfo};
 
 /// Application state for the TUI.
 ///
@@ -11,6 +11,9 @@ pub struct AppState {
     pub commits: Vec<CommitInfo>,
     pub selection_index: usize,
     pub reverse: bool,
+    /// Optional fragmap visualization data.
+    /// None if fragmap computation failed or was not performed.
+    pub fragmap: Option<FragMap>,
 }
 
 impl AppState {
@@ -21,6 +24,7 @@ impl AppState {
             commits: Vec::new(),
             selection_index: 0,
             reverse: false,
+            fragmap: None,
         }
     }
 
@@ -32,6 +36,7 @@ impl AppState {
             commits,
             selection_index,
             reverse: false,
+            fragmap: None,
         }
     }
 
