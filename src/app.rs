@@ -31,6 +31,10 @@ pub struct AppState {
     pub detail_scroll_offset: usize,
     /// Maximum vertical scroll offset for the detail view (updated during render).
     pub max_detail_scroll: usize,
+    /// Visible height of the commit list area (updated during render).
+    pub commit_list_visible_height: usize,
+    /// Visible height of the detail view area (updated during render).
+    pub detail_visible_height: usize,
 }
 
 impl AppState {
@@ -46,6 +50,8 @@ impl AppState {
             mode: AppMode::CommitList,
             detail_scroll_offset: 0,
             max_detail_scroll: 0,
+            commit_list_visible_height: 0,
+            detail_visible_height: 0,
         }
     }
 
@@ -62,6 +68,8 @@ impl AppState {
             mode: AppMode::CommitList,
             detail_scroll_offset: 0,
             max_detail_scroll: 0,
+            commit_list_visible_height: 0,
+            detail_visible_height: 0,
         }
     }
 
@@ -105,6 +113,35 @@ impl AppState {
         if self.detail_scroll_offset < self.max_detail_scroll {
             self.detail_scroll_offset += 1;
         }
+    }
+
+    /// Scroll commit list up by one page (visible_height lines).
+    pub fn page_up(&mut self, visible_height: usize) {
+        let page_size = visible_height.saturating_sub(1).max(1); // Keep at least one line overlap
+        self.selection_index = self.selection_index.saturating_sub(page_size);
+    }
+
+    /// Scroll commit list down by one page (visible_height lines).
+    pub fn page_down(&mut self, visible_height: usize) {
+        if self.commits.is_empty() {
+            return;
+        }
+        let page_size = visible_height.saturating_sub(1).max(1); // Keep at least one line overlap
+        let new_index = self.selection_index.saturating_add(page_size);
+        self.selection_index = new_index.min(self.commits.len() - 1);
+    }
+
+    /// Scroll detail view up by one page (visible_height lines).
+    pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
+        let page_size = visible_height.saturating_sub(1).max(1);
+        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(page_size);
+    }
+
+    /// Scroll detail view down by one page (visible_height lines).
+    pub fn scroll_detail_page_down(&mut self, visible_height: usize) {
+        let page_size = visible_height.saturating_sub(1).max(1);
+        let new_offset = self.detail_scroll_offset.saturating_add(page_size);
+        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
     /// Toggle between CommitList and CommitDetail modes.

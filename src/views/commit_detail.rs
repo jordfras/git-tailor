@@ -196,8 +196,9 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         let visible_height = content_area.height as usize;
         let max_scroll = total_lines.saturating_sub(visible_height);
 
-        // Update max scroll in app state for scroll bound checking
+        // Update scroll state in app for proper bounds and page scrolling
         app.max_detail_scroll = max_scroll;
+        app.detail_visible_height = visible_height;
 
         // Clamp scroll offset to valid range
         let scroll_offset = app.detail_scroll_offset.min(max_scroll);

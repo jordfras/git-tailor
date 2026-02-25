@@ -145,6 +145,9 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
     let layout = compute_layout(app, area);
 
+    // Store visible height for page scrolling
+    app.commit_list_visible_height = layout.available_height;
+
     let header = build_header(&layout);
     let rows = build_rows(app, &layout);
 
