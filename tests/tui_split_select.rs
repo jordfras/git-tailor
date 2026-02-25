@@ -29,8 +29,7 @@ fn make_app_in_split_select(strategy_index: usize) -> AppState {
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
     app.selection_index = 0;
-    app.mode = AppMode::SplitSelect;
-    app.split_strategy_index = strategy_index;
+    app.mode = AppMode::SplitSelect { strategy_index };
     app
 }
 

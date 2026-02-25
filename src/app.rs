@@ -49,21 +49,22 @@ impl SplitStrategy {
 }
 
 /// Application display mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppMode {
     /// Commit list view with fragmap.
     CommitList,
     /// Detailed view of a single commit.
     CommitDetail,
-    /// Split strategy selection dialog.
-    SplitSelect,
+    /// Split strategy selection dialog; carries the highlighted option index.
+    SplitSelect { strategy_index: usize },
     /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
-    SplitConfirm,
-    /// Help dialog overlay.
-    Help,
+    SplitConfirm(PendingSplit),
+    /// Help dialog overlay; carries the mode to return to when closed.
+    Help(Box<AppMode>),
 }
 
 /// Data retained while the user is shown the large-split confirmation dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSplit {
     pub strategy: SplitStrategy,
     pub commit_oid: String,
@@ -100,14 +101,8 @@ pub struct AppState {
     pub commit_list_visible_height: usize,
     /// Visible height of the detail view area (updated during render).
     pub detail_visible_height: usize,
-    /// Previous mode before showing help (to return to after closing help).
-    pub previous_mode: Option<AppMode>,
-    /// Currently highlighted split strategy option (index into SplitStrategy::ALL).
-    pub split_strategy_index: usize,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
-    /// Pending split awaiting user confirmation (set when count > SPLIT_CONFIRM_THRESHOLD).
-    pub pending_split: Option<PendingSplit>,
 }
 
 impl AppState {
@@ -127,10 +122,7 @@ impl AppState {
             max_detail_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
-            previous_mode: None,
-            split_strategy_index: 0,
             status_message: None,
-            pending_split: None,
         }
     }
 
@@ -151,10 +143,7 @@ impl AppState {
             max_detail_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
-            previous_mode: None,
-            split_strategy_index: 0,
             status_message: None,
-            pending_split: None,
         }
     }
 
@@ -237,18 +226,16 @@ impl AppState {
         head_oid: String,
         count: usize,
     ) {
-        self.pending_split = Some(PendingSplit {
+        self.mode = AppMode::SplitConfirm(PendingSplit {
             strategy,
             commit_oid,
             head_oid,
             count,
         });
-        self.mode = AppMode::SplitConfirm;
     }
 
     /// Cancel the large-split confirmation and return to CommitList.
     pub fn cancel_split_confirm(&mut self) {
-        self.pending_split = None;
         self.mode = AppMode::CommitList;
     }
 
@@ -261,8 +248,7 @@ impl AppState {
                 return;
             }
         }
-        self.split_strategy_index = 0;
-        self.mode = AppMode::SplitSelect;
+        self.mode = AppMode::SplitSelect { strategy_index: 0 };
     }
 
     /// Clear the transient status message.
@@ -272,53 +258,63 @@ impl AppState {
 
     /// Move split strategy selection up.
     pub fn split_select_up(&mut self) {
-        if self.split_strategy_index > 0 {
-            self.split_strategy_index -= 1;
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
+            if *strategy_index > 0 {
+                *strategy_index -= 1;
+            }
         }
     }
 
     /// Move split strategy selection down.
     pub fn split_select_down(&mut self) {
-        if self.split_strategy_index < SplitStrategy::ALL.len() - 1 {
-            self.split_strategy_index += 1;
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
+            if *strategy_index < SplitStrategy::ALL.len() - 1 {
+                *strategy_index += 1;
+            }
         }
     }
 
     /// Get the currently selected split strategy.
     pub fn selected_split_strategy(&self) -> SplitStrategy {
-        SplitStrategy::ALL[self.split_strategy_index]
+        if let AppMode::SplitSelect { strategy_index } = self.mode {
+            SplitStrategy::ALL[strategy_index]
+        } else {
+            SplitStrategy::ALL[0]
+        }
     }
 
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
-        self.mode = match self.mode {
+        let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
-            AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => return,
+            AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => return,
         };
-        // Reset scroll offset when toggling views
+        self.mode = new_mode;
         self.detail_scroll_offset = 0;
     }
 
     /// Show help dialog, saving current mode to return to later.
     pub fn show_help(&mut self) {
-        if self.mode != AppMode::Help {
-            self.previous_mode = Some(self.mode);
-            self.mode = AppMode::Help;
+        if !matches!(self.mode, AppMode::Help(_)) {
+            let current = std::mem::replace(&mut self.mode, AppMode::CommitList);
+            self.mode = AppMode::Help(Box::new(current));
         }
     }
 
     /// Close help dialog and return to previous mode.
     pub fn close_help(&mut self) {
-        if self.mode == AppMode::Help {
-            self.mode = self.previous_mode.unwrap_or(AppMode::CommitList);
-            self.previous_mode = None;
+        if matches!(self.mode, AppMode::Help(_)) {
+            let prev = std::mem::replace(&mut self.mode, AppMode::CommitList);
+            if let AppMode::Help(prev_mode) = prev {
+                self.mode = *prev_mode;
+            }
         }
     }
 
     /// Toggle help dialog on/off.
     pub fn toggle_help(&mut self) {
-        if self.mode == AppMode::Help {
+        if matches!(self.mode, AppMode::Help(_)) {
             self.close_help();
         } else {
             self.show_help();

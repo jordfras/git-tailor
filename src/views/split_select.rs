@@ -14,7 +14,7 @@
 
 // Split strategy selection dialog
 
-use crate::app::{AppState, SplitStrategy};
+use crate::app::{AppMode, AppState, SplitStrategy};
 use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
@@ -66,8 +66,12 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         Line::from(""),
     ];
 
+    let strategy_index = match app.mode {
+        AppMode::SplitSelect { strategy_index } => strategy_index,
+        _ => 0,
+    };
     for (i, strategy) in SplitStrategy::ALL.iter().enumerate() {
-        let selected = i == app.split_strategy_index;
+        let selected = i == strategy_index;
         let marker = if selected { "▸ " } else { "  " };
         let style = if selected {
             Style::default()
@@ -135,9 +139,9 @@ pub fn render(app: &AppState, frame: &mut Frame) {
 /// Render the large-split confirmation dialog as a centered overlay.
 pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
     let area = frame.area();
-    let pending = match &app.pending_split {
-        Some(p) => p,
-        None => return,
+    let pending = match &app.mode {
+        AppMode::SplitConfirm(p) => p,
+        _ => return,
     };
     let strategy_name = match pending.strategy {
         crate::app::SplitStrategy::PerFile => "per file",

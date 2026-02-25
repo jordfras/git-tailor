@@ -137,29 +137,30 @@ fn main() -> Result<()> {
     app.selection_index = select_initial_index(&app.commits);
 
     loop {
-        terminal.draw(|frame| match app.mode {
-            AppMode::CommitList => views::commit_list::render(&mut app, frame),
-            AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-            AppMode::SplitSelect => {
-                views::commit_list::render(&mut app, frame);
-                views::split_select::render(&app, frame);
-            }
-            AppMode::SplitConfirm => {
-                views::commit_list::render(&mut app, frame);
-                views::split_select::render_split_confirm(&app, frame);
-            }
-            AppMode::Help => {
-                // Render underlying view first (whatever was showing before help)
-                let previous = app.previous_mode.unwrap_or(AppMode::CommitList);
-                match previous {
-                    AppMode::CommitList => views::commit_list::render(&mut app, frame),
-                    AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-                    AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {
-                        views::commit_list::render(&mut app, frame)
-                    }
+        terminal.draw(|frame| {
+            match app.mode.clone() {
+                AppMode::CommitList => views::commit_list::render(&mut app, frame),
+                AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
+                AppMode::SplitSelect { .. } => {
+                    views::commit_list::render(&mut app, frame);
+                    views::split_select::render(&app, frame);
                 }
-                // Render help dialog on top
-                views::help::render(frame);
+                AppMode::SplitConfirm(_) => {
+                    views::commit_list::render(&mut app, frame);
+                    views::split_select::render_split_confirm(&app, frame);
+                }
+                AppMode::Help(prev) => {
+                    // Render underlying view first (whatever was showing before help)
+                    match *prev {
+                        AppMode::CommitList => views::commit_list::render(&mut app, frame),
+                        AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
+                        AppMode::Help(_)
+                        | AppMode::SplitSelect { .. }
+                        | AppMode::SplitConfirm(_) => views::commit_list::render(&mut app, frame),
+                    }
+                    // Render help dialog on top
+                    views::help::render(frame);
+                }
             }
         })?;
 
@@ -169,31 +170,31 @@ fn main() -> Result<()> {
         app.clear_status_message();
 
         match action {
-            event::AppAction::MoveUp => match app.mode {
+            event::AppAction::MoveUp => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.move_down(),
                 AppMode::CommitList => app.move_up(),
                 AppMode::CommitDetail => app.scroll_detail_up(),
-                AppMode::SplitSelect => app.split_select_up(),
-                AppMode::Help | AppMode::SplitConfirm => {}
+                AppMode::SplitSelect { .. } => app.split_select_up(),
+                AppMode::Help(_) | AppMode::SplitConfirm(_) => {}
             },
-            event::AppAction::MoveDown => match app.mode {
+            event::AppAction::MoveDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.move_up(),
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
-                AppMode::SplitSelect => app.split_select_down(),
-                AppMode::Help | AppMode::SplitConfirm => {}
+                AppMode::SplitSelect { .. } => app.split_select_down(),
+                AppMode::Help(_) | AppMode::SplitConfirm(_) => {}
             },
-            event::AppAction::PageUp => match app.mode {
+            event::AppAction::PageUp => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
-                AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {}
+                AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => {}
             },
-            event::AppAction::PageDown => match app.mode {
+            event::AppAction::PageDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
-                AppMode::Help | AppMode::SplitSelect | AppMode::SplitConfirm => {}
+                AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => {}
             },
             event::AppAction::ScrollLeft => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
@@ -216,8 +217,8 @@ fn main() -> Result<()> {
                     app.enter_split_select();
                 }
             }
-            event::AppAction::Confirm => match app.mode {
-                AppMode::SplitSelect => {
+            event::AppAction::Confirm => match app.mode.clone() {
+                AppMode::SplitSelect { .. } => {
                     let strategy = app.selected_split_strategy();
                     let commit_oid = app.commits[app.selection_index].oid.clone();
                     let head_oid = app
@@ -248,29 +249,30 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                AppMode::SplitConfirm => {
-                    if let Some(pending) = app.pending_split.take() {
+                AppMode::SplitConfirm(_) => {
+                    if let AppMode::SplitConfirm(pending) =
+                        std::mem::replace(&mut app.mode, AppMode::CommitList)
+                    {
                         let strategy = pending.strategy;
-                        let commit_oid = pending.commit_oid.clone();
-                        let head_oid = pending.head_oid.clone();
-                        app.mode = AppMode::CommitList;
+                        let commit_oid = pending.commit_oid;
+                        let head_oid = pending.head_oid;
                         execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
                     }
                 }
                 AppMode::CommitList | AppMode::CommitDetail => {
                     app.toggle_detail_view();
                 }
-                _ => {}
+                AppMode::Help(_) => {}
             },
             event::AppAction::Reload => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     reload_commits(&git_repo, &mut app);
                 }
             }
-            event::AppAction::Quit => match app.mode {
-                AppMode::Help => app.close_help(),
-                AppMode::SplitSelect => app.mode = AppMode::CommitList,
-                AppMode::SplitConfirm => app.cancel_split_confirm(),
+            event::AppAction::Quit => match app.mode.clone() {
+                AppMode::Help(_) => app.close_help(),
+                AppMode::SplitSelect { .. } => app.mode = AppMode::CommitList,
+                AppMode::SplitConfirm(_) => app.cancel_split_confirm(),
                 AppMode::CommitDetail => app.toggle_detail_view(),
                 AppMode::CommitList => app.should_quit = true,
             },
