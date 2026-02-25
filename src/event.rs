@@ -33,22 +33,25 @@ pub fn read() -> Result<Event> {
 /// exit detail view or quit application.
 /// Returns AppAction::None for unrecognized events.
 pub fn parse_key_event(event: Event) -> AppAction {
-    match event {
-        Event::Key(KeyEvent { code, .. }) => match code {
-            KeyCode::Up => AppAction::MoveUp,
-            KeyCode::Down => AppAction::MoveDown,
-            KeyCode::PageUp => AppAction::PageUp,
-            KeyCode::PageDown => AppAction::PageDown,
-            KeyCode::Left => AppAction::ScrollLeft,
-            KeyCode::Right => AppAction::ScrollRight,
-            KeyCode::Char('i') => AppAction::ToggleDetail,
-            KeyCode::Char('h') => AppAction::ShowHelp,
-            KeyCode::Char('r') => AppAction::Reload,
-            KeyCode::Esc => AppAction::Quit,
-            _ => AppAction::None,
-        },
-        _ => AppAction::None,
+    // To work in Windows, only care about key presses
+    if let Event::Key(KeyEvent { code, kind, .. }) = event {
+        if kind == event::KeyEventKind::Press {
+            return match code {
+                KeyCode::Up => AppAction::MoveUp,
+                KeyCode::Down => AppAction::MoveDown,
+                KeyCode::PageUp => AppAction::PageUp,
+                KeyCode::PageDown => AppAction::PageDown,
+                KeyCode::Left => AppAction::ScrollLeft,
+                KeyCode::Right => AppAction::ScrollRight,
+                KeyCode::Char('i') => AppAction::ToggleDetail,
+                KeyCode::Char('h') => AppAction::ShowHelp,
+                KeyCode::Char('r') => AppAction::Reload,
+                KeyCode::Esc => AppAction::Quit,
+                _ => AppAction::None,
+            };
+        }
     }
+    AppAction::None
 }
 
 // Re-export commonly used types for convenience
