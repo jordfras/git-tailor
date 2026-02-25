@@ -13,8 +13,8 @@ git2 = { version = "0.20", default-features = false }
 anyhow = "1.0"
 ratatui = "0.28"
 crossterm = "0.28"
-clap = { version = "4", features = ["derive", "wrap_help"] }
-time = { version = "0.3", features = ["formatting", "macros"] }
+clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions"] }
+time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
