@@ -125,6 +125,70 @@ pub fn render(frame: &mut Frame, app: &AppState, area: Rect) {
                     Span::raw(path),
                 ]));
             }
+
+            // Add complete diff rendering
+            content.push(Line::from(""));
+            content.push(Line::from(Span::styled(
+                "Diff:",
+                Style::default().fg(Color::Yellow),
+            )));
+            content.push(Line::from(""));
+
+            for file in &diff.files {
+                // File headers (unified diff format)
+                let old_path = file
+                    .old_path
+                    .as_ref()
+                    .map(|s| format!("a/{}", s))
+                    .unwrap_or_else(|| "/dev/null".to_string());
+                let new_path = file
+                    .new_path
+                    .as_ref()
+                    .map(|s| format!("b/{}", s))
+                    .unwrap_or_else(|| "/dev/null".to_string());
+
+                content.push(Line::from(Span::styled(
+                    format!("--- {}", old_path),
+                    Style::default().fg(Color::White),
+                )));
+                content.push(Line::from(Span::styled(
+                    format!("+++ {}", new_path),
+                    Style::default().fg(Color::White),
+                )));
+
+                // Render each hunk
+                for hunk in &file.hunks {
+                    // Hunk header
+                    let hunk_header = format!(
+                        "@@ -{},{} +{},{} @@",
+                        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+                    );
+                    content.push(Line::from(Span::styled(
+                        hunk_header,
+                        Style::default().fg(Color::Cyan),
+                    )));
+
+                    // Render each line
+                    for line in &hunk.lines {
+                        use crate::DiffLineKind;
+
+                        let (prefix, style) = match line.kind {
+                            DiffLineKind::Addition => ("+", Style::default().fg(Color::White)),
+                            DiffLineKind::Deletion => ("-", Style::default().fg(Color::White)),
+                            DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
+                        };
+
+                        // Remove trailing newline if present
+                        let content_str = line.content.trim_end_matches('\n');
+                        content.push(Line::from(Span::styled(
+                            format!("{}{}", prefix, content_str),
+                            style,
+                        )));
+                    }
+                }
+
+                content.push(Line::from(""));
+            }
         }
 
         let paragraph = Paragraph::new(content);

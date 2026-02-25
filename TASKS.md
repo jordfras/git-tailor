@@ -26,7 +26,7 @@ Guidelines:
   author name, author date, commit date (Flags: V4)
 - [X] T064c P0 feat - Add file list showing changed/added/removed files with
   status indicators (Flags: V4)
-- [ ] T064d P0 feat - Add complete diff rendering with +/- lines (plain text, no
+- [X] T064d P0 feat - Add complete diff rendering with +/- lines (plain text, no
   colors) (Flags: V4)
 - [ ] T065 P1 feat - Color diff output in commit detail view similar to tig:
   green for additions, red for deletions, cyan for hunk headers (Flags: V4)
