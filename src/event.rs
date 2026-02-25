@@ -51,16 +51,16 @@ pub fn parse_key_event(event: Event) -> AppAction {
     if let Event::Key(KeyEvent { code, kind, .. }) = event {
         if kind == event::KeyEventKind::Press {
             return match code {
-                KeyCode::Up => AppAction::MoveUp,
-                KeyCode::Down => AppAction::MoveDown,
+                KeyCode::Up | KeyCode::Char('k') => AppAction::MoveUp,
+                KeyCode::Down | KeyCode::Char('j') => AppAction::MoveDown,
                 KeyCode::PageUp => AppAction::PageUp,
                 KeyCode::PageDown => AppAction::PageDown,
                 KeyCode::Left => AppAction::ScrollLeft,
                 KeyCode::Right => AppAction::ScrollRight,
-                KeyCode::Char('i') => AppAction::ToggleDetail,
+                KeyCode::Enter | KeyCode::Char('i') => AppAction::ToggleDetail,
                 KeyCode::Char('h') => AppAction::ShowHelp,
                 KeyCode::Char('r') => AppAction::Reload,
-                KeyCode::Esc => AppAction::Quit,
+                KeyCode::Esc | KeyCode::Char('q') => AppAction::Quit,
                 _ => AppAction::None,
             };
         }

@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ↑/↓       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
             Span::raw("Move selection up/down"),
         ]),
         Line::from(vec![
@@ -77,7 +77,7 @@ pub fn render(frame: &mut Frame) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Esc       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Esc, q    ", Style::default().fg(Color::Cyan)),
             Span::raw("Close dialog / Quit application"),
         ]),
         Line::from(""),
