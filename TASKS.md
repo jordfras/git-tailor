@@ -30,7 +30,7 @@ Guidelines:
   (Flags: V2)
 - [X] T015 P0 feat - Create CommitInfo domain type (oid, summary, author, date)
   in lib.rs (Flags: V2)
-- [ ] T016 P0 feat - Implement list_commits(from_oid, to_oid) in library to get
+- [X] T016 P0 feat - Implement list_commits(from_oid, to_oid) in library to get
   commits in range (Flags: V2)
 - [ ] T017 P0 feat - Create app module (src/app.rs) with AppState struct (Flags:
   V2)
