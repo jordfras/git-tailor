@@ -201,3 +201,113 @@ fn split_per_file_refuses_dirty_overlap() {
         msg
     );
 }
+
+// ---------------------------------------------------------------------------
+// Per-hunk split tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_hunk_single_file_two_hunks() {
+    let test = common::TestRepo::new();
+
+    // Base commit: file with two separate regions.
+    let base = test.commit_file(
+        "a.txt",
+        "line1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nline7\nline8\n",
+        "base",
+    );
+
+    // Commit that changes line1 AND line6 — produces two separate hunks
+    // (with 0 context and enough padding between them).
+    let to_split = test.commit_file(
+        "a.txt",
+        "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n",
+        "two independent changes",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    // Should now have 2 commits above base
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(
+        commits_above_base.len(),
+        2,
+        "expected 2 split commits above base"
+    );
+
+    let split1 = test.repo.find_commit(commits_above_base[0]).unwrap();
+    let split2 = test.repo.find_commit(commits_above_base[1]).unwrap();
+
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/2)"),
+        "expected (1/2) in first split commit, got: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split2.summary().unwrap_or("").contains("(2/2)"),
+        "expected (2/2) in second split commit, got: {}",
+        split2.summary().unwrap_or("")
+    );
+
+    // Final content is intact at HEAD
+    let tip = commits_above_base[1];
+    assert_eq!(
+        file_content_at(&test.repo, tip, "a.txt"),
+        "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n"
+    );
+}
+
+#[test]
+fn split_per_hunk_two_files_one_hunk_each() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "base");
+
+    let to_split = test.commit_files(
+        &[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")],
+        "change both",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(
+        commits_above_base.len(),
+        2,
+        "expected 2 split commits (one per file's hunk)"
+    );
+
+    // The final tip contains both file changes
+    let tip = *commits_above_base.last().unwrap();
+    assert_eq!(file_content_at(&test.repo, tip, "a.txt"), "alpha2\n");
+    assert_eq!(file_content_at(&test.repo, tip, "b.txt"), "beta2\n");
+}
+
+#[test]
+fn split_per_hunk_refuses_single_hunk_commit() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "alpha\n", "base");
+    let only_one = test.commit_file("a.txt", "alpha2\n", "single hunk");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    let result = git_repo.split_commit_per_hunk(&only_one.to_string(), &head_oid);
+    assert!(result.is_err(), "should fail when commit has only 1 hunk");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("fewer than 2 hunks"),
+        "unexpected error message: {}",
+        msg
+    );
+}

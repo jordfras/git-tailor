@@ -88,4 +88,16 @@ pub trait GitRepo {
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
+
+    /// Split a commit into one commit per hunk.
+    ///
+    /// Creates N new commits (one per hunk across all files), in file-then-hunk-index
+    /// order. Each intermediate tree is built by cumulatively applying the first k hunks
+    /// of the full diff (with 0 context lines) onto the original parent tree.
+    ///
+    /// Fails if:
+    /// - the commit has fewer than 2 hunks (nothing to split)
+    /// - staged or unstaged changes share file paths with the commit being split
+    /// - a rebase conflict occurs while rebuilding descendants
+    fn split_commit_per_hunk(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
 }

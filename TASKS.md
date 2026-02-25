@@ -63,12 +63,15 @@ Guidelines:
   one file's changes, using git2 cherry-pick/tree manipulation; refuse if
   staged/unstaged changes overlap (share file paths) with the commit being
   split, and report the conflicting file(s) to the user (Flags: V4)
-- [ ] T070 P1 feat - Implement per-hunk split: create one commit per hunk using
+- [X] T070 P1 feat - Implement per-hunk split: create one commit per hunk using
   git2 diff apply with filtered patches (Flags: V4)
 - [ ] T071 P1 feat - Implement per-hunk-cluster split: create one commit per
   fragmap cluster column (Flags: V4)
 - [ ] T072 P1 feat - Add numbering n/total to split commit messages in the
   subject line (Flags: V4)
+- [ ] T087 P2 feat - Before executing a split that would produce more than 5 new
+  commits, show a yes/no confirmation dialog displaying the count and asking the
+  user to confirm before proceeding (Flags: V4)
 
 ## Interactivity — Drop Commit (V4)
 - [ ] T084 P1 feat - Add drop mode on 'd' key: prompt for confirmation, then
