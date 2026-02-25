@@ -84,7 +84,7 @@ Guidelines:
   (Flags: V3)
 - [X] T045 P0 feat - Add commit_diff(oid) function in repo.rs using git2 to
   extract CommitDiff for a single commit (Flags: V3)
-- [ ] T046 P1 feat - Add integration tests for commit_diff using fixture repos
+- [X] T046 P1 feat - Add integration tests for commit_diff using fixture repos
   (Flags: V3)
 
 ## Fragmap — Span Extraction (V3)
