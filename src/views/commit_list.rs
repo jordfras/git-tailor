@@ -293,15 +293,19 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
 
 /// Determine the text style for a non-selected commit row.
 ///
-/// Yellow: the selected commit is fully squashable and this commit is its
-/// squash target. Red: this commit shares a cluster with the selected commit
-/// (i.e. they touch the same code). DarkGray: this commit is itself fully
-/// squashable. Otherwise default.
+/// Yellow: squash partner — either the selected commit can squash into this
+/// commit, or this commit can squash into the selected commit.
+/// Red: shares a cluster but not a squash partner.
+/// DarkGray: this commit is itself fully squashable (intrinsic property).
 fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_idx: usize) -> Style {
-    if fragmap
+    let is_squash_partner = fragmap
         .squash_target(selection_idx)
         .is_some_and(|t| t == commit_idx)
-    {
+        || fragmap
+            .squash_target(commit_idx)
+            .is_some_and(|t| t == selection_idx);
+
+    if is_squash_partner {
         Style::new().fg(COLOR_SQUASHABLE)
     } else if fragmap.shares_cluster_with(selection_idx, commit_idx) {
         Style::new().fg(COLOR_CONFLICTING)
