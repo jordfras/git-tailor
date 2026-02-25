@@ -2,6 +2,15 @@
 
 use crate::{fragmap::FragMap, CommitInfo};
 
+/// Application display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppMode {
+    /// Commit list view with fragmap.
+    CommitList,
+    /// Detailed view of a single commit.
+    CommitDetail,
+}
+
 /// Application state for the TUI.
 ///
 /// Manages the overall state of the interactive terminal interface,
@@ -16,6 +25,8 @@ pub struct AppState {
     pub fragmap: Option<FragMap>,
     /// Horizontal scroll offset for the fragmap grid.
     pub fragmap_scroll_offset: usize,
+    /// Current display mode.
+    pub mode: AppMode,
 }
 
 impl AppState {
@@ -28,6 +39,7 @@ impl AppState {
             reverse: false,
             fragmap: None,
             fragmap_scroll_offset: 0,
+            mode: AppMode::CommitList,
         }
     }
 
@@ -41,6 +53,7 @@ impl AppState {
             reverse: false,
             fragmap: None,
             fragmap_scroll_offset: 0,
+            mode: AppMode::CommitList,
         }
     }
 
@@ -70,6 +83,14 @@ impl AppState {
     /// Scroll fragmap grid right.
     pub fn scroll_fragmap_right(&mut self) {
         self.fragmap_scroll_offset += 1;
+    }
+
+    /// Toggle between CommitList and CommitDetail modes.
+    pub fn toggle_detail_view(&mut self) {
+        self.mode = match self.mode {
+            AppMode::CommitList => AppMode::CommitDetail,
+            AppMode::CommitDetail => AppMode::CommitList,
+        };
     }
 }
 

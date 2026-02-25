@@ -20,7 +20,7 @@ Guidelines:
   keybindings (q=quit, i=info, s=split, m=move, h=help) (Flags: V4)
 
 ## Interactivity — Commit Detail View (V4)
-- [ ] T064a P0 feat - Add DetailView app mode and 'i' key toggle, create basic
+- [X] T064a P0 feat - Add DetailView app mode and 'i' key toggle, create basic
   commit_detail view module with placeholder rendering (Flags: V4)
 - [ ] T064b P0 feat - Display commit metadata in detail view: full message,
   author name, author date, commit date (Flags: V4)
