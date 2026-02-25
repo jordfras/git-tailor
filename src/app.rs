@@ -14,6 +14,8 @@ pub struct AppState {
     /// Optional fragmap visualization data.
     /// None if fragmap computation failed or was not performed.
     pub fragmap: Option<FragMap>,
+    /// Horizontal scroll offset for the fragmap grid.
+    pub fragmap_scroll_offset: usize,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             selection_index: 0,
             reverse: false,
             fragmap: None,
+            fragmap_scroll_offset: 0,
         }
     }
 
@@ -37,6 +40,7 @@ impl AppState {
             selection_index,
             reverse: false,
             fragmap: None,
+            fragmap_scroll_offset: 0,
         }
     }
 
@@ -54,6 +58,18 @@ impl AppState {
         if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
             self.selection_index += 1;
         }
+    }
+
+    /// Scroll fragmap grid left.
+    pub fn scroll_fragmap_left(&mut self) {
+        if self.fragmap_scroll_offset > 0 {
+            self.fragmap_scroll_offset -= 1;
+        }
+    }
+
+    /// Scroll fragmap grid right.
+    pub fn scroll_fragmap_right(&mut self) {
+        self.fragmap_scroll_offset += 1;
     }
 }
 
