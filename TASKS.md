@@ -82,7 +82,7 @@ Guidelines:
 ## Fragmap — Diff Extraction (V3)
 - [x] T044 P0 feat - Add diff domain types: FileDiff, Hunk, DiffLine, CommitDiff
   (Flags: V3)
-- [ ] T045 P0 feat - Add commit_diff(oid) function in repo.rs using git2 to
+- [X] T045 P0 feat - Add commit_diff(oid) function in repo.rs using git2 to
   extract CommitDiff for a single commit (Flags: V3)
 - [ ] T046 P1 feat - Add integration tests for commit_diff using fixture repos
   (Flags: V3)

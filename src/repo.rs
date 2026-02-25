@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 
-use crate::CommitInfo;
+use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 
 /// Find the merge-base (reference point) between HEAD and a given commit-ish.
 ///
@@ -28,6 +28,17 @@ pub fn find_reference_point(commit_ish: &str) -> Result<String> {
         .context("Failed to find merge base")?;
 
     Ok(reference_oid.to_string())
+}
+
+/// Extract `CommitInfo` metadata from a `git2::Commit`.
+fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
+    CommitInfo {
+        oid: commit.id().to_string(),
+        summary: commit.summary().unwrap_or("").to_string(),
+        author: commit.author().name().unwrap_or("").to_string(),
+        date: commit.time().seconds().to_string(),
+        parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
+    }
 }
 
 /// List commits from one commit back to another (inclusive).
@@ -58,16 +69,7 @@ pub fn list_commits(from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
     for oid_result in revwalk {
         let oid = oid_result?;
         let commit = repo.find_commit(oid)?;
-
-        let commit_info = CommitInfo {
-            oid: oid.to_string(),
-            summary: commit.summary().unwrap_or("").to_string(),
-            author: commit.author().name().unwrap_or("").to_string(),
-            date: commit.time().seconds().to_string(),
-            parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
-        };
-
-        commits.push(commit_info);
+        commits.push(commit_info_from(&commit));
 
         if oid == to_commit_oid {
             break;
@@ -76,4 +78,85 @@ pub fn list_commits(from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
 
     commits.reverse();
     Ok(commits)
+}
+
+/// Extract the full diff for a single commit compared to its first parent.
+///
+/// For the root commit (no parents), diffs against an empty tree so all
+/// files show as additions. Returns a `CommitDiff` containing the commit
+/// metadata and every file/hunk/line changed.
+pub fn commit_diff(oid: &str) -> Result<CommitDiff> {
+    let repo = git2::Repository::open(".").context("Failed to open git repository")?;
+
+    let object = repo
+        .revparse_single(oid)
+        .context(format!("Failed to resolve '{}'", oid))?;
+    let commit = object
+        .peel_to_commit()
+        .context("Resolved object is not a commit")?;
+
+    let new_tree = commit.tree().context("Failed to get commit tree")?;
+
+    // For root commits, diff against an empty tree
+    let parent_tree = if commit.parent_count() > 0 {
+        Some(commit.parent(0)?.tree()?)
+    } else {
+        None
+    };
+
+    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
+
+    let mut files: Vec<FileDiff> = Vec::new();
+
+    for delta_idx in 0..diff.deltas().len() {
+        let delta = diff.get_delta(delta_idx).expect("delta index in range");
+
+        let old_path = delta
+            .old_file()
+            .path()
+            .map(|p| p.to_string_lossy().into_owned());
+        let new_path = delta
+            .new_file()
+            .path()
+            .map(|p| p.to_string_lossy().into_owned());
+
+        let patch = git2::Patch::from_diff(&diff, delta_idx)?
+            .context("Failed to extract patch from diff")?;
+
+        let mut hunks = Vec::new();
+        for hunk_idx in 0..patch.num_hunks() {
+            let (hunk_header, _num_lines) = patch.hunk(hunk_idx)?;
+
+            let mut lines = Vec::new();
+            for line_idx in 0..patch.num_lines_in_hunk(hunk_idx)? {
+                let line = patch.line_in_hunk(hunk_idx, line_idx)?;
+                let kind = match line.origin() {
+                    '+' => DiffLineKind::Addition,
+                    '-' => DiffLineKind::Deletion,
+                    _ => DiffLineKind::Context,
+                };
+                let content = String::from_utf8_lossy(line.content()).to_string();
+                lines.push(DiffLine { kind, content });
+            }
+
+            hunks.push(Hunk {
+                old_start: hunk_header.old_start(),
+                old_lines: hunk_header.old_lines(),
+                new_start: hunk_header.new_start(),
+                new_lines: hunk_header.new_lines(),
+                lines,
+            });
+        }
+
+        files.push(FileDiff {
+            old_path,
+            new_path,
+            hunks,
+        });
+    }
+
+    Ok(CommitDiff {
+        commit: commit_info_from(&commit),
+        files,
+    })
 }
