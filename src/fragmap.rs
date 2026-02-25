@@ -153,7 +153,7 @@ impl FragMap {
 
             has_shared = true;
 
-            match analyze_cluster_relation(self, earlier, later, cluster_idx) {
+            match self.cluster_relation(earlier, later, cluster_idx) {
                 SquashRelation::Conflicting => {
                     return Some(SquashRelation::Conflicting);
                 }
@@ -188,7 +188,7 @@ impl FragMap {
                 return false;
             };
 
-            match analyze_cluster_relation(self, earlier_idx, commit_idx, cluster_idx) {
+            match self.cluster_relation(earlier_idx, commit_idx, cluster_idx) {
                 SquashRelation::Squashable => match target {
                     None => target = Some(earlier_idx),
                     Some(t) if t == earlier_idx => {}
@@ -199,6 +199,44 @@ impl FragMap {
         }
 
         target.is_some()
+    }
+
+    /// Determine the relationship between two commits for a specific cluster.
+    ///
+    /// Returns `NoRelation` if one or both commits don't touch the cluster,
+    /// `Squashable` if both touch it with no collisions in between, or
+    /// `Conflicting` if both touch it with other commits in between.
+    pub fn cluster_relation(
+        &self,
+        earlier_commit_idx: usize,
+        later_commit_idx: usize,
+        cluster_idx: usize,
+    ) -> SquashRelation {
+        if earlier_commit_idx >= self.commits.len()
+            || later_commit_idx >= self.commits.len()
+            || cluster_idx >= self.clusters.len()
+        {
+            return SquashRelation::NoRelation;
+        }
+
+        if earlier_commit_idx >= later_commit_idx {
+            return SquashRelation::NoRelation;
+        }
+
+        let earlier_touches = self.matrix[earlier_commit_idx][cluster_idx] != TouchKind::None;
+        let later_touches = self.matrix[later_commit_idx][cluster_idx] != TouchKind::None;
+
+        if !earlier_touches || !later_touches {
+            return SquashRelation::NoRelation;
+        }
+
+        for commit_idx in (earlier_commit_idx + 1)..later_commit_idx {
+            if self.matrix[commit_idx][cluster_idx] != TouchKind::None {
+                return SquashRelation::Conflicting;
+            }
+        }
+
+        SquashRelation::Squashable
     }
 }
 
@@ -335,61 +373,6 @@ pub enum SquashRelation {
     /// Both commits touch the cluster with collisions (commits in between
     /// also touch it). Squashing would conflict (red in UI).
     Conflicting,
-}
-
-/// Analyze squashability between two commits for a specific cluster.
-///
-/// Determines if two commits that both touch a cluster can be safely
-/// squashed together, based on whether there are collisions (other commits
-/// in between that also touch the same cluster).
-///
-/// # Arguments
-/// * `fragmap` - The fragmap containing the matrix
-/// * `earlier_commit_idx` - Index of the earlier commit (smaller index)
-/// * `later_commit_idx` - Index of the later commit (larger index)
-/// * `cluster_idx` - Index of the cluster to analyze
-///
-/// # Returns
-/// * `NoRelation` - One or both commits don't touch this cluster
-/// * `Squashable` - Both touch it, no collisions in between
-/// * `Conflicting` - Both touch it, with collisions in between
-pub fn analyze_cluster_relation(
-    fragmap: &FragMap,
-    earlier_commit_idx: usize,
-    later_commit_idx: usize,
-    cluster_idx: usize,
-) -> SquashRelation {
-    // Ensure indices are in range
-    if earlier_commit_idx >= fragmap.commits.len()
-        || later_commit_idx >= fragmap.commits.len()
-        || cluster_idx >= fragmap.clusters.len()
-    {
-        return SquashRelation::NoRelation;
-    }
-
-    // Ensure earlier_commit_idx < later_commit_idx
-    if earlier_commit_idx >= later_commit_idx {
-        return SquashRelation::NoRelation;
-    }
-
-    // Check if both commits touch this cluster
-    let earlier_touches = fragmap.matrix[earlier_commit_idx][cluster_idx] != TouchKind::None;
-    let later_touches = fragmap.matrix[later_commit_idx][cluster_idx] != TouchKind::None;
-
-    if !earlier_touches || !later_touches {
-        return SquashRelation::NoRelation;
-    }
-
-    // Check for collisions: commits in between that also touch this cluster
-    for commit_idx in (earlier_commit_idx + 1)..later_commit_idx {
-        if fragmap.matrix[commit_idx][cluster_idx] != TouchKind::None {
-            // Found a collision
-            return SquashRelation::Conflicting;
-        }
-    }
-
-    // Both touch the cluster, no collisions
-    SquashRelation::Squashable
 }
 
 #[cfg(test)]
@@ -1002,7 +985,7 @@ mod tests {
     // Squashability analysis tests
 
     #[test]
-    fn test_analyze_cluster_relation_no_relation_neither_touches() {
+    fn test_cluster_relation_no_relation_neither_touches() {
         // Two commits that don't touch the same cluster
         let commits = vec![
             make_commit_diff(
@@ -1020,12 +1003,12 @@ mod tests {
         // Two clusters, c1 only touches cluster 0
         assert_eq!(fragmap.clusters.len(), 2);
 
-        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        let relation = fragmap.cluster_relation(0, 1, 0);
         assert_eq!(relation, SquashRelation::NoRelation);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_no_relation_only_one_touches() {
+    fn test_cluster_relation_no_relation_only_one_touches() {
         // Only one commit touches the cluster
         let commits = vec![
             make_commit_diff(
@@ -1057,12 +1040,12 @@ mod tests {
         assert_eq!(fragmap.clusters.len(), 2);
 
         // c1 touches cluster 0, c2 doesn't
-        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        let relation = fragmap.cluster_relation(0, 1, 0);
         assert_eq!(relation, SquashRelation::NoRelation);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_squashable_no_collisions() {
+    fn test_cluster_relation_squashable_no_collisions() {
         // Two commits touch same cluster, no commits in between
         let commits = vec![
             make_commit_diff(
@@ -1094,12 +1077,12 @@ mod tests {
         // Should have one cluster (overlapping)
         assert_eq!(fragmap.clusters.len(), 1);
 
-        let relation = analyze_cluster_relation(&fragmap, 0, 1, 0);
+        let relation = fragmap.cluster_relation(0, 1, 0);
         assert_eq!(relation, SquashRelation::Squashable);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_conflicting_with_collision() {
+    fn test_cluster_relation_conflicting_with_collision() {
         // Three commits touch same cluster - middle one is collision
         let commits = vec![
             make_commit_diff(
@@ -1144,12 +1127,12 @@ mod tests {
         assert_eq!(fragmap.clusters[0].commit_oids.len(), 3);
 
         // c1 and c3 have a collision (c2 in between)
-        let relation = analyze_cluster_relation(&fragmap, 0, 2, 0);
+        let relation = fragmap.cluster_relation(0, 2, 0);
         assert_eq!(relation, SquashRelation::Conflicting);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_invalid_indices() {
+    fn test_cluster_relation_invalid_indices() {
         let commits = vec![
             make_commit_diff(
                 "c1",
@@ -1164,16 +1147,16 @@ mod tests {
         let fragmap = build_fragmap(&commits);
 
         // Out of range commit index
-        let relation = analyze_cluster_relation(&fragmap, 0, 10, 0);
+        let relation = fragmap.cluster_relation(0, 10, 0);
         assert_eq!(relation, SquashRelation::NoRelation);
 
         // Out of range cluster index
-        let relation = analyze_cluster_relation(&fragmap, 0, 1, 10);
+        let relation = fragmap.cluster_relation(0, 1, 10);
         assert_eq!(relation, SquashRelation::NoRelation);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_earlier_not_less_than_later() {
+    fn test_cluster_relation_earlier_not_less_than_later() {
         let commits = vec![
             make_commit_diff(
                 "c1",
@@ -1188,16 +1171,16 @@ mod tests {
         let fragmap = build_fragmap(&commits);
 
         // Same index
-        let relation = analyze_cluster_relation(&fragmap, 1, 1, 0);
+        let relation = fragmap.cluster_relation(1, 1, 0);
         assert_eq!(relation, SquashRelation::NoRelation);
 
         // Earlier > later
-        let relation = analyze_cluster_relation(&fragmap, 1, 0, 0);
+        let relation = fragmap.cluster_relation(1, 0, 0);
         assert_eq!(relation, SquashRelation::NoRelation);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_multiple_clusters() {
+    fn test_cluster_relation_multiple_clusters() {
         // Complex scenario with multiple clusters
         let commits = vec![
             make_commit_diff(
@@ -1235,23 +1218,23 @@ mod tests {
             .unwrap();
 
         // c1 and c2 both touch a.txt cluster - squashable (no collision)
-        let relation = analyze_cluster_relation(&fragmap, 0, 1, a_cluster_idx);
+        let relation = fragmap.cluster_relation(0, 1, a_cluster_idx);
         assert_eq!(relation, SquashRelation::Squashable);
 
         // c1 and c3 both touch b.txt cluster - squashable (no collision)
-        let relation = analyze_cluster_relation(&fragmap, 0, 2, b_cluster_idx);
+        let relation = fragmap.cluster_relation(0, 2, b_cluster_idx);
         assert_eq!(relation, SquashRelation::Squashable);
 
         // c2 and c3 don't share any cluster
-        let relation = analyze_cluster_relation(&fragmap, 1, 2, a_cluster_idx);
+        let relation = fragmap.cluster_relation(1, 2, a_cluster_idx);
         assert_eq!(relation, SquashRelation::NoRelation);
 
-        let relation = analyze_cluster_relation(&fragmap, 1, 2, b_cluster_idx);
+        let relation = fragmap.cluster_relation(1, 2, b_cluster_idx);
         assert_eq!(relation, SquashRelation::NoRelation);
     }
 
     #[test]
-    fn test_analyze_cluster_relation_squashable_with_gap() {
+    fn test_cluster_relation_squashable_with_gap() {
         // Four commits: c1 and c4 touch cluster, c2 and c3 don't
         let commits = vec![
             make_commit_diff(
@@ -1310,7 +1293,7 @@ mod tests {
             .unwrap();
 
         // c1 and c4 touch file.txt, c2 and c3 don't - squashable
-        let relation = analyze_cluster_relation(&fragmap, 0, 3, file_cluster_idx);
+        let relation = fragmap.cluster_relation(0, 3, file_cluster_idx);
         assert_eq!(relation, SquashRelation::Squashable);
     }
 
@@ -1388,8 +1371,7 @@ mod tests {
 
     #[test]
     fn commit_relation_same_commit() {
-        // A commit compared with itself — earlier == later, analyze_cluster_relation
-        // returns NoRelation, so no shared clusters register
+        // A commit compared with itself — early-returns None
         let fm = make_fragmap(&["c0"], 1, &[(0, 0)]);
         assert_eq!(fm.commit_relation(0, 0), None);
     }
