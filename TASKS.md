@@ -54,7 +54,7 @@ Guidelines:
   backend (Flags: V2)
 - [X] T028 P0 feat - Implement main event loop: draw, handle input, update state
   (Flags: V2)
-- [ ] T029 P0 feat - Call list_commits with HEAD and reference point from CLI
+- [X] T029 P0 feat - Call list_commits with HEAD and reference point from CLI
   arg (Flags: V2)
 - [ ] T030 P0 feat - Handle 'q' key to exit and restore terminal (Flags: V2)
 - [X] T031 P1 feat - Add integration test for list_commits returning correct
