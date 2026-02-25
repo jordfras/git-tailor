@@ -1,14 +1,11 @@
 ---
-source: tests/tui_snapshots.rs
+source: tests/tui_commit_list.rs
 expression: buffer
 ---
 Buffer {
-    area: Rect { x: 0, y: 0, width: 80, height: 15 },
+    area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
         "SHA        Title                                                                ",
-        "abc123de   Initial commit                                                       ",
-        "def456gh   Add feature X                                                        ",
-        "ghi789jk   Fix bug in parser                                                    ",
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
@@ -17,17 +14,11 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        "                                                                                ",
-        "                                                                                ",
-        " def456ghi789 2/3                                                               ",
+        "No commits                                                                      ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
         x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 8, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 11, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
-        x: 24, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

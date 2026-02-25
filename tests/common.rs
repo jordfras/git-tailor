@@ -1,5 +1,5 @@
 use git2::{Repository, Signature};
-use git_tailor::repo::Git2Repo;
+use git_tailor::{repo::Git2Repo, CommitInfo};
 use std::fs;
 use tempfile::TempDir;
 
@@ -8,11 +8,13 @@ use tempfile::TempDir;
 /// Keeps a `git2::Repository` for low-level setup (creating commits, branches,
 /// tags) and exposes [`git_repo()`][TestRepo::git_repo] to obtain a `Git2Repo`
 /// handle for calling library functions under test.
+#[allow(dead_code)]
 pub struct TestRepo {
     pub _temp_dir: TempDir,
     pub repo: Repository,
 }
 
+#[allow(dead_code)]
 impl TestRepo {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().unwrap();
@@ -115,5 +117,23 @@ impl TestRepo {
     pub fn checkout(&self, refname: &str) {
         self.repo.set_head(refname).unwrap();
         self.repo.checkout_head(None).unwrap();
+    }
+}
+
+/// Build a minimal `CommitInfo` for use in TUI snapshot tests.
+#[allow(dead_code)]
+pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
+    CommitInfo {
+        oid: oid.to_string(),
+        summary: summary.to_string(),
+        author: "Test Author <test@example.com>".to_string(),
+        date: "2024-01-15 10:30:00".to_string(),
+        parent_oids: vec!["parent123".to_string()],
+        message: summary.to_string(),
+        author_email: "test@example.com".to_string(),
+        author_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
+        committer: "Test Committer".to_string(),
+        committer_email: "committer@example.com".to_string(),
+        commit_date: time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap(),
     }
 }

@@ -1,18 +1,18 @@
 ---
-source: tests/tui_snapshots.rs
+source: tests/tui_commit_list.rs
 expression: buffer
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 60, height: 8 },
     content: [
         " SHA        Title                                           ",
-        "█00000000   Commit number 0                                 ",
-        "█00000000   Commit number 1                                 ",
-        "█00000000   Commit number 2                                 ",
-        "│00000000   Commit number 3                                 ",
-        "│00000000   Commit number 4                                 ",
+        "█00000000   Commit number 9                                 ",
+        "█00000000   Commit number 8                                 ",
+        "█00000000   Commit number 7                                 ",
+        "│00000000   Commit number 6                                 ",
         "│00000000   Commit number 5                                 ",
-        " 000000000000 10/10                                         ",
+        "│00000000   Commit number 4                                 ",
+        " 000000000009 1/10                                          ",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,

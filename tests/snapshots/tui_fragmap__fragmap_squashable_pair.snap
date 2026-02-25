@@ -1,20 +1,20 @@
 ---
-source: tests/tui_snapshots.rs
+source: tests/tui_fragmap.rs
 expression: buffer
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
         "SHA        Title                                                       │Hu      ",
-        "cccc5555   Fix config typo                                             │█       ",
-        "bbbb3333   Unrelated change                                            ││█      ",
         "aaaa1111   Add config file                                             │█       ",
+        "bbbb3333   Unrelated change                                            ││█      ",
+        "cccc5555   Fix config typo                                             │█       ",
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " cccc55556666 1/3                                                               ",
+        " aaaa11112222 3/3                                                               ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -25,7 +25,7 @@ Buffer {
         x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 26, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 1, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 72, y: 1, fg: DarkGray, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
+        x: 72, y: 1, fg: White, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
         x: 73, y: 1, fg: Reset, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
         x: 74, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 2, fg: White, bg: Blue, underline: Reset, modifier: NONE,
@@ -37,7 +37,7 @@ Buffer {
         x: 11, y: 3, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 26, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 3, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 72, y: 3, fg: White, bg: Reset, underline: Reset, modifier: NONE,
+        x: 72, y: 3, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 73, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 4, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
