@@ -1,0 +1,14 @@
+Git Tailor
+Copyright 2026 Thomas Johannesson
+
+This tool is inspired by tig (https://github.com/jonas/tig) and fragmap
+(https://github.com/amollberg/fragmap).
+
+The source code of tig has not been read, copied or re-used in any way. It has
+just served as an inspiration of a superb tool for working with git commits.
+
+The source code of fragmap has been used by AI agents to produce code for this
+tool, i.e., it is copied from, derived from, or inspired by fragmap. Fragmap is
+licensed under the Apache License, Version 2.0. The initial developer of fragmap
+is Alexander Mollberg:
+Copyright 2016-2021 Alexander Mollberg
