@@ -42,7 +42,7 @@ Guidelines:
 - [X] T021 P0 feat - Parse arrow keys and 'q' key in event module (Flags: V2)
 - [X] T022 P0 feat - Create views module (src/views.rs) declaring commit_list
   submodule (Flags: V2)
-- [ ] T023 P0 feat - Create commit_list view (src/views/commit_list.rs) with
+- [X] T023 P0 feat - Create commit_list view (src/views/commit_list.rs) with
   render function (Flags: V2)
 - [ ] T024 P0 feat - Render table with "SHA" and "Title" column headers (Flags:
   V2)
