@@ -22,7 +22,7 @@ Guidelines:
 ## Interactivity — Commit Detail View (V4)
 - [X] T064a P0 feat - Add DetailView app mode and 'i' key toggle, create basic
   commit_detail view module with placeholder rendering (Flags: V4)
-- [ ] T064b P0 feat - Display commit metadata in detail view: full message,
+- [X] T064b P0 feat - Display commit metadata in detail view: full message,
   author name, author date, commit date (Flags: V4)
 - [ ] T064c P0 feat - Add file list showing changed/added/removed files with
   status indicators (Flags: V4)
