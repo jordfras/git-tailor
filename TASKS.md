@@ -32,7 +32,7 @@ Guidelines:
   in lib.rs (Flags: V2)
 - [X] T016 P0 feat - Implement list_commits(from_oid, to_oid) in library to get
   commits in range (Flags: V2)
-- [ ] T017 P0 feat - Create app module (src/app.rs) with AppState struct (Flags:
+- [X] T017 P0 feat - Create app module (src/app.rs) with AppState struct (Flags:
   V2)
 - [ ] T018 P0 feat - Add commit list and selection index to AppState (Flags: V2)
 - [ ] T019 P0 feat - Implement methods for moving selection up/down in AppState
