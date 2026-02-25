@@ -1,6 +1,6 @@
 use git2::{Repository, Signature};
-use git_scissors::commit_diff_in;
-use git_scissors::DiffLineKind;
+use git_tailor::commit_diff_in;
+use git_tailor::DiffLineKind;
 use std::fs;
 use tempfile::TempDir;
 

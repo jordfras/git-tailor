@@ -1,4 +1,4 @@
-// Core library for git-scissors
+// Core library for git-tailor
 
 pub mod app;
 pub mod event;

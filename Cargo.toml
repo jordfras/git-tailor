@@ -1,8 +1,12 @@
 [package]
-name = "git-scissors"
+name = "git-tailor"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+
+[[bin]]
+name = "gt"
+path = "src/main.rs"
 
 [dependencies]
 git2 = "0.20"
