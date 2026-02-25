@@ -311,3 +311,116 @@ fn split_per_hunk_refuses_single_hunk_commit() {
         msg
     );
 }
+
+// ---------------------------------------------------------------------------
+// Per-hunk-cluster split tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_hunk_cluster_groups_close_hunks() {
+    // Three changes in one file: the first two are close together (gap = 1 line ≤ 2)
+    // so they form one cluster; the third is far away (gap = 6 lines > 2) and forms a
+    // second cluster.  Per-hunk produces 3 commits; per-hunk-cluster produces 2.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file(
+        "a.txt",
+        "A\nB\nC\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX\n",
+        "base",
+    );
+
+    // Change line 1 (A→A2), line 3 (C→C2) [1-line gap ≤ 2 → same cluster],
+    // and line 10 (X→X2) [6-line gap > 2 → separate cluster].
+    let to_split = test.commit_file(
+        "a.txt",
+        "A2\nB\nC2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX2\n",
+        "three changes",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk_cluster(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    // 2 clusters → 2 output commits
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(
+        commits_above_base.len(),
+        2,
+        "expected 2 split commits (2 hunk groups)"
+    );
+
+    let split1 = test.repo.find_commit(commits_above_base[0]).unwrap();
+    let split2 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/2)"),
+        "expected (1/2) in: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split2.summary().unwrap_or("").contains("(2/2)"),
+        "expected (2/2) in: {}",
+        split2.summary().unwrap_or("")
+    );
+
+    // Final content intact
+    let tip = commits_above_base[1];
+    assert_eq!(
+        file_content_at(&test.repo, tip, "a.txt"),
+        "A2\nB\nC2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX2\n"
+    );
+}
+
+#[test]
+fn split_per_hunk_cluster_separates_distant_hunks() {
+    // Two changes in the same file separated by 5 unchanged lines (> 2 threshold)
+    // → 2 clusters → same result as per-hunk.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "A\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB\n", "base");
+    let to_split = test.commit_file(
+        "a.txt",
+        "A2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB2\n",
+        "two distant changes",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk_cluster(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 separate clusters");
+    let tip = commits_above_base[1];
+    assert_eq!(
+        file_content_at(&test.repo, tip, "a.txt"),
+        "A2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB2\n"
+    );
+}
+
+#[test]
+fn split_per_hunk_cluster_refuses_single_cluster() {
+    // Two changes separated by 1 unchanged line (gap = 1 ≤ 2) → 1 cluster → refused.
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "A\nPAD\nB\n", "base");
+    let only_one_cluster = test.commit_file("a.txt", "A2\nPAD\nB2\n", "two close changes");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    let result = git_repo.split_commit_per_hunk_cluster(&only_one_cluster.to_string(), &head_oid);
+    assert!(
+        result.is_err(),
+        "should fail when all hunks collapse to 1 cluster"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("fewer than 2 hunk groups"),
+        "unexpected error message: {}",
+        msg
+    );
+}

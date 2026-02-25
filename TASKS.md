@@ -65,7 +65,7 @@ Guidelines:
   split, and report the conflicting file(s) to the user (Flags: V4)
 - [X] T070 P1 feat - Implement per-hunk split: create one commit per hunk using
   git2 diff apply with filtered patches (Flags: V4)
-- [ ] T071 P1 feat - Implement per-hunk-cluster split: create one commit per
+- [X] T071 P1 feat - Implement per-hunk-cluster split: create one commit per
   fragmap cluster column (Flags: V4)
 - [ ] T072 P1 feat - Add numbering n/total to split commit messages in the
   subject line (Flags: V4)

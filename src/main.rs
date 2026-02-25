@@ -243,7 +243,12 @@ fn main() -> Result<()> {
                             }
                         }
                         SplitStrategy::PerHunkCluster => {
-                            app.status_message = Some("Not yet implemented".to_string());
+                            match git_repo.split_commit_per_hunk_cluster(&commit_oid, &head_oid) {
+                                Ok(()) => reload_commits(&git_repo, &mut app),
+                                Err(e) => {
+                                    app.status_message = Some(e.to_string());
+                                }
+                            }
                         }
                     }
                 }

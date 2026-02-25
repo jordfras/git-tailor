@@ -555,6 +555,218 @@ impl GitRepo for Git2Repo {
 
         Ok(())
     }
+
+    fn split_commit_per_hunk_cluster(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
+        let repo = &self.inner;
+
+        let commit_git_oid =
+            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
+        let commit = repo.find_commit(commit_git_oid)?;
+
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+        }
+        let parent_commit = commit.parent(0)?;
+        let parent_tree = parent_commit.tree()?;
+        let commit_tree = commit.tree()?;
+
+        // 0-context diff so each changed region is its own hunk
+        let mut diff_opts = git2::DiffOptions::new();
+        diff_opts.context_lines(0);
+        diff_opts.interhunk_lines(0);
+        let full_diff =
+            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
+
+        // Collect hunk metadata in diff order: (file_path, old_start, old_lines)
+        let mut hunk_meta: Vec<(String, u32, u32)> = Vec::new();
+        full_diff.foreach(
+            &mut |_, _| true,
+            None,
+            Some(&mut |delta, hunk| {
+                let path = delta
+                    .new_file()
+                    .path()
+                    .or_else(|| delta.old_file().path())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                hunk_meta.push((path, hunk.old_start(), hunk.old_lines()));
+                true
+            }),
+            None,
+        )?;
+
+        let total_hunks = hunk_meta.len();
+        if total_hunks == 0 {
+            anyhow::bail!("Commit has no hunks");
+        }
+
+        // Group consecutive hunks into clusters.
+        // A new cluster starts when crossing a file boundary or when the gap between
+        // consecutive hunks in the same file exceeds CLUSTER_INTERHUNK unchanged lines.
+        //
+        // cluster_ends[k] = the 0-based index of the LAST hunk in cluster k.
+        const CLUSTER_INTERHUNK: u32 = 2;
+        let mut cluster_ends: Vec<usize> = vec![0];
+        for i in 1..total_hunks {
+            let (ref prev_file, prev_start, prev_lines) = hunk_meta[i - 1];
+            let (ref cur_file, cur_start, _) = hunk_meta[i];
+            let gap = cur_start.saturating_sub(prev_start + prev_lines);
+            if cur_file != prev_file || gap > CLUSTER_INTERHUNK {
+                cluster_ends.push(i);
+            } else {
+                *cluster_ends.last_mut().unwrap() = i;
+            }
+        }
+
+        let cluster_count = cluster_ends.len();
+        if cluster_count < 2 {
+            anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
+        }
+
+        // Dirty-overlap check (same as per-file and per-hunk)
+        let commit_paths: HashSet<String> = full_diff
+            .deltas()
+            .filter_map(|d| {
+                d.new_file()
+                    .path()
+                    .or_else(|| d.old_file().path())
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
+            .collect();
+
+        let mut overlapping: Vec<String> = Vec::new();
+        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
+            .into_iter()
+            .flatten()
+        {
+            for file in &synthetic_diff.files {
+                let path = file
+                    .new_path
+                    .as_deref()
+                    .or(file.old_path.as_deref())
+                    .unwrap_or("");
+                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
+                    overlapping.push(path.to_string());
+                }
+            }
+        }
+        if !overlapping.is_empty() {
+            overlapping.sort();
+            anyhow::bail!(
+                "Cannot split: staged/unstaged changes overlap with: {}",
+                overlapping.join(", ")
+            );
+        }
+
+        // Build one commit per cluster using cumulative apply.
+        // For cluster k, accept all hunks with global index ≤ cluster_ends[k].
+        let mut current_base_oid = parent_commit.id();
+        for (target_k, &last_hunk_for_cluster) in cluster_ends.iter().enumerate() {
+
+            let cumulative_tree_oid = if target_k == cluster_count - 1 {
+                commit_tree.id()
+            } else {
+                let mut counter = 0usize;
+                let mut apply_opts = git2::ApplyOptions::new();
+                apply_opts.hunk_callback(|_hunk| {
+                    let accept = counter <= last_hunk_for_cluster;
+                    counter += 1;
+                    accept
+                });
+                let mut idx =
+                    repo.apply_to_tree(&parent_tree, &full_diff, Some(&mut apply_opts))?;
+                if idx.has_conflicts() {
+                    anyhow::bail!(
+                        "Conflict building intermediate tree for hunk group {}",
+                        target_k + 1
+                    );
+                }
+                idx.write_tree_to(repo)?
+            };
+
+            let cumulative_tree = repo.find_tree(cumulative_tree_oid)?;
+            let base_commit = repo.find_commit(current_base_oid)?;
+
+            let author = commit.author();
+            let committer = commit.committer();
+            let message = format!(
+                "{} ({}/{})",
+                commit.summary().unwrap_or("split"),
+                target_k + 1,
+                cluster_count
+            );
+            let new_oid = repo.commit(
+                None,
+                &author,
+                &committer,
+                &message,
+                &cumulative_tree,
+                &[&base_commit],
+            )?;
+            current_base_oid = new_oid;
+        }
+
+        // Rebase descendants onto the new tip
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
+        if head_git_oid != commit_git_oid {
+            let mut revwalk = repo.revwalk()?;
+            revwalk.push(head_git_oid)?;
+
+            let mut descendants: Vec<git2::Oid> = Vec::new();
+            for oid_result in revwalk {
+                let oid = oid_result?;
+                if oid == commit_git_oid {
+                    break;
+                }
+                descendants.push(oid);
+            }
+            descendants.reverse();
+
+            for desc_oid in descendants {
+                let desc_commit = repo.find_commit(desc_oid)?;
+                let onto_commit = repo.find_commit(current_base_oid)?;
+
+                let mut cherry_index =
+                    repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
+                if cherry_index.has_conflicts() {
+                    anyhow::bail!(
+                        "Conflict rebasing {} onto split result",
+                        &desc_oid.to_string()[..10]
+                    );
+                }
+                let new_tree_oid = cherry_index.write_tree_to(repo)?;
+                let new_tree = repo.find_tree(new_tree_oid)?;
+
+                let author = desc_commit.author();
+                let committer = desc_commit.committer();
+                let new_oid = repo.commit(
+                    None,
+                    &author,
+                    &committer,
+                    desc_commit.message().unwrap_or(""),
+                    &new_tree,
+                    &[&onto_commit],
+                )?;
+                current_base_oid = new_oid;
+            }
+        }
+
+        // Fast-forward the branch ref that HEAD points to
+        let head_ref = repo.head()?;
+        let branch_refname = head_ref.resolve().context("HEAD is not a symbolic ref")?;
+        let branch_name = branch_refname
+            .name()
+            .context("Ref has no name")?
+            .to_string();
+        repo.reference(
+            &branch_name,
+            current_base_oid,
+            true,
+            "git-tailor: split per-hunk-cluster",
+        )?;
+
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
