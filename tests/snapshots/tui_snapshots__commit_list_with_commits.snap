@@ -1,0 +1,30 @@
+---
+source: tests/tui_snapshots.rs
+assertion_line: 53
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 15 },
+    content: [
+        "┌Commits───────────────────────────────────────────────────────────────────────┐",
+        "│SHA        Title                                                              │",
+        "│abc123de   Initial commit                                                     │",
+        "│def456gh   Add feature X                                                      │",
+        "│ghi789jk   Fix bug in parser                                                  │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "└──────────────────────────────────────────────────────────────────────────────┘",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 79, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+    ]
+}

@@ -1,0 +1,27 @@
+---
+source: tests/tui_snapshots.rs
+assertion_line: 101
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 12 },
+    content: [
+        "┌Commits───────────────────────────────────────────────────────────────────────┐",
+        "│SHA        Title                                                              │",
+        "│abc123de   This is a very long commit summary that exceeds normal length      │",
+        "│def456gh   Short                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "│                                                                              │",
+        "└──────────────────────────────────────────────────────────────────────────────┘",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 79, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+    ]
+}

@@ -60,7 +60,7 @@ Guidelines:
 - [X] T031 P1 feat - Add integration test for list_commits returning correct
   order (Flags: V2)
 - [X] T032 P1 feat - Add unit test for AppState selection movement (Flags: V2)
-- [ ] T033 P2 feat - Add TUI snapshot test with TestBackend for commit_list view
+- [X] T033 P2 feat - Add TUI snapshot test with TestBackend for commit_list view
   (Flags: V2)
 
 ## Code Organization & Refactoring
