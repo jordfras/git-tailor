@@ -204,3 +204,46 @@ fn test_commit_list_reversed_scrolled() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+
+#[test]
+fn test_status_bar_short_error() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.selection_index = 0;
+    app.status_message = Some("Cannot split staged/unstaged changes".to_string());
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_status_bar_long_error() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.selection_index = 0;
+    app.status_message = Some(
+        "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs"
+            .to_string(),
+    );
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}

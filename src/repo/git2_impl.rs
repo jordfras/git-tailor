@@ -375,7 +375,7 @@ impl GitRepo for Git2Repo {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
+pub(crate) fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
     let offset_seconds = git_time.offset_minutes() * 60;
     let utc_offset =
         time::UtcOffset::from_whole_seconds(offset_seconds).unwrap_or(time::UtcOffset::UTC);
@@ -492,5 +492,40 @@ fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
         committer: String::new(),
         committer_email: String::new(),
         commit_date: time::OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::git_time_to_offset_datetime;
+
+    #[test]
+    fn utc_epoch_stays_at_zero() {
+        let t = git2::Time::new(0, 0);
+        let dt = git_time_to_offset_datetime(t);
+        assert_eq!(dt.unix_timestamp(), 0);
+        assert_eq!(dt.offset(), time::UtcOffset::UTC);
+    }
+
+    #[test]
+    fn positive_offset_applied_correctly() {
+        // 60-minute (UTC+1) offset: same instant, but hour should read as 1.
+        let t = git2::Time::new(0, 60);
+        let dt = git_time_to_offset_datetime(t);
+        assert_eq!(dt.unix_timestamp(), 0);
+        let expected_offset = time::UtcOffset::from_whole_seconds(3600).unwrap();
+        assert_eq!(dt.offset(), expected_offset);
+        assert_eq!(dt.hour(), 1);
+    }
+
+    #[test]
+    fn negative_offset_applied_correctly() {
+        // −300-minute (UTC−5) offset: same instant, hour reads as 19 on previous day.
+        let t = git2::Time::new(0, -300);
+        let dt = git_time_to_offset_datetime(t);
+        assert_eq!(dt.unix_timestamp(), 0);
+        let expected_offset = time::UtcOffset::from_whole_seconds(-18000).unwrap();
+        assert_eq!(dt.offset(), expected_offset);
+        assert_eq!(dt.hour(), 19);
     }
 }

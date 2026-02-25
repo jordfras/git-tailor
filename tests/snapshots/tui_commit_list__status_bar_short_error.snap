@@ -1,0 +1,27 @@
+---
+source: tests/tui_commit_list.rs
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 10 },
+    content: [
+        "SHA        Title                                                                ",
+        "abc123de   Initial commit                                                       ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        "                                                                                ",
+        " Cannot split staged/unstaged changes                                           ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 8, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 25, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: White, bg: Red, underline: Reset, modifier: NONE,
+    ]
+}
