@@ -74,7 +74,7 @@ Guidelines:
   visible area (Flags: V2)
 - [x] T039 P1 feat - Add footer showing selected commit info (long SHA, commit
   position) (Flags: V2)
-- [ ] T040 P1 feat - Add clap dependency for CLI argument parsing (Flags: V2)
+- [x] T040 P1 feat - Add clap dependency for CLI argument parsing (Flags: V2)
 - [ ] T041 P1 feat - Add --reverse flag to display commits in reverse order
   (Flags: V2)
 - [x] T043 P2 feat - Remove Commits border from commit list table (Flags: V2)

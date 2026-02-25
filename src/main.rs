@@ -1,6 +1,7 @@
 // TUI application entry point
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -10,16 +11,18 @@ use git_scissors::{app::AppState, event, repo, views};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
+/// Interactive TUI for working with Git commits.
+#[derive(Parser)]
+#[command(name = "git-scissors")]
+struct Cli {
+    /// A commit-ish to use as the base reference (branch, tag, or hash).
+    commit_ish: String,
+}
+
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
 
-    if args.len() != 2 {
-        anyhow::bail!("Usage: git-scissors <commit-ish>");
-    }
-
-    let commit_ish = &args[1];
-
-    let reference_oid = repo::find_reference_point(commit_ish)?;
+    let reference_oid = repo::find_reference_point(&cli.commit_ish)?;
     let git_repo = Repository::open(".")?;
     let head_oid = git_repo
         .head()?
