@@ -63,4 +63,8 @@ Guidelines:
 - [ ] T033 P2 feat - Add TUI snapshot test with TestBackend for commit_list view
   (Flags: V2)
 
+## Code Organization & Refactoring
+- [X] T034 P2 feat - Move find_reference_point and list_commits from lib.rs to
+  repo module (Flags: V2)
+
 ## Notes
