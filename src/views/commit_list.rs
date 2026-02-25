@@ -15,6 +15,7 @@ const SHORT_SHA_LENGTH: usize = 8;
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
+const SEPARATOR_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
 // Fragmap visualization symbols
 const CLUSTER_TOUCHED_CONFLICTING: &str = "█";
@@ -154,6 +155,25 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let table = Table::new(rows, constraints).header(header);
     frame.render_widget(table, content_area);
 
+    if layout.fragmap_col_width > 0 {
+        let sep_x = content_area.x + 10 + 1 + layout.title_width;
+        let sep_height = if layout.h_scrollbar_area.is_some() {
+            content_area.height + 1
+        } else {
+            content_area.height
+        };
+        let sep_area = Rect {
+            x: sep_x,
+            y: content_area.y,
+            width: 1,
+            height: sep_height,
+        };
+        let sep_lines: Vec<Line> = (0..sep_height)
+            .map(|_| Line::from(Span::styled("│", SEPARATOR_STYLE)))
+            .collect();
+        frame.render_widget(Paragraph::new(sep_lines), sep_area);
+    }
+
     if let Some(sb_area) = scrollbar_area {
         render_vertical_scrollbar(frame, sb_area, &layout, app.commits.len());
     }
@@ -175,7 +195,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         0
     };
 
-    let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1) as usize;
+    let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1 + 1) as usize;
     let needs_h_scrollbar =
         visible_cluster_count > 0 && visible_cluster_count > preliminary_fragmap_width;
 
@@ -209,7 +229,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize;
+    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1 + 1) as usize;
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -227,7 +247,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     let fragmap_col_width = display_clusters.len() as u16;
     let title_width = if fragmap_col_width > 0 {
         effective_width
-            .saturating_sub(10 + 2 + fragmap_col_width)
+            .saturating_sub(10 + 2 + 1 + fragmap_col_width)
             .min(MAX_TITLE_WIDTH)
     } else {
         0
@@ -271,6 +291,7 @@ fn build_header(layout: &LayoutInfo) -> Row<'static> {
         vec![
             Cell::from("SHA"),
             Cell::from("Title"),
+            Cell::from(""),
             Cell::from("Hunk groups"),
         ]
     } else {
@@ -284,6 +305,7 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
         vec![
             Constraint::Length(10),
             Constraint::Length(layout.title_width),
+            Constraint::Length(1),
             Constraint::Length(layout.fragmap_col_width),
         ]
     } else {
@@ -388,6 +410,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
             if let Some(ref fragmap) = app.fragmap {
                 if !layout.display_clusters.is_empty() {
+                    cells.push(Cell::from(""));
                     cells.push(build_fragmap_cell(
                         fragmap,
                         commit_idx_in_fragmap,
@@ -447,7 +470,7 @@ fn render_horizontal_scrollbar(
     content_area: Rect,
     layout: &LayoutInfo,
 ) {
-    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1;
+    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1 + 1;
     let area = Rect {
         x: fragmap_x,
         width: layout.fragmap_col_width,
