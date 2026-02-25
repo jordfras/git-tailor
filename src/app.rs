@@ -9,6 +9,8 @@ pub enum AppMode {
     CommitList,
     /// Detailed view of a single commit.
     CommitDetail,
+    /// Help dialog overlay.
+    Help,
 }
 
 /// Application state for the TUI.
@@ -35,6 +37,8 @@ pub struct AppState {
     pub commit_list_visible_height: usize,
     /// Visible height of the detail view area (updated during render).
     pub detail_visible_height: usize,
+    /// Previous mode before showing help (to return to after closing help).
+    pub previous_mode: Option<AppMode>,
 }
 
 impl AppState {
@@ -52,6 +56,7 @@ impl AppState {
             max_detail_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
+            previous_mode: None,
         }
     }
 
@@ -70,6 +75,7 @@ impl AppState {
             max_detail_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
+            previous_mode: None,
         }
     }
 
@@ -149,9 +155,35 @@ impl AppState {
         self.mode = match self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
+            AppMode::Help => AppMode::Help, // Stay in help if already there
         };
         // Reset scroll offset when toggling views
         self.detail_scroll_offset = 0;
+    }
+
+    /// Show help dialog, saving current mode to return to later.
+    pub fn show_help(&mut self) {
+        if self.mode != AppMode::Help {
+            self.previous_mode = Some(self.mode);
+            self.mode = AppMode::Help;
+        }
+    }
+
+    /// Close help dialog and return to previous mode.
+    pub fn close_help(&mut self) {
+        if self.mode == AppMode::Help {
+            self.mode = self.previous_mode.unwrap_or(AppMode::CommitList);
+            self.previous_mode = None;
+        }
+    }
+
+    /// Toggle help dialog on/off.
+    pub fn toggle_help(&mut self) {
+        if self.mode == AppMode::Help {
+            self.close_help();
+        } else {
+            self.show_help();
+        }
     }
 }
 
