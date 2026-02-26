@@ -221,13 +221,14 @@ fn main() -> Result<()> {
                 AppMode::SplitSelect { .. } => {
                     let strategy = app.selected_split_strategy();
                     let commit_oid = app.commits[app.selection_index].oid.clone();
-                    let head_oid = app
-                        .commits
-                        .iter()
-                        .rev()
-                        .find(|c| c.oid != "staged" && c.oid != "unstaged")
-                        .map(|c| c.oid.clone())
-                        .unwrap_or_default();
+                    let head_oid = match git_repo.head_oid() {
+                        Ok(oid) => oid,
+                        Err(e) => {
+                            app.mode = AppMode::CommitList;
+                            app.status_message = Some(format!("Failed to get HEAD: {e}"));
+                            continue;
+                        }
+                    };
                     let count_result = match strategy {
                         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
                         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),

@@ -424,3 +424,50 @@ fn split_per_hunk_cluster_refuses_single_cluster() {
         msg
     );
 }
+
+#[test]
+fn split_per_hunk_pure_insertions() {
+    // Commit that only inserts lines (old_count == 0 hunks).
+    // Verifies the off-by-one fix for insertion splice position.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file(
+        "a.txt",
+        "line1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\n",
+        "base",
+    );
+
+    // Insert "NEW\n" after line1 and "OTHER\n" after line6 — two separate pure-insertion hunks.
+    let to_split = test.commit_file(
+        "a.txt",
+        "line1\nNEW\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nOTHER\n",
+        "two insertions",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
+
+    // First split commit: only the first insertion applied.
+    let tree1 = test.repo.find_commit(commits_above_base[0]).unwrap().tree().unwrap();
+    let blob1 = tree1.get_path(std::path::Path::new("a.txt")).unwrap();
+    let b1 = test.repo.find_blob(blob1.id()).unwrap();
+    assert_eq!(
+        std::str::from_utf8(b1.content()).unwrap(),
+        "line1\nNEW\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\n",
+        "first split commit should have only the first insertion"
+    );
+
+    // Final commit: both insertions.
+    assert_eq!(
+        file_content_at(&test.repo, *commits_above_base.last().unwrap(), "a.txt"),
+        "line1\nNEW\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nOTHER\n",
+        "final commit should have both insertions"
+    );
+}

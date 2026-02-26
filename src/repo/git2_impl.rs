@@ -340,36 +340,33 @@ impl GitRepo for Git2Repo {
 
         self.check_dirty_overlap(&commit_paths)?;
 
-        // Build one commit per hunk.
+        // Build one commit per hunk using incremental blob manipulation.
         //
-        // For hunk k we apply the first k+1 hunks of the diff (hunks 0..=k) to the
-        // original parent_tree. Each resulting tree differs from the previous one by
-        // exactly one hunk, so the commit log shows one hunk per entry.
+        // At each step, recompute diff(current_tree → commit_tree) with 0 context
+        // and apply exactly its first hunk directly to the blob — bypassing
+        // apply_to_tree entirely to avoid libgit2 validating rejected hunks against
+        // the modified output buffer (which shifts line positions and causes
+        // "hunk did not apply").
         let mut current_base_oid = parent_commit.id();
+        let mut current_tree_oid = parent_tree.id();
         for target_k in 0..hunk_count {
-            let cumulative_tree_oid = if target_k == hunk_count - 1 {
-                // Last iteration: use the known commit tree to avoid any rounding error.
+            let next_tree_oid = if target_k == hunk_count - 1 {
                 commit_tree.id()
             } else {
-                let mut counter = 0usize;
-                let mut apply_opts = git2::ApplyOptions::new();
-                apply_opts.hunk_callback(|_hunk| {
-                    let accept = counter <= target_k;
-                    counter += 1;
-                    accept
-                });
-                let mut idx =
-                    repo.apply_to_tree(&parent_tree, &full_diff, Some(&mut apply_opts))?;
-                if idx.has_conflicts() {
-                    anyhow::bail!(
-                        "Conflict building intermediate tree for hunk {}",
-                        target_k + 1
-                    );
-                }
-                idx.write_tree_to(repo)?
+                let current_tree = repo.find_tree(current_tree_oid)?;
+                let mut diff_opts = git2::DiffOptions::new();
+                diff_opts.context_lines(0);
+                diff_opts.interhunk_lines(0);
+                let incremental_diff = repo.diff_tree_to_tree(
+                    Some(&current_tree),
+                    Some(&commit_tree),
+                    Some(&mut diff_opts),
+                )?;
+                apply_single_hunk_to_tree(repo, &current_tree, &incremental_diff)
+                    .with_context(|| format!("applying hunk {}", target_k + 1))?
             };
 
-            let cumulative_tree = repo.find_tree(cumulative_tree_oid)?;
+            let next_tree = repo.find_tree(next_tree_oid)?;
             let base_commit = repo.find_commit(current_base_oid)?;
 
             let author = commit.author();
@@ -386,10 +383,11 @@ impl GitRepo for Git2Repo {
                 &author,
                 &committer,
                 &message,
-                &cumulative_tree,
+                &next_tree,
                 &[&base_commit],
             )?;
             current_base_oid = new_oid;
+            current_tree_oid = next_tree_oid;
         }
 
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
@@ -478,32 +476,53 @@ impl GitRepo for Git2Repo {
             .collect();
         self.check_dirty_overlap(&commit_paths)?;
 
-        // Build one commit per cluster using cumulative apply.
-        // For cluster k, accept all hunks with global index ≤ cluster_ends[k].
+        // Precompute how many hunks belong to each cluster so we know how many
+        // to consume per step from the re-computed incremental diff.
+        let cluster_sizes: Vec<usize> = cluster_ends
+            .iter()
+            .enumerate()
+            .map(|(k, &end)| {
+                if k == 0 {
+                    end + 1
+                } else {
+                    end - cluster_ends[k - 1]
+                }
+            })
+            .collect();
+
+        // Build one commit per cluster using incremental blob manipulation.
+        // Apply cluster_size hunks one at a time, recomputing the diff from
+        // the updated intermediate tree at each sub-step.
         let mut current_base_oid = parent_commit.id();
-        for (target_k, &last_hunk_for_cluster) in cluster_ends.iter().enumerate() {
-            let cumulative_tree_oid = if target_k == cluster_count - 1 {
+        let mut current_tree_oid = parent_tree.id();
+        for (target_k, &cluster_size) in cluster_sizes.iter().enumerate() {
+            let next_tree_oid = if target_k == cluster_count - 1 {
                 commit_tree.id()
             } else {
-                let mut counter = 0usize;
-                let mut apply_opts = git2::ApplyOptions::new();
-                apply_opts.hunk_callback(|_hunk| {
-                    let accept = counter <= last_hunk_for_cluster;
-                    counter += 1;
-                    accept
-                });
-                let mut idx =
-                    repo.apply_to_tree(&parent_tree, &full_diff, Some(&mut apply_opts))?;
-                if idx.has_conflicts() {
-                    anyhow::bail!(
-                        "Conflict building intermediate tree for hunk group {}",
-                        target_k + 1
-                    );
+                let mut tree_oid = current_tree_oid;
+                let mut diff_opts = git2::DiffOptions::new();
+                diff_opts.context_lines(0);
+                diff_opts.interhunk_lines(0);
+                for sub_k in 0..cluster_size {
+                    let tree = repo.find_tree(tree_oid)?;
+                    let incremental_diff = repo.diff_tree_to_tree(
+                        Some(&tree),
+                        Some(&commit_tree),
+                        Some(&mut diff_opts),
+                    )?;
+                    tree_oid = apply_single_hunk_to_tree(repo, &tree, &incremental_diff)
+                        .with_context(|| {
+                            format!(
+                                "applying hunk group {} sub-hunk {}",
+                                target_k + 1,
+                                sub_k + 1
+                            )
+                        })?;
                 }
-                idx.write_tree_to(repo)?
+                tree_oid
             };
 
-            let cumulative_tree = repo.find_tree(cumulative_tree_oid)?;
+            let next_tree = repo.find_tree(next_tree_oid)?;
             let base_commit = repo.find_commit(current_base_oid)?;
 
             let author = commit.author();
@@ -519,10 +538,11 @@ impl GitRepo for Git2Repo {
                 &author,
                 &committer,
                 &message,
-                &cumulative_tree,
+                &next_tree,
                 &[&base_commit],
             )?;
             current_base_oid = new_oid;
+            current_tree_oid = next_tree_oid;
         }
 
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
@@ -624,6 +644,146 @@ impl GitRepo for Git2Repo {
 // ---------------------------------------------------------------------------
 // Private helpers for split operations (not part of the GitRepo trait)
 // ---------------------------------------------------------------------------
+
+/// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
+/// and return the resulting tree OID.
+///
+/// The diff must have been computed from `base_tree`, so the hunk's old-side
+/// content matches exactly.  This avoids `apply_to_tree` with `hunk_callback`
+/// filtering, which fails because libgit2 validates rejected hunks against the
+/// already-modified output buffer (whose line positions have shifted).
+fn apply_single_hunk_to_tree(
+    repo: &git2::Repository,
+    base_tree: &git2::Tree,
+    diff: &git2::Diff,
+) -> Result<git2::Oid> {
+    for delta_idx in 0..diff.deltas().len() {
+        let mut patch = match git2::Patch::from_diff(diff, delta_idx)? {
+            Some(p) => p,
+            None => continue,
+        };
+        if patch.num_hunks() == 0 {
+            continue;
+        }
+        let delta = diff.get_delta(delta_idx).context("delta index in range")?;
+        let file_path = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .context("delta has no file path")?
+            .to_owned();
+
+        let (old_content, mode) = match delta.status() {
+            git2::Delta::Added => {
+                let m: u32 = delta.new_file().mode().into();
+                (Vec::new(), m)
+            }
+            _ => {
+                let entry = base_tree
+                    .get_path(&file_path)
+                    .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
+                let blob = repo.find_blob(entry.id())?;
+                (blob.content().to_owned(), entry.filemode() as u32)
+            }
+        };
+
+        let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
+            .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
+
+        let new_blob_oid = repo.blob(&new_content)?;
+
+        // Load base_tree into an in-memory index, update the one file, write tree.
+        let mut idx = git2::Index::new()?;
+        idx.read_tree(base_tree)?;
+
+        let path_bytes = file_path
+            .to_str()
+            .context("file path is not valid UTF-8")?
+            .as_bytes()
+            .to_vec();
+        idx.add(&git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode,
+            uid: 0,
+            gid: 0,
+            file_size: new_content.len() as u32,
+            id: new_blob_oid,
+            flags: 0,
+            flags_extended: 0,
+            path: path_bytes,
+        })?;
+
+        return idx.write_tree_to(repo).map_err(Into::into);
+    }
+    Ok(base_tree.id())
+}
+
+/// Apply hunk `hunk_idx` from `patch` to `content`, returning the new bytes.
+///
+/// Replacement splices in context + added lines, dropping deleted lines.
+fn apply_hunk_to_content(
+    content: &[u8],
+    patch: &mut git2::Patch,
+    hunk_idx: usize,
+) -> Result<Vec<u8>> {
+    let (hunk_header, _) = patch.hunk(hunk_idx)?;
+    let old_start = hunk_header.old_start() as usize; // 1-based
+    let old_count = hunk_header.old_lines() as usize;
+
+    let lines = split_lines_keep_eol(content);
+
+    let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
+    let mut replacement: Vec<Vec<u8>> = Vec::new();
+    for line_idx in 0..num_lines {
+        let line = patch.line_in_hunk(hunk_idx, line_idx)?;
+        match line.origin() {
+            ' ' | '+' => replacement.push(line.content().to_owned()),
+            _ => {}
+        }
+    }
+
+    // old_start is 1-based.  For a substitution or deletion (old_count > 0) it
+    // is the first line to remove, so the 0-based index is old_start-1.
+    // For a pure insertion (old_count == 0) git convention says "insert after
+    // line old_start", so the splice point is old_start (0-based).
+    let start = if old_count == 0 {
+        old_start.min(lines.len())
+    } else {
+        old_start.saturating_sub(1).min(lines.len())
+    };
+    let end = (start + old_count).min(lines.len());
+
+    let mut result: Vec<u8> = Vec::new();
+    for l in &lines[..start] {
+        result.extend_from_slice(l);
+    }
+    for r in &replacement {
+        result.extend_from_slice(r);
+    }
+    for l in &lines[end..] {
+        result.extend_from_slice(l);
+    }
+    Ok(result)
+}
+
+/// Split raw bytes into lines keeping each `\n` terminator attached.
+fn split_lines_keep_eol(data: &[u8]) -> Vec<&[u8]> {
+    let mut lines: Vec<&[u8]> = Vec::new();
+    let mut start = 0;
+    for (i, &b) in data.iter().enumerate() {
+        if b == b'\n' {
+            lines.push(&data[start..=i]);
+            start = i + 1;
+        }
+    }
+    if start < data.len() {
+        lines.push(&data[start..]);
+    }
+    lines
+}
 
 impl Git2Repo {
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
