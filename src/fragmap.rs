@@ -25,7 +25,7 @@ use crate::CommitDiff;
 
 mod spg;
 pub use spg::dump_per_file_spg_stats;
-use spg::{build_file_clusters, deduplicate_clusters};
+use spg::{build_file_clusters, deduplicate_clusters, file_hunk_path_indices};
 
 /// A span of line numbers within a specific file.
 ///
@@ -352,6 +352,128 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
         clusters,
         matrix,
     }
+}
+
+/// Compute the fragmap-based hunk group assignment for commit `commit_oid`.
+///
+/// Uses the same SPG clustering and deduplication as [`build_fragmap`] with
+/// `deduplicate = true`. Each hunk of `commit_oid` in `commit_diffs` is
+/// assigned to the deduplicated fragmap cluster (column) it belongs to.
+///
+/// Returns `Some((group_count, assignment))` where:
+/// - `group_count` = number of distinct groups after deduplication
+/// - `assignment[path][h]` = 0-based group index for hunk `h` of file `path`
+///   in the commit being split (indexed the same way as the 0-context full
+///   diff produced by [`GitRepo::commit_diff_for_fragmap`])
+///
+/// Returns `None` if `commit_oid` is not found in `commit_diffs`.
+pub fn assign_hunk_groups(
+    commit_diffs: &[CommitDiff],
+    commit_oid: &str,
+) -> Option<(usize, HashMap<String, Vec<usize>>)> {
+    let k_idx = commit_diffs
+        .iter()
+        .position(|d| d.commit.oid == commit_oid)?;
+
+    // Build file_commits the same way build_fragmap does.
+    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
+    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
+        for file in &diff.files {
+            let path = match &file.new_path {
+                Some(p) => p.clone(),
+                None => continue,
+            };
+            let hunks: Vec<HunkInfo> = file
+                .hunks
+                .iter()
+                .map(|h| HunkInfo {
+                    old_start: h.old_start,
+                    old_lines: h.old_lines,
+                    new_start: h.new_start,
+                    new_lines: h.new_lines,
+                })
+                .collect();
+            if !hunks.is_empty() {
+                let entry = file_commits.entry(path).or_default();
+                if let Some(last) = entry.last_mut() {
+                    if last.0 == commit_idx {
+                        last.1.extend(hunks);
+                        continue;
+                    }
+                }
+                entry.push((commit_idx, hunks));
+            }
+        }
+    }
+
+    let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
+    sorted_paths.sort();
+
+    // Phase 1: accumulate pre-dedup clusters (in the same order as build_fragmap)
+    // and record, for each of K's hunks, which pre-dedup cluster it belongs to.
+    //
+    // k_hunk_prededup[path][h] = pre-dedup cluster index (global across all files).
+    let mut pre_dedup_clusters: Vec<SpanCluster> = Vec::new();
+    let mut k_hunk_prededup: HashMap<String, Vec<usize>> = HashMap::new();
+
+    for path in &sorted_paths {
+        let commits_for_file = &file_commits[*path];
+        let file_cluster_offset = pre_dedup_clusters.len();
+        let file_clusters = build_file_clusters(path, commits_for_file, commit_diffs);
+
+        if commits_for_file.iter().any(|(idx, _)| *idx == k_idx) {
+            let path_indices = file_hunk_path_indices(commits_for_file, k_idx);
+            let global_indices: Vec<usize> = path_indices
+                .iter()
+                .map(|&p| {
+                    if p == usize::MAX {
+                        usize::MAX
+                    } else {
+                        file_cluster_offset + p
+                    }
+                })
+                .collect();
+            k_hunk_prededup.insert((*path).clone(), global_indices);
+        }
+
+        pre_dedup_clusters.extend(file_clusters);
+    }
+
+    // Phase 2: compute the dedup mapping, replicating the logic of
+    // deduplicate_clusters but also building pre_idx → group_idx.
+    for cluster in &mut pre_dedup_clusters {
+        cluster.commit_oids.sort();
+    }
+    let mut seen_patterns: Vec<Vec<String>> = Vec::new();
+    let mut group_idx_for_prededup: Vec<usize> = Vec::with_capacity(pre_dedup_clusters.len());
+    for cluster in &pre_dedup_clusters {
+        if let Some(pos) = seen_patterns.iter().position(|p| p == &cluster.commit_oids) {
+            group_idx_for_prededup.push(pos);
+        } else {
+            let new_idx = seen_patterns.len();
+            seen_patterns.push(cluster.commit_oids.clone());
+            group_idx_for_prededup.push(new_idx);
+        }
+    }
+    let group_count = seen_patterns.len();
+
+    // Phase 3: translate pre-dedup cluster indices to group indices.
+    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
+    for (path, prededup_indices) in k_hunk_prededup {
+        let group_indices: Vec<usize> = prededup_indices
+            .iter()
+            .map(|&pre_idx| {
+                if pre_idx != usize::MAX {
+                    group_idx_for_prededup[pre_idx]
+                } else {
+                    0
+                }
+            })
+            .collect();
+        assignment.insert(path, group_indices);
+    }
+
+    Some((group_count, assignment))
 }
 
 impl FragMap {

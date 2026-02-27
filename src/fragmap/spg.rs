@@ -598,6 +598,46 @@ pub(super) fn build_file_clusters(
     clusters
 }
 
+/// For each hunk of the commit identified by `target_commit_idx` in `commits`
+/// (for a single file), return the index of the SPG path that contains that
+/// hunk's active node.
+///
+/// Returns a vec parallel to `commits[k_entry].1` (K's hunks for this file),
+/// where each element is the 0-based path index within `spg_all_paths()`.
+/// Elements are `usize::MAX` if no matching path is found (should not happen
+/// for a valid diff).
+///
+/// Call-site: used by `assign_hunk_groups` in `fragmap.rs` to determine which
+/// fragmap cluster each hunk of the commit being split belongs to.
+pub(super) fn file_hunk_path_indices(
+    commits: &[(usize, Vec<HunkInfo>)],
+    target_commit_idx: usize,
+) -> Vec<usize> {
+    let k_hunks = match commits.iter().find(|(idx, _)| *idx == target_commit_idx) {
+        Some((_, h)) => h,
+        None => return vec![],
+    };
+
+    let spg = build_file_spg(commits);
+    let paths = spg_all_paths(&spg);
+    let gen = target_commit_idx as i32;
+
+    let mut result = vec![usize::MAX; k_hunks.len()];
+    for (path_idx, path_nodes) in paths.iter().enumerate() {
+        for node in path_nodes {
+            if node.is_active && node.generation == gen {
+                for (hunk_idx, hunk) in k_hunks.iter().enumerate() {
+                    if SpgSpan::from_new_hunk(hunk) == node.new_span {
+                        result[hunk_idx] = path_idx;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
 /// Enumerate all SPG paths for each file and the raw path count.
 /// Used by `dump_per_file_spg_stats`.
 pub(super) fn enumerate_file_spg_paths(

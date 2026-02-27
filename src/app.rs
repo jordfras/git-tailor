@@ -21,21 +21,21 @@ use crate::{fragmap::FragMap, CommitInfo};
 pub enum SplitStrategy {
     PerFile,
     PerHunk,
-    PerHunkCluster,
+    PerHunkGroup,
 }
 
 impl SplitStrategy {
     pub const ALL: [SplitStrategy; 3] = [
         SplitStrategy::PerFile,
         SplitStrategy::PerHunk,
-        SplitStrategy::PerHunkCluster,
+        SplitStrategy::PerHunkGroup,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             SplitStrategy::PerFile => "Per file",
             SplitStrategy::PerHunk => "Per hunk",
-            SplitStrategy::PerHunkCluster => "Per hunk group",
+            SplitStrategy::PerHunkGroup => "Per hunk group",
         }
     }
 
@@ -43,7 +43,7 @@ impl SplitStrategy {
         match self {
             SplitStrategy::PerFile => "Create one commit per changed file",
             SplitStrategy::PerHunk => "Create one commit per diff hunk",
-            SplitStrategy::PerHunkCluster => "Create one commit per hunk group",
+            SplitStrategy::PerHunkGroup => "Create one commit per hunk group",
         }
     }
 }
