@@ -25,7 +25,7 @@ use crate::CommitDiff;
 
 mod spg;
 pub use spg::dump_per_file_spg_stats;
-use spg::{build_file_clusters, deduplicate_clusters, file_hunk_path_indices};
+use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
 /// A span of line numbers within a specific file.
 ///
@@ -410,27 +410,36 @@ pub fn assign_hunk_groups(
     sorted_paths.sort();
 
     // Phase 1: accumulate pre-dedup clusters (in the same order as build_fragmap)
-    // and record, for each of K's hunks, which pre-dedup cluster it belongs to.
+    // and record, for each of K's hunks, ALL pre-dedup clusters it appears in.
     //
-    // k_hunk_prededup[path][h] = pre-dedup cluster index (global across all files).
+    // k_hunk_prededup[path][h] = list of global pre-dedup cluster indices.
+    // A hunk can appear on multiple SPG paths with different commit_oids,
+    // so it may belong to multiple clusters (and after dedup, multiple groups).
     let mut pre_dedup_clusters: Vec<SpanCluster> = Vec::new();
-    let mut k_hunk_prededup: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut k_hunk_prededup: HashMap<String, Vec<Vec<usize>>> = HashMap::new();
 
     for path in &sorted_paths {
         let commits_for_file = &file_commits[*path];
         let file_cluster_offset = pre_dedup_clusters.len();
-        let file_clusters = build_file_clusters(path, commits_for_file, commit_diffs);
 
-        if commits_for_file.iter().any(|(idx, _)| *idx == k_idx) {
-            let path_indices = file_hunk_path_indices(commits_for_file, k_idx);
-            let global_indices: Vec<usize> = path_indices
+        let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
+        let (file_clusters, hunk_to_local) = if has_k {
+            build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, k_idx)
+        } else {
+            (
+                build_file_clusters(path, commits_for_file, commit_diffs),
+                vec![],
+            )
+        };
+
+        if has_k && !hunk_to_local.is_empty() {
+            let global_indices: Vec<Vec<usize>> = hunk_to_local
                 .iter()
-                .map(|&p| {
-                    if p == usize::MAX {
-                        usize::MAX
-                    } else {
-                        file_cluster_offset + p
-                    }
+                .map(|locals| {
+                    locals
+                        .iter()
+                        .map(|&local| file_cluster_offset + local)
+                        .collect()
                 })
                 .collect();
             k_hunk_prededup.insert((*path).clone(), global_indices);
@@ -457,20 +466,85 @@ pub fn assign_hunk_groups(
     }
     let group_count = seen_patterns.len();
 
-    // Phase 3: translate pre-dedup cluster indices to group indices.
-    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
-    for (path, prededup_indices) in k_hunk_prededup {
-        let group_indices: Vec<usize> = prededup_indices
+    // Phase 3: Assign each of K's hunks to exactly one dedup group.
+    //
+    // A hunk can belong to multiple pre-dedup clusters (via different SPG
+    // paths) which may map to different dedup groups.  We must ensure every
+    // group that K contributes to gets at least one hunk assigned, so the
+    // split produces the same number of commits as fragmap columns K touches.
+    //
+    // Strategy:
+    //  1. Compute each hunk's set of possible groups.
+    //  2. Hunks with only one possible group are assigned immediately.
+    //  3. For uncovered groups, pick the unassigned hunk with the fewest
+    //     alternatives and assign it there.
+    //  4. Remaining unassigned hunks go to their lowest possible group.
+
+    // Flatten (path, hunk_idx, possible_groups) for every hunk of K.
+    let mut candidates: Vec<(String, usize, Vec<usize>)> = Vec::new();
+    for (path, prededup_multi) in &k_hunk_prededup {
+        for (h, prededup_indices) in prededup_multi.iter().enumerate() {
+            let mut groups: Vec<usize> = prededup_indices
+                .iter()
+                .map(|&pre_idx| group_idx_for_prededup[pre_idx])
+                .collect();
+            groups.sort();
+            groups.dedup();
+            if groups.is_empty() {
+                groups.push(0);
+            }
+            candidates.push((path.clone(), h, groups));
+        }
+    }
+
+    // All groups K can touch.
+    let all_touched: std::collections::BTreeSet<usize> = candidates
+        .iter()
+        .flat_map(|(_, _, gs)| gs.iter().copied())
+        .collect();
+
+    let mut assigned: Vec<Option<usize>> = vec![None; candidates.len()];
+
+    // Pass 1: hunks with only one possible group.
+    for (i, (_, _, groups)) in candidates.iter().enumerate() {
+        if groups.len() == 1 {
+            assigned[i] = Some(groups[0]);
+        }
+    }
+
+    // Pass 2: for each uncovered group, assign the best remaining hunk.
+    let mut covered: std::collections::HashSet<usize> =
+        assigned.iter().filter_map(|a| *a).collect();
+    for &g in &all_touched {
+        if covered.contains(&g) {
+            continue;
+        }
+        let best = candidates
             .iter()
-            .map(|&pre_idx| {
-                if pre_idx != usize::MAX {
-                    group_idx_for_prededup[pre_idx]
-                } else {
-                    0
-                }
-            })
-            .collect();
-        assignment.insert(path, group_indices);
+            .enumerate()
+            .filter(|(i, (_, _, groups))| assigned[*i].is_none() && groups.contains(&g))
+            .min_by_key(|(_, (_, _, groups))| groups.len())
+            .map(|(i, _)| i);
+        if let Some(i) = best {
+            assigned[i] = Some(g);
+            covered.insert(g);
+        }
+    }
+
+    // Pass 3: remaining hunks go to their lowest possible group.
+    for (i, (_, _, groups)) in candidates.iter().enumerate() {
+        if assigned[i].is_none() {
+            assigned[i] = Some(groups[0]);
+        }
+    }
+
+    // Build the assignment map: path -> Vec<usize> (one group per hunk).
+    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (path, h, _)) in candidates.iter().enumerate() {
+        let entry = assignment
+            .entry(path.clone())
+            .or_insert_with(|| vec![0; k_hunk_prededup[path].len()]);
+        entry[*h] = assigned[i].unwrap_or(0);
     }
 
     Some((group_count, assignment))
