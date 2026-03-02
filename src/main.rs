@@ -305,7 +305,7 @@ fn main() -> Result<()> {
                 }
                 AppMode::Help(_) => {}
             },
-            event::AppAction::Reload => {
+            event::AppAction::Update => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     reload_commits(&git_repo, &mut app);
                 }

@@ -30,7 +30,7 @@ pub enum AppAction {
     ShowHelp,
     Split,
     Reword,
-    Reload,
+    Update,
     Quit,
     Confirm,
     None,
@@ -65,7 +65,7 @@ pub fn parse_key_event(event: Event) -> AppAction {
                 KeyCode::Char('h') => AppAction::ShowHelp,
                 KeyCode::Char('s') => AppAction::Split,
                 KeyCode::Char('r') => AppAction::Reword,
-                KeyCode::Char('u') => AppAction::Reload,
+                KeyCode::Char('u') => AppAction::Update,
                 KeyCode::Esc | KeyCode::Char('q') => AppAction::Quit,
                 _ => AppAction::None,
             };
