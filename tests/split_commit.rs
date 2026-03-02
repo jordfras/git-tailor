@@ -455,7 +455,12 @@ fn split_per_hunk_pure_insertions() {
     assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
 
     // First split commit: only the first insertion applied.
-    let tree1 = test.repo.find_commit(commits_above_base[0]).unwrap().tree().unwrap();
+    let tree1 = test
+        .repo
+        .find_commit(commits_above_base[0])
+        .unwrap()
+        .tree()
+        .unwrap();
     let blob1 = tree1.get_path(std::path::Path::new("a.txt")).unwrap();
     let b1 = test.repo.find_blob(blob1.id()).unwrap();
     assert_eq!(

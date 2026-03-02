@@ -114,7 +114,7 @@ Guidelines:
   can be reused when editing commit messages during squash (Flags: V4)
 - [X] T090 P1 feat - Change reload key from 'r' to 'u' (update) in commit list
   view and help dialog, to free 'r' for reword (Flags: V4)
-- [ ] T091 P1 feat - Add 'r' reword key in commit list view: invoke
+- [X] T091 P1 feat - Add 'r' reword key in commit list view: invoke
   `edit_message_in_editor` with the selected commit's message, then use git2 to
   recreate the commit with the same tree and parents but the new message; if the
   commit is not HEAD, cherry-pick all descendants onto the new commit chain

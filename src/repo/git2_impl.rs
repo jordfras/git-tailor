@@ -639,6 +639,37 @@ impl GitRepo for Git2Repo {
         }
         Ok(cluster_count)
     }
+
+    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
+        let repo = &self.inner;
+
+        let commit_git_oid =
+            git2::Oid::from_str(commit_oid).context("Invalid commit OID for reword")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for reword")?;
+        let commit = repo.find_commit(commit_git_oid)?;
+
+        let parents: Vec<git2::Commit> = (0..commit.parent_count())
+            .map(|i| commit.parent(i))
+            .collect::<std::result::Result<_, _>>()?;
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+
+        let new_oid = repo.commit(
+            None,
+            &commit.author(),
+            &commit.committer(),
+            new_message,
+            &commit.tree()?,
+            &parent_refs,
+        )?;
+
+        let tip = self.rebase_descendants(commit_git_oid, head_git_oid, new_oid)?;
+        self.advance_branch_ref(tip, "reword: update branch ref")?;
+        Ok(())
+    }
+
+    fn edit_message_in_editor(&self, message: &str) -> anyhow::Result<String> {
+        super::editor::edit_message_in_editor(&self.inner, message)
+    }
 }
 
 // ---------------------------------------------------------------------------
