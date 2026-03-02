@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod editor;
 pub mod git2_impl;
 
 pub use git2_impl::Git2Repo;
@@ -125,4 +126,22 @@ pub trait GitRepo {
 
     /// Count how many commits `split_commit_per_hunk_cluster` would produce for this commit.
     fn count_split_per_hunk_cluster(&self, commit_oid: &str) -> Result<usize>;
+
+    /// Reword the message of an existing commit.
+    ///
+    /// Creates a new commit with the same tree and parents as `commit_oid` but
+    /// with `new_message` as the commit message, then cherry-picks all commits
+    /// strictly between `commit_oid` and `head_oid` (inclusive) onto the new
+    /// commit, and fast-forwards the branch ref to the resulting tip.
+    ///
+    /// Because only the message changes the diff at every step is identical, so
+    /// no conflicts can arise from staged or unstaged working-tree changes.
+    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
+
+    /// Open `message` in the configured editor and return the edited result.
+    ///
+    /// Suspends the TUI, launches the editor, restores the TUI, and returns
+    /// the trimmed edited text. See [`editor::edit_message_in_editor`] for
+    /// full details.
+    fn edit_message_in_editor(&self, message: &str) -> Result<String>;
 }

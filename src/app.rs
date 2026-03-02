@@ -84,7 +84,7 @@ pub struct AppState {
     /// Show all hunk-group columns without deduplication (--full flag).
     pub full_fragmap: bool,
     /// The reference OID (merge-base) used when the session started.
-    /// Stored here so 'r' reload can rescan from HEAD down to the same base.
+    /// Stored here so 'u' update can rescan from HEAD down to the same base.
     pub reference_oid: String,
     /// Optional fragmap visualization data.
     /// None if fragmap computation failed or was not performed.

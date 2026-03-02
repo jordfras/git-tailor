@@ -15,7 +15,7 @@ ratatui = "0.28"
 crossterm = "0.28"
 clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions"] }
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 insta = "1"

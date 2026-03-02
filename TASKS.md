@@ -100,4 +100,28 @@ Guidelines:
 - [ ] T080 P2 feat - On conflict, provide the user with details on which commit
   and files are conflicting (Flags: V4)
 
+## Interactivity — Reword Commit (V4)
+- [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
+  var → core.editor git config → VISUAL env var → EDITOR env var → "vi"
+  fallback, matching git's own editor resolution order (Flags: V4)
+- [X] T089 P1 feat - Implement general `edit_message_in_editor(repo, message)`
+  utility: write message to a tempfile, suspend TUI (disable raw mode, leave
+  alternate screen), spawn the resolved editor with inherited stdio and the
+  tempfile as argument, wait for exit, restore TUI (enable raw mode, re-enter
+  alternate screen), read and return the edited message; works for both
+  terminal-UI editors (e.g. `vim`, `emacs -nw`) and GUI editors that open their
+  own window (e.g. `code --wait`) — this function is intentionally general so it
+  can be reused when editing commit messages during squash (Flags: V4)
+- [X] T090 P1 feat - Change reload key from 'r' to 'u' (update) in commit list
+  view and help dialog, to free 'r' for reword (Flags: V4)
+- [X] T091 P1 feat - Add 'r' reword key in commit list view: invoke
+  `edit_message_in_editor` with the selected commit's message, then use git2 to
+  recreate the commit with the same tree and parents but the new message; if the
+  commit is not HEAD, cherry-pick all descendants onto the new commit chain
+  (same approach as split) — no conflict risk since only the message changes and
+  the tree content is identical at every step, so staged/unstaged working-tree
+  changes are unaffected and do not need to block this operation; block the key
+  (show an error) only when the selected row is a staged or unstaged synthetic
+  entry (Flags: V4)
+
 ## Notes

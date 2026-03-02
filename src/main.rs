@@ -217,6 +217,46 @@ fn main() -> Result<()> {
                     app.enter_split_select();
                 }
             }
+            event::AppAction::Reword => {
+                if app.mode == AppMode::CommitList {
+                    let commit = &app.commits[app.selection_index];
+                    if commit.oid == "staged" || commit.oid == "unstaged" {
+                        app.status_message =
+                            Some("Cannot reword staged/unstaged changes".to_string());
+                    } else {
+                        let commit_oid = commit.oid.clone();
+                        let current_message = commit.message.clone();
+                        let head_oid = match git_repo.head_oid() {
+                            Ok(oid) => oid,
+                            Err(e) => {
+                                app.status_message = Some(format!("Failed to get HEAD: {e}"));
+                                continue;
+                            }
+                        };
+                        let editor_result = git_repo.edit_message_in_editor(&current_message);
+                        // Force a full repaint — ratatui's buffer is stale after the editor
+                        // temporarily owned the terminal.
+                        terminal.clear()?;
+                        match editor_result {
+                            Err(e) => app.status_message = Some(format!("Editor error: {e}")),
+                            Ok(new_message) if new_message == current_message => {}
+                            Ok(new_message) => {
+                                let saved_index = app.selection_index;
+                                match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
+                                    Ok(()) => {
+                                        reload_commits(&git_repo, &mut app);
+                                        app.selection_index =
+                                            saved_index.min(app.commits.len().saturating_sub(1));
+                                    }
+                                    Err(e) => {
+                                        app.status_message = Some(format!("Reword failed: {e}"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             event::AppAction::Confirm => match app.mode.clone() {
                 AppMode::SplitSelect { .. } => {
                     let strategy = app.selected_split_strategy();
@@ -265,7 +305,7 @@ fn main() -> Result<()> {
                 }
                 AppMode::Help(_) => {}
             },
-            event::AppAction::Reload => {
+            event::AppAction::Update => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     reload_commits(&git_repo, &mut app);
                 }
