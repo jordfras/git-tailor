@@ -63,7 +63,7 @@ pub fn parse_key_event(event: Event) -> AppAction {
                 KeyCode::Char('i') => AppAction::ToggleDetail,
                 KeyCode::Char('h') => AppAction::ShowHelp,
                 KeyCode::Char('s') => AppAction::Split,
-                KeyCode::Char('r') => AppAction::Reload,
+                KeyCode::Char('u') => AppAction::Reload,
                 KeyCode::Esc | KeyCode::Char('q') => AppAction::Quit,
                 _ => AppAction::None,
             };

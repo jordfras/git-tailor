@@ -112,7 +112,7 @@ Guidelines:
   terminal-UI editors (e.g. `vim`, `emacs -nw`) and GUI editors that open their
   own window (e.g. `code --wait`) — this function is intentionally general so it
   can be reused when editing commit messages during squash (Flags: V4)
-- [ ] T090 P1 feat - Change reload key from 'r' to 'u' (update) in commit list
+- [X] T090 P1 feat - Change reload key from 'r' to 'u' (update) in commit list
   view and help dialog, to free 'r' for reword (Flags: V4)
 - [ ] T091 P1 feat - Add 'r' reword key in commit list view: invoke
   `edit_message_in_editor` with the selected commit's message, then use git2 to

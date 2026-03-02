@@ -69,8 +69,8 @@ pub fn render(frame: &mut Frame) {
             Span::raw("Show this help dialog"),
         ]),
         Line::from(vec![
-            Span::styled("   r         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Reload commit list from HEAD"),
+            Span::styled("   u         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Update commit list from HEAD"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
