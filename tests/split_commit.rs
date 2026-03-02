@@ -313,47 +313,38 @@ fn split_per_hunk_refuses_single_hunk_commit() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-hunk-cluster split tests
+// Per-hunk-group split tests (fragmap SPG + dedup based)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn split_per_hunk_cluster_groups_close_hunks() {
-    // Three changes in one file: the first two are close together (gap = 1 line ≤ 2)
-    // so they form one cluster; the third is far away (gap = 6 lines > 2) and forms a
-    // second cluster.  Per-hunk produces 3 commits; per-hunk-cluster produces 2.
+fn split_per_hunk_group_two_groups_shared_context() {
+    // Commit A only modifies a.txt. Commit K modifies a.txt (in the same region
+    // as A) and b.txt (only K). The fragmap assigns K's a.txt hunk to the cluster
+    // with commit_oids={A,K} and K's b.txt hunk to commit_oids={K}. Those are
+    // two different dedup columns → split produces 2 commits.
     let test = common::TestRepo::new();
 
-    let base = test.commit_file(
-        "a.txt",
-        "A\nB\nC\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX\n",
-        "base",
-    );
-
-    // Change line 1 (A→A2), line 3 (C→C2) [1-line gap ≤ 2 → same cluster],
-    // and line 10 (X→X2) [6-line gap > 2 → separate cluster].
-    let to_split = test.commit_file(
-        "a.txt",
-        "A2\nB\nC2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX2\n",
-        "three changes",
-    );
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    test.commit_file("a.txt", "A2\n", "commit A");
+    let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_cluster(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
         .unwrap();
 
-    // 2 clusters → 2 output commits
+    // 3 commits above base: commit A + K-part1 + K-part2
     let commits_above_base = commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
-        2,
-        "expected 2 split commits (2 hunk groups)"
+        3,
+        "expected 3 commits above base (A + 2 split parts)"
     );
 
-    let split1 = test.repo.find_commit(commits_above_base[0]).unwrap();
-    let split2 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let split2 = test.repo.find_commit(commits_above_base[2]).unwrap();
     assert!(
         split1.summary().unwrap_or("").contains("(1/2)"),
         "expected (1/2) in: {}",
@@ -365,57 +356,98 @@ fn split_per_hunk_cluster_groups_close_hunks() {
         split2.summary().unwrap_or("")
     );
 
-    // Final content intact
-    let tip = commits_above_base[1];
-    assert_eq!(
-        file_content_at(&test.repo, tip, "a.txt"),
-        "A2\nB\nC2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nPAD6\nX2\n"
-    );
+    // Intermediate commit (K-part1) should have applied a.txt but not b.txt.
+    let k1_oid = commits_above_base[1];
+    assert_eq!(file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
+    assert_eq!(file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
+
+    // Final commit (K-part2) should match K's full state.
+    let tip = commits_above_base[2];
+    assert_eq!(file_content_at(&test.repo, tip, "a.txt"), "A3\n");
+    assert_eq!(file_content_at(&test.repo, tip, "b.txt"), "B2\n");
 }
 
 #[test]
-fn split_per_hunk_cluster_separates_distant_hunks() {
-    // Two changes in the same file separated by 5 unchanged lines (> 2 threshold)
-    // → 2 clusters → same result as per-hunk.
+fn split_per_hunk_group_three_commits_two_groups() {
+    // A → K → B, where both A and B are context commits that give K's two hunks
+    // different fragmap columns.  A only touches a.txt; B only touches b.txt; K
+    // touches both.  Result: K's a.txt hunk goes into the {A,K} cluster and
+    // K's b.txt hunk goes into the {K,B} cluster → 2 groups → 2 split commits.
     let test = common::TestRepo::new();
 
-    let base = test.commit_file("a.txt", "A\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB\n", "base");
-    let to_split = test.commit_file(
-        "a.txt",
-        "A2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB2\n",
-        "two distant changes",
-    );
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    test.commit_file("a.txt", "A2\n", "commit A");
+    let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
+    test.commit_file("b.txt", "B3\n", "commit B");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_cluster(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
         .unwrap();
 
+    // 4 commits above base: A + K-part1 + K-part2 + B' (rebased B)
     let commits_above_base = commits_from_head(&test.repo, base);
-    assert_eq!(commits_above_base.len(), 2, "expected 2 separate clusters");
-    let tip = commits_above_base[1];
     assert_eq!(
-        file_content_at(&test.repo, tip, "a.txt"),
-        "A2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nB2\n"
+        commits_above_base.len(),
+        4,
+        "expected 4 commits above base (A + K1 + K2 + B')"
     );
+
+    let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let split2 = test.repo.find_commit(commits_above_base[2]).unwrap();
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/2)"),
+        "expected (1/2) in: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split2.summary().unwrap_or("").contains("(2/2)"),
+        "expected (2/2) in: {}",
+        split2.summary().unwrap_or("")
+    );
+
+    // K-part1 should have applied only the a.txt group.
+    let k1_oid = commits_above_base[1];
+    assert_eq!(file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
+    assert_eq!(file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
+
+    // K-part2 should match K's full state.
+    let k2_oid = commits_above_base[2];
+    assert_eq!(file_content_at(&test.repo, k2_oid, "a.txt"), "A3\n");
+    assert_eq!(file_content_at(&test.repo, k2_oid, "b.txt"), "B2\n");
+
+    // B' (rebased) should have b.txt = B3.
+    let b_prime_oid = commits_above_base[3];
+    assert_eq!(file_content_at(&test.repo, b_prime_oid, "b.txt"), "B3\n");
 }
 
 #[test]
-fn split_per_hunk_cluster_refuses_single_cluster() {
-    // Two changes separated by 1 unchanged line (gap = 1 ≤ 2) → 1 cluster → refused.
+fn split_per_hunk_group_refuses_single_group() {
+    // K is the only branch commit, touching two separate regions of one file.
+    // Both hunks have commit_oids={K} in the fragmap; dedup collapses them to
+    // 1 column → split is refused.
     let test = common::TestRepo::new();
-    test.commit_file("a.txt", "A\nPAD\nB\n", "base");
-    let only_one_cluster = test.commit_file("a.txt", "A2\nPAD\nB2\n", "two close changes");
+
+    let base = test.commit_file("a.txt", "A\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nX\n", "base");
+    let only_one_group = test.commit_file(
+        "a.txt",
+        "A2\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nX2\n",
+        "two changes no context",
+    );
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.split_commit_per_hunk_cluster(&only_one_cluster.to_string(), &head_oid);
+    let result = git_repo.split_commit_per_hunk_group(
+        &only_one_group.to_string(),
+        &head_oid,
+        &base.to_string(),
+    );
     assert!(
         result.is_err(),
-        "should fail when all hunks collapse to 1 cluster"
+        "should fail when all hunks collapse to 1 hunk group"
     );
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -475,4 +507,169 @@ fn split_per_hunk_pure_insertions() {
         "line1\nNEW\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nOTHER\n",
         "final commit should have both insertions"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Regression: multi-path hunk coverage (a hunk on multiple SPG paths with
+// different commit_oids must not leave any fragmap group uncovered).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_hunk_group_multi_path_two_groups() {
+    // Commit A modifies a.txt line 2 and c.txt line 1.
+    // Commit K modifies a.txt lines 2-4 (overlapping A *and* extending beyond)
+    // and c.txt line 1 (overlapping A).
+    //
+    // In the SPG for a.txt, K's active node has two predecessors (A's active
+    // node and a surviving span), creating two paths with different commit_oids:
+    //   path 1: {A, K}   path 2: {K}
+    //
+    // c.txt has only one path: {A, K}.
+    //
+    // After dedup there are 2 groups: {A,K} and {K}.
+    //
+    // Without coverage-aware assignment, K's a.txt hunk would be assigned to
+    // the {A,K} group (first cluster wins) and c.txt's hunk also goes to
+    // {A,K}. The {K} group would have zero hunks → the split would refuse
+    // with "fewer than 2 hunk groups".
+    //
+    // The fix ensures K's a.txt hunk is reassigned to {K} so both groups are
+    // covered, producing 2 split commits.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(
+        &[("a.txt", "L1\nL2\nL3\nL4\nL5\n"), ("c.txt", "C1\n")],
+        "base",
+    );
+    test.commit_files(
+        &[("a.txt", "L1\nA2\nL3\nL4\nL5\n"), ("c.txt", "CA1\n")],
+        "commit A",
+    );
+    let to_split = test.commit_files(
+        &[("a.txt", "L1\nK2\nK3\nK4\nL5\n"), ("c.txt", "CK1\n")],
+        "commit K",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .unwrap();
+
+    // 3 commits above base: A' + K-part1 + K-part2
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(
+        commits_above_base.len(),
+        3,
+        "expected 3 commits above base (A + 2 split parts), got {}",
+        commits_above_base.len()
+    );
+
+    let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let split2 = test.repo.find_commit(commits_above_base[2]).unwrap();
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/2)"),
+        "expected (1/2) in: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split2.summary().unwrap_or("").contains("(2/2)"),
+        "expected (2/2) in: {}",
+        split2.summary().unwrap_or("")
+    );
+
+    // Final split commit must match K's full tree.
+    let tip = *commits_above_base.last().unwrap();
+    assert_eq!(
+        file_content_at(&test.repo, tip, "a.txt"),
+        "L1\nK2\nK3\nK4\nL5\n"
+    );
+    assert_eq!(file_content_at(&test.repo, tip, "c.txt"), "CK1\n");
+}
+
+#[test]
+fn split_per_hunk_group_multi_path_three_groups() {
+    // Three context commits create three distinct fragmap groups for K.
+    //
+    //   A modifies a.txt line 2 and c.txt line 1.
+    //   K modifies a.txt lines 2-4 (overlap + extension), b.txt line 1, c.txt.
+    //   B (after K) modifies b.txt line 1 (overlaps K).
+    //
+    // SPG produces:
+    //   a.txt: two paths {A,K} and {K} — K's hunk is on both (multi-path)
+    //   b.txt: one path {K,B}
+    //   c.txt: one path {A,K}
+    //
+    // Dedup groups: {A,K}=0, {K}=1, {K,B}=2.
+    // Without coverage-aware assignment: K's a.txt hunk → group 0 (first-wins),
+    // c.txt → group 0, b.txt → group 2.  Group 1 ({K}) has no hunk → only 2
+    // commits instead of 3.
+    //
+    // Coverage-aware fix: a.txt hunk reassigned to group 1, giving 3 commits.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(
+        &[
+            ("a.txt", "L1\nL2\nL3\nL4\nL5\n"),
+            ("b.txt", "B1\n"),
+            ("c.txt", "C1\n"),
+        ],
+        "base",
+    );
+    test.commit_files(
+        &[("a.txt", "L1\nA2\nL3\nL4\nL5\n"), ("c.txt", "CA1\n")],
+        "commit A",
+    );
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "L1\nK2\nK3\nK4\nL5\n"),
+            ("b.txt", "KB1\n"),
+            ("c.txt", "CK1\n"),
+        ],
+        "commit K",
+    );
+    test.commit_file("b.txt", "BB1\n", "commit B");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .unwrap();
+
+    // 5 commits above base: A' + K-part1 + K-part2 + K-part3 + B'
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(
+        commits_above_base.len(),
+        5,
+        "expected 5 commits above base (A + 3 split parts + B'), got {}",
+        commits_above_base.len()
+    );
+
+    let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let split3 = test.repo.find_commit(commits_above_base[3]).unwrap();
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/3)"),
+        "expected (1/3) in: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split3.summary().unwrap_or("").contains("(3/3)"),
+        "expected (3/3) in: {}",
+        split3.summary().unwrap_or("")
+    );
+
+    // Last split commit (K-part3) must match K's full tree.
+    let k3_oid = commits_above_base[3];
+    assert_eq!(
+        file_content_at(&test.repo, k3_oid, "a.txt"),
+        "L1\nK2\nK3\nK4\nL5\n"
+    );
+    assert_eq!(file_content_at(&test.repo, k3_oid, "b.txt"), "KB1\n");
+    assert_eq!(file_content_at(&test.repo, k3_oid, "c.txt"), "CK1\n");
+
+    // Rebased B' should have its b.txt content.
+    let b_prime_oid = commits_above_base[4];
+    assert_eq!(file_content_at(&test.repo, b_prime_oid, "b.txt"), "BB1\n");
 }

@@ -560,13 +560,51 @@ pub(super) fn build_file_clusters(
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
 ) -> Vec<SpanCluster> {
+    // usize::MAX as target → gen wraps to -1, never matches any active node, so
+    // the assignment output is all-usize::MAX and can be discarded.
+    build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, usize::MAX).0
+}
+
+/// Build all `SpanCluster` entries for a single file path and simultaneously
+/// compute, for each hunk of `target_commit_idx`, which local cluster index
+/// (within the returned `Vec<SpanCluster>`) it belongs to.
+///
+/// The returned `Vec<usize>` is parallel to the target commit's hunk list for
+/// this file.  Elements are `usize::MAX` when no cluster was found (should not
+/// happen for a valid diff).
+///
+/// Using a single pass ensures the cluster index used for hunk assignment
+/// matches the actual position in the returned `Vec`; the old two-pass approach
+/// (`build_file_clusters` + `file_hunk_path_indices`) was wrong because
+/// `file_hunk_path_indices` returned raw path indices while `build_file_clusters`
+/// silently drops empty paths, causing an index mismatch.
+pub(super) fn build_file_clusters_and_assign_hunks(
+    path: &str,
+    commits_for_file: &[(usize, Vec<HunkInfo>)],
+    commit_diffs: &[CommitDiff],
+    target_commit_idx: usize,
+) -> (Vec<SpanCluster>, Vec<Vec<usize>>) {
+    let k_hunks = commits_for_file
+        .iter()
+        .find(|(idx, _)| *idx == target_commit_idx)
+        .map(|(_, h)| h.as_slice())
+        .unwrap_or(&[]);
+    let gen = target_commit_idx as i32;
+
     let spg = build_file_spg(commits_for_file);
     let paths = spg_all_paths(&spg);
-    let mut clusters = Vec::new();
+
+    let mut clusters: Vec<SpanCluster> = Vec::new();
+    // hunk_to_clusters[h] = all cluster indices that K's hunk h appears in.
+    // A hunk can appear on multiple SPG paths with different commit_oids
+    // patterns, so it may belong to multiple clusters (and after dedup,
+    // to multiple groups).  The caller decides the final assignment.
+    let mut hunk_to_clusters: Vec<Vec<usize>> = vec![vec![]; k_hunks.len()];
 
     for path_nodes in &paths {
         let mut commit_oids: Vec<String> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
+        let mut k_hunks_on_path: Vec<usize> = Vec::new();
 
         for node in path_nodes {
             if node.is_active
@@ -578,11 +616,26 @@ pub(super) fn build_file_clusters(
                     commit_oids.push(oid.clone());
                 }
                 last_active_span = Some(node.new_span);
+
+                if node.generation == gen {
+                    for (h, hunk) in k_hunks.iter().enumerate() {
+                        if SpgSpan::from_new_hunk(hunk) == node.new_span {
+                            k_hunks_on_path.push(h);
+                            break;
+                        }
+                    }
+                }
             }
         }
 
         if let Some(sp) = last_active_span {
             if !commit_oids.is_empty() {
+                let cluster_idx = clusters.len();
+                for h in k_hunks_on_path {
+                    if !hunk_to_clusters[h].contains(&cluster_idx) {
+                        hunk_to_clusters[h].push(cluster_idx);
+                    }
+                }
                 clusters.push(SpanCluster {
                     spans: vec![FileSpan {
                         path: path.to_string(),
@@ -595,7 +648,7 @@ pub(super) fn build_file_clusters(
         }
     }
 
-    clusters
+    (clusters, hunk_to_clusters)
 }
 
 /// Enumerate all SPG paths for each file and the raw path count.

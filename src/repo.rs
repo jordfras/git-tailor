@@ -104,19 +104,23 @@ pub trait GitRepo {
 
     /// Split a commit into one commit per hunk group.
     ///
-    /// Hunks are grouped by proximity: consecutive hunks in the same file with a
-    /// gap of ≤ 2 unchanged lines between them form one group (cluster). Hunks in
-    /// different files always form separate groups.
-    ///
-    /// Each group produces one output commit using the same cumulative-apply approach
-    /// as `split_commit_per_hunk`. This typically yields fewer, more cohesive commits
-    /// than per-hunk splitting.
+    /// Hunks are grouped using the same SPG-based fragmap algorithm shown in the
+    /// hunk group matrix: two hunks from the commit end up in the same group when
+    /// they share the same set of interacting commits on the branch (i.e. their
+    /// fragmap columns deduplicate to the same column). This yields fewer, more
+    /// cohesive commits than per-hunk splitting, and the groups match exactly what
+    /// the user sees in the TUI fragmap after deduplication.
     ///
     /// Fails if:
-    /// - the commit has fewer than 2 hunk groups (nothing to split)
+    /// - the commit cannot be mapped to at least 2 fragmap groups (nothing to split)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_per_hunk_cluster(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
+    fn split_commit_per_hunk_group(
+        &self,
+        commit_oid: &str,
+        head_oid: &str,
+        reference_oid: &str,
+    ) -> Result<()>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.
     fn count_split_per_file(&self, commit_oid: &str) -> Result<usize>;
@@ -124,8 +128,15 @@ pub trait GitRepo {
     /// Count how many commits `split_commit_per_hunk` would produce for this commit.
     fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize>;
 
-    /// Count how many commits `split_commit_per_hunk_cluster` would produce for this commit.
-    fn count_split_per_hunk_cluster(&self, commit_oid: &str) -> Result<usize>;
+    /// Count how many fragmap groups `split_commit_per_hunk_group` would produce
+    /// for this commit, given the full branch context up to `head_oid` from
+    /// `reference_oid`.
+    fn count_split_per_hunk_group(
+        &self,
+        commit_oid: &str,
+        head_oid: &str,
+        reference_oid: &str,
+    ) -> Result<usize>;
 
     /// Reword the message of an existing commit.
     ///

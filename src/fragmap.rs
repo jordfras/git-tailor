@@ -25,7 +25,7 @@ use crate::CommitDiff;
 
 mod spg;
 pub use spg::dump_per_file_spg_stats;
-use spg::{build_file_clusters, deduplicate_clusters};
+use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
 /// A span of line numbers within a specific file.
 ///
@@ -352,6 +352,202 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
         clusters,
         matrix,
     }
+}
+
+/// Compute the fragmap-based hunk group assignment for commit `commit_oid`.
+///
+/// Uses the same SPG clustering and deduplication as [`build_fragmap`] with
+/// `deduplicate = true`. Each hunk of `commit_oid` in `commit_diffs` is
+/// assigned to the deduplicated fragmap cluster (column) it belongs to.
+///
+/// Returns `Some((group_count, assignment))` where:
+/// - `group_count` = number of distinct groups after deduplication
+/// - `assignment[path][h]` = 0-based group index for hunk `h` of file `path`
+///   in the commit being split (indexed the same way as the 0-context full
+///   diff produced by [`GitRepo::commit_diff_for_fragmap`])
+///
+/// Returns `None` if `commit_oid` is not found in `commit_diffs`.
+pub fn assign_hunk_groups(
+    commit_diffs: &[CommitDiff],
+    commit_oid: &str,
+) -> Option<(usize, HashMap<String, Vec<usize>>)> {
+    let k_idx = commit_diffs
+        .iter()
+        .position(|d| d.commit.oid == commit_oid)?;
+
+    // Build file_commits the same way build_fragmap does.
+    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
+    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
+        for file in &diff.files {
+            let path = match &file.new_path {
+                Some(p) => p.clone(),
+                None => continue,
+            };
+            let hunks: Vec<HunkInfo> = file
+                .hunks
+                .iter()
+                .map(|h| HunkInfo {
+                    old_start: h.old_start,
+                    old_lines: h.old_lines,
+                    new_start: h.new_start,
+                    new_lines: h.new_lines,
+                })
+                .collect();
+            if !hunks.is_empty() {
+                let entry = file_commits.entry(path).or_default();
+                if let Some(last) = entry.last_mut() {
+                    if last.0 == commit_idx {
+                        last.1.extend(hunks);
+                        continue;
+                    }
+                }
+                entry.push((commit_idx, hunks));
+            }
+        }
+    }
+
+    let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
+    sorted_paths.sort();
+
+    // Phase 1: accumulate pre-dedup clusters (in the same order as build_fragmap)
+    // and record, for each of K's hunks, ALL pre-dedup clusters it appears in.
+    //
+    // k_hunk_prededup[path][h] = list of global pre-dedup cluster indices.
+    // A hunk can appear on multiple SPG paths with different commit_oids,
+    // so it may belong to multiple clusters (and after dedup, multiple groups).
+    let mut pre_dedup_clusters: Vec<SpanCluster> = Vec::new();
+    let mut k_hunk_prededup: HashMap<String, Vec<Vec<usize>>> = HashMap::new();
+
+    for path in &sorted_paths {
+        let commits_for_file = &file_commits[*path];
+        let file_cluster_offset = pre_dedup_clusters.len();
+
+        let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
+        let (file_clusters, hunk_to_local) = if has_k {
+            build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, k_idx)
+        } else {
+            (
+                build_file_clusters(path, commits_for_file, commit_diffs),
+                vec![],
+            )
+        };
+
+        if has_k && !hunk_to_local.is_empty() {
+            let global_indices: Vec<Vec<usize>> = hunk_to_local
+                .iter()
+                .map(|locals| {
+                    locals
+                        .iter()
+                        .map(|&local| file_cluster_offset + local)
+                        .collect()
+                })
+                .collect();
+            k_hunk_prededup.insert((*path).clone(), global_indices);
+        }
+
+        pre_dedup_clusters.extend(file_clusters);
+    }
+
+    // Phase 2: compute the dedup mapping, replicating the logic of
+    // deduplicate_clusters but also building pre_idx → group_idx.
+    for cluster in &mut pre_dedup_clusters {
+        cluster.commit_oids.sort();
+    }
+    let mut seen_patterns: Vec<Vec<String>> = Vec::new();
+    let mut group_idx_for_prededup: Vec<usize> = Vec::with_capacity(pre_dedup_clusters.len());
+    for cluster in &pre_dedup_clusters {
+        if let Some(pos) = seen_patterns.iter().position(|p| p == &cluster.commit_oids) {
+            group_idx_for_prededup.push(pos);
+        } else {
+            let new_idx = seen_patterns.len();
+            seen_patterns.push(cluster.commit_oids.clone());
+            group_idx_for_prededup.push(new_idx);
+        }
+    }
+    let group_count = seen_patterns.len();
+
+    // Phase 3: Assign each of K's hunks to exactly one dedup group.
+    //
+    // A hunk can belong to multiple pre-dedup clusters (via different SPG
+    // paths) which may map to different dedup groups.  We must ensure every
+    // group that K contributes to gets at least one hunk assigned, so the
+    // split produces the same number of commits as fragmap columns K touches.
+    //
+    // Strategy:
+    //  1. Compute each hunk's set of possible groups.
+    //  2. Hunks with only one possible group are assigned immediately.
+    //  3. For uncovered groups, pick the unassigned hunk with the fewest
+    //     alternatives and assign it there.
+    //  4. Remaining unassigned hunks go to their lowest possible group.
+
+    // Flatten (path, hunk_idx, possible_groups) for every hunk of K.
+    let mut candidates: Vec<(String, usize, Vec<usize>)> = Vec::new();
+    for (path, prededup_multi) in &k_hunk_prededup {
+        for (h, prededup_indices) in prededup_multi.iter().enumerate() {
+            let mut groups: Vec<usize> = prededup_indices
+                .iter()
+                .map(|&pre_idx| group_idx_for_prededup[pre_idx])
+                .collect();
+            groups.sort();
+            groups.dedup();
+            if groups.is_empty() {
+                groups.push(0);
+            }
+            candidates.push((path.clone(), h, groups));
+        }
+    }
+
+    // All groups K can touch.
+    let all_touched: std::collections::BTreeSet<usize> = candidates
+        .iter()
+        .flat_map(|(_, _, gs)| gs.iter().copied())
+        .collect();
+
+    let mut assigned: Vec<Option<usize>> = vec![None; candidates.len()];
+
+    // Pass 1: hunks with only one possible group.
+    for (i, (_, _, groups)) in candidates.iter().enumerate() {
+        if groups.len() == 1 {
+            assigned[i] = Some(groups[0]);
+        }
+    }
+
+    // Pass 2: for each uncovered group, assign the best remaining hunk.
+    let mut covered: std::collections::HashSet<usize> =
+        assigned.iter().filter_map(|a| *a).collect();
+    for &g in &all_touched {
+        if covered.contains(&g) {
+            continue;
+        }
+        let best = candidates
+            .iter()
+            .enumerate()
+            .filter(|(i, (_, _, groups))| assigned[*i].is_none() && groups.contains(&g))
+            .min_by_key(|(_, (_, _, groups))| groups.len())
+            .map(|(i, _)| i);
+        if let Some(i) = best {
+            assigned[i] = Some(g);
+            covered.insert(g);
+        }
+    }
+
+    // Pass 3: remaining hunks go to their lowest possible group.
+    for (i, (_, _, groups)) in candidates.iter().enumerate() {
+        if assigned[i].is_none() {
+            assigned[i] = Some(groups[0]);
+        }
+    }
+
+    // Build the assignment map: path -> Vec<usize> (one group per hunk).
+    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (path, h, _)) in candidates.iter().enumerate() {
+        let entry = assignment
+            .entry(path.clone())
+            .or_insert_with(|| vec![0; k_hunk_prededup[path].len()]);
+        entry[*h] = assigned[i].unwrap_or(0);
+    }
+
+    Some((group_count, assignment))
 }
 
 impl FragMap {

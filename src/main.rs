@@ -272,9 +272,11 @@ fn main() -> Result<()> {
                     let count_result = match strategy {
                         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
                         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
-                        SplitStrategy::PerHunkCluster => {
-                            git_repo.count_split_per_hunk_cluster(&commit_oid)
-                        }
+                        SplitStrategy::PerHunkGroup => git_repo.count_split_per_hunk_group(
+                            &commit_oid,
+                            &head_oid,
+                            &app.reference_oid,
+                        ),
                     };
                     match count_result {
                         Err(e) => {
@@ -351,8 +353,8 @@ fn execute_split(
             Ok(()) => reload_commits(git_repo, app),
             Err(e) => app.status_message = Some(e.to_string()),
         },
-        SplitStrategy::PerHunkCluster => {
-            match git_repo.split_commit_per_hunk_cluster(commit_oid, head_oid) {
+        SplitStrategy::PerHunkGroup => {
+            match git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid) {
                 Ok(()) => reload_commits(git_repo, app),
                 Err(e) => app.status_message = Some(e.to_string()),
             }
