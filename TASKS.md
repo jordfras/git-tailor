@@ -101,7 +101,7 @@ Guidelines:
   and files are conflicting (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
-- [ ] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
+- [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
   var → core.editor git config → VISUAL env var → EDITOR env var → "vi"
   fallback, matching git's own editor resolution order (Flags: V4)
 - [ ] T089 P1 feat - Implement general `edit_message_in_editor(repo, message)`

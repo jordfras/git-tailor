@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod editor;
 pub mod git2_impl;
 
 pub use git2_impl::Git2Repo;
