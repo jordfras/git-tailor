@@ -104,7 +104,7 @@ Guidelines:
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
   var → core.editor git config → VISUAL env var → EDITOR env var → "vi"
   fallback, matching git's own editor resolution order (Flags: V4)
-- [ ] T089 P1 feat - Implement general `edit_message_in_editor(repo, message)`
+- [X] T089 P1 feat - Implement general `edit_message_in_editor(repo, message)`
   utility: write message to a tempfile, suspend TUI (disable raw mode, leave
   alternate screen), spawn the resolved editor with inherited stdio and the
   tempfile as argument, wait for exit, restore TUI (enable raw mode, re-enter
