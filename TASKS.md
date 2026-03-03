@@ -89,6 +89,17 @@ Guidelines:
 - [X] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
   conflict, prompt the user to resolve it in their working tree (Enter to
   continue as resolved, Esc to abort the drop). (Flags: V4)
+- [ ] T092 P2 fix - Wrap long commit summaries in the drop confirm and drop
+  conflict dialogs so the title is never truncated when it exceeds the dialog
+  width (Flags: V4)
+- [ ] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:
+  query the index for entries with conflict stage > 0 and list them inside the
+  dialog so the user can see which files need to be resolved (Flags: V4)
+- [ ] T094 P1 fix - When `drop_commit_continue` is called with partially
+  unresolved conflicts (some files still have conflict markers), detect the
+  remaining conflicts, show them to the user inside the dialog, and keep the
+  `DropConflict` mode active instead of returning an error and leaving the repo
+  in a broken state (Flags: V4)
 
 ## Interactivity — Move Commit (V4)
 - [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
