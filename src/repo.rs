@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod editor;
 pub mod git2_impl;
 
 pub use git2_impl::Git2Repo;
@@ -149,10 +148,8 @@ pub trait GitRepo {
     /// no conflicts can arise from staged or unstaged working-tree changes.
     fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
 
-    /// Open `message` in the configured editor and return the edited result.
+    /// Read a string value from the repository's git configuration.
     ///
-    /// Suspends the TUI, launches the editor, restores the TUI, and returns
-    /// the trimmed edited text. See [`editor::edit_message_in_editor`] for
-    /// full details.
-    fn edit_message_in_editor(&self, message: &str) -> Result<String>;
+    /// Returns `None` when the key does not exist or is not valid UTF-8.
+    fn get_config_string(&self, key: &str) -> Option<String>;
 }

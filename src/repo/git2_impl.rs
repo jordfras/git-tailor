@@ -631,8 +631,8 @@ impl GitRepo for Git2Repo {
         Ok(())
     }
 
-    fn edit_message_in_editor(&self, message: &str) -> anyhow::Result<String> {
-        super::editor::edit_message_in_editor(&self.inner, message)
+    fn get_config_string(&self, key: &str) -> Option<String> {
+        self.inner.config().ok()?.get_string(key).ok()
     }
 }
 

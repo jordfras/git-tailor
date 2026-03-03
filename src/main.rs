@@ -23,7 +23,7 @@ use crossterm::{
 use git_tailor::repo::{Git2Repo, GitRepo};
 use git_tailor::{
     app::{AppMode, AppState, SplitStrategy},
-    event, fragmap, views, CommitDiff, CommitInfo,
+    editor, event, fragmap, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -233,7 +233,8 @@ fn main() -> Result<()> {
                                 continue;
                             }
                         };
-                        let editor_result = git_repo.edit_message_in_editor(&current_message);
+                        let editor_result =
+                            editor::edit_message_in_editor(&git_repo, &current_message);
                         // Force a full repaint — ratatui's buffer is stale after the editor
                         // temporarily owned the terminal.
                         terminal.clear()?;
