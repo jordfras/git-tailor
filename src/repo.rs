@@ -20,6 +20,38 @@ use anyhow::Result;
 
 use crate::{CommitDiff, CommitInfo};
 
+/// Result of a rebase operation that may encounter merge conflicts.
+#[derive(Debug)]
+pub enum RebaseOutcome {
+    /// The rebase completed without conflicts.
+    Complete,
+    /// A cherry-pick step produced a merge conflict. The conflicted state has
+    /// been written to the working tree and index so the user can resolve it.
+    Conflict(ConflictState),
+}
+
+/// Enough state to resume or abort a conflicted rebase.
+///
+/// When a cherry-pick produces conflicts during a rebase, the partially
+/// merged index is written to the working tree. The user resolves the
+/// conflicts, then calls `drop_commit_continue` (which reads the resolved
+/// index and creates the commit) or `drop_commit_abort` (which restores
+/// the branch to `original_branch_oid`).
+#[derive(Debug, Clone)]
+pub struct ConflictState {
+    /// The branch tip OID before the operation started, used to restore on
+    /// abort.
+    pub original_branch_oid: String,
+    /// The new tip OID built so far (all commits cherry-picked before the
+    /// conflicting one).
+    pub new_tip_oid: String,
+    /// The OID of the commit whose cherry-pick conflicted.
+    pub conflicting_commit_oid: String,
+    /// OIDs of commits that still need to be cherry-picked after the
+    /// conflicting commit is resolved, in order (oldest first).
+    pub remaining_oids: Vec<String>,
+}
+
 /// Abstraction over git repository operations.
 ///
 /// Isolates the `git2` crate to the `repo::git2_impl` module. Callers work
@@ -152,4 +184,27 @@ pub trait GitRepo {
     ///
     /// Returns `None` when the key does not exist or is not valid UTF-8.
     fn get_config_string(&self, key: &str) -> Option<String>;
+
+    /// Drop a commit from the branch by cherry-picking its descendants onto
+    /// its parent.
+    ///
+    /// Returns `RebaseOutcome::Complete` when all descendants are
+    /// successfully rebased, or `RebaseOutcome::Conflict` when a cherry-pick
+    /// step produces merge conflicts. In the conflict case the working tree
+    /// and index contain the partially merged state for the user to resolve.
+    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+
+    /// Resume a conflicted drop after the user has resolved conflicts.
+    ///
+    /// Reads the current index (which the user resolved), creates a commit
+    /// for the conflicting cherry-pick, then continues cherry-picking the
+    /// remaining descendants. Returns a new `RebaseOutcome` — the next
+    /// cherry-pick may also conflict.
+    fn drop_commit_continue(&self, state: &ConflictState) -> Result<RebaseOutcome>;
+
+    /// Abort a conflicted drop and restore the branch to its original state.
+    ///
+    /// Resets the branch ref to `state.original_branch_oid`, cleans up the
+    /// working tree and index.
+    fn drop_commit_abort(&self, state: &ConflictState) -> Result<()>;
 }

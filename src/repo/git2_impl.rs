@@ -634,6 +634,126 @@ impl GitRepo for Git2Repo {
     fn get_config_string(&self, key: &str) -> Option<String> {
         self.inner.config().ok()?.get_string(key).ok()
     }
+
+    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let commit_git_oid =
+            git2::Oid::from_str(commit_oid).context("Invalid commit OID for drop")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for drop")?;
+        let commit = repo.find_commit(commit_git_oid)?;
+
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Cannot drop a merge or root commit");
+        }
+        let parent_oid = commit.parent_id(0)?;
+
+        let original_branch_oid = head_oid.to_string();
+
+        // Collect descendants: commits strictly between commit_oid and head_oid.
+        let descendants = self.collect_descendants(commit_git_oid, head_git_oid)?;
+
+        // Cherry-pick each descendant onto the new chain, starting from the
+        // dropped commit's parent.
+        let result = self.cherry_pick_chain(parent_oid, &descendants)?;
+        match result {
+            CherryPickResult::Complete(tip) => {
+                self.advance_branch_ref(tip, "git-tailor: drop commit")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = descendants[conflicting_idx];
+                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                    original_branch_oid,
+                    new_tip_oid: tip.to_string(),
+                    conflicting_commit_oid: conflicting_oid.to_string(),
+                    remaining_oids: remaining,
+                }))
+            }
+        }
+    }
+
+    fn drop_commit_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let tip_oid =
+            git2::Oid::from_str(&state.new_tip_oid).context("Invalid tip OID in conflict state")?;
+        let conflicting_oid = git2::Oid::from_str(&state.conflicting_commit_oid)
+            .context("Invalid conflicting OID in conflict state")?;
+        let conflicting_commit = repo.find_commit(conflicting_oid)?;
+        let onto_commit = repo.find_commit(tip_oid)?;
+
+        // Re-read index from disk — the user (or another process) resolved
+        // conflicts by editing the on-disk index.
+        let mut index = repo.index()?;
+        index.read(true)?;
+        if index.has_conflicts() {
+            anyhow::bail!("Index still has unresolved conflicts");
+        }
+
+        let new_tree_oid = index.write_tree()?;
+        let new_tree = repo.find_tree(new_tree_oid)?;
+
+        let new_tip = repo.commit(
+            None,
+            &conflicting_commit.author(),
+            &conflicting_commit.committer(),
+            conflicting_commit.message().unwrap_or(""),
+            &new_tree,
+            &[&onto_commit],
+        )?;
+
+        // Continue cherry-picking remaining descendants.
+        let remaining: Vec<git2::Oid> = state
+            .remaining_oids
+            .iter()
+            .map(|s| git2::Oid::from_str(s))
+            .collect::<std::result::Result<_, _>>()
+            .context("Invalid OID in remaining list")?;
+
+        let result = self.cherry_pick_chain(new_tip, &remaining)?;
+        match result {
+            CherryPickResult::Complete(final_tip) => {
+                self.advance_branch_ref(final_tip, "git-tailor: drop commit (continue)")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = remaining[conflicting_idx];
+                let new_remaining: Vec<String> = remaining[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                    original_branch_oid: state.original_branch_oid.clone(),
+                    new_tip_oid: tip.to_string(),
+                    conflicting_commit_oid: conflicting_oid.to_string(),
+                    remaining_oids: new_remaining,
+                }))
+            }
+        }
+    }
+
+    fn drop_commit_abort(&self, state: &super::ConflictState) -> Result<()> {
+        let original_oid = git2::Oid::from_str(&state.original_branch_oid)
+            .context("Invalid original branch OID in conflict state")?;
+        self.advance_branch_ref(original_oid, "git-tailor: drop commit (abort)")?;
+        self.checkout_head()?;
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1019,6 +1139,125 @@ impl Git2Repo {
         repo.reference(&branch_refname, new_tip, true, log_msg)?;
         Ok(())
     }
+
+    /// Collect OIDs strictly between `stop_oid` (exclusive) and `head_oid`
+    /// (inclusive), returned oldest-first.
+    fn collect_descendants(
+        &self,
+        stop_oid: git2::Oid,
+        head_oid: git2::Oid,
+    ) -> Result<Vec<git2::Oid>> {
+        let repo = &self.inner;
+        if head_oid == stop_oid {
+            return Ok(Vec::new());
+        }
+
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push(head_oid)?;
+
+        let mut descendants: Vec<git2::Oid> = Vec::new();
+        for oid_result in revwalk {
+            let oid = oid_result?;
+            if oid == stop_oid {
+                break;
+            }
+            descendants.push(oid);
+        }
+        descendants.reverse();
+        Ok(descendants)
+    }
+
+    /// Cherry-pick a sequence of commits onto `tip`, returning the final tip
+    /// or the point at which a conflict was detected.
+    ///
+    /// On conflict the conflicted index is written to the working tree so the
+    /// user can resolve it. The returned `conflicting_idx` identifies which
+    /// element of `commits` conflicted.
+    fn cherry_pick_chain(
+        &self,
+        mut tip: git2::Oid,
+        commits: &[git2::Oid],
+    ) -> Result<CherryPickResult> {
+        let repo = &self.inner;
+
+        for (idx, &desc_oid) in commits.iter().enumerate() {
+            let desc_commit = repo.find_commit(desc_oid)?;
+            let onto_commit = repo.find_commit(tip)?;
+
+            let mut cherry_index = repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
+            if cherry_index.has_conflicts() {
+                self.write_conflicts_to_workdir(&cherry_index, &onto_commit)?;
+                return Ok(CherryPickResult::Conflict {
+                    tip,
+                    conflicting_idx: idx,
+                });
+            }
+
+            let new_tree_oid = cherry_index.write_tree_to(repo)?;
+            let new_tree = repo.find_tree(new_tree_oid)?;
+
+            tip = repo.commit(
+                None,
+                &desc_commit.author(),
+                &desc_commit.committer(),
+                desc_commit.message().unwrap_or(""),
+                &new_tree,
+                &[&onto_commit],
+            )?;
+        }
+
+        Ok(CherryPickResult::Complete(tip))
+    }
+
+    /// Write a conflicted merge index to the repo index and working tree so
+    /// the user can resolve conflicts manually.
+    fn write_conflicts_to_workdir(
+        &self,
+        cherry_index: &git2::Index,
+        onto_commit: &git2::Commit,
+    ) -> Result<()> {
+        let repo = &self.inner;
+
+        // Point the branch at the onto commit so HEAD matches the partially
+        // rebased chain.
+        self.advance_branch_ref(onto_commit.id(), "git-tailor: drop commit (conflict)")?;
+
+        // Write the conflicted index entries (including conflict markers) into
+        // the repo's index so `git status` and the user's editor see them.
+        let mut repo_index = repo.index()?;
+        for entry in cherry_index.iter() {
+            // Stage 0 = normal, stages 1-3 = conflict (base/ours/theirs).
+            // We need to preserve all stages so the user's tools can resolve.
+            repo_index.add(&entry)?;
+        }
+        repo_index.write()?;
+
+        // Check out the index to the working tree. Force-checkout writes
+        // conflict markers into the working-tree files.
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        checkout.allow_conflicts(true);
+        repo.checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
+
+        Ok(())
+    }
+
+    /// Reset the working tree and index to match HEAD.
+    fn checkout_head(&self) -> Result<()> {
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        self.inner.checkout_head(Some(&mut checkout))?;
+        Ok(())
+    }
+}
+
+/// Internal result from `cherry_pick_chain`.
+enum CherryPickResult {
+    Complete(git2::Oid),
+    Conflict {
+        tip: git2::Oid,
+        conflicting_idx: usize,
+    },
 }
 
 // ---------------------------------------------------------------------------

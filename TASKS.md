@@ -74,12 +74,12 @@ Guidelines:
   user to confirm before proceeding (Flags: V4)
 
 ## Interactivity — Drop Commit (V4)
-- [ ] T084a P1 feat - Implement `drop_commit` on `GitRepo` trait: remove the
+- [X] T084a P1 feat - Implement `drop_commit` on `GitRepo` trait: remove the
   selected commit by cherry-picking its descendants onto its parent. Return a
   `RebaseOutcome` that is either `Complete` on success or `Conflict` with enough
-  state to resume or abort. Each cherry-pick step can conflict, so conflicts must
-  be detected at every stage of the rebase. (Flags: V4)
-- [ ] T084b P1 feat - Implement `drop_commit_continue` and `drop_commit_abort`
+  state to resume or abort. Each cherry-pick step can conflict, so conflicts
+  must be detected at every stage of the rebase. (Flags: V4)
+- [X] T084b P1 feat - Implement `drop_commit_continue` and `drop_commit_abort`
   on `GitRepo` trait: after the user resolves conflicts in the working tree,
   `continue` stages the resolution and resumes cherry-picking the remaining
   descendants; `abort` restores the branch to its original state. (Flags: V4)
