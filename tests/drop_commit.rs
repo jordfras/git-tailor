@@ -319,6 +319,74 @@ fn drop_abort_restores_original_branch() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn drop_abort_after_second_conflict_restores_branch() {
+    // Regression test: abort must work even when it is triggered after a
+    // second (or later) conflict, not just the first one.
+    //
+    // Layout (oldest→newest): base → to_drop → child1 → child2
+    //
+    // to_drop edits a.txt.  child1 and child2 both edit a.txt too, so
+    // cherry-picking child1 onto base conflicts, and after a fake-resolve
+    // cherry-picking child2 onto that conflicts again.  Aborting at that
+    // second conflict must restore HEAD to the original tip (child2).
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "v1\n", "base");
+    let to_drop = test.commit_file("a.txt", "v2\n", "change a (will be dropped)");
+    let child1 = test.commit_file("a.txt", "v3\n", "change a again");
+    let child2 = test.commit_file("a.txt", "v4\n", "change a a third time");
+
+    let git_repo = test.git_repo();
+    let head_oid_before = git_repo.head_oid().unwrap();
+    assert_eq!(head_oid_before, child2.to_string());
+
+    // First drop → first conflict on child1.
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &child2.to_string())
+        .unwrap();
+    let state1 = match result {
+        RebaseOutcome::Conflict(s) => s,
+        RebaseOutcome::Complete => panic!("expected first Conflict"),
+    };
+    assert_eq!(state1.conflicting_commit_oid, child1.to_string());
+    assert_eq!(state1.original_branch_oid, child2.to_string());
+
+    // Fake-resolve conflict 1: write content and re-stage.
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "v1\nv3\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .conflict_remove(std::path::Path::new("a.txt"))
+        .unwrap();
+    index.add_path(std::path::Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+
+    // Continue → second conflict on child2.
+    let result = git_repo.drop_commit_continue(&state1).unwrap();
+    let state2 = match result {
+        RebaseOutcome::Conflict(s) => s,
+        RebaseOutcome::Complete => panic!("expected second Conflict"),
+    };
+    assert_eq!(state2.conflicting_commit_oid, child2.to_string());
+    // original_branch_oid must still refer to the pre-drop HEAD.
+    assert_eq!(state2.original_branch_oid, child2.to_string());
+
+    // Abort from the second conflict — must fully restore the branch.
+    git_repo.drop_commit_abort(&state2).unwrap();
+
+    let head_after = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(
+        head_after, child2,
+        "HEAD must be fully restored after abort at second conflict"
+    );
+    assert_eq!(
+        file_content_at(&test.repo, head_after, "a.txt"),
+        "v4\n",
+        "file content must match original HEAD after abort"
+    );
+}
+
+#[test]
 fn drop_root_commit_fails() {
     let test = common::TestRepo::new();
 

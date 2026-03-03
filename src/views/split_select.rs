@@ -264,3 +264,80 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
         dialog_area,
     );
 }
+
+/// Render the drop-conflict resolution dialog as a centered overlay.
+///
+/// Shown when a drop operation hits a merge conflict. The user must resolve
+/// the conflict in the working tree, then press Enter to continue or Esc to
+/// abort the entire operation (even if this is not the first conflict).
+pub fn render_drop_conflict(app: &AppState, frame: &mut Frame) {
+    let area = frame.area();
+    let state = match &app.mode {
+        AppMode::DropConflict(s) => s,
+        _ => return,
+    };
+
+    let short_oid = if state.conflicting_commit_oid.len() >= 10 {
+        &state.conflicting_commit_oid[..10]
+    } else {
+        &state.conflicting_commit_oid
+    };
+
+    let remaining = state.remaining_oids.len();
+    let remaining_note = if remaining > 0 {
+        format!(" ({remaining} commit(s) still to rebase after this)")
+    } else {
+        String::new()
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            " Merge conflict during drop",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" Conflict in "),
+            Span::styled(short_oid, Style::default().fg(Color::Cyan)),
+            Span::raw(remaining_note),
+        ]),
+        Line::from(""),
+        Line::from(Span::raw(" Resolve conflicts in your working tree, then:")),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Enter ", Style::default().fg(Color::Green)),
+            Span::raw("Continue   "),
+            Span::styled("Esc ", Style::default().fg(Color::Red)),
+            Span::raw("Abort entire drop"),
+        ])
+        .alignment(Alignment::Center),
+        Line::from(""),
+    ];
+
+    let dialog_width = 62u16.min(area.width.saturating_sub(4));
+    let dialog_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+    let dialog_area = Rect {
+        x: dialog_x,
+        y: dialog_y,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Drop Conflict ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false }),
+        dialog_area,
+    );
+}

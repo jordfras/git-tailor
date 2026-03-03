@@ -14,7 +14,7 @@
 
 // TUI application state management
 
-use crate::{fragmap::FragMap, CommitInfo};
+use crate::{fragmap::FragMap, repo::ConflictState, CommitInfo};
 
 /// Split strategy options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +61,9 @@ pub enum AppMode {
     SplitConfirm(PendingSplit),
     /// Confirmation dialog before dropping a commit.
     DropConfirm(PendingDrop),
+    /// Waiting for the user to resolve merge conflicts that arose during a
+    /// drop operation. Enter continues, Esc aborts the entire drop.
+    DropConflict(ConflictState),
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -272,6 +275,11 @@ impl AppState {
         self.mode = AppMode::CommitList;
     }
 
+    /// Enter the drop-conflict resolution dialog.
+    pub fn enter_drop_conflict(&mut self, state: ConflictState) {
+        self.mode = AppMode::DropConflict(state);
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
@@ -337,7 +345,8 @@ impl AppState {
             AppMode::Help(_)
             | AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
-            | AppMode::DropConfirm(_) => return,
+            | AppMode::DropConfirm(_)
+            | AppMode::DropConflict(_) => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

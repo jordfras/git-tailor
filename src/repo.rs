@@ -37,7 +37,7 @@ pub enum RebaseOutcome {
 /// conflicts, then calls `drop_commit_continue` (which reads the resolved
 /// index and creates the commit) or `drop_commit_abort` (which restores
 /// the branch to `original_branch_oid`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConflictState {
     /// The branch tip OID before the operation started, used to restore on
     /// abort.

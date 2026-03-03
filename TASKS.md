@@ -86,7 +86,7 @@ Guidelines:
 - [X] T084c P1 feat - Wire drop to 'd' key in the TUI: always prompt the user
   for confirmation before executing (Enter to confirm, Esc to cancel). (Flags:
   V4)
-- [ ] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
+- [X] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
   conflict, prompt the user to resolve it in their working tree (Enter to
   continue as resolved, Esc to abort the drop). (Flags: V4)
 

@@ -153,6 +153,10 @@ fn main() -> Result<()> {
                     views::commit_list::render(&mut app, frame);
                     views::split_select::render_drop_confirm(&app, frame);
                 }
+                AppMode::DropConflict(_) => {
+                    views::commit_list::render(&mut app, frame);
+                    views::split_select::render_drop_conflict(&app, frame);
+                }
                 AppMode::Help(prev) => {
                     // Render underlying view first (whatever was showing before help)
                     match *prev {
@@ -161,7 +165,8 @@ fn main() -> Result<()> {
                         AppMode::Help(_)
                         | AppMode::SplitSelect { .. }
                         | AppMode::SplitConfirm(_)
-                        | AppMode::DropConfirm(_) => views::commit_list::render(&mut app, frame),
+                        | AppMode::DropConfirm(_)
+                        | AppMode::DropConflict(_) => views::commit_list::render(&mut app, frame),
                     }
                     // Render help dialog on top
                     views::help::render(frame);
@@ -180,14 +185,20 @@ fn main() -> Result<()> {
                 AppMode::CommitList => app.move_up(),
                 AppMode::CommitDetail => app.scroll_detail_up(),
                 AppMode::SplitSelect { .. } => app.split_select_up(),
-                AppMode::Help(_) | AppMode::SplitConfirm(_) | AppMode::DropConfirm(_) => {}
+                AppMode::Help(_)
+                | AppMode::SplitConfirm(_)
+                | AppMode::DropConfirm(_)
+                | AppMode::DropConflict(_) => {}
             },
             event::AppAction::MoveDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.move_up(),
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
                 AppMode::SplitSelect { .. } => app.split_select_down(),
-                AppMode::Help(_) | AppMode::SplitConfirm(_) | AppMode::DropConfirm(_) => {}
+                AppMode::Help(_)
+                | AppMode::SplitConfirm(_)
+                | AppMode::DropConfirm(_)
+                | AppMode::DropConflict(_) => {}
             },
             event::AppAction::PageUp => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
@@ -196,7 +207,8 @@ fn main() -> Result<()> {
                 AppMode::Help(_)
                 | AppMode::SplitSelect { .. }
                 | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_) => {}
+                | AppMode::DropConfirm(_)
+                | AppMode::DropConflict(_) => {}
             },
             event::AppAction::PageDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
@@ -205,7 +217,8 @@ fn main() -> Result<()> {
                 AppMode::Help(_)
                 | AppMode::SplitSelect { .. }
                 | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_) => {}
+                | AppMode::DropConfirm(_)
+                | AppMode::DropConflict(_) => {}
             },
             event::AppAction::ScrollLeft => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
@@ -342,14 +355,32 @@ fn main() -> Result<()> {
                                     saved_index.min(app.commits.len().saturating_sub(1));
                                 app.set_success_message("Commit dropped");
                             }
-                            Ok(RebaseOutcome::Conflict(_)) => {
-                                app.set_error_message(
-                                    "Drop produced a conflict \u{2014} not yet supported",
-                                );
-                                reload_commits(&git_repo, &mut app);
+                            Ok(RebaseOutcome::Conflict(state)) => {
+                                app.enter_drop_conflict(state);
                             }
                             Err(e) => {
                                 app.set_error_message(format!("Drop failed: {e}"));
+                            }
+                        }
+                    }
+                }
+                AppMode::DropConflict(_) => {
+                    if let AppMode::DropConflict(state) =
+                        std::mem::replace(&mut app.mode, AppMode::CommitList)
+                    {
+                        let saved_index = app.selection_index;
+                        match git_repo.drop_commit_continue(&state) {
+                            Ok(RebaseOutcome::Complete) => {
+                                reload_commits(&git_repo, &mut app);
+                                app.selection_index =
+                                    saved_index.min(app.commits.len().saturating_sub(1));
+                                app.set_success_message("Commit dropped");
+                            }
+                            Ok(RebaseOutcome::Conflict(new_state)) => {
+                                app.enter_drop_conflict(new_state);
+                            }
+                            Err(e) => {
+                                app.set_error_message(format!("Continue failed: {e}"));
                             }
                         }
                     }
@@ -369,6 +400,21 @@ fn main() -> Result<()> {
                 AppMode::SplitSelect { .. } => app.mode = AppMode::CommitList,
                 AppMode::SplitConfirm(_) => app.cancel_split_confirm(),
                 AppMode::DropConfirm(_) => app.cancel_drop_confirm(),
+                AppMode::DropConflict(_) => {
+                    if let AppMode::DropConflict(state) =
+                        std::mem::replace(&mut app.mode, AppMode::CommitList)
+                    {
+                        match git_repo.drop_commit_abort(&state) {
+                            Ok(()) => {
+                                reload_commits(&git_repo, &mut app);
+                                app.set_success_message("Drop aborted");
+                            }
+                            Err(e) => {
+                                app.set_error_message(format!("Abort failed: {e}"));
+                            }
+                        }
+                    }
+                }
                 AppMode::CommitDetail => app.toggle_detail_view(),
                 AppMode::CommitList => app.should_quit = true,
             },

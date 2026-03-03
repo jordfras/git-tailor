@@ -18,6 +18,7 @@ mod common;
 
 use git_tailor::{
     app::{AppMode, AppState, PendingDrop},
+    repo::ConflictState,
     views,
 };
 use ratatui::{backend::TestBackend, Terminal};
@@ -87,6 +88,83 @@ fn test_drop_confirm_dialog_narrow_terminal() {
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
             views::split_select::render_drop_confirm(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+// ---------------------------------------------------------------------------
+// DropConflict dialog
+// ---------------------------------------------------------------------------
+
+fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> AppState {
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("abc123def456", "Refactor parser module"),
+        common::create_test_commit("def456ghi789", "Add feature X"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::DropConflict(ConflictState {
+        original_branch_oid: "def456ghi789abcdef012".to_string(),
+        new_tip_oid: "aabbccddeeff00112233".to_string(),
+        conflicting_commit_oid: conflicting_oid.to_string(),
+        remaining_oids: remaining.iter().map(|s| s.to_string()).collect(),
+    });
+    app
+}
+
+#[test]
+fn test_drop_conflict_dialog_no_remaining() {
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = make_app_in_drop_conflict("abc123def456", vec![]);
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+            views::split_select::render_drop_conflict(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_drop_conflict_dialog_with_remaining() {
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = make_app_in_drop_conflict(
+        "abc123def456",
+        vec!["111111111111", "222222222222", "333333333333"],
+    );
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+            views::split_select::render_drop_conflict(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_drop_conflict_dialog_narrow_terminal() {
+    let backend = TestBackend::new(40, 15);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = make_app_in_drop_conflict("abc123def456", vec!["111111111111"]);
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+            views::split_select::render_drop_conflict(&app, frame);
         })
         .unwrap();
 
