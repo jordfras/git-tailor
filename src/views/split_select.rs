@@ -146,7 +146,7 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
     let strategy_name = match pending.strategy {
         crate::app::SplitStrategy::PerFile => "per file",
         crate::app::SplitStrategy::PerHunk => "per hunk",
-        crate::app::SplitStrategy::PerHunkCluster => "per hunk group",
+        crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
     };
 
     let lines = vec![

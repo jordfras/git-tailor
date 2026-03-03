@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
+use crate::{fragmap, CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
 
 use super::GitRepo;
 
@@ -398,7 +398,12 @@ impl GitRepo for Git2Repo {
         Ok(())
     }
 
-    fn split_commit_per_hunk_cluster(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
+    fn split_commit_per_hunk_group(
+        &self,
+        commit_oid: &str,
+        head_oid: &str,
+        reference_oid: &str,
+    ) -> Result<()> {
         let repo = &self.inner;
 
         let commit_git_oid =
@@ -412,58 +417,27 @@ impl GitRepo for Git2Repo {
         let parent_tree = parent_commit.tree()?;
         let commit_tree = commit.tree()?;
 
-        // 0-context diff so each changed region is its own hunk
+        // Build the fragmap over all branch commits so hunk grouping reflects
+        // how this commit interacts with its neighbours in the branch.
+        let branch_commits = self.list_commits(head_oid, reference_oid)?;
+        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
+            .iter()
+            .filter(|c| c.oid != reference_oid && !c.oid.starts_with("synthetic:"))
+            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
+            .collect();
+
+        let (_, assignment) =
+            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
+                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
+            })?;
+
+        // Build a 0-context full diff (parent_tree → commit_tree) for tree
+        // manipulation; hunk indices here correspond to those in `assignment`.
         let mut diff_opts = git2::DiffOptions::new();
         diff_opts.context_lines(0);
         diff_opts.interhunk_lines(0);
         let full_diff =
             repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-
-        // Collect hunk metadata in diff order: (file_path, old_start, old_lines)
-        let mut hunk_meta: Vec<(String, u32, u32)> = Vec::new();
-        full_diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |delta, hunk| {
-                let path = delta
-                    .new_file()
-                    .path()
-                    .or_else(|| delta.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                hunk_meta.push((path, hunk.old_start(), hunk.old_lines()));
-                true
-            }),
-            None,
-        )?;
-
-        let total_hunks = hunk_meta.len();
-        if total_hunks == 0 {
-            anyhow::bail!("Commit has no hunks");
-        }
-
-        // Group consecutive hunks into clusters.
-        // A new cluster starts when crossing a file boundary or when the gap between
-        // consecutive hunks in the same file exceeds CLUSTER_INTERHUNK unchanged lines.
-        //
-        // cluster_ends[k] = the 0-based index of the LAST hunk in cluster k.
-        const CLUSTER_INTERHUNK: u32 = 2;
-        let mut cluster_ends: Vec<usize> = vec![0];
-        for i in 1..total_hunks {
-            let (ref prev_file, prev_start, prev_lines) = hunk_meta[i - 1];
-            let (ref cur_file, cur_start, _) = hunk_meta[i];
-            let gap = cur_start.saturating_sub(prev_start + prev_lines);
-            if cur_file != prev_file || gap > CLUSTER_INTERHUNK {
-                cluster_ends.push(i);
-            } else {
-                *cluster_ends.last_mut().unwrap() = i;
-            }
-        }
-
-        let cluster_count = cluster_ends.len();
-        if cluster_count < 2 {
-            anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
-        }
 
         let commit_paths: HashSet<String> = full_diff
             .deltas()
@@ -476,50 +450,62 @@ impl GitRepo for Git2Repo {
             .collect();
         self.check_dirty_overlap(&commit_paths)?;
 
-        // Precompute how many hunks belong to each cluster so we know how many
-        // to consume per step from the re-computed incremental diff.
-        let cluster_sizes: Vec<usize> = cluster_ends
-            .iter()
-            .enumerate()
-            .map(|(k, &end)| {
-                if k == 0 {
-                    end + 1
-                } else {
-                    end - cluster_ends[k - 1]
-                }
-            })
-            .collect();
+        // Build delta_hunk_groups: for each (delta_idx, hunk_idx), its group index.
+        let mut delta_hunk_groups: Vec<Vec<usize>> = Vec::new();
+        let num_deltas = full_diff.deltas().len();
+        for delta_idx in 0..num_deltas {
+            let delta = full_diff.get_delta(delta_idx).context("delta index")?;
+            let path = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
+            let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
+            let file_groups = assignment.get(&path);
+            let groups_for_delta: Vec<usize> = (0..num_hunks)
+                .map(|h| file_groups.and_then(|fg| fg.get(h).copied()).unwrap_or(0))
+                .collect();
+            delta_hunk_groups.push(groups_for_delta);
+        }
 
-        // Build one commit per cluster using incremental blob manipulation.
-        // Apply cluster_size hunks one at a time, recomputing the diff from
-        // the updated intermediate tree at each sub-step.
+        // Determine which group indices K's hunks actually touch (sorted).
+        // Only these produce output commits — not every column the full fragmap has.
+        let mut touched: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        for groups in &delta_hunk_groups {
+            touched.extend(groups);
+        }
+        let k_groups: Vec<usize> = touched.into_iter().collect();
+        let split_count = k_groups.len();
+
+        if split_count < 2 {
+            anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
+        }
+
+        // For each touched group gk (in order), build the intermediate tree by
+        // applying all of K's hunks whose group index ≤ gk to parent_tree in one
+        // sweep (positions relative to the original, no cumulative offset issues).
         let mut current_base_oid = parent_commit.id();
         let mut current_tree_oid = parent_tree.id();
-        for (target_k, &cluster_size) in cluster_sizes.iter().enumerate() {
-            let next_tree_oid = if target_k == cluster_count - 1 {
+        for (out_pos, &gk) in k_groups.iter().enumerate() {
+            let next_tree_oid = if out_pos == split_count - 1 {
                 commit_tree.id()
             } else {
-                let mut tree_oid = current_tree_oid;
-                let mut diff_opts = git2::DiffOptions::new();
-                diff_opts.context_lines(0);
-                diff_opts.interhunk_lines(0);
-                for sub_k in 0..cluster_size {
-                    let tree = repo.find_tree(tree_oid)?;
-                    let incremental_diff = repo.diff_tree_to_tree(
-                        Some(&tree),
-                        Some(&commit_tree),
-                        Some(&mut diff_opts),
-                    )?;
-                    tree_oid = apply_single_hunk_to_tree(repo, &tree, &incremental_diff)
-                        .with_context(|| {
-                            format!(
-                                "applying hunk group {} sub-hunk {}",
-                                target_k + 1,
-                                sub_k + 1
-                            )
-                        })?;
+                // Collect (delta_idx → hunk_indices) for hunks in groups 0..=gk.
+                let mut selected: HashMap<usize, Vec<usize>> = HashMap::new();
+                for (delta_idx, hunk_groups) in delta_hunk_groups.iter().enumerate() {
+                    let chosen: Vec<usize> = hunk_groups
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(h, &g)| if g <= gk { Some(h) } else { None })
+                        .collect();
+                    if !chosen.is_empty() {
+                        selected.insert(delta_idx, chosen);
+                    }
                 }
-                tree_oid
+                apply_selected_hunks_to_tree(repo, &parent_tree, &full_diff, &selected)
+                    .with_context(|| format!("building tree for hunk group {}", out_pos + 1))?
             };
 
             let next_tree = repo.find_tree(next_tree_oid)?;
@@ -530,8 +516,8 @@ impl GitRepo for Git2Repo {
             let message = format!(
                 "{} ({}/{})",
                 commit.summary().unwrap_or("split"),
-                target_k + 1,
-                cluster_count
+                out_pos + 1,
+                split_count
             );
             let new_oid = repo.commit(
                 None,
@@ -548,8 +534,9 @@ impl GitRepo for Git2Repo {
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
         current_base_oid =
             self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
-        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk-cluster")?;
+        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk-group")?;
 
+        let _ = current_tree_oid; // suppress unused warning
         Ok(())
     }
 
@@ -593,51 +580,28 @@ impl GitRepo for Git2Repo {
         Ok(count)
     }
 
-    fn count_split_per_hunk_cluster(&self, commit_oid: &str) -> Result<usize> {
-        let repo = &self.inner;
-        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
-        let commit = repo.find_commit(oid)?;
-        if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent");
-        }
-        let parent_tree = commit.parent(0)?.tree()?;
-        let commit_tree = commit.tree()?;
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let full_diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-        let mut hunk_meta: Vec<(String, u32, u32)> = Vec::new();
-        full_diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |delta, hunk| {
-                let path = delta
-                    .new_file()
-                    .path()
-                    .or_else(|| delta.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                hunk_meta.push((path, hunk.old_start(), hunk.old_lines()));
-                true
-            }),
-            None,
-        )?;
-        let total_hunks = hunk_meta.len();
-        if total_hunks == 0 {
-            return Ok(0);
-        }
-        const CLUSTER_INTERHUNK: u32 = 2;
-        let mut cluster_count = 1usize;
-        for i in 1..total_hunks {
-            let (ref prev_file, prev_start, prev_lines) = hunk_meta[i - 1];
-            let (ref cur_file, cur_start, _) = hunk_meta[i];
-            let gap = cur_start.saturating_sub(prev_start + prev_lines);
-            if cur_file != prev_file || gap > CLUSTER_INTERHUNK {
-                cluster_count += 1;
-            }
-        }
-        Ok(cluster_count)
+    fn count_split_per_hunk_group(
+        &self,
+        commit_oid: &str,
+        head_oid: &str,
+        reference_oid: &str,
+    ) -> Result<usize> {
+        let branch_commits = self.list_commits(head_oid, reference_oid)?;
+        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
+            .iter()
+            .filter(|c| c.oid != reference_oid && !c.oid.starts_with("synthetic:"))
+            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
+            .collect();
+
+        let (_, assignment) =
+            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
+                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
+            })?;
+
+        // Count only the group indices that K's own hunks touch.
+        let touched: std::collections::HashSet<usize> =
+            assignment.values().flatten().copied().collect();
+        Ok(touched.len())
     }
 
     fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
@@ -814,6 +778,148 @@ fn split_lines_keep_eol(data: &[u8]) -> Vec<&[u8]> {
         lines.push(&data[start..]);
     }
     lines
+}
+
+/// Apply the hunks at `hunk_indices` from `patch` to `content` in a single
+/// sweep, using each hunk's original `old_start` position.  Hunks NOT listed
+/// in `hunk_indices` are preserved unchanged.
+///
+/// `hunk_indices` need not be sorted on entry; the function sorts them by
+/// `old_start` before processing.
+fn apply_multiple_hunks_to_content(
+    content: &[u8],
+    patch: &mut git2::Patch,
+    hunk_indices: &[usize],
+) -> Result<Vec<u8>> {
+    // Sort by old_start so we can sweep top-to-bottom through the original.
+    let mut sorted: Vec<(usize, u32)> = hunk_indices
+        .iter()
+        .map(|&i| {
+            patch
+                .hunk(i)
+                .map(|(h, _)| (i, h.old_start()))
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<Result<_>>()?;
+    sorted.sort_by_key(|&(_, s)| s);
+
+    let lines = split_lines_keep_eol(content);
+    let mut result: Vec<u8> = Vec::new();
+    let mut src_pos: usize = 0;
+
+    for (hunk_idx, _) in &sorted {
+        let (hunk_header, _) = patch.hunk(*hunk_idx)?;
+        let old_start = hunk_header.old_start() as usize; // 1-based
+        let old_count = hunk_header.old_lines() as usize;
+
+        let splice_start = if old_count == 0 {
+            old_start.min(lines.len())
+        } else {
+            old_start.saturating_sub(1).min(lines.len())
+        };
+
+        for line in &lines[src_pos..splice_start] {
+            result.extend_from_slice(line);
+        }
+        src_pos = splice_start + old_count;
+
+        let num_lines = patch.num_lines_in_hunk(*hunk_idx)?;
+        for line_idx in 0..num_lines {
+            let line = patch.line_in_hunk(*hunk_idx, line_idx)?;
+            if matches!(line.origin(), ' ' | '+') {
+                result.extend_from_slice(line.content());
+            }
+        }
+    }
+
+    for line in &lines[src_pos..] {
+        result.extend_from_slice(line);
+    }
+    Ok(result)
+}
+
+/// Apply a selected subset of hunks from `full_diff` to `parent_tree`,
+/// returning the new tree OID.
+///
+/// `selected_hunks` maps each delta index to the list of hunk indices
+/// (within that delta) to apply.  Files with no selected hunks keep their
+/// original content from `parent_tree`.
+fn apply_selected_hunks_to_tree(
+    repo: &git2::Repository,
+    parent_tree: &git2::Tree,
+    full_diff: &git2::Diff,
+    selected_hunks: &HashMap<usize, Vec<usize>>,
+) -> Result<git2::Oid> {
+    let mut idx = git2::Index::new()?;
+    idx.read_tree(parent_tree)?;
+
+    for (&delta_idx, hunk_indices) in selected_hunks {
+        if hunk_indices.is_empty() {
+            continue;
+        }
+
+        let mut patch = match git2::Patch::from_diff(full_diff, delta_idx)? {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let delta = full_diff
+            .get_delta(delta_idx)
+            .context("delta index in range")?;
+        let file_path = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .context("delta has no file path")?
+            .to_owned();
+
+        let (old_content, mode) = match delta.status() {
+            git2::Delta::Added => {
+                let m: u32 = delta.new_file().mode().into();
+                (Vec::new(), m)
+            }
+            _ => {
+                let entry = parent_tree
+                    .get_path(&file_path)
+                    .with_context(|| format!("'{}' not in parent tree", file_path.display()))?;
+                let blob = repo.find_blob(entry.id())?;
+                (blob.content().to_owned(), entry.filemode() as u32)
+            }
+        };
+
+        let new_content =
+            apply_multiple_hunks_to_content(&old_content, &mut patch, hunk_indices)
+                .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
+
+        let path_bytes = file_path
+            .to_str()
+            .context("file path is not valid UTF-8")?
+            .as_bytes()
+            .to_vec();
+
+        if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
+            // All lines removed → delete the file from the intermediate tree.
+            idx.remove(&file_path, 0)?;
+        } else {
+            let new_blob_oid = repo.blob(&new_content)?;
+            idx.add(&git2::IndexEntry {
+                ctime: git2::IndexTime::new(0, 0),
+                mtime: git2::IndexTime::new(0, 0),
+                dev: 0,
+                ino: 0,
+                mode,
+                uid: 0,
+                gid: 0,
+                file_size: new_content.len() as u32,
+                id: new_blob_oid,
+                flags: 0,
+                flags_extended: 0,
+                path: path_bytes,
+            })?;
+        }
+    }
+
+    idx.write_tree_to(repo).map_err(Into::into)
 }
 
 impl Git2Repo {
