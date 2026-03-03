@@ -83,7 +83,7 @@ Guidelines:
   on `GitRepo` trait: after the user resolves conflicts in the working tree,
   `continue` stages the resolution and resumes cherry-picking the remaining
   descendants; `abort` restores the branch to its original state. (Flags: V4)
-- [ ] T084c P1 feat - Wire drop to 'd' key in the TUI: always prompt the user
+- [X] T084c P1 feat - Wire drop to 'd' key in the TUI: always prompt the user
   for confirmation before executing (Enter to confirm, Esc to cancel). (Flags:
   V4)
 - [ ] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a

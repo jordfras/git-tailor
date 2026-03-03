@@ -214,6 +214,7 @@ fn test_status_bar_short_error() {
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
     app.selection_index = 0;
     app.status_message = Some("Cannot split staged/unstaged changes".to_string());
+    app.status_is_error = true;
 
     terminal
         .draw(|frame| {
@@ -237,6 +238,7 @@ fn test_status_bar_long_error() {
         "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs"
             .to_string(),
     );
+    app.status_is_error = true;
 
     terminal
         .draw(|frame| {

@@ -20,7 +20,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use git_tailor::repo::{Git2Repo, GitRepo};
+use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     app::{AppMode, AppState, SplitStrategy},
     editor, event, fragmap, views, CommitDiff, CommitInfo,
@@ -149,6 +149,10 @@ fn main() -> Result<()> {
                     views::commit_list::render(&mut app, frame);
                     views::split_select::render_split_confirm(&app, frame);
                 }
+                AppMode::DropConfirm(_) => {
+                    views::commit_list::render(&mut app, frame);
+                    views::split_select::render_drop_confirm(&app, frame);
+                }
                 AppMode::Help(prev) => {
                     // Render underlying view first (whatever was showing before help)
                     match *prev {
@@ -156,7 +160,8 @@ fn main() -> Result<()> {
                         AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
                         AppMode::Help(_)
                         | AppMode::SplitSelect { .. }
-                        | AppMode::SplitConfirm(_) => views::commit_list::render(&mut app, frame),
+                        | AppMode::SplitConfirm(_)
+                        | AppMode::DropConfirm(_) => views::commit_list::render(&mut app, frame),
                     }
                     // Render help dialog on top
                     views::help::render(frame);
@@ -175,26 +180,32 @@ fn main() -> Result<()> {
                 AppMode::CommitList => app.move_up(),
                 AppMode::CommitDetail => app.scroll_detail_up(),
                 AppMode::SplitSelect { .. } => app.split_select_up(),
-                AppMode::Help(_) | AppMode::SplitConfirm(_) => {}
+                AppMode::Help(_) | AppMode::SplitConfirm(_) | AppMode::DropConfirm(_) => {}
             },
             event::AppAction::MoveDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.move_up(),
                 AppMode::CommitList => app.move_down(),
                 AppMode::CommitDetail => app.scroll_detail_down(),
                 AppMode::SplitSelect { .. } => app.split_select_down(),
-                AppMode::Help(_) | AppMode::SplitConfirm(_) => {}
+                AppMode::Help(_) | AppMode::SplitConfirm(_) | AppMode::DropConfirm(_) => {}
             },
             event::AppAction::PageUp => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
-                AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => {}
+                AppMode::Help(_)
+                | AppMode::SplitSelect { .. }
+                | AppMode::SplitConfirm(_)
+                | AppMode::DropConfirm(_) => {}
             },
             event::AppAction::PageDown => match app.mode.clone() {
                 AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
                 AppMode::CommitList => app.page_down(app.commit_list_visible_height),
                 AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
-                AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => {}
+                AppMode::Help(_)
+                | AppMode::SplitSelect { .. }
+                | AppMode::SplitConfirm(_)
+                | AppMode::DropConfirm(_) => {}
             },
             event::AppAction::ScrollLeft => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
@@ -217,19 +228,37 @@ fn main() -> Result<()> {
                     app.enter_split_select();
                 }
             }
+            event::AppAction::Drop => {
+                if app.mode == AppMode::CommitList {
+                    let commit = &app.commits[app.selection_index];
+                    if commit.oid == "staged" || commit.oid == "unstaged" {
+                        app.set_error_message("Cannot drop staged/unstaged changes");
+                    } else {
+                        let commit_oid = commit.oid.clone();
+                        let commit_summary = commit.summary.clone();
+                        let head_oid = match git_repo.head_oid() {
+                            Ok(oid) => oid,
+                            Err(e) => {
+                                app.set_error_message(format!("Failed to get HEAD: {e}"));
+                                continue;
+                            }
+                        };
+                        app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
+                    }
+                }
+            }
             event::AppAction::Reword => {
                 if app.mode == AppMode::CommitList {
                     let commit = &app.commits[app.selection_index];
                     if commit.oid == "staged" || commit.oid == "unstaged" {
-                        app.status_message =
-                            Some("Cannot reword staged/unstaged changes".to_string());
+                        app.set_error_message("Cannot reword staged/unstaged changes");
                     } else {
                         let commit_oid = commit.oid.clone();
                         let current_message = commit.message.clone();
                         let head_oid = match git_repo.head_oid() {
                             Ok(oid) => oid,
                             Err(e) => {
-                                app.status_message = Some(format!("Failed to get HEAD: {e}"));
+                                app.set_error_message(format!("Failed to get HEAD: {e}"));
                                 continue;
                             }
                         };
@@ -239,7 +268,7 @@ fn main() -> Result<()> {
                         // temporarily owned the terminal.
                         terminal.clear()?;
                         match editor_result {
-                            Err(e) => app.status_message = Some(format!("Editor error: {e}")),
+                            Err(e) => app.set_error_message(format!("Editor error: {e}")),
                             Ok(new_message) if new_message == current_message => {}
                             Ok(new_message) => {
                                 let saved_index = app.selection_index;
@@ -249,9 +278,7 @@ fn main() -> Result<()> {
                                         app.selection_index =
                                             saved_index.min(app.commits.len().saturating_sub(1));
                                     }
-                                    Err(e) => {
-                                        app.status_message = Some(format!("Reword failed: {e}"))
-                                    }
+                                    Err(e) => app.set_error_message(format!("Reword failed: {e}")),
                                 }
                             }
                         }
@@ -266,7 +293,7 @@ fn main() -> Result<()> {
                         Ok(oid) => oid,
                         Err(e) => {
                             app.mode = AppMode::CommitList;
-                            app.status_message = Some(format!("Failed to get HEAD: {e}"));
+                            app.set_error_message(format!("Failed to get HEAD: {e}"));
                             continue;
                         }
                     };
@@ -282,7 +309,7 @@ fn main() -> Result<()> {
                     match count_result {
                         Err(e) => {
                             app.mode = AppMode::CommitList;
-                            app.status_message = Some(e.to_string());
+                            app.set_error_message(e.to_string());
                         }
                         Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
                             app.enter_split_confirm(strategy, commit_oid, head_oid, count);
@@ -303,6 +330,30 @@ fn main() -> Result<()> {
                         execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
                     }
                 }
+                AppMode::DropConfirm(_) => {
+                    if let AppMode::DropConfirm(pending) =
+                        std::mem::replace(&mut app.mode, AppMode::CommitList)
+                    {
+                        let saved_index = app.selection_index;
+                        match git_repo.drop_commit(&pending.commit_oid, &pending.head_oid) {
+                            Ok(RebaseOutcome::Complete) => {
+                                reload_commits(&git_repo, &mut app);
+                                app.selection_index =
+                                    saved_index.min(app.commits.len().saturating_sub(1));
+                                app.set_success_message("Commit dropped");
+                            }
+                            Ok(RebaseOutcome::Conflict(_)) => {
+                                app.set_error_message(
+                                    "Drop produced a conflict \u{2014} not yet supported",
+                                );
+                                reload_commits(&git_repo, &mut app);
+                            }
+                            Err(e) => {
+                                app.set_error_message(format!("Drop failed: {e}"));
+                            }
+                        }
+                    }
+                }
                 AppMode::CommitList | AppMode::CommitDetail => {
                     app.toggle_detail_view();
                 }
@@ -317,6 +368,7 @@ fn main() -> Result<()> {
                 AppMode::Help(_) => app.close_help(),
                 AppMode::SplitSelect { .. } => app.mode = AppMode::CommitList,
                 AppMode::SplitConfirm(_) => app.cancel_split_confirm(),
+                AppMode::DropConfirm(_) => app.cancel_drop_confirm(),
                 AppMode::CommitDetail => app.toggle_detail_view(),
                 AppMode::CommitList => app.should_quit = true,
             },
@@ -348,16 +400,16 @@ fn execute_split(
     match strategy {
         SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.status_message = Some(e.to_string()),
+            Err(e) => app.set_error_message(e.to_string()),
         },
         SplitStrategy::PerHunk => match git_repo.split_commit_per_hunk(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.status_message = Some(e.to_string()),
+            Err(e) => app.set_error_message(e.to_string()),
         },
         SplitStrategy::PerHunkGroup => {
             match git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid) {
                 Ok(()) => reload_commits(git_repo, app),
-                Err(e) => app.status_message = Some(e.to_string()),
+                Err(e) => app.set_error_message(e.to_string()),
             }
         }
     }

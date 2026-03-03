@@ -199,3 +199,68 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
         dialog_area,
     );
 }
+
+/// Render the drop confirmation dialog as a centered overlay.
+pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
+    let area = frame.area();
+    let pending = match &app.mode {
+        AppMode::DropConfirm(p) => p,
+        _ => return,
+    };
+
+    let short_oid = if pending.commit_oid.len() >= 10 {
+        &pending.commit_oid[..10]
+    } else {
+        &pending.commit_oid
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            " Drop this commit?",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!(" {short_oid} "), Style::default().fg(Color::Cyan)),
+            Span::raw(&pending.commit_summary),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
+            Span::raw("Confirm   "),
+            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
+            Span::raw("Cancel"),
+        ])
+        .alignment(Alignment::Center),
+        Line::from(""),
+    ];
+
+    let dialog_width = 60u16.min(area.width.saturating_sub(4));
+    let dialog_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
+    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
+    let dialog_area = Rect {
+        x: dialog_x,
+        y: dialog_y,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    frame.render_widget(Clear, dialog_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" Confirm Drop ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false }),
+        dialog_area,
+    );
+}

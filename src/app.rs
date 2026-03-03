@@ -59,6 +59,8 @@ pub enum AppMode {
     SplitSelect { strategy_index: usize },
     /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
     SplitConfirm(PendingSplit),
+    /// Confirmation dialog before dropping a commit.
+    DropConfirm(PendingDrop),
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -70,6 +72,14 @@ pub struct PendingSplit {
     pub commit_oid: String,
     pub head_oid: String,
     pub count: usize,
+}
+
+/// Data retained while the user is shown the drop confirmation dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingDrop {
+    pub commit_oid: String,
+    pub commit_summary: String,
+    pub head_oid: String,
 }
 
 /// Application state for the TUI.
@@ -103,6 +113,8 @@ pub struct AppState {
     pub detail_visible_height: usize,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
+    /// Whether the current status message represents an error (red) or success (green).
+    pub status_is_error: bool,
 }
 
 impl AppState {
@@ -123,6 +135,7 @@ impl AppState {
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             status_message: None,
+            status_is_error: false,
         }
     }
 
@@ -144,6 +157,7 @@ impl AppState {
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             status_message: None,
+            status_is_error: false,
         }
     }
 
@@ -239,21 +253,53 @@ impl AppState {
         self.mode = AppMode::CommitList;
     }
 
+    /// Enter the drop confirmation dialog.
+    pub fn enter_drop_confirm(
+        &mut self,
+        commit_oid: String,
+        commit_summary: String,
+        head_oid: String,
+    ) {
+        self.mode = AppMode::DropConfirm(PendingDrop {
+            commit_oid,
+            commit_summary,
+            head_oid,
+        });
+    }
+
+    /// Cancel the drop confirmation and return to CommitList.
+    pub fn cancel_drop_confirm(&mut self) {
+        self.mode = AppMode::CommitList;
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
         if let Some(commit) = self.commits.get(self.selection_index) {
             if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.status_message = Some("Cannot split staged/unstaged changes".to_string());
+                self.set_error_message("Cannot split staged/unstaged changes");
                 return;
             }
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
     }
 
+    /// Set a success status message (shown with green background).
+    pub fn set_success_message(&mut self, msg: impl Into<String>) {
+        self.status_message = Some(msg.into());
+        self.status_is_error = false;
+    }
+
+    /// Set an error status message (shown with red background).
+    pub fn set_error_message(&mut self, msg: impl Into<String>) {
+        self.status_message = Some(msg.into());
+        self.status_is_error = true;
+    }
+
     /// Clear the transient status message.
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
+        self.status_is_error = false;
     }
 
     /// Move split strategy selection up.
@@ -288,7 +334,10 @@ impl AppState {
         let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => AppMode::CommitList,
-            AppMode::Help(_) | AppMode::SplitSelect { .. } | AppMode::SplitConfirm(_) => return,
+            AppMode::Help(_)
+            | AppMode::SplitSelect { .. }
+            | AppMode::SplitConfirm(_)
+            | AppMode::DropConfirm(_) => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;
