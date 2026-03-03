@@ -74,9 +74,21 @@ Guidelines:
   user to confirm before proceeding (Flags: V4)
 
 ## Interactivity — Drop Commit (V4)
-- [ ] T084 P1 feat - Add drop mode on 'd' key: prompt for confirmation, then
-  remove the selected commit from the branch by rebasing its descendants onto
-  its parent via git2 cherry-pick; abort and notify user on conflict (Flags: V4)
+- [ ] T084a P1 feat - Implement `drop_commit` on `GitRepo` trait: remove the
+  selected commit by cherry-picking its descendants onto its parent. Return a
+  `RebaseOutcome` that is either `Complete` on success or `Conflict` with enough
+  state to resume or abort. Each cherry-pick step can conflict, so conflicts must
+  be detected at every stage of the rebase. (Flags: V4)
+- [ ] T084b P1 feat - Implement `drop_commit_continue` and `drop_commit_abort`
+  on `GitRepo` trait: after the user resolves conflicts in the working tree,
+  `continue` stages the resolution and resumes cherry-picking the remaining
+  descendants; `abort` restores the branch to its original state. (Flags: V4)
+- [ ] T084c P1 feat - Wire drop to 'd' key in the TUI: always prompt the user
+  for confirmation before executing (Enter to confirm, Esc to cancel). (Flags:
+  V4)
+- [ ] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
+  conflict, prompt the user to resolve it in their working tree (Enter to
+  continue as resolved, Esc to abort the drop). (Flags: V4)
 
 ## Interactivity — Move Commit (V4)
 - [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
