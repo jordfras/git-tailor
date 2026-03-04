@@ -48,7 +48,7 @@ fn test_drop_confirm_dialog() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_confirm(&app, frame);
+            views::drop::render_drop_confirm(&app, frame);
         })
         .unwrap();
 
@@ -69,7 +69,7 @@ fn test_drop_confirm_dialog_long_summary() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_confirm(&app, frame);
+            views::drop::render_drop_confirm(&app, frame);
         })
         .unwrap();
 
@@ -87,7 +87,7 @@ fn test_drop_confirm_dialog_narrow_terminal() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_confirm(&app, frame);
+            views::drop::render_drop_confirm(&app, frame);
         })
         .unwrap();
 
@@ -126,7 +126,7 @@ fn test_drop_conflict_dialog_no_remaining() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_conflict(&app, frame);
+            views::drop::render_drop_conflict(&app, frame);
         })
         .unwrap();
 
@@ -147,7 +147,7 @@ fn test_drop_conflict_dialog_with_remaining() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_conflict(&app, frame);
+            views::drop::render_drop_conflict(&app, frame);
         })
         .unwrap();
 
@@ -165,7 +165,7 @@ fn test_drop_conflict_dialog_narrow_terminal() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_conflict(&app, frame);
+            views::drop::render_drop_conflict(&app, frame);
         })
         .unwrap();
 
@@ -198,7 +198,7 @@ fn test_drop_conflict_dialog_long_summary() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_conflict(&app, frame);
+            views::drop::render_drop_conflict(&app, frame);
         })
         .unwrap();
 
@@ -232,7 +232,7 @@ fn test_drop_conflict_dialog_with_files() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::split_select::render_drop_conflict(&app, frame);
+            views::drop::render_drop_conflict(&app, frame);
         })
         .unwrap();
 

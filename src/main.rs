@@ -151,11 +151,11 @@ fn main() -> Result<()> {
                 }
                 AppMode::DropConfirm(_) => {
                     views::commit_list::render(&mut app, frame);
-                    views::split_select::render_drop_confirm(&app, frame);
+                    views::drop::render_drop_confirm(&app, frame);
                 }
                 AppMode::DropConflict(_) => {
                     views::commit_list::render(&mut app, frame);
-                    views::split_select::render_drop_conflict(&app, frame);
+                    views::drop::render_drop_conflict(&app, frame);
                 }
                 AppMode::Help(prev) => {
                     // Render underlying view first (whatever was showing before help)
