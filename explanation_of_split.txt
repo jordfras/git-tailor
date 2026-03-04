@@ -1,0 +1,6 @@
+For Documentation
+Why split-per-hunk-group can produce extra fragmap squares (known limitation)
+
+A single diff hunk can span multiple fragmap columns when it partially overlaps with different commits in different line regions. The current implementation assigns each whole hunk to one group without splitting it at the group boundaries. After the split, the resulting commit still touches the line regions of the other groups, producing additional squares in the rebuilt fragmap.
+
+A future improvement (sub-hunk splitting) would split hunks at their group boundaries, ensuring each split commit's diff touches exactly one fragmap column.

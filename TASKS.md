@@ -74,9 +74,40 @@ Guidelines:
   user to confirm before proceeding (Flags: V4)
 
 ## Interactivity — Drop Commit (V4)
-- [ ] T084 P1 feat - Add drop mode on 'd' key: prompt for confirmation, then
-  remove the selected commit from the branch by rebasing its descendants onto
-  its parent via git2 cherry-pick; abort and notify user on conflict (Flags: V4)
+- [X] T084a P1 feat - Implement `drop_commit` on `GitRepo` trait: remove the
+  selected commit by cherry-picking its descendants onto its parent. Return a
+  `RebaseOutcome` that is either `Complete` on success or `Conflict` with enough
+  state to resume or abort. Each cherry-pick step can conflict, so conflicts
+  must be detected at every stage of the rebase. (Flags: V4)
+- [X] T084b P1 feat - Implement `drop_commit_continue` and `drop_commit_abort`
+  on `GitRepo` trait: after the user resolves conflicts in the working tree,
+  `continue` stages the resolution and resumes cherry-picking the remaining
+  descendants; `abort` restores the branch to its original state. (Flags: V4)
+- [X] T084c P1 feat - Wire drop to 'd' key in the TUI: always prompt the user
+  for confirmation before executing (Enter to confirm, Esc to cancel). (Flags:
+  V4)
+- [X] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
+  conflict, prompt the user to resolve it in their working tree (Enter to
+  continue as resolved, Esc to abort the drop). (Flags: V4)
+- [X] T092 P2 fix - Wrap long commit summaries in the drop confirm and drop
+  conflict dialogs so the title is never truncated when it exceeds the dialog
+  width (Flags: V4)
+- [X] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:
+  query the index for entries with conflict stage > 0 and list them inside the
+  dialog so the user can see which files need to be resolved (Flags: V4)
+- [X] T094 P1 fix - When `drop_commit_continue` is called with partially
+  unresolved conflicts (some files still have conflict markers), detect the
+  remaining conflicts, show them to the user inside the dialog, and keep the
+  `DropConflict` mode active instead of returning an error and leaving the repo
+  in a broken state (Flags: V4)
+- [X] T095 P2 feat - When a merge conflict occurs during drop, offer to launch
+  the user's configured merge tool (from `merge.tool` / `mergetool.<name>.cmd`
+  git config) on each conflicted file. Suspend the TUI (disable raw mode, leave
+  alternate screen), write the three index stages (base/ours/theirs) to temp
+  files, invoke the tool and wait for it to exit (same contract as the commit
+  message editor), then restore the TUI and re-read the index to refresh
+  `conflicting_files`. If no merge tool is configured, leave the current
+  behaviour unchanged. (Flags: V4)
 
 ## Interactivity — Move Commit (V4)
 - [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and

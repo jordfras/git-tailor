@@ -29,6 +29,13 @@ pub struct TestRepo {
 }
 
 #[allow(dead_code)]
+impl Default for TestRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
 impl TestRepo {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().unwrap();
@@ -157,6 +164,13 @@ impl TestRepo {
         self.repo
             .tag(name, commit.as_object(), &sig, "test tag", false)
             .unwrap();
+    }
+
+    /// Write a key/value pair to the repository-local git config.
+    #[allow(dead_code)]
+    pub fn set_config(&self, key: &str, value: &str) {
+        let mut config = self.repo.config().unwrap();
+        config.set_str(key, value).unwrap();
     }
 
     #[allow(dead_code)]

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::repo::GitRepo;
+
 /// Resolve the editor command to use for editing commit messages.
 ///
 /// Walks git's canonical editor lookup chain:
@@ -20,16 +22,12 @@
 /// 3. `VISUAL` environment variable
 /// 4. `EDITOR` environment variable
 /// 5. Fallback: `"vi"`
-fn resolve_editor(repo: &git2::Repository) -> String {
+fn resolve_editor(repo: &impl GitRepo) -> String {
     if let Ok(e) = std::env::var("GIT_EDITOR") {
         return e.trim().to_string();
     }
 
-    if let Some(e) = repo
-        .config()
-        .ok()
-        .and_then(|cfg| cfg.get_string("core.editor").ok())
-    {
+    if let Some(e) = repo.get_config_string("core.editor") {
         return e.trim().to_string();
     }
 
@@ -51,7 +49,7 @@ fn resolve_editor(repo: &git2::Repository) -> String {
 ///
 /// The editor command may include arguments (e.g. `"emacs -nw"`) — they are
 /// split on whitespace and forwarded before the temp-file path.
-pub fn edit_message_in_editor(repo: &git2::Repository, message: &str) -> anyhow::Result<String> {
+pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Result<String> {
     use anyhow::Context;
     use crossterm::{execute, terminal};
     use std::io::Write as _;

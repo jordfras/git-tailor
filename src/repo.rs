@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod editor;
 pub mod git2_impl;
 
 pub use git2_impl::Git2Repo;
@@ -20,6 +19,44 @@ pub use git2_impl::Git2Repo;
 use anyhow::Result;
 
 use crate::{CommitDiff, CommitInfo};
+
+/// Result of a rebase operation that may encounter merge conflicts.
+#[derive(Debug)]
+pub enum RebaseOutcome {
+    /// The rebase completed without conflicts.
+    Complete,
+    /// A cherry-pick step produced a merge conflict. The conflicted state has
+    /// been written to the working tree and index so the user can resolve it.
+    Conflict(ConflictState),
+}
+
+/// Enough state to resume or abort a conflicted rebase.
+///
+/// When a cherry-pick produces conflicts during a rebase, the partially
+/// merged index is written to the working tree. The user resolves the
+/// conflicts, then calls `drop_commit_continue` (which reads the resolved
+/// index and creates the commit) or `drop_commit_abort` (which restores
+/// the branch to `original_branch_oid`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictState {
+    /// The branch tip OID before the operation started, used to restore on
+    /// abort.
+    pub original_branch_oid: String,
+    /// The new tip OID built so far (all commits cherry-picked before the
+    /// conflicting one).
+    pub new_tip_oid: String,
+    /// The OID of the commit whose cherry-pick conflicted.
+    pub conflicting_commit_oid: String,
+    /// OIDs of commits that still need to be cherry-picked after the
+    /// conflicting commit is resolved, in order (oldest first).
+    pub remaining_oids: Vec<String>,
+    /// Paths of files that have conflict markers in the index (stage > 0).
+    /// Collected at the point of conflict so the dialog can list them.
+    pub conflicting_files: Vec<String>,
+    /// True when `drop_commit_continue` was called but the index still had
+    /// unresolved entries. The dialog uses this to show a warning to the user.
+    pub still_unresolved: bool,
+}
 
 /// Abstraction over git repository operations.
 ///
@@ -149,10 +186,54 @@ pub trait GitRepo {
     /// no conflicts can arise from staged or unstaged working-tree changes.
     fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
 
-    /// Open `message` in the configured editor and return the edited result.
+    /// Read a string value from the repository's git configuration.
     ///
-    /// Suspends the TUI, launches the editor, restores the TUI, and returns
-    /// the trimmed edited text. See [`editor::edit_message_in_editor`] for
-    /// full details.
-    fn edit_message_in_editor(&self, message: &str) -> Result<String>;
+    /// Returns `None` when the key does not exist or is not valid UTF-8.
+    fn get_config_string(&self, key: &str) -> Option<String>;
+
+    /// Drop a commit from the branch by cherry-picking its descendants onto
+    /// its parent.
+    ///
+    /// Returns `RebaseOutcome::Complete` when all descendants are
+    /// successfully rebased, or `RebaseOutcome::Conflict` when a cherry-pick
+    /// step produces merge conflicts. In the conflict case the working tree
+    /// and index contain the partially merged state for the user to resolve.
+    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+
+    /// Resume a conflicted drop after the user has resolved conflicts.
+    ///
+    /// Reads the current index (which the user resolved), creates a commit
+    /// for the conflicting cherry-pick, then continues cherry-picking the
+    /// remaining descendants. Returns a new `RebaseOutcome` — the next
+    /// cherry-pick may also conflict.
+    fn drop_commit_continue(&self, state: &ConflictState) -> Result<RebaseOutcome>;
+
+    /// Abort a conflicted drop and restore the branch to its original state.
+    ///
+    /// Resets the branch ref to `state.original_branch_oid`, cleans up the
+    /// working tree and index.
+    fn drop_commit_abort(&self, state: &ConflictState) -> Result<()>;
+
+    /// Return the path of the repository's working directory, if any.
+    ///
+    /// Bare repositories have no working directory and return `None`.
+    fn workdir(&self) -> Option<std::path::PathBuf>;
+
+    /// Read the raw blob content of a specific index stage for a conflicted path.
+    ///
+    /// Stage 1 = base (common ancestor), 2 = ours, 3 = theirs.
+    /// Returns `None` when that stage entry does not exist for the path.
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>>;
+
+    /// Return the list of paths that currently have conflict markers in the index
+    /// (entries with stage > 0), sorted alphabetically and deduplicated.
+    fn read_conflicting_files(&self) -> Vec<String>;
+
+    /// Stage a working-tree file, clearing any conflict entries for that path.
+    ///
+    /// Equivalent to `git add <path>`. Reads the file from the working directory,
+    /// adds it to the index at stage 0 (which removes stages 1/2/3), and writes
+    /// the updated index to disk. Must be called after a merge tool resolves a
+    /// conflict so that subsequent `index.has_conflicts()` checks return false.
+    fn stage_file(&self, path: &str) -> Result<()>;
 }
