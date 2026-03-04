@@ -159,6 +159,13 @@ impl TestRepo {
             .unwrap();
     }
 
+    /// Write a key/value pair to the repository-local git config.
+    #[allow(dead_code)]
+    pub fn set_config(&self, key: &str, value: &str) {
+        let mut config = self.repo.config().unwrap();
+        config.set_str(key, value).unwrap();
+    }
+
     #[allow(dead_code)]
     pub fn checkout(&self, refname: &str) {
         self.repo.set_head(refname).unwrap();

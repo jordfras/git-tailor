@@ -103,7 +103,12 @@ pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Resul
     Ok(true)
 }
 
-fn run_for_all_files(
+/// Lower-level entry point that runs the tool against every file without
+/// touching the TUI. Exposed for integration tests.
+///
+/// Use [`run_mergetool`] from application code — it handles TUI suspend/restore.
+#[doc(hidden)]
+pub fn run_for_all_files(
     cmd: &str,
     workdir: &Path,
     repo: &impl GitRepo,
