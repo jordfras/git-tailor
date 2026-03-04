@@ -29,6 +29,13 @@ pub struct TestRepo {
 }
 
 #[allow(dead_code)]
+impl Default for TestRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
 impl TestRepo {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().unwrap();
