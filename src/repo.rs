@@ -213,4 +213,27 @@ pub trait GitRepo {
     /// Resets the branch ref to `state.original_branch_oid`, cleans up the
     /// working tree and index.
     fn drop_commit_abort(&self, state: &ConflictState) -> Result<()>;
+
+    /// Return the path of the repository's working directory, if any.
+    ///
+    /// Bare repositories have no working directory and return `None`.
+    fn workdir(&self) -> Option<std::path::PathBuf>;
+
+    /// Read the raw blob content of a specific index stage for a conflicted path.
+    ///
+    /// Stage 1 = base (common ancestor), 2 = ours, 3 = theirs.
+    /// Returns `None` when that stage entry does not exist for the path.
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>>;
+
+    /// Return the list of paths that currently have conflict markers in the index
+    /// (entries with stage > 0), sorted alphabetically and deduplicated.
+    fn read_conflicting_files(&self) -> Vec<String>;
+
+    /// Stage a working-tree file, clearing any conflict entries for that path.
+    ///
+    /// Equivalent to `git add <path>`. Reads the file from the working directory,
+    /// adds it to the index at stage 0 (which removes stages 1/2/3), and writes
+    /// the updated index to disk. Must be called after a merge tool resolves a
+    /// conflict so that subsequent `index.has_conflicts()` checks return false.
+    fn stage_file(&self, path: &str) -> Result<()>;
 }

@@ -100,7 +100,7 @@ Guidelines:
   remaining conflicts, show them to the user inside the dialog, and keep the
   `DropConflict` mode active instead of returning an error and leaving the repo
   in a broken state (Flags: V4)
-- [ ] T095 P2 feat - When a merge conflict occurs during drop, offer to launch
+- [X] T095 P2 feat - When a merge conflict occurs during drop, offer to launch
   the user's configured merge tool (from `merge.tool` / `mergetool.<name>.cmd`
   git config) on each conflicted file. Suspend the TUI (disable raw mode, leave
   alternate screen), write the three index stages (base/ours/theirs) to temp

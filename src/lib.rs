@@ -18,6 +18,7 @@ pub mod app;
 pub mod editor;
 pub mod event;
 pub mod fragmap;
+pub mod mergetool;
 pub mod repo;
 pub mod views;
 

@@ -235,6 +235,8 @@ pub fn render_drop_conflict(app: &AppState, frame: &mut Frame) {
         Line::from(vec![
             Span::styled("Enter ", Style::default().fg(Color::Green)),
             Span::raw("Continue   "),
+            Span::styled("m ", Style::default().fg(Color::Cyan)),
+            Span::raw("Mergetool   "),
             Span::styled("Esc ", Style::default().fg(Color::Red)),
             Span::raw("Abort entire drop"),
         ])

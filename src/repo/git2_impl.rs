@@ -769,6 +769,44 @@ impl GitRepo for Git2Repo {
         self.checkout_head()?;
         Ok(())
     }
+
+    fn workdir(&self) -> Option<std::path::PathBuf> {
+        self.inner.workdir().map(|p| p.to_path_buf())
+    }
+
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+        let repo = &self.inner;
+        let mut index = repo.index().context("failed to read index")?;
+        index
+            .read(true)
+            .context("failed to refresh index from disk")?;
+        let Some(entry) = index.get_path(std::path::Path::new(path), stage) else {
+            return Ok(None);
+        };
+        let blob = repo
+            .find_blob(entry.id)
+            .context("failed to find blob for index stage")?;
+        Ok(Some(blob.content().to_vec()))
+    }
+
+    fn read_conflicting_files(&self) -> Vec<String> {
+        collect_conflict_files(&self.inner)
+    }
+
+    fn stage_file(&self, path: &str) -> Result<()> {
+        let repo = &self.inner;
+        let mut index = repo.index().context("failed to read index")?;
+        index
+            .read(true)
+            .context("failed to refresh index from disk")?;
+        index
+            .add_path(std::path::Path::new(path))
+            .with_context(|| format!("failed to stage '{path}'"))?;
+        index
+            .write()
+            .context("failed to write index after staging")?;
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------

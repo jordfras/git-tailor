@@ -23,7 +23,7 @@ use crossterm::{
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     app::{AppMode, AppState, SplitStrategy},
-    editor, event, fragmap, views, CommitDiff, CommitInfo,
+    editor, event, fragmap, mergetool, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -393,6 +393,37 @@ fn main() -> Result<()> {
             event::AppAction::Update => {
                 if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
                     reload_commits(&git_repo, &mut app);
+                }
+            }
+            event::AppAction::Mergetool => {
+                if let AppMode::DropConflict(ref state) = app.mode.clone() {
+                    let result = mergetool::run_mergetool(&git_repo, &state.conflicting_files);
+                    // Force a full repaint — ratatui's buffer is stale after the
+                    // tool temporarily owned the terminal.
+                    terminal.clear()?;
+                    match result {
+                        Ok(true) => {
+                            // Refresh the conflict file list so the dialog reflects
+                            // whatever the tool resolved.
+                            let new_files = git_repo.read_conflicting_files();
+                            app.mode = AppMode::DropConflict(git_tailor::repo::ConflictState {
+                                conflicting_files: new_files,
+                                still_unresolved: false,
+                                ..state.clone()
+                            });
+                            app.set_success_message(
+                                "Merge tool finished — press Enter when done or Esc to abort",
+                            );
+                        }
+                        Ok(false) => {
+                            app.set_error_message(
+                                "No merge tool configured (set merge.tool in git config)",
+                            );
+                        }
+                        Err(e) => {
+                            app.set_error_message(format!("Merge tool failed: {e}"));
+                        }
+                    }
                 }
             }
             event::AppAction::Quit => match app.mode.clone() {
