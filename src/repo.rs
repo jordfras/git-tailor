@@ -50,6 +50,9 @@ pub struct ConflictState {
     /// OIDs of commits that still need to be cherry-picked after the
     /// conflicting commit is resolved, in order (oldest first).
     pub remaining_oids: Vec<String>,
+    /// Paths of files that have conflict markers in the index (stage > 0).
+    /// Collected at the point of conflict so the dialog can list them.
+    pub conflicting_files: Vec<String>,
 }
 
 /// Abstraction over git repository operations.

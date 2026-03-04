@@ -364,6 +364,35 @@ pub fn render_drop_conflict(app: &AppState, frame: &mut Frame) {
         }
     }
 
+    // List conflicting files so the user knows what to resolve.
+    if !state.conflicting_files.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Conflicting files:",
+            Style::default().fg(Color::Yellow),
+        )));
+        const MAX_FILES: usize = 5;
+        let shown = state.conflicting_files.len().min(MAX_FILES);
+        for path in &state.conflicting_files[..shown] {
+            let truncated = if path.len() + 3 > inner_width {
+                format!(" …{}", &path[path.len().saturating_sub(inner_width - 3)..])
+            } else {
+                format!(" {path}")
+            };
+            lines.push(Line::from(Span::styled(
+                truncated,
+                Style::default().fg(Color::Red),
+            )));
+        }
+        let extra = state.conflicting_files.len().saturating_sub(MAX_FILES);
+        if extra > 0 {
+            lines.push(Line::from(Span::styled(
+                format!(" ... {extra} more"),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+
     lines.push(Line::from(""));
     lines.push(Line::from(Span::raw(
         " Resolve conflicts in your working tree, then:",

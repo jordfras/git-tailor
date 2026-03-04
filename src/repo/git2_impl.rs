@@ -677,6 +677,7 @@ impl GitRepo for Git2Repo {
                     new_tip_oid: tip.to_string(),
                     conflicting_commit_oid: conflicting_oid.to_string(),
                     remaining_oids: remaining,
+                    conflicting_files: collect_conflict_files(repo),
                 }))
             }
         }
@@ -742,6 +743,7 @@ impl GitRepo for Git2Repo {
                     new_tip_oid: tip.to_string(),
                     conflicting_commit_oid: conflicting_oid.to_string(),
                     remaining_oids: new_remaining,
+                    conflicting_files: collect_conflict_files(repo),
                 }))
             }
         }
@@ -754,6 +756,31 @@ impl GitRepo for Git2Repo {
         self.checkout_head()?;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers for drop/conflict operations
+// ---------------------------------------------------------------------------
+
+/// Collect paths of all files that have conflict entries (stage > 0) in the
+/// repository's current index.  Returns them sorted for a stable display order.
+fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
+    let mut index = match repo.index() {
+        Ok(i) => i,
+        Err(_) => return Vec::new(),
+    };
+    let _ = index.read(true);
+    let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for entry in index.iter() {
+        // stage is encoded in the high bits of flags
+        let stage = (entry.flags >> 12) & 0x3;
+        if stage > 0 {
+            if let Ok(p) = std::str::from_utf8(&entry.path) {
+                paths.insert(p.to_string());
+            }
+        }
+    }
+    paths.into_iter().collect()
 }
 
 // ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ Guidelines:
 - [X] T092 P2 fix - Wrap long commit summaries in the drop confirm and drop
   conflict dialogs so the title is never truncated when it exceeds the dialog
   width (Flags: V4)
-- [ ] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:
+- [X] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:
   query the index for entries with conflict stage > 0 and list them inside the
   dialog so the user can see which files need to be resolved (Flags: V4)
 - [ ] T094 P1 fix - When `drop_commit_continue` is called with partially
