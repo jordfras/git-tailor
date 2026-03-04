@@ -678,6 +678,7 @@ impl GitRepo for Git2Repo {
                     conflicting_commit_oid: conflicting_oid.to_string(),
                     remaining_oids: remaining,
                     conflicting_files: collect_conflict_files(repo),
+                    still_unresolved: false,
                 }))
             }
         }
@@ -698,7 +699,18 @@ impl GitRepo for Git2Repo {
         let mut index = repo.index()?;
         index.read(true)?;
         if index.has_conflicts() {
-            anyhow::bail!("Index still has unresolved conflicts");
+            // The user pressed Enter but some files still have conflict
+            // markers. Stay in DropConflict mode with a refreshed file list
+            // so the dialog keeps the user informed rather than bailing out
+            // and leaving the repo in a broken state.
+            return Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                original_branch_oid: state.original_branch_oid.clone(),
+                new_tip_oid: state.new_tip_oid.clone(),
+                conflicting_commit_oid: state.conflicting_commit_oid.clone(),
+                remaining_oids: state.remaining_oids.clone(),
+                conflicting_files: collect_conflict_files(repo),
+                still_unresolved: true,
+            }));
         }
 
         let new_tree_oid = index.write_tree()?;
@@ -744,6 +756,7 @@ impl GitRepo for Git2Repo {
                     conflicting_commit_oid: conflicting_oid.to_string(),
                     remaining_oids: new_remaining,
                     conflicting_files: collect_conflict_files(repo),
+                    still_unresolved: false,
                 }))
             }
         }

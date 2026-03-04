@@ -281,6 +281,65 @@ fn drop_continue_after_resolving_conflict() {
 }
 
 #[test]
+fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
+    // Calling drop_commit_continue when the index still has conflict markers
+    // must return Conflict (same OIDs, refreshed file list) instead of an
+    // error — leaving the repo in a usable state so the user can keep
+    // editing or abort.
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "line1\n", "base");
+    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
+    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Do NOT resolve the conflict — just call continue immediately.
+    let result = git_repo.drop_commit_continue(&state).unwrap();
+
+    match result {
+        RebaseOutcome::Conflict(new_state) => {
+            // Same commit still conflicting.
+            assert_eq!(
+                new_state.conflicting_commit_oid,
+                state.conflicting_commit_oid
+            );
+            assert_eq!(new_state.original_branch_oid, state.original_branch_oid);
+            assert_eq!(new_state.remaining_oids, state.remaining_oids);
+            // File list must show the still-unresolved file.
+            assert!(
+                !new_state.conflicting_files.is_empty(),
+                "conflicting_files should be populated"
+            );
+            assert!(
+                new_state.conflicting_files.iter().any(|f| f == "a.txt"),
+                "a.txt should be listed as conflicting, got {:?}",
+                new_state.conflicting_files
+            );
+            // The flag must be set so the dialog can warn the user.
+            assert!(
+                new_state.still_unresolved,
+                "still_unresolved should be true when continuing with unresolved conflicts"
+            );
+        }
+        RebaseOutcome::Complete => panic!("expected Conflict since index was not resolved"),
+    }
+
+    // Repo must still be in a state where abort works cleanly.
+    git_repo.drop_commit_abort(&state).unwrap();
+    let restored = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(restored, head, "abort should restore original HEAD");
+}
+
+#[test]
 fn drop_abort_restores_original_branch() {
     let test = common::TestRepo::new();
 
@@ -421,31 +480,5 @@ fn drop_commit_with_no_descendants() {
     assert_eq!(
         head_oid, base,
         "HEAD should point to base after dropping the only commit above it"
-    );
-}
-
-#[test]
-fn drop_continue_fails_with_unresolved_conflicts() {
-    let test = common::TestRepo::new();
-
-    let _base = test.commit_file("a.txt", "line1\n", "base");
-    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
-    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
-
-    let git_repo = test.git_repo();
-    let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
-        .unwrap();
-
-    let state = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
-
-    // Don't resolve — try to continue immediately.
-    let result = git_repo.drop_commit_continue(&state);
-    assert!(
-        result.is_err(),
-        "continuing with unresolved conflicts should fail"
     );
 }

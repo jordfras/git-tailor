@@ -53,6 +53,9 @@ pub struct ConflictState {
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
     pub conflicting_files: Vec<String>,
+    /// True when `drop_commit_continue` was called but the index still had
+    /// unresolved entries. The dialog uses this to show a warning to the user.
+    pub still_unresolved: bool,
 }
 
 /// Abstraction over git repository operations.

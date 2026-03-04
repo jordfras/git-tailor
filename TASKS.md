@@ -95,7 +95,7 @@ Guidelines:
 - [X] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:
   query the index for entries with conflict stage > 0 and list them inside the
   dialog so the user can see which files need to be resolved (Flags: V4)
-- [ ] T094 P1 fix - When `drop_commit_continue` is called with partially
+- [X] T094 P1 fix - When `drop_commit_continue` is called with partially
   unresolved conflicts (some files still have conflict markers), detect the
   remaining conflicts, show them to the user inside the dialog, and keep the
   `DropConflict` mode active instead of returning an error and leaving the repo

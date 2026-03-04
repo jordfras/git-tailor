@@ -112,6 +112,7 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         conflicting_commit_oid: conflicting_oid.to_string(),
         remaining_oids: remaining.iter().map(|s| s.to_string()).collect(),
         conflicting_files: vec![],
+        still_unresolved: false,
     });
     app
 }
@@ -193,6 +194,7 @@ fn test_drop_conflict_dialog_long_summary() {
         conflicting_commit_oid: "abc123def456".to_string(),
         remaining_oids: vec!["111111111111".to_string(), "222222222222".to_string()],
         conflicting_files: vec![],
+        still_unresolved: false,
     });
 
     terminal
@@ -227,6 +229,38 @@ fn test_drop_conflict_dialog_with_files() {
             "src/parser/expr.rs".to_string(),
             "tests/integration.rs".to_string(),
         ],
+        still_unresolved: false,
+    });
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+            views::drop::render_drop_conflict(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_drop_conflict_dialog_still_unresolved_warning() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("abc123def456", "Refactor parser module"),
+        common::create_test_commit("def456ghi789", "Add feature X"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::DropConflict(ConflictState {
+        original_branch_oid: "def456ghi789abcdef012".to_string(),
+        new_tip_oid: "aabbccddeeff00112233".to_string(),
+        conflicting_commit_oid: "abc123def456".to_string(),
+        remaining_oids: vec![],
+        conflicting_files: vec!["src/parser/mod.rs".to_string()],
+        still_unresolved: true,
     });
 
     terminal

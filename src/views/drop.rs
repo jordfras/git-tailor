@@ -220,6 +220,13 @@ pub fn render_drop_conflict(app: &AppState, frame: &mut Frame) {
     }
 
     lines.push(Line::from(""));
+    if state.still_unresolved {
+        lines.push(Line::from(Span::styled(
+            " ! Still unresolved — fix all conflicts above before continuing",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+    }
     lines.push(Line::from(Span::raw(
         " Resolve conflicts in your working tree, then:",
     )));
