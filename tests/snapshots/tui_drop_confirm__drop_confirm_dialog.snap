@@ -1,6 +1,5 @@
 ---
 source: tests/tui_drop_confirm.rs
-assertion_line: 55
 expression: buffer
 ---
 Buffer {
@@ -15,12 +14,12 @@ Buffer {
         "          │                                                          │          ",
         "          │ Drop this commit?                                        │          ",
         "          │                                                          │          ",
-        "          │ abc123def4 Refactor parser module                        │          ",
+        "          │ abc123def4                                               │          ",
+        "          │ Refactor parser module                                   │          ",
         "          │                                                          │          ",
         "          │                Enter Confirm   Esc Cancel                │          ",
         "          │                                                          │          ",
         "          └──────────────────────────────────────────────────────────┘          ",
-        "                                                                                ",
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
@@ -50,7 +49,7 @@ Buffer {
         x: 70, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 9, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 11, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 23, y: 9, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 22, y: 9, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 69, y: 9, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 70, y: 9, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 10, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
@@ -59,18 +58,22 @@ Buffer {
         x: 70, y: 10, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 11, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 11, y: 11, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
-        x: 27, y: 11, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 33, y: 11, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
-        x: 43, y: 11, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 47, y: 11, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 69, y: 11, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 70, y: 11, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 12, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 11, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 27, y: 12, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
+        x: 33, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 43, y: 12, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
+        x: 47, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 69, y: 12, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 70, y: 12, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 10, y: 13, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
+        x: 11, y: 13, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 69, y: 13, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 70, y: 13, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 10, y: 14, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
+        x: 70, y: 14, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 19, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

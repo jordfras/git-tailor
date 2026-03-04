@@ -89,7 +89,7 @@ Guidelines:
 - [X] T084d P1 feat - Handle conflict during drop: when `drop_commit` returns a
   conflict, prompt the user to resolve it in their working tree (Enter to
   continue as resolved, Esc to abort the drop). (Flags: V4)
-- [ ] T092 P2 fix - Wrap long commit summaries in the drop confirm and drop
+- [X] T092 P2 fix - Wrap long commit summaries in the drop confirm and drop
   conflict dialogs so the title is never truncated when it exceeds the dialog
   width (Flags: V4)
 - [ ] T093 P2 feat - Show conflicting file paths in the drop conflict dialog:

@@ -171,3 +171,35 @@ fn test_drop_conflict_dialog_narrow_terminal() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+
+#[test]
+fn test_drop_conflict_dialog_long_summary() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit(
+            "abc123def456",
+            "Refactor the entire parser module to use trait-based dispatching for better extensibility",
+        ),
+        common::create_test_commit("def456ghi789", "Add feature X"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::DropConflict(ConflictState {
+        original_branch_oid: "def456ghi789abcdef012".to_string(),
+        new_tip_oid: "aabbccddeeff00112233".to_string(),
+        conflicting_commit_oid: "abc123def456".to_string(),
+        remaining_oids: vec!["111111111111".to_string(), "222222222222".to_string()],
+    });
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+            views::split_select::render_drop_conflict(&app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
