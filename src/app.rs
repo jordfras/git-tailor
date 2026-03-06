@@ -50,10 +50,10 @@ pub enum AppAction {
         commit_oid: String,
         head_oid: String,
     },
-    /// Continue a drop after the user resolved merge conflicts.
-    ContinueDrop(ConflictState),
-    /// Abort a drop that hit conflicts.
-    AbortDrop(ConflictState),
+    /// Continue a rebase after the user resolved merge conflicts.
+    RebaseContinue(ConflictState),
+    /// Abort a rebase that hit conflicts.
+    RebaseAbort(ConflictState),
     /// Launch the merge tool for conflicting files.
     RunMergetool {
         files: Vec<String>,
@@ -112,8 +112,8 @@ pub enum AppMode {
     /// Confirmation dialog before dropping a commit.
     DropConfirm(PendingDrop),
     /// Waiting for the user to resolve merge conflicts that arose during a
-    /// drop operation. Enter continues, Esc aborts the entire drop.
-    DropConflict(ConflictState),
+    /// rebase operation. Enter continues, Esc aborts the entire operation.
+    RebaseConflict(ConflictState),
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -127,7 +127,7 @@ impl AppMode {
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::DropConflict(_) => Some(AppMode::CommitList),
+            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }
@@ -340,9 +340,9 @@ impl AppState {
         self.mode = AppMode::CommitList;
     }
 
-    /// Enter the drop-conflict resolution dialog.
-    pub fn enter_drop_conflict(&mut self, state: ConflictState) {
-        self.mode = AppMode::DropConflict(state);
+    /// Enter the rebase-conflict resolution dialog.
+    pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
+        self.mode = AppMode::RebaseConflict(state);
     }
 
     /// Enter split strategy selection mode.
@@ -411,7 +411,7 @@ impl AppState {
             | AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::DropConflict(_) => return,
+            | AppMode::RebaseConflict(_) => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

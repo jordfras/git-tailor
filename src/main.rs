@@ -155,7 +155,7 @@ fn main() -> Result<()> {
             AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
-            AppMode::DropConflict(_) => views::drop::handle_conflict_key(action, &mut app),
+            AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
             AppMode::Help(_) => views::help::handle_key(action, &mut app),
         };
 
@@ -226,33 +226,35 @@ fn main() -> Result<()> {
                         app.set_success_message("Commit dropped");
                     }
                     Ok(RebaseOutcome::Conflict(state)) => {
-                        app.enter_drop_conflict(state);
+                        app.enter_rebase_conflict(state);
                     }
                     Err(e) => {
                         app.set_error_message(format!("Drop failed: {e}"));
                     }
                 }
             }
-            AppAction::ContinueDrop(state) => {
+            AppAction::RebaseContinue(state) => {
                 let saved_index = app.selection_index;
-                match git_repo.drop_commit_continue(&state) {
+                match git_repo.rebase_continue(&state) {
                     Ok(RebaseOutcome::Complete) => {
                         reload_commits(&git_repo, &mut app);
                         app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
-                        app.set_success_message("Commit dropped");
+                        let label = state.operation_label.to_lowercase();
+                        app.set_success_message(format!("Commit {label} complete"));
                     }
                     Ok(RebaseOutcome::Conflict(new_state)) => {
-                        app.enter_drop_conflict(new_state);
+                        app.enter_rebase_conflict(new_state);
                     }
                     Err(e) => {
                         app.set_error_message(format!("Continue failed: {e}"));
                     }
                 }
             }
-            AppAction::AbortDrop(state) => match git_repo.drop_commit_abort(&state) {
+            AppAction::RebaseAbort(state) => match git_repo.rebase_abort(&state) {
                 Ok(()) => {
                     reload_commits(&git_repo, &mut app);
-                    app.set_success_message("Drop aborted");
+                    let label = state.operation_label.to_lowercase();
+                    app.set_success_message(format!("{} aborted", label.trim()));
                 }
                 Err(e) => {
                     app.set_error_message(format!("Abort failed: {e}"));
@@ -267,7 +269,7 @@ fn main() -> Result<()> {
                 match result {
                     Ok(true) => {
                         let new_files = git_repo.read_conflicting_files();
-                        app.mode = AppMode::DropConflict(git_tailor::repo::ConflictState {
+                        app.mode = AppMode::RebaseConflict(git_tailor::repo::ConflictState {
                             conflicting_files: new_files,
                             still_unresolved: false,
                             ..conflict_state
@@ -486,7 +488,7 @@ fn render_mode(
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
-        AppMode::DropConflict(_) => views::drop::render_drop_conflict(app, frame),
+        AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
         AppMode::Help(_) => views::help::render(frame),
     }
 }

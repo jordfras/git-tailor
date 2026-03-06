@@ -34,11 +34,14 @@ pub enum RebaseOutcome {
 ///
 /// When a cherry-pick produces conflicts during a rebase, the partially
 /// merged index is written to the working tree. The user resolves the
-/// conflicts, then calls `drop_commit_continue` (which reads the resolved
-/// index and creates the commit) or `drop_commit_abort` (which restores
+/// conflicts, then calls `rebase_continue` (which reads the resolved
+/// index and creates the commit) or `rebase_abort` (which restores
 /// the branch to `original_branch_oid`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConflictState {
+    /// Human-readable label for the operation that triggered this conflict
+    /// (e.g. "Drop", "Squash"). Used in dialog titles and messages.
+    pub operation_label: String,
     /// The branch tip OID before the operation started, used to restore on
     /// abort.
     pub original_branch_oid: String,
@@ -53,7 +56,7 @@ pub struct ConflictState {
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
     pub conflicting_files: Vec<String>,
-    /// True when `drop_commit_continue` was called but the index still had
+    /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
 }
@@ -200,19 +203,19 @@ pub trait GitRepo {
     /// and index contain the partially merged state for the user to resolve.
     fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
 
-    /// Resume a conflicted drop after the user has resolved conflicts.
+    /// Resume a conflicted rebase after the user has resolved conflicts.
     ///
     /// Reads the current index (which the user resolved), creates a commit
     /// for the conflicting cherry-pick, then continues cherry-picking the
     /// remaining descendants. Returns a new `RebaseOutcome` — the next
     /// cherry-pick may also conflict.
-    fn drop_commit_continue(&self, state: &ConflictState) -> Result<RebaseOutcome>;
+    fn rebase_continue(&self, state: &ConflictState) -> Result<RebaseOutcome>;
 
-    /// Abort a conflicted drop and restore the branch to its original state.
+    /// Abort a conflicted rebase and restore the branch to its original state.
     ///
     /// Resets the branch ref to `state.original_branch_oid`, cleans up the
     /// working tree and index.
-    fn drop_commit_abort(&self, state: &ConflictState) -> Result<()>;
+    fn rebase_abort(&self, state: &ConflictState) -> Result<()>;
 
     /// Return the path of the repository's working directory, if any.
     ///

@@ -122,7 +122,7 @@ Guidelines:
   moved commit or in a commit rebased on top of it (Flags: V4)
 
 ## Interactivity — Squash Commit (V4)
-- [ ] T099 P1 feat - Generalize conflict handling for reuse by squash and future
+- [X] T099 P1 feat - Generalize conflict handling for reuse by squash and future
   operations: rename `drop_commit_continue`/`drop_commit_abort` →
   `rebase_continue`/`rebase_abort` on the `GitRepo` trait and `Git2Repo` impl,
   rename `AppAction::ContinueDrop`/`AbortDrop` → `RebaseContinue`/`RebaseAbort`,

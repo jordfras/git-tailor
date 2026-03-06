@@ -673,6 +673,7 @@ impl GitRepo for Git2Repo {
                     .collect();
 
                 Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                    operation_label: "Drop".to_string(),
                     original_branch_oid,
                     new_tip_oid: tip.to_string(),
                     conflicting_commit_oid: conflicting_oid.to_string(),
@@ -684,7 +685,7 @@ impl GitRepo for Git2Repo {
         }
     }
 
-    fn drop_commit_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+    fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
         let repo = &self.inner;
 
         let tip_oid =
@@ -700,10 +701,11 @@ impl GitRepo for Git2Repo {
         index.read(true)?;
         if index.has_conflicts() {
             // The user pressed Enter but some files still have conflict
-            // markers. Stay in DropConflict mode with a refreshed file list
-            // so the dialog keeps the user informed rather than bailing out
-            // and leaving the repo in a broken state.
+            // markers. Stay in RebaseConflict mode with a refreshed file
+            // list so the dialog keeps the user informed rather than bailing
+            // out and leaving the repo in a broken state.
             return Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                operation_label: state.operation_label.clone(),
                 original_branch_oid: state.original_branch_oid.clone(),
                 new_tip_oid: state.new_tip_oid.clone(),
                 conflicting_commit_oid: state.conflicting_commit_oid.clone(),
@@ -736,7 +738,8 @@ impl GitRepo for Git2Repo {
         let result = self.cherry_pick_chain(new_tip, &remaining)?;
         match result {
             CherryPickResult::Complete(final_tip) => {
-                self.advance_branch_ref(final_tip, "git-tailor: drop commit (continue)")?;
+                let label = state.operation_label.to_lowercase();
+                self.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
                 self.checkout_head()?;
                 Ok(super::RebaseOutcome::Complete)
             }
@@ -751,6 +754,7 @@ impl GitRepo for Git2Repo {
                     .collect();
 
                 Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                    operation_label: state.operation_label.clone(),
                     original_branch_oid: state.original_branch_oid.clone(),
                     new_tip_oid: tip.to_string(),
                     conflicting_commit_oid: conflicting_oid.to_string(),
@@ -762,10 +766,11 @@ impl GitRepo for Git2Repo {
         }
     }
 
-    fn drop_commit_abort(&self, state: &super::ConflictState) -> Result<()> {
+    fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
         let original_oid = git2::Oid::from_str(&state.original_branch_oid)
             .context("Invalid original branch OID in conflict state")?;
-        self.advance_branch_ref(original_oid, "git-tailor: drop commit (abort)")?;
+        let label = state.operation_label.to_lowercase();
+        self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
         self.checkout_head()?;
         Ok(())
     }
