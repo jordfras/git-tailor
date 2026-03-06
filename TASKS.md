@@ -131,18 +131,21 @@ Guidelines:
   reflect the originating operation ("Drop Conflict" vs "Squash Conflict"),
   extract conflict dialog code (`handle_conflict_key`, `render_drop_conflict`)
   from `views/drop.rs` into a new `views/conflict.rs`, and update all references
-  in `main.rs`, `app.rs`, `AppMode::background()`, tests, and help text
-  (Flags: V4)
-- [ ] T077 P0 feat - Add squash mode on 'q' key: enter a `SquashSelect` app
-  mode where the selected commit is the "source" and the user navigates with
-  arrow keys to pick a squash target; the source is squashed *into* the target
-  (target keeps its position, source is removed, their changes are combined);
-  pressing Enter confirms the target, Esc cancels back to CommitList; block the
-  key when the selected row is a staged/unstaged synthetic entry (Flags: V4)
+  in `main.rs`, `app.rs`, `AppMode::background()`, tests, and help text (Flags:
+  V4)
+- [ ] T101 P1 feat - Remap split key from 's' to 'p' (sPlit) in the commit list
+  view and help dialog, freeing 's' for squash which matches git's interactive
+  rebase keybindings (Flags: V4)
+- [ ] T077 P0 feat - Add squash mode on 's' key: enter a `SquashSelect` app mode
+  where the selected commit is the "source" and the user navigates with arrow
+  keys to pick a squash target; the source is squashed *into* the target (target
+  keeps its position, source is removed, their changes are combined); pressing
+  Enter confirms the target, Esc cancels back to CommitList; block the key when
+  the selected row is a staged/unstaged synthetic entry (Flags: V4)
 - [ ] T078 P1 feat - Color squash target candidates in SquashSelect mode: yellow
   if squashable without conflict, red if the squash would likely conflict
-  (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and
-  no conflict) (Flags: V4)
+  (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and no
+  conflict) (Flags: V4)
 - [ ] T079 P0 feat - Implement `squash_commits` on the `GitRepo` trait: given
   source and target OIDs plus `head_oid`, create a combined tree by
   cherry-picking the target then the source onto the target's parent, then
@@ -156,13 +159,13 @@ Guidelines:
   both commit messages concatenated — target message first, then a blank line,
   then source message, matching git's interactive-rebase squash format; if the
   user saves an unchanged or non-empty message, call `squash_commits`; on
-  `RebaseOutcome::Conflict` enter `RebaseConflict` mode (reusing the
-  generalized conflict dialog, continue, abort, and mergetool flows from T099);
-  on success reload commits and show a confirmation message (Flags: V4)
+  `RebaseOutcome::Conflict` enter `RebaseConflict` mode (reusing the generalized
+  conflict dialog, continue, abort, and mergetool flows from T099); on success
+  reload commits and show a confirmation message (Flags: V4)
 - [ ] T080 P2 feat - Handle squash-time conflict (source changes conflict with
   target changes): when creating the combined tree itself fails due to
-  overlapping edits in the source and target commits, write the conflict to
-  the working tree and enter `RebaseConflict` mode so the user can resolve,
+  overlapping edits in the source and target commits, write the conflict to the
+  working tree and enter `RebaseConflict` mode so the user can resolve,
   continue, abort, or launch the mergetool — same flow as descendant rebase
   conflicts (Flags: V4)
 
