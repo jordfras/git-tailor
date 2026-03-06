@@ -122,14 +122,49 @@ Guidelines:
   moved commit or in a commit rebased on top of it (Flags: V4)
 
 ## Interactivity — Squash Commit (V4)
-- [ ] T077 P0 feat - Add squash mode on 'q' key: highlight selected commit and
-  navigate with arrow keys to pick squash target (Flags: V4)
-- [ ] T078 P1 feat - Color squash target candidate yellow if squashable, red if
-  conflicting, white if no related hunks and no conflict (Flags: V4)
-- [ ] T079 P0 feat - Execute squash via git2 cherry-pick combining commits,
-  abort and notify user on conflict (Flags: V4)
-- [ ] T080 P2 feat - On conflict, provide the user with details on which commit
-  and files are conflicting (Flags: V4)
+- [ ] T099 P1 feat - Generalize conflict handling for reuse by squash and future
+  operations: rename `drop_commit_continue`/`drop_commit_abort` →
+  `rebase_continue`/`rebase_abort` on the `GitRepo` trait and `Git2Repo` impl,
+  rename `AppAction::ContinueDrop`/`AbortDrop` → `RebaseContinue`/`RebaseAbort`,
+  rename `AppMode::DropConflict` → `RebaseConflict`, add an `operation_label`
+  field to `ConflictState` so the conflict dialog title and success messages
+  reflect the originating operation ("Drop Conflict" vs "Squash Conflict"),
+  extract conflict dialog code (`handle_conflict_key`, `render_drop_conflict`)
+  from `views/drop.rs` into a new `views/conflict.rs`, and update all references
+  in `main.rs`, `app.rs`, `AppMode::background()`, tests, and help text
+  (Flags: V4)
+- [ ] T077 P0 feat - Add squash mode on 'q' key: enter a `SquashSelect` app
+  mode where the selected commit is the "source" and the user navigates with
+  arrow keys to pick a squash target; the source is squashed *into* the target
+  (target keeps its position, source is removed, their changes are combined);
+  pressing Enter confirms the target, Esc cancels back to CommitList; block the
+  key when the selected row is a staged/unstaged synthetic entry (Flags: V4)
+- [ ] T078 P1 feat - Color squash target candidates in SquashSelect mode: yellow
+  if squashable without conflict, red if the squash would likely conflict
+  (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and
+  no conflict) (Flags: V4)
+- [ ] T079 P0 feat - Implement `squash_commits` on the `GitRepo` trait: given
+  source and target OIDs plus `head_oid`, create a combined tree by
+  cherry-picking the target then the source onto the target's parent, then
+  cherry-pick all remaining descendants (commits between target and source
+  exclusive, plus commits after source) onto the result using
+  `cherry_pick_chain` — return `RebaseOutcome` so conflicts during the
+  descendant rebase are handled by the generalized conflict infrastructure
+  (Flags: V4)
+- [ ] T100 P0 feat - Wire squash execution in the TUI: after the user picks a
+  target in SquashSelect, open the editor (reuse `edit_message_in_editor`) with
+  both commit messages concatenated — target message first, then a blank line,
+  then source message, matching git's interactive-rebase squash format; if the
+  user saves an unchanged or non-empty message, call `squash_commits`; on
+  `RebaseOutcome::Conflict` enter `RebaseConflict` mode (reusing the
+  generalized conflict dialog, continue, abort, and mergetool flows from T099);
+  on success reload commits and show a confirmation message (Flags: V4)
+- [ ] T080 P2 feat - Handle squash-time conflict (source changes conflict with
+  target changes): when creating the combined tree itself fails due to
+  overlapping edits in the source and target commits, write the conflict to
+  the working tree and enter `RebaseConflict` mode so the user can resolve,
+  continue, abort, or launch the mergetool — same flow as descendant rebase
+  conflicts (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
