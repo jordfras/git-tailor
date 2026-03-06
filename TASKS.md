@@ -155,4 +155,23 @@ Guidelines:
   (show an error) only when the selected row is a staged or unstaged synthetic
   entry (Flags: V4)
 
+## Refactoring — TUI Architecture (V5)
+- [ ] T096 P1 feat - Refactor event loop to mode-first dispatch: flip the main
+  match from action-first to mode-first so there is one small match on `AppMode`
+  delegating to a `handle_action(action, app)` function in each view module
+  (co-located with `render()`). Each handler returns an `ActionResult` enum
+  (Handled, ExecuteSplit, ExecuteDrop, Quit, etc.) so view modules stay free of
+  git/terminal dependencies and `main.rs` only interprets the result (Flags: V5)
+- [ ] T097 P2 feat - Extract shared dialog rendering helper: create
+  `views/dialog.rs` with a `render_centered_dialog(frame, config)` utility that
+  handles centering, clearing, bordering and wrapping — then refactor drop
+  confirm, drop conflict, split select, split confirm and help dialogs to use
+  it, eliminating the duplicated layout/clear/border code (Flags: V5)
+- [ ] T098 P2 feat - Formalize the overlay concept: add an
+  `AppMode::background()` method that returns the underlying mode to render
+  first for overlay modes (SplitSelect, SplitConfirm, DropConfirm, DropConflict,
+  Help), then simplify the render dispatch in `main.rs` to call
+  `render_mode(background)` then `render_mode(foreground)` instead of
+  hand-coding the layering for each overlay variant (Flags: V5)
+
 ## Notes
