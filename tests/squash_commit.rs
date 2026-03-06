@@ -237,33 +237,42 @@ fn squash_preserves_target_authorship() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn squash_errors_when_source_and_target_conflict() {
+fn squash_returns_conflict_when_source_and_target_conflict() {
     let test = common::TestRepo::new();
 
     let _base = test.commit_file("a.txt", "original\n", "base");
     let target = test.commit_file("a.txt", "target version\n", "target changes a");
-    // The intermediate changes a.txt too, creating a different 3-way merge base.
     let _mid = test.commit_file("a.txt", "mid version\n", "mid changes a");
     let source = test.commit_file("a.txt", "source version\n", "source changes a");
 
     let git_repo = test.git_repo();
-    let result = git_repo.squash_commits(
-        &source.to_string(),
-        &target.to_string(),
-        "squashed",
-        &source.to_string(),
-    );
+    let result = git_repo
+        .squash_commits(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed",
+            &source.to_string(),
+        )
+        .unwrap();
 
-    assert!(result.is_err(), "overlapping edits should produce an error");
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("T080"),
-        "error should reference T080: {err_msg}"
-    );
+    match result {
+        RebaseOutcome::Conflict(state) => {
+            assert_eq!(state.operation_label, "Squash");
+            assert!(
+                state.squash_context.is_some(),
+                "squash-time conflict should carry squash_context"
+            );
+            assert!(
+                !state.conflicting_files.is_empty(),
+                "should list conflicting files"
+            );
+        }
+        RebaseOutcome::Complete => panic!("expected Conflict, got Complete"),
+    }
 }
 
 #[test]
-fn squash_errors_when_all_three_modify_same_file() {
+fn squash_returns_conflict_when_all_three_modify_same_file() {
     let test = common::TestRepo::new();
 
     let _base = test.commit_file("a.txt", "base\n", "base");
@@ -274,13 +283,23 @@ fn squash_errors_when_all_three_modify_same_file() {
 
     let git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
-    let result =
-        git_repo.squash_commits(&source.to_string(), &target.to_string(), "squashed", &head);
+    let result = git_repo
+        .squash_commits(&source.to_string(), &target.to_string(), "squashed", &head)
+        .unwrap();
 
-    assert!(
-        result.is_err(),
-        "expected squash-time conflict error: {result:?}"
-    );
+    match result {
+        RebaseOutcome::Conflict(state) => {
+            assert_eq!(state.operation_label, "Squash");
+            assert!(state.squash_context.is_some());
+            let ctx = state.squash_context.unwrap();
+            // The descendant that is NOT the source should be in the list
+            assert!(
+                !ctx.descendant_oids.is_empty(),
+                "should have descendants to rebase after resolution"
+            );
+        }
+        RebaseOutcome::Complete => panic!("expected Conflict, got Complete"),
+    }
 }
 
 #[test]
@@ -369,4 +388,112 @@ fn squash_with_multiple_intermediates_and_descendants() {
     let mid1_rebased = test.repo.find_commit(commits[1]).unwrap();
     assert_eq!(mid1_rebased.message().unwrap(), "mid1");
     assert_ne!(commits[1], mid1, "mid1 should have a new OID after rebase");
+}
+
+#[test]
+fn squash_try_combine_returns_none_when_clean() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("b.txt", "target\n", "target");
+    let source = test.commit_file("c.txt", "source\n", "source");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    let result = git_repo
+        .squash_try_combine(&source.to_string(), &target.to_string(), "combined", &head)
+        .unwrap();
+
+    assert!(result.is_none(), "clean merge should return None");
+}
+
+#[test]
+fn squash_try_combine_returns_conflict_state() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target");
+    let _mid = test.commit_file("a.txt", "mid\n", "mid");
+    let source = test.commit_file("a.txt", "source\n", "source");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    let state = git_repo
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "combined msg",
+            &head,
+        )
+        .unwrap()
+        .expect("should return conflict state");
+
+    assert_eq!(state.operation_label, "Squash");
+    assert!(!state.conflicting_files.is_empty());
+    let ctx = state.squash_context.as_ref().unwrap();
+    assert_eq!(ctx.source_oid, source.to_string());
+    assert_eq!(ctx.target_oid, target.to_string());
+    assert_eq!(ctx.combined_message, "combined msg");
+}
+
+#[test]
+fn squash_finalize_after_conflict_resolution() {
+    use git_tailor::repo::SquashContext;
+
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target changes a");
+    let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
+    let source = test.commit_file("a.txt", "source\n", "source changes a");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    // Step 1: try combine -> conflict
+    let state = git_repo
+        .squash_try_combine(&source.to_string(), &target.to_string(), "combined", &head)
+        .unwrap()
+        .expect("should conflict");
+
+    // Step 2: simulate user resolving the conflict
+    let workdir = git_repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+    git_repo.stage_file("a.txt").unwrap();
+
+    // Step 3: finalize with NO descendants so that we only test the squash
+    //         commit creation. (Intermediate commits that cause the initial
+    //         conflict would cascade-conflict during cherry-pick; that outcome
+    //         is exercised by the conflict-returning tests above.)
+    let ctx = SquashContext {
+        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        source_oid: source.to_string(),
+        target_oid: target.to_string(),
+        combined_message: "combined".to_string(),
+        descendant_oids: vec![],
+    };
+
+    let result = git_repo
+        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "should complete after resolution: {result:?}"
+    );
+
+    // Verify the squash commit
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+    let head_commit = test.repo.find_commit(head_oid).unwrap();
+    assert_eq!(head_commit.message().unwrap(), "resolved squash");
+    assert_eq!(
+        file_content_at(&test.repo, head_oid, "a.txt"),
+        "resolved\n",
+        "resolved content should be in HEAD"
+    );
+
+    // Squash commit's parent should be target's parent (the base commit)
+    assert_eq!(head_commit.parent_count(), 1);
 }

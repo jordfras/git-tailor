@@ -123,7 +123,7 @@ fn make_conflict(test: &common::TestRepo) -> git_tailor::repo::ConflictState {
         .drop_commit(&to_drop.to_string(), &head.to_string())
         .unwrap()
     {
-        RebaseOutcome::Conflict(state) => state,
+        RebaseOutcome::Conflict(state) => *state,
         RebaseOutcome::Complete => panic!("expected conflict"),
     }
 }
@@ -243,7 +243,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     let refreshed_state = git_tailor::repo::ConflictState {
         conflicting_files: git_repo.read_conflicting_files(),
         still_unresolved: false,
-        ..state
+        ..(*state)
     };
     let outcome = git_repo.rebase_continue(&refreshed_state).unwrap();
     assert!(

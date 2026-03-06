@@ -162,7 +162,7 @@ Guidelines:
   `RebaseOutcome::Conflict` enter `RebaseConflict` mode (reusing the generalized
   conflict dialog, continue, abort, and mergetool flows from T099); on success
   reload commits and show a confirmation message (Flags: V4)
-- [ ] T080 P2 feat - Handle squash-time conflict (source changes conflict with
+- [x] T080 P2 feat - Handle squash-time conflict (source changes conflict with
   target changes): when creating the combined tree itself fails due to
   overlapping edits in the source and target commits, write the conflict to the
   working tree and enter `RebaseConflict` mode so the user can resolve,

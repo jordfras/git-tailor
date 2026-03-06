@@ -227,7 +227,7 @@ fn main() -> Result<()> {
                         app.set_success_message("Commit dropped");
                     }
                     Ok(RebaseOutcome::Conflict(state)) => {
-                        app.enter_rebase_conflict(state);
+                        app.enter_rebase_conflict(*state);
                     }
                     Err(e) => {
                         app.set_error_message(format!("Drop failed: {e}"));
@@ -235,6 +235,60 @@ fn main() -> Result<()> {
                 }
             }
             AppAction::RebaseContinue(state) => {
+                // Squash-time tree conflict: the user has resolved the
+                // combined tree. Open the editor for the commit message,
+                // then finalize.
+                if let Some(ref ctx) = state.squash_context {
+                    let combined = ctx.combined_message.clone();
+                    let original_oid = state.original_branch_oid.clone();
+                    let ctx_clone = ctx.clone();
+
+                    // Check that the index is actually resolved before
+                    // launching the editor.
+                    let conflict_files = git_repo.read_conflicting_files();
+                    if !conflict_files.is_empty() {
+                        app.enter_rebase_conflict(git_tailor::repo::ConflictState {
+                            conflicting_files: conflict_files,
+                            still_unresolved: true,
+                            ..state
+                        });
+                        continue;
+                    }
+
+                    let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                    terminal.clear()?;
+                    match editor_result {
+                        Err(e) => {
+                            let _ = git_repo.rebase_abort(&state);
+                            reload_commits(&git_repo, &mut app);
+                            app.set_error_message(format!("Editor error: {e}"));
+                        }
+                        Ok(msg) if msg.trim().is_empty() => {
+                            let _ = git_repo.rebase_abort(&state);
+                            reload_commits(&git_repo, &mut app);
+                            app.set_error_message("Squash aborted: empty commit message");
+                        }
+                        Ok(msg) => {
+                            let saved_index = app.selection_index;
+                            match git_repo.squash_finalize(&ctx_clone, &msg, &original_oid) {
+                                Ok(RebaseOutcome::Complete) => {
+                                    reload_commits(&git_repo, &mut app);
+                                    app.selection_index =
+                                        saved_index.min(app.commits.len().saturating_sub(1));
+                                    app.set_success_message("Commits squashed");
+                                }
+                                Ok(RebaseOutcome::Conflict(new_state)) => {
+                                    app.enter_rebase_conflict(*new_state);
+                                }
+                                Err(e) => {
+                                    app.set_error_message(format!("Squash failed: {e}"));
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 let saved_index = app.selection_index;
                 match git_repo.rebase_continue(&state) {
                     Ok(RebaseOutcome::Complete) => {
@@ -244,7 +298,7 @@ fn main() -> Result<()> {
                         app.set_success_message(format!("Commit {label} complete"));
                     }
                     Ok(RebaseOutcome::Conflict(new_state)) => {
-                        app.enter_rebase_conflict(new_state);
+                        app.enter_rebase_conflict(*new_state);
                     }
                     Err(e) => {
                         app.set_error_message(format!("Continue failed: {e}"));
@@ -333,6 +387,22 @@ fn main() -> Result<()> {
                 };
 
                 let combined = format!("{target_message}\n\n{source_message}");
+
+                // Try the tree combination first. If it conflicts, let the
+                // user resolve before opening the editor (T080).
+                match git_repo.squash_try_combine(&source_oid, &target_oid, &combined, &head_oid) {
+                    Ok(Some(conflict_state)) => {
+                        app.enter_rebase_conflict(conflict_state);
+                        continue;
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Squash failed: {e}"));
+                        continue;
+                    }
+                    Ok(None) => {}
+                }
+
+                // Trees merge cleanly — open editor, then execute.
                 let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
                 terminal.clear()?;
                 match editor_result {
@@ -350,7 +420,7 @@ fn main() -> Result<()> {
                                 app.set_success_message("Commits squashed");
                             }
                             Ok(RebaseOutcome::Conflict(state)) => {
-                                app.enter_rebase_conflict(state);
+                                app.enter_rebase_conflict(*state);
                             }
                             Err(e) => {
                                 app.set_error_message(format!("Squash failed: {e}"));

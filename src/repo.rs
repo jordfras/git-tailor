@@ -27,7 +27,7 @@ pub enum RebaseOutcome {
     Complete,
     /// A cherry-pick step produced a merge conflict. The conflicted state has
     /// been written to the working tree and index so the user can resolve it.
-    Conflict(ConflictState),
+    Conflict(Box<ConflictState>),
 }
 
 /// Enough state to resume or abort a conflicted rebase.
@@ -59,6 +59,27 @@ pub struct ConflictState {
     /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
+    /// When present, the conflict arose during the initial squash tree
+    /// creation (source vs target overlap). After the user resolves the
+    /// conflict the TUI should open the editor and then call
+    /// `squash_finalize` instead of `rebase_continue`.
+    pub squash_context: Option<SquashContext>,
+}
+
+/// Extra state carried through a squash-time conflict so that the squash
+/// can be finalized after the user resolves the conflicting tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SquashContext {
+    /// OID of the target commit's parent (the base for the squash commit).
+    pub base_oid: String,
+    /// OID of the source commit (removed after squash).
+    pub source_oid: String,
+    /// OID of the target commit (author/committer are taken from here).
+    pub target_oid: String,
+    /// The combined default message (target + source), shown in the editor.
+    pub combined_message: String,
+    /// OIDs of descendants to rebase after the squash commit is created.
+    pub descendant_oids: Vec<String>,
 }
 
 /// Abstraction over git repository operations.
@@ -241,15 +262,46 @@ pub trait GitRepo {
     /// source) are rebased onto the squash commit.
     ///
     /// Returns `RebaseOutcome::Complete` on success or
-    /// `RebaseOutcome::Conflict` when a descendant cherry-pick conflicts.
-    /// Conflicts during the initial squash tree creation (source vs target)
-    /// currently produce an error — use T080 for that case.
+    /// `RebaseOutcome::Conflict` when a cherry-pick conflicts.
+    ///
+    /// When the initial squash tree creation (source vs target) conflicts,
+    /// the returned `ConflictState` carries a `squash_context` so the TUI
+    /// can let the user resolve, then call `squash_finalize`.
     fn squash_commits(
         &self,
         source_oid: &str,
         target_oid: &str,
         message: &str,
         head_oid: &str,
+    ) -> Result<RebaseOutcome>;
+
+    /// Test whether combining source onto target produces a conflict.
+    ///
+    /// Returns `Ok(None)` when the trees merge cleanly (caller should proceed
+    /// to open the editor and then call `squash_commits`).
+    ///
+    /// Returns `Ok(Some(ConflictState))` when the cherry-pick conflicts. The
+    /// conflict is written to the working tree and index. The `ConflictState`
+    /// carries a `SquashContext` so the TUI can let the user resolve, then
+    /// open the editor, then call `squash_finalize`.
+    fn squash_try_combine(
+        &self,
+        source_oid: &str,
+        target_oid: &str,
+        combined_message: &str,
+        head_oid: &str,
+    ) -> Result<Option<ConflictState>>;
+
+    /// Finalize a squash after the user resolved a squash-time tree conflict.
+    ///
+    /// Reads the resolved index, creates the squash commit with `message`,
+    /// then cherry-picks the descendants listed in `ctx`. Returns
+    /// `RebaseOutcome::Complete` or `Conflict` for a descendant conflict.
+    fn squash_finalize(
+        &self,
+        ctx: &SquashContext,
+        message: &str,
+        original_branch_oid: &str,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.
@@ -259,4 +311,12 @@ pub trait GitRepo {
     /// the updated index to disk. Must be called after a merge tool resolves a
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
     fn stage_file(&self, path: &str) -> Result<()>;
+}
+
+impl ConflictState {
+    /// Whether this conflict arose from a squash-time tree conflict
+    /// (as opposed to a descendant rebase conflict).
+    pub fn is_squash_tree_conflict(&self) -> bool {
+        self.squash_context.is_some()
+    }
 }
