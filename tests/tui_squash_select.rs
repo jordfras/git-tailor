@@ -19,6 +19,7 @@ mod common;
 use git_tailor::{
     app::{AppAction, AppMode, AppState},
     event::KeyCommand,
+    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
 };
 use ratatui::{backend::TestBackend, Terminal};
@@ -156,4 +157,103 @@ fn test_squash_navigation_moves_selection() {
 
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
     assert_eq!(app.selection_index, 1);
+}
+
+fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
+    SpanCluster {
+        spans: vec![FileSpan {
+            path: path.to_string(),
+            start_line: start,
+            end_line: end,
+        }],
+        commit_oids: oids.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// Squash mode with fragmap: source is commit 2 (selected), commit 0 is
+/// squashable (shares cluster cleanly), commit 1 is unrelated.
+/// Source should have magenta bg, squashable candidate should be yellow,
+/// unrelated should be dim.
+#[test]
+fn test_squash_candidate_coloring_with_fragmap() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaaa11112222", "Add config file"),
+        common::create_test_commit("bbbb33334444", "Unrelated change"),
+        common::create_test_commit("cccc55556666", "Fix config typo"),
+    ];
+    app.selection_index = 0; // navigated to commit 0 as target
+    app.mode = AppMode::SquashSelect { source_index: 2 };
+
+    // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
+    app.fragmap = Some(FragMap {
+        commits: vec![
+            "aaaa11112222".to_string(),
+            "bbbb33334444".to_string(),
+            "cccc55556666".to_string(),
+        ],
+        clusters: vec![
+            simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
+            simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
+        ],
+        matrix: vec![
+            vec![TouchKind::Added, TouchKind::None],
+            vec![TouchKind::None, TouchKind::Modified],
+            vec![TouchKind::Modified, TouchKind::None],
+        ],
+    });
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+/// Squash mode with fragmap: source is commit 2, commit 0 would conflict
+/// (commit 1 also touches the same cluster, creating a conflict).
+#[test]
+fn test_squash_candidate_coloring_conflicting() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaaa11112222", "Add parser"),
+        common::create_test_commit("bbbb33334444", "Refactor parser"),
+        common::create_test_commit("cccc55556666", "Fix parser bug"),
+    ];
+    app.selection_index = 0; // navigated to commit 0 as target
+    app.mode = AppMode::SquashSelect { source_index: 2 };
+
+    // All three commits touch cluster 0 → conflicting between 0 and 2
+    app.fragmap = Some(FragMap {
+        commits: vec![
+            "aaaa11112222".to_string(),
+            "bbbb33334444".to_string(),
+            "cccc55556666".to_string(),
+        ],
+        clusters: vec![simple_cluster(
+            "parser.rs",
+            10,
+            30,
+            &["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        )],
+        matrix: vec![
+            vec![TouchKind::Added],
+            vec![TouchKind::Modified],
+            vec![TouchKind::Modified],
+        ],
+    });
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
 }

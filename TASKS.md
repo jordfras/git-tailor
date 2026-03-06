@@ -142,7 +142,7 @@ Guidelines:
   keeps its position, source is removed, their changes are combined); pressing
   Enter confirms the target, Esc cancels back to CommitList; block the key when
   the selected row is a staged/unstaged synthetic entry (Flags: V4)
-- [ ] T078 P1 feat - Color squash target candidates in SquashSelect mode: yellow
+- [X] T078 P1 feat - Color squash target candidates in SquashSelect mode: yellow
   if squashable without conflict, red if the squash would likely conflict
   (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and no
   conflict) (Flags: V4)

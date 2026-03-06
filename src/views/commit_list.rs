@@ -14,9 +14,9 @@
 
 // Commit list view rendering
 
-use crate::app::{AppAction, AppState};
+use crate::app::{AppAction, AppMode, AppState};
 use crate::event::KeyCommand;
-use crate::fragmap::{self, TouchKind};
+use crate::fragmap::{self, SquashRelation, TouchKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
@@ -145,6 +145,13 @@ const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 // Foreground color for synthetic working-tree rows (staged / unstaged).
 // Applied when the row is not selected so they are visually distinct from commits.
 const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
+
+// Colors for squash-mode candidate rows.
+const COLOR_SQUASH_SOURCE_BG: Color = Color::Magenta;
+const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(40, 40, 80);
+const COLOR_SQUASH_CANDIDATE_SQUASHABLE: Color = Color::Yellow;
+const COLOR_SQUASH_CANDIDATE_CONFLICTING: Color = Color::Red;
+const COLOR_SQUASH_CANDIDATE_UNRELATED: Color = Color::DarkGray;
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -460,6 +467,23 @@ fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_id
     }
 }
 
+/// Determine the text style for a commit row in SquashSelect mode.
+///
+/// Yellow: squashable without conflict (all shared clusters are clean).
+/// Red: likely conflict (some shared cluster has interfering commits).
+/// DarkGray: unrelated (no shared clusters with the squash source).
+fn squash_candidate_style(
+    fragmap: &fragmap::FragMap,
+    source_idx: usize,
+    commit_idx: usize,
+) -> Style {
+    match fragmap.pairwise_squash_relation(source_idx, commit_idx) {
+        SquashRelation::Squashable => Style::new().fg(COLOR_SQUASH_CANDIDATE_SQUASHABLE),
+        SquashRelation::Conflicting => Style::new().fg(COLOR_SQUASH_CANDIDATE_CONFLICTING),
+        SquashRelation::NoRelation => Style::new().fg(COLOR_SQUASH_CANDIDATE_UNRELATED),
+    }
+}
+
 /// Build a single fragmap cell from the visible cluster columns.
 ///
 /// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
@@ -508,6 +532,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         &display_commits[layout.scroll_offset..end]
     };
 
+    // In SquashSelect mode, the source commit index drives candidate coloring.
+    let squash_source_idx = match app.mode {
+        AppMode::SquashSelect { source_index } => Some(source_index),
+        _ => None,
+    };
+
     visible_commits
         .iter()
         .enumerate()
@@ -525,11 +555,24 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-            // Synthetic working-tree rows (staged/unstaged) use a fixed label
-            // color rather than the commit-relationship coloring.
             let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
+            let is_selected = visual_index == layout.visual_selection;
+            let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
 
-            let text_style = if visual_index != layout.visual_selection {
+            // Determine text style based on mode and position.
+            let text_style = if let Some(source_idx) = squash_source_idx {
+                // SquashSelect mode: color by relation to squash source.
+                if is_squash_source {
+                    Style::new().fg(Color::White)
+                } else if is_synthetic {
+                    Style::new().fg(COLOR_SYNTHETIC_LABEL)
+                } else if let Some(ref fm) = app.fragmap {
+                    squash_candidate_style(fm, source_idx, commit_idx_in_fragmap)
+                } else {
+                    Style::default()
+                }
+            } else if !is_selected {
+                // Normal CommitList mode coloring for non-selected rows.
                 if is_synthetic {
                     Style::new().fg(COLOR_SYNTHETIC_LABEL)
                 } else if let Some(ref fm) = app.fragmap {
@@ -541,8 +584,13 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 Style::default()
             };
 
-            let is_selected = visual_index == layout.visual_selection;
-            let text_cell_style = if is_selected {
+            // Apply highlight: source gets magenta bg, selection gets reversed,
+            // in squash mode the selected target gets a subtle bg tint.
+            let text_cell_style = if is_squash_source {
+                text_style.bg(COLOR_SQUASH_SOURCE_BG)
+            } else if is_selected && squash_source_idx.is_some() {
+                text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
+            } else if is_selected {
                 text_style.reversed()
             } else {
                 text_style
