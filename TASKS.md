@@ -175,6 +175,12 @@ Guidelines:
   cancel` — so the commit list is never obscured while picking a squash target;
   the source commit's magenta highlight and candidate coloring already provide
   sufficient visual context (Flags: V4)
+- [ ] T103 P1 feat - Restrict SquashSelect cursor to earlier commits only: in
+  `squash_select::handle_key`, clamp navigation so the cursor cannot move to
+  commits later than (above) the source commit — squashing into a later commit
+  is not supported; also dim the rows above the source in the commit list when
+  in SquashSelect mode to visually indicate they are unreachable targets
+  (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
