@@ -138,40 +138,8 @@ fn main() -> Result<()> {
 
     loop {
         terminal.draw(|frame| {
-            match app.mode.clone() {
-                AppMode::CommitList => views::commit_list::render(&mut app, frame),
-                AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-                AppMode::SplitSelect { .. } => {
-                    views::commit_list::render(&mut app, frame);
-                    views::split_select::render(&app, frame);
-                }
-                AppMode::SplitConfirm(_) => {
-                    views::commit_list::render(&mut app, frame);
-                    views::split_select::render_split_confirm(&app, frame);
-                }
-                AppMode::DropConfirm(_) => {
-                    views::commit_list::render(&mut app, frame);
-                    views::drop::render_drop_confirm(&app, frame);
-                }
-                AppMode::DropConflict(_) => {
-                    views::commit_list::render(&mut app, frame);
-                    views::drop::render_drop_conflict(&app, frame);
-                }
-                AppMode::Help(prev) => {
-                    // Render underlying view first (whatever was showing before help)
-                    match *prev {
-                        AppMode::CommitList => views::commit_list::render(&mut app, frame),
-                        AppMode::CommitDetail => render_main_view(&git_repo, &mut app, frame),
-                        AppMode::Help(_)
-                        | AppMode::SplitSelect { .. }
-                        | AppMode::SplitConfirm(_)
-                        | AppMode::DropConfirm(_)
-                        | AppMode::DropConflict(_) => views::commit_list::render(&mut app, frame),
-                    }
-                    // Render help dialog on top
-                    views::help::render(frame);
-                }
-            }
+            let mode = app.mode.clone();
+            render_mode(&mode, &git_repo, &mut app, frame);
         })?;
 
         let event = event::read()?;
@@ -498,5 +466,27 @@ fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut rat
     } else {
         // Screen too narrow, just show commit list
         views::commit_list::render(app, frame);
+    }
+}
+
+/// Render a mode, recursively drawing its background first for overlay modes.
+fn render_mode(
+    mode: &AppMode,
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    frame: &mut ratatui::Frame,
+) {
+    if let Some(bg) = mode.background() {
+        render_mode(&bg, git_repo, app, frame);
+    }
+
+    match mode {
+        AppMode::CommitList => views::commit_list::render(app, frame),
+        AppMode::CommitDetail => render_main_view(git_repo, app, frame),
+        AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
+        AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
+        AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
+        AppMode::DropConflict(_) => views::drop::render_drop_conflict(app, frame),
+        AppMode::Help(_) => views::help::render(frame),
     }
 }

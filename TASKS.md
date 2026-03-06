@@ -167,7 +167,7 @@ Guidelines:
   handles centering, clearing, bordering and wrapping — then refactor drop
   confirm, drop conflict, split select, split confirm and help dialogs to use
   it, eliminating the duplicated layout/clear/border code (Flags: V5)
-- [ ] T098 P2 feat - Formalize the overlay concept: add an
+- [X] T098 P2 feat - Formalize the overlay concept: add an
   `AppMode::background()` method that returns the underlying mode to render
   first for overlay modes (SplitSelect, SplitConfirm, DropConfirm, DropConflict,
   Help), then simplify the render dispatch in `main.rs` to call

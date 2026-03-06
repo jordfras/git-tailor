@@ -118,6 +118,21 @@ pub enum AppMode {
     Help(Box<AppMode>),
 }
 
+impl AppMode {
+    /// For overlay modes, return the base view that should be rendered
+    /// underneath. Returns `None` for base views (CommitList, CommitDetail).
+    pub fn background(&self) -> Option<AppMode> {
+        match self {
+            AppMode::CommitList | AppMode::CommitDetail => None,
+            AppMode::SplitSelect { .. }
+            | AppMode::SplitConfirm(_)
+            | AppMode::DropConfirm(_)
+            | AppMode::DropConflict(_) => Some(AppMode::CommitList),
+            AppMode::Help(prev) => Some(prev.as_ref().clone()),
+        }
+    }
+}
+
 /// Data retained while the user is shown the large-split confirmation dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSplit {
