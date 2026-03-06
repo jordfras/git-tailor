@@ -82,6 +82,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_split_select();
             AppAction::Handled
         }
+        KeyCommand::Squash => {
+            app.enter_squash_select();
+            AppAction::Handled
+        }
         KeyCommand::Drop => {
             let commit = &app.commits[app.selection_index];
             if commit.oid == "staged" || commit.oid == "unstaged" {

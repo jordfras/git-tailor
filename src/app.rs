@@ -64,6 +64,14 @@ pub enum AppAction {
         commit_oid: String,
         current_message: String,
     },
+    /// Start the squash flow: user picked source and target, launch editor for
+    /// the combined message, then execute.
+    PrepareSquash {
+        source_oid: String,
+        target_oid: String,
+        source_message: String,
+        target_message: String,
+    },
 }
 
 /// Split strategy options.
@@ -114,6 +122,8 @@ pub enum AppMode {
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(ConflictState),
+    /// Squash target selection: user picks which commit to squash the source into.
+    SquashSelect { source_index: usize },
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -127,7 +137,8 @@ impl AppMode {
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
+            | AppMode::RebaseConflict(_)
+            | AppMode::SquashSelect { .. } => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }
@@ -357,6 +368,25 @@ impl AppState {
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
     }
 
+    /// Enter squash target selection mode.
+    /// Only allowed for real commits (not staged/unstaged synthetic rows).
+    pub fn enter_squash_select(&mut self) {
+        if let Some(commit) = self.commits.get(self.selection_index) {
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                self.set_error_message("Cannot squash staged/unstaged changes");
+                return;
+            }
+        }
+        self.mode = AppMode::SquashSelect {
+            source_index: self.selection_index,
+        };
+    }
+
+    /// Cancel squash selection and return to CommitList.
+    pub fn cancel_squash_select(&mut self) {
+        self.mode = AppMode::CommitList;
+    }
+
     /// Set a success status message (shown with green background).
     pub fn set_success_message(&mut self, msg: impl Into<String>) {
         self.status_message = Some(msg.into());
@@ -411,7 +441,8 @@ impl AppState {
             | AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::RebaseConflict(_) => return,
+            | AppMode::RebaseConflict(_)
+            | AppMode::SquashSelect { .. } => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

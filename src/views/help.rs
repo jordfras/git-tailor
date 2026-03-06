@@ -76,6 +76,10 @@ pub fn render(frame: &mut Frame) {
             Span::raw("Split commit (choose strategy)"),
         ]),
         Line::from(vec![
+            Span::styled("   s         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Squash commit (pick target)"),
+        ]),
+        Line::from(vec![
             Span::styled("   r         ", Style::default().fg(Color::Cyan)),
             Span::raw("Reword commit message"),
         ]),

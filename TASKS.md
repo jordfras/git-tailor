@@ -136,7 +136,7 @@ Guidelines:
 - [X] T101 P1 feat - Remap split key from 's' to 'p' (sPlit) in the commit list
   view and help dialog, freeing 's' for squash which matches git's interactive
   rebase keybindings (Flags: V4)
-- [ ] T077 P0 feat - Add squash mode on 's' key: enter a `SquashSelect` app mode
+- [X] T077 P0 feat - Add squash mode on 's' key: enter a `SquashSelect` app mode
   where the selected commit is the "source" and the user navigates with arrow
   keys to pick a squash target; the source is squashed *into* the target (target
   keeps its position, source is removed, their changes are combined); pressing

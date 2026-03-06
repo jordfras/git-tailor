@@ -21,3 +21,4 @@ pub mod dialog;
 pub mod drop;
 pub mod help;
 pub mod split_select;
+pub mod squash_select;
