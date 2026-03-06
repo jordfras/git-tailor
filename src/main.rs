@@ -319,15 +319,45 @@ fn main() -> Result<()> {
                 }
             }
             AppAction::PrepareSquash {
-                source_oid: _,
-                target_oid: _,
-                source_message: _,
-                target_message: _,
+                source_oid,
+                target_oid,
+                source_message,
+                target_message,
             } => {
-                // T100 will implement the actual squash execution flow:
-                // open editor with combined messages, call squash_commits,
-                // handle conflicts. For now, just show a placeholder message.
-                app.set_error_message("Squash execution not yet implemented (T100)");
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
+                    }
+                };
+
+                let combined = format!("{target_message}\n\n{source_message}");
+                let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                terminal.clear()?;
+                match editor_result {
+                    Err(e) => app.set_error_message(format!("Editor error: {e}")),
+                    Ok(msg) if msg.trim().is_empty() => {
+                        app.set_error_message("Squash aborted: empty commit message");
+                    }
+                    Ok(msg) => {
+                        let saved_index = app.selection_index;
+                        match git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid) {
+                            Ok(RebaseOutcome::Complete) => {
+                                reload_commits(&git_repo, &mut app);
+                                app.selection_index =
+                                    saved_index.min(app.commits.len().saturating_sub(1));
+                                app.set_success_message("Commits squashed");
+                            }
+                            Ok(RebaseOutcome::Conflict(state)) => {
+                                app.enter_rebase_conflict(state);
+                            }
+                            Err(e) => {
+                                app.set_error_message(format!("Squash failed: {e}"));
+                            }
+                        }
+                    }
+                }
             }
         }
 

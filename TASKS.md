@@ -154,7 +154,7 @@ Guidelines:
   `cherry_pick_chain` — return `RebaseOutcome` so conflicts during the
   descendant rebase are handled by the generalized conflict infrastructure
   (Flags: V4)
-- [ ] T100 P0 feat - Wire squash execution in the TUI: after the user picks a
+- [X] T100 P0 feat - Wire squash execution in the TUI: after the user picks a
   target in SquashSelect, open the editor (reuse `edit_message_in_editor`) with
   both commit messages concatenated — target message first, then a blank line,
   then source message, matching git's interactive-rebase squash format; if the
