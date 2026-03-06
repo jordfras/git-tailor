@@ -168,6 +168,13 @@ Guidelines:
   working tree and enter `RebaseConflict` mode so the user can resolve,
   continue, abort, or launch the mergetool — same flow as descendant rebase
   conflicts (Flags: V4)
+- [ ] T102 P1 feat - Replace the SquashSelect overlay dialog with a footer-based
+  context line: remove `squash_select::render()` and its centered dialog, and
+  instead show a footer message in `render_footer` when in SquashSelect mode —
+  e.g. `Squash: select target for <short_oid> "<summary>" · Enter confirm · Esc
+  cancel` — so the commit list is never obscured while picking a squash target;
+  the source commit's magenta highlight and candidate coloring already provide
+  sufficient visual context (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
