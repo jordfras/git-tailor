@@ -798,6 +798,90 @@ impl GitRepo for Git2Repo {
         collect_conflict_files(&self.inner)
     }
 
+    fn squash_commits(
+        &self,
+        source_oid: &str,
+        target_oid: &str,
+        message: &str,
+        head_oid: &str,
+    ) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let source_git_oid =
+            git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
+        let target_git_oid =
+            git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
+
+        let source_commit = repo.find_commit(source_git_oid)?;
+        let target_commit = repo.find_commit(target_git_oid)?;
+
+        if target_commit.parent_count() != 1 {
+            anyhow::bail!("Cannot squash into a merge or root commit");
+        }
+        let base_oid = target_commit.parent_id(0)?;
+        let base_commit = repo.find_commit(base_oid)?;
+
+        // Create the combined tree by applying source's diff onto target's tree.
+        let mut cherry_index = repo.cherrypick_commit(&source_commit, &target_commit, 0, None)?;
+        if cherry_index.has_conflicts() {
+            anyhow::bail!(
+                "Squash conflict: source and target have overlapping edits \
+                 (not yet handled — see T080)"
+            );
+        }
+
+        let combined_tree_oid = cherry_index.write_tree_to(repo)?;
+        let combined_tree = repo.find_tree(combined_tree_oid)?;
+
+        let squash_oid = repo.commit(
+            None,
+            &target_commit.author(),
+            &target_commit.committer(),
+            message,
+            &combined_tree,
+            &[&base_commit],
+        )?;
+
+        let original_branch_oid = head_oid.to_string();
+
+        // Collect descendants: everything between target and HEAD, minus source.
+        let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
+        let descendants: Vec<git2::Oid> = all_descendants
+            .into_iter()
+            .filter(|&oid| oid != source_git_oid)
+            .collect();
+
+        let result = self.cherry_pick_chain(squash_oid, &descendants)?;
+        match result {
+            CherryPickResult::Complete(tip) => {
+                self.advance_branch_ref(tip, "git-tailor: squash commits")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = descendants[conflicting_idx];
+                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(super::ConflictState {
+                    operation_label: "Squash".to_string(),
+                    original_branch_oid,
+                    new_tip_oid: tip.to_string(),
+                    conflicting_commit_oid: conflicting_oid.to_string(),
+                    remaining_oids: remaining,
+                    conflicting_files: collect_conflict_files(repo),
+                    still_unresolved: false,
+                }))
+            }
+        }
+    }
+
     fn stage_file(&self, path: &str) -> Result<()> {
         let repo = &self.inner;
         let mut index = repo.index().context("failed to read index")?;

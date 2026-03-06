@@ -146,7 +146,7 @@ Guidelines:
   if squashable without conflict, red if the squash would likely conflict
   (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and no
   conflict) (Flags: V4)
-- [ ] T079 P0 feat - Implement `squash_commits` on the `GitRepo` trait: given
+- [X] T079 P0 feat - Implement `squash_commits` on the `GitRepo` trait: given
   source and target OIDs plus `head_oid`, create a combined tree by
   cherry-picking the target then the source onto the target's parent, then
   cherry-pick all remaining descendants (commits between target and source

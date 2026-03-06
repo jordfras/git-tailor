@@ -232,6 +232,26 @@ pub trait GitRepo {
     /// (entries with stage > 0), sorted alphabetically and deduplicated.
     fn read_conflicting_files(&self) -> Vec<String>;
 
+    /// Squash two commits into one.
+    ///
+    /// Creates a single commit that combines `target_oid` (older) and
+    /// `source_oid` (newer) by cherry-picking source's diff onto target's
+    /// tree. The result replaces target's position in the history and source
+    /// is removed. All descendants between target and `head_oid` (excluding
+    /// source) are rebased onto the squash commit.
+    ///
+    /// Returns `RebaseOutcome::Complete` on success or
+    /// `RebaseOutcome::Conflict` when a descendant cherry-pick conflicts.
+    /// Conflicts during the initial squash tree creation (source vs target)
+    /// currently produce an error — use T080 for that case.
+    fn squash_commits(
+        &self,
+        source_oid: &str,
+        target_oid: &str,
+        message: &str,
+        head_oid: &str,
+    ) -> Result<RebaseOutcome>;
+
     /// Stage a working-tree file, clearing any conflict entries for that path.
     ///
     /// Equivalent to `git add <path>`. Reads the file from the working directory,
