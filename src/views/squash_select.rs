@@ -12,17 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Squash target selection dialog
+// Squash target selection — key handling only; rendering is done via the
+// commit list footer (see `render_footer` in commit_list.rs).
 
-use super::dialog::{inner_width, render_centered_dialog, wrap_text};
 use crate::app::{AppAction, AppMode, AppState};
 use crate::event::KeyCommand;
-use ratatui::{
-    layout::Alignment,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    Frame,
-};
 
 /// Handle an action while in SquashSelect mode.
 ///
@@ -105,74 +99,4 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         _ => AppAction::Handled,
     }
-}
-
-/// Render the squash target selection as a banner at the top of the screen.
-///
-/// This overlays a small info box showing which commit is being squashed and
-/// instructions. The commit list underneath is rendered by the overlay system
-/// (background mode), so the user can navigate it normally.
-pub fn render(app: &AppState, frame: &mut Frame) {
-    let source_index = match app.mode {
-        AppMode::SquashSelect { source_index } => source_index,
-        _ => return,
-    };
-
-    let source = match app.commits.get(source_index) {
-        Some(c) => c,
-        None => return,
-    };
-
-    let short_oid = if source.oid.len() >= 10 {
-        &source.oid[..10]
-    } else {
-        &source.oid
-    };
-
-    const PREFERRED_WIDTH: u16 = 60;
-    let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
-
-    let summary_chunks = wrap_text(&source.summary, iw.saturating_sub(1));
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            " Squash this commit into…",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            format!(" {short_oid}"),
-            Style::default().fg(Color::Cyan),
-        )),
-    ];
-    for chunk in &summary_chunks {
-        lines.push(Line::from(Span::raw(format!(" {chunk}"))));
-    }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " Navigate to a target commit and press Enter.",
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(""));
-    lines.push(
-        Line::from(vec![
-            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
-            Span::raw("Confirm   "),
-            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
-            Span::raw("Cancel"),
-        ])
-        .alignment(Alignment::Center),
-    );
-    lines.push(Line::from(""));
-
-    render_centered_dialog(
-        frame,
-        " Squash Commit ",
-        Color::Magenta,
-        PREFERRED_WIDTH,
-        lines,
-    );
 }

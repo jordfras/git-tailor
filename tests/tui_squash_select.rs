@@ -22,7 +22,6 @@ use git_tailor::{
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
 };
-use ratatui::{backend::TestBackend, Terminal};
 
 fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> AppState {
     let mut app = AppState::new();
@@ -36,8 +35,10 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app
 }
 
+use ratatui::{backend::TestBackend, Terminal};
+
 #[test]
-fn test_squash_dialog_renders() {
+fn test_squash_footer_renders() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend.clone()).unwrap();
 
@@ -46,7 +47,6 @@ fn test_squash_dialog_renders() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::squash_select::render(&app, frame);
         })
         .unwrap();
 
@@ -55,7 +55,7 @@ fn test_squash_dialog_renders() {
 }
 
 #[test]
-fn test_squash_dialog_source_different_from_selection() {
+fn test_squash_footer_source_different_from_selection() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend.clone()).unwrap();
 
@@ -65,7 +65,6 @@ fn test_squash_dialog_source_different_from_selection() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::squash_select::render(&app, frame);
         })
         .unwrap();
 

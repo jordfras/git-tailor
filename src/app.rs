@@ -134,11 +134,11 @@ impl AppMode {
     pub fn background(&self) -> Option<AppMode> {
         match self {
             AppMode::CommitList | AppMode::CommitDetail => None,
+            AppMode::SquashSelect { .. } => None,
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::RebaseConflict(_)
-            | AppMode::SquashSelect { .. } => Some(AppMode::CommitList),
+            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }

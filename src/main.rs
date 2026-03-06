@@ -501,7 +501,7 @@ fn render_mode(
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
-        AppMode::SquashSelect { .. } => views::squash_select::render(app, frame),
+        AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
         AppMode::Help(_) => views::help::render(frame),
     }
 }

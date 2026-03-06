@@ -1,6 +1,6 @@
 ---
 source: tests/tui_squash_select.rs
-assertion_line: 214
+assertion_line: 213
 expression: buffer
 ---
 Buffer {
@@ -15,7 +15,7 @@ Buffer {
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " aaaa11112222 3/3                                                               ",
+        " Squash cccc5555 "Fix config typo" into… · Enter confirm · Esc cancel           ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -50,6 +50,12 @@ Buffer {
         x: 72, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 8, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 9, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: White, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 8, y: 9, fg: Yellow, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 16, y: 9, fg: White, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 43, y: 9, fg: Yellow, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 48, y: 9, fg: White, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 59, y: 9, fg: Yellow, bg: Magenta, underline: Reset, modifier: NONE,
+        x: 62, y: 9, fg: White, bg: Magenta, underline: Reset, modifier: NONE,
     ]
 }

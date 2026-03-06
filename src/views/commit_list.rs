@@ -610,6 +610,11 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
+    if let AppMode::SquashSelect { source_index } = app.mode {
+        render_squash_footer(frame, app, area, source_index);
+        return;
+    }
+
     let text = if app.commits.is_empty() {
         String::from("No commits")
     } else {
@@ -619,6 +624,45 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     };
 
     let footer = Paragraph::new(Span::styled(text, FOOTER_STYLE)).style(FOOTER_STYLE);
+    frame.render_widget(footer, area);
+}
+
+const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Magenta);
+
+fn render_squash_footer(frame: &mut Frame, app: &AppState, area: Rect, source_index: usize) {
+    let source = match app.commits.get(source_index) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let short_oid = if source.oid.len() >= SHORT_SHA_LENGTH {
+        &source.oid[..SHORT_SHA_LENGTH]
+    } else {
+        &source.oid
+    };
+
+    let max_summary_len = (area.width as usize)
+        .saturating_sub(" Squash  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel".len())
+        .saturating_sub(short_oid.len());
+
+    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
+        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
+    } else {
+        source.summary.clone()
+    };
+
+    let line = Line::from(vec![
+        Span::styled(" Squash ", SQUASH_FOOTER_STYLE),
+        Span::styled(short_oid, Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled(format!(" \"{summary}\" into\u{2026}"), SQUASH_FOOTER_STYLE),
+        Span::styled(" \u{b7} ", SQUASH_FOOTER_STYLE),
+        Span::styled("Enter", Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled(" confirm \u{b7} ", SQUASH_FOOTER_STYLE),
+        Span::styled("Esc", Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled(" cancel", SQUASH_FOOTER_STYLE),
+    ]);
+
+    let footer = Paragraph::new(line).style(SQUASH_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 
