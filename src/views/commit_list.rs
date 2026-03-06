@@ -151,8 +151,8 @@ const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
 
 // Colors for squash-mode source and target highlighting.
-const COLOR_SQUASH_SOURCE_BG: Color = Color::Magenta;
-const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(40, 40, 80);
+const COLOR_SQUASH_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
+const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(0, 40, 50);
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -570,10 +570,10 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 Style::default()
             };
 
-            // Apply highlight: source gets magenta bg, selection gets reversed,
+            // Apply highlight: source gets cyan bg, selection gets reversed,
             // in squash mode the selected target gets a subtle bg tint.
             let text_cell_style = if is_squash_source {
-                text_style.bg(COLOR_SQUASH_SOURCE_BG)
+                text_style.fg(Color::White).bg(COLOR_SQUASH_SOURCE_BG)
             } else if is_selected && squash_source_idx.is_some() {
                 text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
             } else if is_selected {
@@ -637,7 +637,8 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     frame.render_widget(footer, area);
 }
 
-const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Magenta);
+const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Cyan);
+const SQUASH_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Cyan);
 
 fn render_squash_footer(
     frame: &mut Frame,
@@ -673,12 +674,12 @@ fn render_squash_footer(
 
     let line = Line::from(vec![
         Span::styled(format!(" {label} "), SQUASH_FOOTER_STYLE),
-        Span::styled(short_oid, Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled(short_oid, SQUASH_FOOTER_ACCENT),
         Span::styled(format!(" \"{summary}\" into\u{2026}"), SQUASH_FOOTER_STYLE),
         Span::styled(" \u{b7} ", SQUASH_FOOTER_STYLE),
-        Span::styled("Enter", Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled("Enter", SQUASH_FOOTER_ACCENT),
         Span::styled(" confirm \u{b7} ", SQUASH_FOOTER_STYLE),
-        Span::styled("Esc", Style::new().fg(Color::Yellow).bg(Color::Magenta)),
+        Span::styled("Esc", SQUASH_FOOTER_ACCENT),
         Span::styled(" cancel", SQUASH_FOOTER_STYLE),
     ]);
 
