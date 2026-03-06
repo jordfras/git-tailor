@@ -162,7 +162,7 @@ Guidelines:
   (co-located with `render()`). Each handler returns an `ActionResult` enum
   (Handled, ExecuteSplit, ExecuteDrop, Quit, etc.) so view modules stay free of
   git/terminal dependencies and `main.rs` only interprets the result (Flags: V5)
-- [ ] T097 P2 feat - Extract shared dialog rendering helper: create
+- [X] T097 P2 feat - Extract shared dialog rendering helper: create
   `views/dialog.rs` with a `render_centered_dialog(frame, config)` utility that
   handles centering, clearing, bordering and wrapping — then refactor drop
   confirm, drop conflict, split select, split confirm and help dialogs to use

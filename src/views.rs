@@ -16,6 +16,7 @@
 
 pub mod commit_detail;
 pub mod commit_list;
+pub mod dialog;
 pub mod drop;
 pub mod help;
 pub mod split_select;

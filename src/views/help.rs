@@ -14,14 +14,13 @@
 
 // Help dialog view showing keybindings
 
+use super::dialog::render_centered_dialog;
 use crate::app::AppAction;
 use crate::event::KeyCommand;
 
 use ratatui::{
-    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -38,8 +37,6 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
 
 /// Render the help dialog as a centered overlay.
 pub fn render(frame: &mut Frame) {
-    let area = frame.area();
-
     // Build help content first to calculate required size
     let help_lines = vec![
         Line::from(""),
@@ -113,36 +110,5 @@ pub fn render(frame: &mut Frame) {
         Line::from(""),
     ];
 
-    // Calculate dialog size based on content
-    let content_width = 48; // Longest line + padding
-    let content_height = help_lines.len() as u16;
-    let dialog_width = content_width.min(area.width.saturating_sub(4));
-    let dialog_height = (content_height + 2).min(area.height.saturating_sub(2)); // +2 for borders
-
-    // Center the dialog
-    let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
-    let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
-
-    let dialog_area = Rect {
-        x: area.x + dialog_x,
-        y: area.y + dialog_y,
-        width: dialog_width,
-        height: dialog_height,
-    };
-
-    // Clear the background to hide underlying content
-    frame.render_widget(Clear, dialog_area);
-
-    let help_text = Paragraph::new(help_lines)
-        .block(
-            Block::default()
-                .title(" Help - Keybindings ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White))
-                .style(Style::default().bg(Color::Black)),
-        )
-        .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
-
-    frame.render_widget(help_text, dialog_area);
+    render_centered_dialog(frame, " Help - Keybindings ", Color::White, 48, help_lines);
 }
