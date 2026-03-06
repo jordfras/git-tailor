@@ -14,7 +14,8 @@
 
 // Commit list view rendering
 
-use crate::app::AppState;
+use crate::app::{AppAction, AppMode, AppState};
+use crate::event::KeyCommand;
 use crate::fragmap::{self, TouchKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -23,6 +24,101 @@ use ratatui::{
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
     Frame,
 };
+
+/// Handle an action while in CommitList mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::MoveUp => {
+            if app.reverse {
+                app.move_down();
+            } else {
+                app.move_up();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            if app.reverse {
+                app.move_up();
+            } else {
+                app.move_down();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::PageUp => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.page_down(h);
+            } else {
+                app.page_up(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::PageDown => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.page_up(h);
+            } else {
+                app.page_down(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::ScrollLeft => {
+            app.scroll_fragmap_left();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollRight => {
+            app.scroll_fragmap_right();
+            AppAction::Handled
+        }
+        KeyCommand::ToggleDetail | KeyCommand::Confirm => {
+            app.toggle_detail_view();
+            AppAction::Handled
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Split => {
+            app.enter_split_select();
+            AppAction::Handled
+        }
+        KeyCommand::Squash => {
+            app.enter_squash_select();
+            AppAction::Handled
+        }
+        KeyCommand::Fixup => {
+            app.enter_fixup_select();
+            AppAction::Handled
+        }
+        KeyCommand::Drop => {
+            let commit = &app.commits[app.selection_index];
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                app.set_error_message("Cannot drop staged/unstaged changes");
+                AppAction::Handled
+            } else {
+                AppAction::PrepareDropConfirm {
+                    commit_oid: commit.oid.clone(),
+                    commit_summary: commit.summary.clone(),
+                }
+            }
+        }
+        KeyCommand::Reword => {
+            let commit = &app.commits[app.selection_index];
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                app.set_error_message("Cannot reword staged/unstaged changes");
+                AppAction::Handled
+            } else {
+                AppAction::PrepareReword {
+                    commit_oid: commit.oid.clone(),
+                    current_message: commit.message.clone(),
+                }
+            }
+        }
+        KeyCommand::Update => AppAction::ReloadCommits,
+        KeyCommand::Quit => AppAction::Quit,
+        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
+    }
+}
 
 /// Number of characters to display for short SHA.
 const SHORT_SHA_LENGTH: usize = 8;
@@ -53,6 +149,10 @@ const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 // Foreground color for synthetic working-tree rows (staged / unstaged).
 // Applied when the row is not selected so they are visually distinct from commits.
 const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
+
+// Colors for squash-mode source and target highlighting.
+const COLOR_SQUASH_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
+const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(0, 40, 50);
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -416,6 +516,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         &display_commits[layout.scroll_offset..end]
     };
 
+    // In SquashSelect mode, the source commit index drives candidate coloring.
+    let squash_source_idx = match app.mode {
+        AppMode::SquashSelect { source_index, .. } => Some(source_index),
+        _ => None,
+    };
+
     visible_commits
         .iter()
         .enumerate()
@@ -433,11 +539,26 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
             let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-            // Synthetic working-tree rows (staged/unstaged) use a fixed label
-            // color rather than the commit-relationship coloring.
             let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
+            let is_selected = visual_index == layout.visual_selection;
+            let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
 
-            let text_style = if visual_index != layout.visual_selection {
+            // Determine text style based on mode and position.
+            let text_style = if let Some(source_idx) = squash_source_idx {
+                // SquashSelect mode: color by relation to squash source.
+                if is_squash_source {
+                    Style::new().fg(Color::White)
+                } else if commit_idx_in_fragmap > source_idx {
+                    Style::new().fg(Color::DarkGray)
+                } else if is_synthetic {
+                    Style::new().fg(COLOR_SYNTHETIC_LABEL)
+                } else if let Some(ref fm) = app.fragmap {
+                    commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                } else {
+                    Style::default()
+                }
+            } else if !is_selected {
+                // Normal CommitList mode coloring for non-selected rows.
                 if is_synthetic {
                     Style::new().fg(COLOR_SYNTHETIC_LABEL)
                 } else if let Some(ref fm) = app.fragmap {
@@ -449,8 +570,13 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 Style::default()
             };
 
-            let is_selected = visual_index == layout.visual_selection;
-            let text_cell_style = if is_selected {
+            // Apply highlight: source gets cyan bg, selection gets reversed,
+            // in squash mode the selected target gets a subtle bg tint.
+            let text_cell_style = if is_squash_source {
+                text_style.fg(Color::White).bg(COLOR_SQUASH_SOURCE_BG)
+            } else if is_selected && squash_source_idx.is_some() {
+                text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
+            } else if is_selected {
                 text_style.reversed()
             } else {
                 text_style
@@ -490,6 +616,15 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
+    if let AppMode::SquashSelect {
+        source_index,
+        is_fixup,
+    } = app.mode
+    {
+        render_squash_footer(frame, app, area, source_index, is_fixup);
+        return;
+    }
+
     let text = if app.commits.is_empty() {
         String::from("No commits")
     } else {
@@ -499,6 +634,56 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     };
 
     let footer = Paragraph::new(Span::styled(text, FOOTER_STYLE)).style(FOOTER_STYLE);
+    frame.render_widget(footer, area);
+}
+
+const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Cyan);
+const SQUASH_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Cyan);
+
+fn render_squash_footer(
+    frame: &mut Frame,
+    app: &AppState,
+    area: Rect,
+    source_index: usize,
+    is_fixup: bool,
+) {
+    let source = match app.commits.get(source_index) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let short_oid = if source.oid.len() >= SHORT_SHA_LENGTH {
+        &source.oid[..SHORT_SHA_LENGTH]
+    } else {
+        &source.oid
+    };
+
+    let label = if is_fixup { "Fixup" } else { "Squash" };
+
+    let max_summary_len = (area.width as usize)
+        .saturating_sub(
+            format!(" {label}  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel").len(),
+        )
+        .saturating_sub(short_oid.len());
+
+    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
+        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
+    } else {
+        source.summary.clone()
+    };
+
+    let line = Line::from(vec![
+        Span::styled(format!(" {label} "), SQUASH_FOOTER_STYLE),
+        Span::styled(short_oid, SQUASH_FOOTER_ACCENT),
+        Span::styled(format!(" \"{summary}\" into\u{2026}"), SQUASH_FOOTER_STYLE),
+        Span::styled(" \u{b7} ", SQUASH_FOOTER_STYLE),
+        Span::styled("Enter", SQUASH_FOOTER_ACCENT),
+        Span::styled(" confirm \u{b7} ", SQUASH_FOOTER_STYLE),
+        Span::styled("Esc", SQUASH_FOOTER_ACCENT),
+        Span::styled(" cancel", SQUASH_FOOTER_STYLE),
+    ]);
+
+    let footer = Paragraph::new(line).style(SQUASH_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 

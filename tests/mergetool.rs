@@ -123,7 +123,7 @@ fn make_conflict(test: &common::TestRepo) -> git_tailor::repo::ConflictState {
         .drop_commit(&to_drop.to_string(), &head.to_string())
         .unwrap()
     {
-        RebaseOutcome::Conflict(state) => state,
+        RebaseOutcome::Conflict(state) => *state,
         RebaseOutcome::Complete => panic!("expected conflict"),
     }
 }
@@ -203,7 +203,7 @@ fn stage_file_clears_conflict_entries_in_index() {
 
 /// Full pipeline test: configure a shell command that resolves by copying LOCAL
 /// (the ours-side) to MERGED, then verify the index conflict is cleared and
-/// drop_commit_continue can complete successfully.
+/// rebase_continue can complete successfully.
 #[test]
 fn run_for_all_files_stages_file_and_clears_conflict() {
     let test = common::TestRepo::new();
@@ -239,13 +239,13 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
         "index should have no conflicts after tool run: {remaining:?}"
     );
 
-    // drop_commit_continue must now complete without another conflict.
+    // rebase_continue must now complete without another conflict.
     let refreshed_state = git_tailor::repo::ConflictState {
         conflicting_files: git_repo.read_conflicting_files(),
         still_unresolved: false,
-        ..state
+        ..(*state)
     };
-    let outcome = git_repo.drop_commit_continue(&refreshed_state).unwrap();
+    let outcome = git_repo.rebase_continue(&refreshed_state).unwrap();
     assert!(
         matches!(outcome, RebaseOutcome::Complete),
         "expected Complete after resolution, got {outcome:?}"

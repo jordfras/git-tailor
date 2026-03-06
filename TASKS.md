@@ -122,14 +122,74 @@ Guidelines:
   moved commit or in a commit rebased on top of it (Flags: V4)
 
 ## Interactivity — Squash Commit (V4)
-- [ ] T077 P0 feat - Add squash mode on 'q' key: highlight selected commit and
-  navigate with arrow keys to pick squash target (Flags: V4)
-- [ ] T078 P1 feat - Color squash target candidate yellow if squashable, red if
-  conflicting, white if no related hunks and no conflict (Flags: V4)
-- [ ] T079 P0 feat - Execute squash via git2 cherry-pick combining commits,
-  abort and notify user on conflict (Flags: V4)
-- [ ] T080 P2 feat - On conflict, provide the user with details on which commit
-  and files are conflicting (Flags: V4)
+- [X] T099 P1 feat - Generalize conflict handling for reuse by squash and future
+  operations: rename `drop_commit_continue`/`drop_commit_abort` →
+  `rebase_continue`/`rebase_abort` on the `GitRepo` trait and `Git2Repo` impl,
+  rename `AppAction::ContinueDrop`/`AbortDrop` → `RebaseContinue`/`RebaseAbort`,
+  rename `AppMode::DropConflict` → `RebaseConflict`, add an `operation_label`
+  field to `ConflictState` so the conflict dialog title and success messages
+  reflect the originating operation ("Drop Conflict" vs "Squash Conflict"),
+  extract conflict dialog code (`handle_conflict_key`, `render_drop_conflict`)
+  from `views/drop.rs` into a new `views/conflict.rs`, and update all references
+  in `main.rs`, `app.rs`, `AppMode::background()`, tests, and help text (Flags:
+  V4)
+- [X] T101 P1 feat - Remap split key from 's' to 'p' (sPlit) in the commit list
+  view and help dialog, freeing 's' for squash which matches git's interactive
+  rebase keybindings (Flags: V4)
+- [X] T077 P0 feat - Add squash mode on 's' key: enter a `SquashSelect` app mode
+  where the selected commit is the "source" and the user navigates with arrow
+  keys to pick a squash target; the source is squashed *into* the target (target
+  keeps its position, source is removed, their changes are combined); pressing
+  Enter confirms the target, Esc cancels back to CommitList; block the key when
+  the selected row is a staged/unstaged synthetic entry (Flags: V4)
+- [X] T078 P1 feat - Color squash target candidates in SquashSelect mode: yellow
+  if squashable without conflict, red if the squash would likely conflict
+  (overlapping fragmap clusters), white/dim if unrelated (no shared hunks and no
+  conflict) (Flags: V4)
+- [X] T079 P0 feat - Implement `squash_commits` on the `GitRepo` trait: given
+  source and target OIDs plus `head_oid`, create a combined tree by
+  cherry-picking the target then the source onto the target's parent, then
+  cherry-pick all remaining descendants (commits between target and source
+  exclusive, plus commits after source) onto the result using
+  `cherry_pick_chain` — return `RebaseOutcome` so conflicts during the
+  descendant rebase are handled by the generalized conflict infrastructure
+  (Flags: V4)
+- [X] T100 P0 feat - Wire squash execution in the TUI: after the user picks a
+  target in SquashSelect, open the editor (reuse `edit_message_in_editor`) with
+  both commit messages concatenated — target message first, then a blank line,
+  then source message, matching git's interactive-rebase squash format; if the
+  user saves an unchanged or non-empty message, call `squash_commits`; on
+  `RebaseOutcome::Conflict` enter `RebaseConflict` mode (reusing the generalized
+  conflict dialog, continue, abort, and mergetool flows from T099); on success
+  reload commits and show a confirmation message (Flags: V4)
+- [x] T080 P2 feat - Handle squash-time conflict (source changes conflict with
+  target changes): when creating the combined tree itself fails due to
+  overlapping edits in the source and target commits, write the conflict to the
+  working tree and enter `RebaseConflict` mode so the user can resolve,
+  continue, abort, or launch the mergetool — same flow as descendant rebase
+  conflicts (Flags: V4)
+- [X] T102 P1 feat - Replace the SquashSelect overlay dialog with a footer-based
+  context line: remove `squash_select::render()` and its centered dialog, and
+  instead show a footer message in `render_footer` when in SquashSelect mode —
+  e.g. `Squash: select target for <short_oid> "<summary>" · Enter confirm · Esc
+  cancel` — so the commit list is never obscured while picking a squash target;
+  the source commit's magenta highlight and candidate coloring already provide
+  sufficient visual context (Flags: V4)
+- [X] T103 P1 feat - Restrict SquashSelect cursor to earlier commits only: in
+  `squash_select::handle_key`, clamp navigation so the cursor cannot move to
+  commits later than (above) the source commit — squashing into a later commit
+  is not supported; also dim the rows above the source in the commit list when
+  in SquashSelect mode to visually indicate they are unreachable targets
+  (Flags: V4)
+- [X] T104 P1 feat - Add fixup mode on 'f' key: works identically to squash
+  ('s') — enters `SquashSelect`, uses the same target-picking UI, candidate
+  coloring, and conflict handling — but instead of opening the editor with both
+  messages concatenated, it silently keeps the target commit's message as-is
+  (the source commit's message is discarded); reuse `squash_try_combine`,
+  `squash_commits`, and `squash_finalize` with the target's message passed
+  directly, skipping `edit_message_in_editor`; update the footer context line
+  to say "Fixup" instead of "Squash" and add 'f' to the help dialog
+  (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
@@ -154,5 +214,24 @@ Guidelines:
   changes are unaffected and do not need to block this operation; block the key
   (show an error) only when the selected row is a staged or unstaged synthetic
   entry (Flags: V4)
+
+## Refactoring — TUI Architecture (V5)
+- [X] T096 P1 feat - Refactor event loop to mode-first dispatch: flip the main
+  match from action-first to mode-first so there is one small match on `AppMode`
+  delegating to a `handle_action(action, app)` function in each view module
+  (co-located with `render()`). Each handler returns an `ActionResult` enum
+  (Handled, ExecuteSplit, ExecuteDrop, Quit, etc.) so view modules stay free of
+  git/terminal dependencies and `main.rs` only interprets the result (Flags: V5)
+- [X] T097 P2 feat - Extract shared dialog rendering helper: create
+  `views/dialog.rs` with a `render_centered_dialog(frame, config)` utility that
+  handles centering, clearing, bordering and wrapping — then refactor drop
+  confirm, drop conflict, split select, split confirm and help dialogs to use
+  it, eliminating the duplicated layout/clear/border code (Flags: V5)
+- [X] T098 P2 feat - Formalize the overlay concept: add an
+  `AppMode::background()` method that returns the underlying mode to render
+  first for overlay modes (SplitSelect, SplitConfirm, DropConfirm, DropConflict,
+  Help), then simplify the render dispatch in `main.rs` to call
+  `render_mode(background)` then `render_mode(foreground)` instead of
+  hand-coding the layering for each overlay variant (Flags: V5)
 
 ## Notes

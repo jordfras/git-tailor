@@ -14,19 +14,78 @@
 
 // Split strategy selection dialog
 
-use crate::app::{AppMode, AppState, SplitStrategy};
+use super::dialog::render_centered_dialog;
+use crate::app::{AppAction, AppMode, AppState, SplitStrategy};
+use crate::event::KeyCommand;
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::Alignment,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
+/// Handle an action while in SplitSelect mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::MoveUp => {
+            app.split_select_up();
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            app.split_select_down();
+            AppAction::Handled
+        }
+        KeyCommand::Confirm => {
+            let strategy = app.selected_split_strategy();
+            let commit_oid = app.commits[app.selection_index].oid.clone();
+            app.mode = AppMode::CommitList;
+            AppAction::PrepareSplit {
+                strategy,
+                commit_oid,
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.mode = AppMode::CommitList;
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
+
+/// Handle an action while in SplitConfirm mode.
+pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::Confirm => {
+            if let AppMode::SplitConfirm(pending) =
+                std::mem::replace(&mut app.mode, AppMode::CommitList)
+            {
+                AppAction::ExecuteSplit {
+                    strategy: pending.strategy,
+                    commit_oid: pending.commit_oid,
+                    head_oid: pending.head_oid,
+                }
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.cancel_split_confirm();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
+
 /// Render the split strategy selection dialog as a centered overlay.
 pub fn render(app: &AppState, frame: &mut Frame) {
-    let area = frame.area();
-
     let commit_summary = app
         .commits
         .get(app.selection_index)
@@ -106,39 +165,12 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     lines.push(Line::from(""));
 
     let content_width = 50;
-    let content_height = lines.len() as u16;
-    let dialog_width = content_width.min(area.width.saturating_sub(4));
-    let dialog_height = (content_height + 2).min(area.height.saturating_sub(2));
 
-    let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
-    let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
-
-    let dialog_area = Rect {
-        x: area.x + dialog_x,
-        y: area.y + dialog_y,
-        width: dialog_width,
-        height: dialog_height,
-    };
-
-    frame.render_widget(Clear, dialog_area);
-
-    let dialog = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(" Split Commit ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
-                .style(Style::default().bg(Color::Black)),
-        )
-        .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
-
-    frame.render_widget(dialog, dialog_area);
+    render_centered_dialog(frame, " Split Commit ", Color::Cyan, content_width, lines);
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
 pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
-    let area = frame.area();
     let pending = match &app.mode {
         AppMode::SplitConfirm(p) => p,
         _ => return,
@@ -173,29 +205,5 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
         Line::from(""),
     ];
 
-    let dialog_width = 52u16.min(area.width.saturating_sub(4));
-    let dialog_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
-    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
-    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
-    let dialog_area = Rect {
-        x: dialog_x,
-        y: dialog_y,
-        width: dialog_width,
-        height: dialog_height,
-    };
-
-    frame.render_widget(Clear, dialog_area);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(" Confirm Split ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .alignment(Alignment::Left)
-            .wrap(Wrap { trim: false }),
-        dialog_area,
-    );
+    render_centered_dialog(frame, " Confirm Split ", Color::Yellow, 52, lines);
 }

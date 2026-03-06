@@ -672,19 +672,23 @@ impl GitRepo for Git2Repo {
                     .map(|oid| oid.to_string())
                     .collect();
 
-                Ok(super::RebaseOutcome::Conflict(super::ConflictState {
-                    original_branch_oid,
-                    new_tip_oid: tip.to_string(),
-                    conflicting_commit_oid: conflicting_oid.to_string(),
-                    remaining_oids: remaining,
-                    conflicting_files: collect_conflict_files(repo),
-                    still_unresolved: false,
-                }))
+                Ok(super::RebaseOutcome::Conflict(Box::new(
+                    super::ConflictState {
+                        operation_label: "Drop".to_string(),
+                        original_branch_oid,
+                        new_tip_oid: tip.to_string(),
+                        conflicting_commit_oid: conflicting_oid.to_string(),
+                        remaining_oids: remaining,
+                        conflicting_files: collect_conflict_files(repo),
+                        still_unresolved: false,
+                        squash_context: None,
+                    },
+                )))
             }
         }
     }
 
-    fn drop_commit_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+    fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
         let repo = &self.inner;
 
         let tip_oid =
@@ -700,17 +704,21 @@ impl GitRepo for Git2Repo {
         index.read(true)?;
         if index.has_conflicts() {
             // The user pressed Enter but some files still have conflict
-            // markers. Stay in DropConflict mode with a refreshed file list
-            // so the dialog keeps the user informed rather than bailing out
-            // and leaving the repo in a broken state.
-            return Ok(super::RebaseOutcome::Conflict(super::ConflictState {
-                original_branch_oid: state.original_branch_oid.clone(),
-                new_tip_oid: state.new_tip_oid.clone(),
-                conflicting_commit_oid: state.conflicting_commit_oid.clone(),
-                remaining_oids: state.remaining_oids.clone(),
-                conflicting_files: collect_conflict_files(repo),
-                still_unresolved: true,
-            }));
+            // markers. Stay in RebaseConflict mode with a refreshed file
+            // list so the dialog keeps the user informed rather than bailing
+            // out and leaving the repo in a broken state.
+            return Ok(super::RebaseOutcome::Conflict(Box::new(
+                super::ConflictState {
+                    operation_label: state.operation_label.clone(),
+                    original_branch_oid: state.original_branch_oid.clone(),
+                    new_tip_oid: state.new_tip_oid.clone(),
+                    conflicting_commit_oid: state.conflicting_commit_oid.clone(),
+                    remaining_oids: state.remaining_oids.clone(),
+                    conflicting_files: collect_conflict_files(repo),
+                    still_unresolved: true,
+                    squash_context: state.squash_context.clone(),
+                },
+            )));
         }
 
         let new_tree_oid = index.write_tree()?;
@@ -736,7 +744,8 @@ impl GitRepo for Git2Repo {
         let result = self.cherry_pick_chain(new_tip, &remaining)?;
         match result {
             CherryPickResult::Complete(final_tip) => {
-                self.advance_branch_ref(final_tip, "git-tailor: drop commit (continue)")?;
+                let label = state.operation_label.to_lowercase();
+                self.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
                 self.checkout_head()?;
                 Ok(super::RebaseOutcome::Complete)
             }
@@ -750,22 +759,27 @@ impl GitRepo for Git2Repo {
                     .map(|oid| oid.to_string())
                     .collect();
 
-                Ok(super::RebaseOutcome::Conflict(super::ConflictState {
-                    original_branch_oid: state.original_branch_oid.clone(),
-                    new_tip_oid: tip.to_string(),
-                    conflicting_commit_oid: conflicting_oid.to_string(),
-                    remaining_oids: new_remaining,
-                    conflicting_files: collect_conflict_files(repo),
-                    still_unresolved: false,
-                }))
+                Ok(super::RebaseOutcome::Conflict(Box::new(
+                    super::ConflictState {
+                        operation_label: state.operation_label.clone(),
+                        original_branch_oid: state.original_branch_oid.clone(),
+                        new_tip_oid: tip.to_string(),
+                        conflicting_commit_oid: conflicting_oid.to_string(),
+                        remaining_oids: new_remaining,
+                        conflicting_files: collect_conflict_files(repo),
+                        still_unresolved: false,
+                        squash_context: None,
+                    },
+                )))
             }
         }
     }
 
-    fn drop_commit_abort(&self, state: &super::ConflictState) -> Result<()> {
+    fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
         let original_oid = git2::Oid::from_str(&state.original_branch_oid)
             .context("Invalid original branch OID in conflict state")?;
-        self.advance_branch_ref(original_oid, "git-tailor: drop commit (abort)")?;
+        let label = state.operation_label.to_lowercase();
+        self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
         self.checkout_head()?;
         Ok(())
     }
@@ -793,6 +807,121 @@ impl GitRepo for Git2Repo {
         collect_conflict_files(&self.inner)
     }
 
+    fn squash_commits(
+        &self,
+        source_oid: &str,
+        target_oid: &str,
+        message: &str,
+        head_oid: &str,
+    ) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let source_git_oid =
+            git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
+        let target_git_oid =
+            git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
+
+        let source_commit = repo.find_commit(source_git_oid)?;
+        let target_commit = repo.find_commit(target_git_oid)?;
+
+        if target_commit.parent_count() != 1 {
+            anyhow::bail!("Cannot squash into a merge or root commit");
+        }
+        let base_oid = target_commit.parent_id(0)?;
+        let base_commit = repo.find_commit(base_oid)?;
+
+        // Create the combined tree by applying source's diff onto target's tree.
+        let mut cherry_index = repo.cherrypick_commit(&source_commit, &target_commit, 0, None)?;
+        if cherry_index.has_conflicts() {
+            let original_branch_oid = head_oid.to_string();
+
+            // Collect descendants now so they're available after resolution.
+            let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
+            let descendants: Vec<String> = all_descendants
+                .into_iter()
+                .filter(|&oid| oid != source_git_oid)
+                .map(|oid| oid.to_string())
+                .collect();
+
+            // Write the conflicted index to the working tree so the user can
+            // resolve it with their editor or merge tool.
+            self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
+
+            return Ok(super::RebaseOutcome::Conflict(Box::new(
+                super::ConflictState {
+                    operation_label: "Squash".to_string(),
+                    original_branch_oid,
+                    new_tip_oid: target_git_oid.to_string(),
+                    conflicting_commit_oid: source_git_oid.to_string(),
+                    remaining_oids: vec![],
+                    conflicting_files: collect_conflict_files(repo),
+                    still_unresolved: false,
+                    squash_context: Some(super::SquashContext {
+                        base_oid: base_oid.to_string(),
+                        source_oid: source_oid.to_string(),
+                        target_oid: target_oid.to_string(),
+                        combined_message: message.to_string(),
+                        descendant_oids: descendants,
+                    }),
+                },
+            )));
+        }
+
+        let combined_tree_oid = cherry_index.write_tree_to(repo)?;
+        let combined_tree = repo.find_tree(combined_tree_oid)?;
+
+        let squash_oid = repo.commit(
+            None,
+            &target_commit.author(),
+            &target_commit.committer(),
+            message,
+            &combined_tree,
+            &[&base_commit],
+        )?;
+
+        let original_branch_oid = head_oid.to_string();
+
+        // Collect descendants: everything between target and HEAD, minus source.
+        let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
+        let descendants: Vec<git2::Oid> = all_descendants
+            .into_iter()
+            .filter(|&oid| oid != source_git_oid)
+            .collect();
+
+        let result = self.cherry_pick_chain(squash_oid, &descendants)?;
+        match result {
+            CherryPickResult::Complete(tip) => {
+                self.advance_branch_ref(tip, "git-tailor: squash commits")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = descendants[conflicting_idx];
+                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(Box::new(
+                    super::ConflictState {
+                        operation_label: "Squash".to_string(),
+                        original_branch_oid,
+                        new_tip_oid: tip.to_string(),
+                        conflicting_commit_oid: conflicting_oid.to_string(),
+                        remaining_oids: remaining,
+                        conflicting_files: collect_conflict_files(repo),
+                        still_unresolved: false,
+                        squash_context: None,
+                    },
+                )))
+            }
+        }
+    }
+
     fn stage_file(&self, path: &str) -> Result<()> {
         let repo = &self.inner;
         let mut index = repo.index().context("failed to read index")?;
@@ -806,6 +935,136 @@ impl GitRepo for Git2Repo {
             .write()
             .context("failed to write index after staging")?;
         Ok(())
+    }
+
+    fn squash_try_combine(
+        &self,
+        source_oid: &str,
+        target_oid: &str,
+        combined_message: &str,
+        head_oid: &str,
+    ) -> Result<Option<super::ConflictState>> {
+        let repo = &self.inner;
+
+        let source_git_oid =
+            git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
+        let target_git_oid =
+            git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
+
+        let source_commit = repo.find_commit(source_git_oid)?;
+        let target_commit = repo.find_commit(target_git_oid)?;
+
+        if target_commit.parent_count() != 1 {
+            anyhow::bail!("Cannot squash into a merge or root commit");
+        }
+        let base_oid = target_commit.parent_id(0)?;
+
+        let cherry_index = repo.cherrypick_commit(&source_commit, &target_commit, 0, None)?;
+        if !cherry_index.has_conflicts() {
+            return Ok(None);
+        }
+
+        let original_branch_oid = head_oid.to_string();
+
+        let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
+        let descendants: Vec<String> = all_descendants
+            .into_iter()
+            .filter(|&oid| oid != source_git_oid)
+            .map(|oid| oid.to_string())
+            .collect();
+
+        self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
+
+        Ok(Some(super::ConflictState {
+            operation_label: "Squash".to_string(),
+            original_branch_oid,
+            new_tip_oid: target_git_oid.to_string(),
+            conflicting_commit_oid: source_git_oid.to_string(),
+            remaining_oids: vec![],
+            conflicting_files: collect_conflict_files(repo),
+            still_unresolved: false,
+            squash_context: Some(super::SquashContext {
+                base_oid: base_oid.to_string(),
+                source_oid: source_oid.to_string(),
+                target_oid: target_oid.to_string(),
+                combined_message: combined_message.to_string(),
+                descendant_oids: descendants,
+            }),
+        }))
+    }
+
+    fn squash_finalize(
+        &self,
+        ctx: &super::SquashContext,
+        message: &str,
+        original_branch_oid: &str,
+    ) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let mut index = repo.index()?;
+        index.read(true)?;
+        if index.has_conflicts() {
+            anyhow::bail!("Cannot finalize squash: index still has unresolved conflicts");
+        }
+
+        let base_git_oid =
+            git2::Oid::from_str(&ctx.base_oid).context("Invalid base OID in squash context")?;
+        let target_git_oid =
+            git2::Oid::from_str(&ctx.target_oid).context("Invalid target OID in squash context")?;
+        let base_commit = repo.find_commit(base_git_oid)?;
+        let target_commit = repo.find_commit(target_git_oid)?;
+
+        let combined_tree_oid = index.write_tree()?;
+        let combined_tree = repo.find_tree(combined_tree_oid)?;
+
+        let squash_oid = repo.commit(
+            None,
+            &target_commit.author(),
+            &target_commit.committer(),
+            message,
+            &combined_tree,
+            &[&base_commit],
+        )?;
+
+        let descendants: Vec<git2::Oid> = ctx
+            .descendant_oids
+            .iter()
+            .map(|s| git2::Oid::from_str(s))
+            .collect::<std::result::Result<_, _>>()
+            .context("Invalid OID in descendant list")?;
+
+        let result = self.cherry_pick_chain(squash_oid, &descendants)?;
+        match result {
+            CherryPickResult::Complete(tip) => {
+                self.advance_branch_ref(tip, "git-tailor: squash commits (finalize)")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = descendants[conflicting_idx];
+                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(Box::new(
+                    super::ConflictState {
+                        operation_label: "Squash".to_string(),
+                        original_branch_oid: original_branch_oid.to_string(),
+                        new_tip_oid: tip.to_string(),
+                        conflicting_commit_oid: conflicting_oid.to_string(),
+                        remaining_oids: remaining,
+                        conflicting_files: collect_conflict_files(repo),
+                        still_unresolved: false,
+                        squash_context: None,
+                    },
+                )))
+            }
+        }
     }
 }
 

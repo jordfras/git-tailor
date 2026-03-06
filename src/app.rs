@@ -16,6 +16,65 @@
 
 use crate::{fragmap::FragMap, repo::ConflictState, CommitInfo};
 
+/// Result of a view module's `handle_key` function.
+///
+/// Pure state mutations (scroll, selection, mode transitions) are applied
+/// directly to `AppState` inside the handler. Side effects that require git
+/// operations or terminal access are returned here for `main.rs` to execute.
+#[derive(Debug)]
+pub enum AppAction {
+    /// Fully handled, no side effects needed.
+    Handled,
+    /// The application should quit.
+    Quit,
+    /// Reload commits from the repository.
+    ReloadCommits,
+    /// Begin the split flow: get head_oid, count results, confirm if large.
+    PrepareSplit {
+        strategy: SplitStrategy,
+        commit_oid: String,
+    },
+    /// Execute a split that has already been confirmed.
+    ExecuteSplit {
+        strategy: SplitStrategy,
+        commit_oid: String,
+        head_oid: String,
+    },
+    /// Begin the drop flow: get head_oid from repo, then show confirmation.
+    PrepareDropConfirm {
+        commit_oid: String,
+        commit_summary: String,
+    },
+    /// Execute a confirmed drop.
+    ExecuteDrop {
+        commit_oid: String,
+        head_oid: String,
+    },
+    /// Continue a rebase after the user resolved merge conflicts.
+    RebaseContinue(ConflictState),
+    /// Abort a rebase that hit conflicts.
+    RebaseAbort(ConflictState),
+    /// Launch the merge tool for conflicting files.
+    RunMergetool {
+        files: Vec<String>,
+        conflict_state: ConflictState,
+    },
+    /// Start the reword flow: get head_oid, launch editor, rewrite commit.
+    PrepareReword {
+        commit_oid: String,
+        current_message: String,
+    },
+    /// Start the squash/fixup flow: user picked source and target.
+    /// When `is_fixup` is true the target's message is kept as-is (no editor).
+    PrepareSquash {
+        source_oid: String,
+        target_oid: String,
+        source_message: String,
+        target_message: String,
+        is_fixup: bool,
+    },
+}
+
 /// Split strategy options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitStrategy {
@@ -62,10 +121,29 @@ pub enum AppMode {
     /// Confirmation dialog before dropping a commit.
     DropConfirm(PendingDrop),
     /// Waiting for the user to resolve merge conflicts that arose during a
-    /// drop operation. Enter continues, Esc aborts the entire drop.
-    DropConflict(ConflictState),
+    /// rebase operation. Enter continues, Esc aborts the entire operation.
+    RebaseConflict(ConflictState),
+    /// Squash/fixup target selection: user picks which commit to squash the source into.
+    /// When `is_fixup` is true the target's message is kept as-is (no editor).
+    SquashSelect { source_index: usize, is_fixup: bool },
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
+}
+
+impl AppMode {
+    /// For overlay modes, return the base view that should be rendered
+    /// underneath. Returns `None` for base views (CommitList, CommitDetail).
+    pub fn background(&self) -> Option<AppMode> {
+        match self {
+            AppMode::CommitList | AppMode::CommitDetail => None,
+            AppMode::SquashSelect { .. } => None,
+            AppMode::SplitSelect { .. }
+            | AppMode::SplitConfirm(_)
+            | AppMode::DropConfirm(_)
+            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
+            AppMode::Help(prev) => Some(prev.as_ref().clone()),
+        }
+    }
 }
 
 /// Data retained while the user is shown the large-split confirmation dialog.
@@ -275,9 +353,9 @@ impl AppState {
         self.mode = AppMode::CommitList;
     }
 
-    /// Enter the drop-conflict resolution dialog.
-    pub fn enter_drop_conflict(&mut self, state: ConflictState) {
-        self.mode = AppMode::DropConflict(state);
+    /// Enter the rebase-conflict resolution dialog.
+    pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
+        self.mode = AppMode::RebaseConflict(state);
     }
 
     /// Enter split strategy selection mode.
@@ -290,6 +368,36 @@ impl AppState {
             }
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
+    }
+
+    /// Enter squash target selection mode.
+    /// Only allowed for real commits (not staged/unstaged synthetic rows).
+    pub fn enter_squash_select(&mut self) {
+        self.enter_squash_or_fixup_select(false);
+    }
+
+    /// Enter fixup target selection mode (same UI as squash, keeps target msg).
+    pub fn enter_fixup_select(&mut self) {
+        self.enter_squash_or_fixup_select(true);
+    }
+
+    fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
+        let label = if is_fixup { "fixup" } else { "squash" };
+        if let Some(commit) = self.commits.get(self.selection_index) {
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
+                return;
+            }
+        }
+        self.mode = AppMode::SquashSelect {
+            source_index: self.selection_index,
+            is_fixup,
+        };
+    }
+
+    /// Cancel squash selection and return to CommitList.
+    pub fn cancel_squash_select(&mut self) {
+        self.mode = AppMode::CommitList;
     }
 
     /// Set a success status message (shown with green background).
@@ -346,7 +454,8 @@ impl AppState {
             | AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::DropConflict(_) => return,
+            | AppMode::RebaseConflict(_)
+            | AppMode::SquashSelect { .. } => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

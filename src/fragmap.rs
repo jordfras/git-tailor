@@ -595,6 +595,39 @@ impl FragMap {
             .any(|c| self.matrix[a][c] != TouchKind::None && self.matrix[b][c] != TouchKind::None)
     }
 
+    /// Determine the overall squash relationship between two commits.
+    ///
+    /// Examines every cluster both commits touch:
+    /// - `NoRelation` if they share no clusters at all.
+    /// - `Squashable` if every shared cluster is squashable (no interfering
+    ///   commits in between).
+    /// - `Conflicting` if any shared cluster has interfering commits.
+    pub fn pairwise_squash_relation(&self, a: usize, b: usize) -> SquashRelation {
+        if a == b || a >= self.commits.len() || b >= self.commits.len() {
+            return SquashRelation::NoRelation;
+        }
+        let (earlier, later) = if a < b { (a, b) } else { (b, a) };
+
+        let mut has_shared = false;
+        for c in 0..self.clusters.len() {
+            if self.matrix[earlier][c] == TouchKind::None
+                || self.matrix[later][c] == TouchKind::None
+            {
+                continue;
+            }
+            has_shared = true;
+            if self.cluster_relation(earlier, later, c) == SquashRelation::Conflicting {
+                return SquashRelation::Conflicting;
+            }
+        }
+
+        if has_shared {
+            SquashRelation::Squashable
+        } else {
+            SquashRelation::NoRelation
+        }
+    }
+
     /// Determine the relationship between two commits for a specific cluster.
     ///
     /// Returns `NoRelation` if one or both commits don't touch the cluster,

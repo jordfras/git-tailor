@@ -264,7 +264,7 @@ fn drop_continue_after_resolving_conflict() {
     index.add_path(std::path::Path::new("a.txt")).unwrap();
     index.write().unwrap();
 
-    let result = git_repo.drop_commit_continue(&state).unwrap();
+    let result = git_repo.rebase_continue(&state).unwrap();
     assert!(
         matches!(result, RebaseOutcome::Complete),
         "expected Complete after resolution, got {result:?}"
@@ -282,7 +282,7 @@ fn drop_continue_after_resolving_conflict() {
 
 #[test]
 fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
-    // Calling drop_commit_continue when the index still has conflict markers
+    // Calling rebase_continue when the index still has conflict markers
     // must return Conflict (same OIDs, refreshed file list) instead of an
     // error — leaving the repo in a usable state so the user can keep
     // editing or abort.
@@ -303,7 +303,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     };
 
     // Do NOT resolve the conflict — just call continue immediately.
-    let result = git_repo.drop_commit_continue(&state).unwrap();
+    let result = git_repo.rebase_continue(&state).unwrap();
 
     match result {
         RebaseOutcome::Conflict(new_state) => {
@@ -334,7 +334,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     }
 
     // Repo must still be in a state where abort works cleanly.
-    git_repo.drop_commit_abort(&state).unwrap();
+    git_repo.rebase_abort(&state).unwrap();
     let restored = test.repo.head().unwrap().target().unwrap();
     assert_eq!(restored, head, "abort should restore original HEAD");
 }
@@ -357,7 +357,7 @@ fn drop_abort_restores_original_branch() {
         RebaseOutcome::Complete => panic!("expected Conflict"),
     };
 
-    git_repo.drop_commit_abort(&state).unwrap();
+    git_repo.rebase_abort(&state).unwrap();
 
     // Branch should be back to the original HEAD.
     let current_head = test.repo.head().unwrap().target().unwrap();
@@ -421,7 +421,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
     index.write().unwrap();
 
     // Continue → second conflict on child2.
-    let result = git_repo.drop_commit_continue(&state1).unwrap();
+    let result = git_repo.rebase_continue(&state1).unwrap();
     let state2 = match result {
         RebaseOutcome::Conflict(s) => s,
         RebaseOutcome::Complete => panic!("expected second Conflict"),
@@ -431,7 +431,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
     assert_eq!(state2.original_branch_oid, child2.to_string());
 
     // Abort from the second conflict — must fully restore the branch.
-    git_repo.drop_commit_abort(&state2).unwrap();
+    git_repo.rebase_abort(&state2).unwrap();
 
     let head_after = test.repo.head().unwrap().target().unwrap();
     assert_eq!(

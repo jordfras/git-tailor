@@ -96,7 +96,7 @@ fn test_drop_confirm_dialog_narrow_terminal() {
 }
 
 // ---------------------------------------------------------------------------
-// DropConflict dialog
+// RebaseConflict dialog
 // ---------------------------------------------------------------------------
 
 fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> AppState {
@@ -106,13 +106,15 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
     app.selection_index = 0;
-    app.mode = AppMode::DropConflict(ConflictState {
+    app.mode = AppMode::RebaseConflict(ConflictState {
+        operation_label: "Drop".to_string(),
         original_branch_oid: "def456ghi789abcdef012".to_string(),
         new_tip_oid: "aabbccddeeff00112233".to_string(),
         conflicting_commit_oid: conflicting_oid.to_string(),
         remaining_oids: remaining.iter().map(|s| s.to_string()).collect(),
         conflicting_files: vec![],
         still_unresolved: false,
+        squash_context: None,
     });
     app
 }
@@ -127,7 +129,7 @@ fn test_drop_conflict_dialog_no_remaining() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
@@ -148,7 +150,7 @@ fn test_drop_conflict_dialog_with_remaining() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
@@ -166,7 +168,7 @@ fn test_drop_conflict_dialog_narrow_terminal() {
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
@@ -188,19 +190,21 @@ fn test_drop_conflict_dialog_long_summary() {
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
     app.selection_index = 0;
-    app.mode = AppMode::DropConflict(ConflictState {
+    app.mode = AppMode::RebaseConflict(ConflictState {
+        operation_label: "Drop".to_string(),
         original_branch_oid: "def456ghi789abcdef012".to_string(),
         new_tip_oid: "aabbccddeeff00112233".to_string(),
         conflicting_commit_oid: "abc123def456".to_string(),
         remaining_oids: vec!["111111111111".to_string(), "222222222222".to_string()],
         conflicting_files: vec![],
         still_unresolved: false,
+        squash_context: None,
     });
 
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
@@ -219,7 +223,8 @@ fn test_drop_conflict_dialog_with_files() {
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
     app.selection_index = 0;
-    app.mode = AppMode::DropConflict(ConflictState {
+    app.mode = AppMode::RebaseConflict(ConflictState {
+        operation_label: "Drop".to_string(),
         original_branch_oid: "def456ghi789abcdef012".to_string(),
         new_tip_oid: "aabbccddeeff00112233".to_string(),
         conflicting_commit_oid: "abc123def456".to_string(),
@@ -230,12 +235,13 @@ fn test_drop_conflict_dialog_with_files() {
             "tests/integration.rs".to_string(),
         ],
         still_unresolved: false,
+        squash_context: None,
     });
 
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
@@ -254,19 +260,21 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
     app.selection_index = 0;
-    app.mode = AppMode::DropConflict(ConflictState {
+    app.mode = AppMode::RebaseConflict(ConflictState {
+        operation_label: "Drop".to_string(),
         original_branch_oid: "def456ghi789abcdef012".to_string(),
         new_tip_oid: "aabbccddeeff00112233".to_string(),
         conflicting_commit_oid: "abc123def456".to_string(),
         remaining_oids: vec![],
         conflicting_files: vec!["src/parser/mod.rs".to_string()],
         still_unresolved: true,
+        squash_context: None,
     });
 
     terminal
         .draw(|frame| {
             views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_conflict(&app, frame);
+            views::conflict::render_conflict(&app, frame);
         })
         .unwrap();
 
