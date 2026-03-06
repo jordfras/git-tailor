@@ -181,6 +181,15 @@ Guidelines:
   is not supported; also dim the rows above the source in the commit list when
   in SquashSelect mode to visually indicate they are unreachable targets
   (Flags: V4)
+- [ ] T104 P1 feat - Add fixup mode on 'f' key: works identically to squash
+  ('s') — enters `SquashSelect`, uses the same target-picking UI, candidate
+  coloring, and conflict handling — but instead of opening the editor with both
+  messages concatenated, it silently keeps the target commit's message as-is
+  (the source commit's message is discarded); reuse `squash_try_combine`,
+  `squash_commits`, and `squash_finalize` with the target's message passed
+  directly, skipping `edit_message_in_editor`; update the footer context line
+  to say "Fixup" instead of "Squash" and add 'f' to the help dialog
+  (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
