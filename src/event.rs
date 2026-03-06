@@ -65,7 +65,7 @@ pub fn parse_key(event: Event) -> KeyCommand {
                 KeyCode::Enter => KeyCommand::Confirm,
                 KeyCode::Char('i') => KeyCommand::ToggleDetail,
                 KeyCode::Char('h') => KeyCommand::ShowHelp,
-                KeyCode::Char('s') => KeyCommand::Split,
+                KeyCode::Char('p') => KeyCommand::Split,
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => KeyCommand::Mergetool,

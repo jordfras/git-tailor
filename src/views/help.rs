@@ -72,7 +72,7 @@ pub fn render(frame: &mut Frame) {
             Span::raw("Toggle commit detail view"),
         ]),
         Line::from(vec![
-            Span::styled("   s         ", Style::default().fg(Color::Cyan)),
+            Span::styled("   p         ", Style::default().fg(Color::Cyan)),
             Span::raw("Split commit (choose strategy)"),
         ]),
         Line::from(vec![

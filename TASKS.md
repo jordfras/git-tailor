@@ -133,7 +133,7 @@ Guidelines:
   from `views/drop.rs` into a new `views/conflict.rs`, and update all references
   in `main.rs`, `app.rs`, `AppMode::background()`, tests, and help text (Flags:
   V4)
-- [ ] T101 P1 feat - Remap split key from 's' to 'p' (sPlit) in the commit list
+- [X] T101 P1 feat - Remap split key from 's' to 'p' (sPlit) in the commit list
   view and help dialog, freeing 's' for squash which matches git's interactive
   rebase keybindings (Flags: V4)
 - [ ] T077 P0 feat - Add squash mode on 's' key: enter a `SquashSelect` app mode
