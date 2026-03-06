@@ -16,7 +16,7 @@
 
 use crate::app::{AppAction, AppMode, AppState};
 use crate::event::KeyCommand;
-use crate::fragmap::{self, SquashRelation, TouchKind};
+use crate::fragmap::{self, TouchKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
@@ -146,12 +146,9 @@ const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 // Applied when the row is not selected so they are visually distinct from commits.
 const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
 
-// Colors for squash-mode candidate rows.
+// Colors for squash-mode source and target highlighting.
 const COLOR_SQUASH_SOURCE_BG: Color = Color::Magenta;
 const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(40, 40, 80);
-const COLOR_SQUASH_CANDIDATE_SQUASHABLE: Color = Color::Yellow;
-const COLOR_SQUASH_CANDIDATE_CONFLICTING: Color = Color::Red;
-const COLOR_SQUASH_CANDIDATE_UNRELATED: Color = Color::DarkGray;
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -467,23 +464,6 @@ fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_id
     }
 }
 
-/// Determine the text style for a commit row in SquashSelect mode.
-///
-/// Yellow: squashable without conflict (all shared clusters are clean).
-/// Red: likely conflict (some shared cluster has interfering commits).
-/// DarkGray: unrelated (no shared clusters with the squash source).
-fn squash_candidate_style(
-    fragmap: &fragmap::FragMap,
-    source_idx: usize,
-    commit_idx: usize,
-) -> Style {
-    match fragmap.pairwise_squash_relation(source_idx, commit_idx) {
-        SquashRelation::Squashable => Style::new().fg(COLOR_SQUASH_CANDIDATE_SQUASHABLE),
-        SquashRelation::Conflicting => Style::new().fg(COLOR_SQUASH_CANDIDATE_CONFLICTING),
-        SquashRelation::NoRelation => Style::new().fg(COLOR_SQUASH_CANDIDATE_UNRELATED),
-    }
-}
-
 /// Build a single fragmap cell from the visible cluster columns.
 ///
 /// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
@@ -567,7 +547,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 } else if is_synthetic {
                     Style::new().fg(COLOR_SYNTHETIC_LABEL)
                 } else if let Some(ref fm) = app.fragmap {
-                    squash_candidate_style(fm, source_idx, commit_idx_in_fragmap)
+                    commit_text_style(fm, source_idx, commit_idx_in_fragmap)
                 } else {
                     Style::default()
                 }
