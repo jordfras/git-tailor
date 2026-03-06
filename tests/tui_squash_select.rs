@@ -31,7 +31,10 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
         common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
     ];
     app.selection_index = selection_index;
-    app.mode = AppMode::SquashSelect { source_index };
+    app.mode = AppMode::SquashSelect {
+        source_index,
+        is_fixup: false,
+    };
     app
 }
 
@@ -111,7 +114,10 @@ fn test_squash_into_staged_blocked() {
         common::create_test_commit("staged", "staged"),
     ];
     app.selection_index = 1;
-    app.mode = AppMode::SquashSelect { source_index: 0 };
+    app.mode = AppMode::SquashSelect {
+        source_index: 0,
+        is_fixup: false,
+    };
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
@@ -227,7 +233,10 @@ fn test_squash_candidate_coloring_with_fragmap() {
         common::create_test_commit("cccc55556666", "Fix config typo"),
     ];
     app.selection_index = 0; // navigated to commit 0 as target
-    app.mode = AppMode::SquashSelect { source_index: 2 };
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        is_fixup: false,
+    };
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
     app.fragmap = Some(FragMap {
@@ -269,7 +278,10 @@ fn test_squash_candidate_coloring_conflicting() {
         common::create_test_commit("cccc55556666", "Fix parser bug"),
     ];
     app.selection_index = 0; // navigated to commit 0 as target
-    app.mode = AppMode::SquashSelect { source_index: 2 };
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        is_fixup: false,
+    };
 
     // All three commits touch cluster 0 → conflicting between 0 and 2
     app.fragmap = Some(FragMap {
@@ -310,6 +322,64 @@ fn test_squash_dims_later_commits() {
 
     terminal
         .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+#[test]
+fn test_fixup_confirm_returns_prepare_fixup() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
+        common::create_test_commit("ccc333ddd444", "Middle commit"),
+        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        is_fixup: true,
+    };
+
+    let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
+    match result {
+        AppAction::PrepareSquash {
+            source_oid,
+            target_oid,
+            is_fixup,
+            ..
+        } => {
+            assert_eq!(source_oid, "eee555fff666");
+            assert_eq!(target_oid, "aaa111bbb222");
+            assert!(is_fixup);
+        }
+        other => panic!("Expected PrepareSquash with is_fixup, got {:?}", other),
+    }
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+#[test]
+fn test_fixup_footer_renders() {
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
+        common::create_test_commit("ccc333ddd444", "Middle commit"),
+        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        is_fixup: true,
+    };
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+        })
         .unwrap();
 
     let buffer = terminal.backend().buffer().clone();

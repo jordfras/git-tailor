@@ -181,7 +181,7 @@ Guidelines:
   is not supported; also dim the rows above the source in the commit list when
   in SquashSelect mode to visually indicate they are unreachable targets
   (Flags: V4)
-- [ ] T104 P1 feat - Add fixup mode on 'f' key: works identically to squash
+- [X] T104 P1 feat - Add fixup mode on 'f' key: works identically to squash
   ('s') — enters `SquashSelect`, uses the same target-picking UI, candidate
   coloring, and conflict handling — but instead of opening the editor with both
   messages concatenated, it silently keeps the target commit's message as-is

@@ -64,13 +64,14 @@ pub enum AppAction {
         commit_oid: String,
         current_message: String,
     },
-    /// Start the squash flow: user picked source and target, launch editor for
-    /// the combined message, then execute.
+    /// Start the squash/fixup flow: user picked source and target.
+    /// When `is_fixup` is true the target's message is kept as-is (no editor).
     PrepareSquash {
         source_oid: String,
         target_oid: String,
         source_message: String,
         target_message: String,
+        is_fixup: bool,
     },
 }
 
@@ -122,8 +123,9 @@ pub enum AppMode {
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(ConflictState),
-    /// Squash target selection: user picks which commit to squash the source into.
-    SquashSelect { source_index: usize },
+    /// Squash/fixup target selection: user picks which commit to squash the source into.
+    /// When `is_fixup` is true the target's message is kept as-is (no editor).
+    SquashSelect { source_index: usize, is_fixup: bool },
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -371,14 +373,25 @@ impl AppState {
     /// Enter squash target selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_squash_select(&mut self) {
+        self.enter_squash_or_fixup_select(false);
+    }
+
+    /// Enter fixup target selection mode (same UI as squash, keeps target msg).
+    pub fn enter_fixup_select(&mut self) {
+        self.enter_squash_or_fixup_select(true);
+    }
+
+    fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
+        let label = if is_fixup { "fixup" } else { "squash" };
         if let Some(commit) = self.commits.get(self.selection_index) {
             if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.set_error_message("Cannot squash staged/unstaged changes");
+                self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
                 return;
             }
         }
         self.mode = AppMode::SquashSelect {
             source_index: self.selection_index,
+            is_fixup,
         };
     }
 

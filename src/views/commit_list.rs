@@ -86,6 +86,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_squash_select();
             AppAction::Handled
         }
+        KeyCommand::Fixup => {
+            app.enter_fixup_select();
+            AppAction::Handled
+        }
         KeyCommand::Drop => {
             let commit = &app.commits[app.selection_index];
             if commit.oid == "staged" || commit.oid == "unstaged" {
@@ -514,7 +518,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
     // In SquashSelect mode, the source commit index drives candidate coloring.
     let squash_source_idx = match app.mode {
-        AppMode::SquashSelect { source_index } => Some(source_index),
+        AppMode::SquashSelect { source_index, .. } => Some(source_index),
         _ => None,
     };
 
@@ -612,8 +616,12 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
-    if let AppMode::SquashSelect { source_index } = app.mode {
-        render_squash_footer(frame, app, area, source_index);
+    if let AppMode::SquashSelect {
+        source_index,
+        is_fixup,
+    } = app.mode
+    {
+        render_squash_footer(frame, app, area, source_index, is_fixup);
         return;
     }
 
@@ -631,7 +639,13 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
 
 const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Magenta);
 
-fn render_squash_footer(frame: &mut Frame, app: &AppState, area: Rect, source_index: usize) {
+fn render_squash_footer(
+    frame: &mut Frame,
+    app: &AppState,
+    area: Rect,
+    source_index: usize,
+    is_fixup: bool,
+) {
     let source = match app.commits.get(source_index) {
         Some(c) => c,
         None => return,
@@ -643,8 +657,12 @@ fn render_squash_footer(frame: &mut Frame, app: &AppState, area: Rect, source_in
         &source.oid
     };
 
+    let label = if is_fixup { "Fixup" } else { "Squash" };
+
     let max_summary_len = (area.width as usize)
-        .saturating_sub(" Squash  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel".len())
+        .saturating_sub(
+            format!(" {label}  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel").len(),
+        )
         .saturating_sub(short_oid.len());
 
     let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
@@ -654,7 +672,7 @@ fn render_squash_footer(frame: &mut Frame, app: &AppState, area: Rect, source_in
     };
 
     let line = Line::from(vec![
-        Span::styled(" Squash ", SQUASH_FOOTER_STYLE),
+        Span::styled(format!(" {label} "), SQUASH_FOOTER_STYLE),
         Span::styled(short_oid, Style::new().fg(Color::Yellow).bg(Color::Magenta)),
         Span::styled(format!(" \"{summary}\" into\u{2026}"), SQUASH_FOOTER_STYLE),
         Span::styled(" \u{b7} ", SQUASH_FOOTER_STYLE),

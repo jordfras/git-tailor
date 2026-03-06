@@ -25,8 +25,11 @@ use crate::event::KeyCommand;
 /// Navigation is clamped so the cursor cannot move to commits later than
 /// the source — squashing into a later commit is not supported.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
-    let source_index = match app.mode {
-        AppMode::SquashSelect { source_index } => source_index,
+    let (source_index, is_fixup) = match app.mode {
+        AppMode::SquashSelect {
+            source_index,
+            is_fixup,
+        } => (source_index, is_fixup),
         _ => return AppAction::Handled,
     };
 
@@ -91,6 +94,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 target_oid: target.oid.clone(),
                 source_message: source.message.clone(),
                 target_message: target.message.clone(),
+                is_fixup,
             };
 
             app.mode = AppMode::CommitList;

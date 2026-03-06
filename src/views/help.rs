@@ -80,6 +80,10 @@ pub fn render(frame: &mut Frame) {
             Span::raw("Squash commit (pick target)"),
         ]),
         Line::from(vec![
+            Span::styled("   f         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Fixup commit (keep target message)"),
+        ]),
+        Line::from(vec![
             Span::styled("   r         ", Style::default().fg(Color::Cyan)),
             Span::raw("Reword commit message"),
         ]),

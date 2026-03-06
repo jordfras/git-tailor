@@ -377,6 +377,7 @@ fn main() -> Result<()> {
                 target_oid,
                 source_message,
                 target_message,
+                is_fixup,
             } => {
                 let head_oid = match git_repo.head_oid() {
                     Ok(oid) => oid,
@@ -386,6 +387,7 @@ fn main() -> Result<()> {
                     }
                 };
 
+                let label = if is_fixup { "Fixup" } else { "Squash" };
                 let combined = format!("{target_message}\n\n{source_message}");
 
                 // Try the tree combination first. If it conflicts, let the
@@ -396,35 +398,51 @@ fn main() -> Result<()> {
                         continue;
                     }
                     Err(e) => {
-                        app.set_error_message(format!("Squash failed: {e}"));
+                        app.set_error_message(format!("{label} failed: {e}"));
                         continue;
                     }
                     Ok(None) => {}
                 }
 
-                // Trees merge cleanly — open editor, then execute.
-                let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
-                terminal.clear()?;
-                match editor_result {
-                    Err(e) => app.set_error_message(format!("Editor error: {e}")),
-                    Ok(msg) if msg.trim().is_empty() => {
-                        app.set_error_message("Squash aborted: empty commit message");
+                // Determine the final commit message: fixup keeps target's
+                // message as-is; squash opens the editor.
+                let final_message = if is_fixup {
+                    Some(target_message)
+                } else {
+                    let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                    terminal.clear()?;
+                    match editor_result {
+                        Err(e) => {
+                            app.set_error_message(format!("Editor error: {e}"));
+                            continue;
+                        }
+                        Ok(msg) if msg.trim().is_empty() => {
+                            app.set_error_message("Squash aborted: empty commit message");
+                            continue;
+                        }
+                        Ok(msg) => Some(msg),
                     }
-                    Ok(msg) => {
-                        let saved_index = app.selection_index;
-                        match git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid) {
-                            Ok(RebaseOutcome::Complete) => {
-                                reload_commits(&git_repo, &mut app);
-                                app.selection_index =
-                                    saved_index.min(app.commits.len().saturating_sub(1));
-                                app.set_success_message("Commits squashed");
-                            }
-                            Ok(RebaseOutcome::Conflict(state)) => {
-                                app.enter_rebase_conflict(*state);
-                            }
-                            Err(e) => {
-                                app.set_error_message(format!("Squash failed: {e}"));
-                            }
+                };
+
+                if let Some(msg) = final_message {
+                    let saved_index = app.selection_index;
+                    match git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid) {
+                        Ok(RebaseOutcome::Complete) => {
+                            reload_commits(&git_repo, &mut app);
+                            app.selection_index =
+                                saved_index.min(app.commits.len().saturating_sub(1));
+                            let success_msg = if is_fixup {
+                                "Commit fixed up"
+                            } else {
+                                "Commits squashed"
+                            };
+                            app.set_success_message(success_msg);
+                        }
+                        Ok(RebaseOutcome::Conflict(state)) => {
+                            app.enter_rebase_conflict(*state);
+                        }
+                        Err(e) => {
+                            app.set_error_message(format!("{label} failed: {e}"));
                         }
                     }
                 }
