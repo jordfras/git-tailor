@@ -25,7 +25,11 @@ use ratatui::{
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
-use crate::{app::AppState, repo::GitRepo};
+use crate::{
+    app::{AppAction, AppState},
+    event::KeyCommand,
+    repo::GitRepo,
+};
 
 /// File status indicator for changed files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,10 +40,53 @@ enum FileStatus {
     Renamed,
 }
 
+/// Handle an action while in CommitDetail mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::MoveUp => {
+            app.scroll_detail_up();
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            app.scroll_detail_down();
+            AppAction::Handled
+        }
+        KeyCommand::PageUp => {
+            app.scroll_detail_page_up(app.detail_visible_height);
+            AppAction::Handled
+        }
+        KeyCommand::PageDown => {
+            app.scroll_detail_page_down(app.detail_visible_height);
+            AppAction::Handled
+        }
+        KeyCommand::ScrollLeft => {
+            app.scroll_fragmap_left();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollRight => {
+            app.scroll_fragmap_right();
+            AppAction::Handled
+        }
+        KeyCommand::ToggleDetail | KeyCommand::Confirm => {
+            app.toggle_detail_view();
+            AppAction::Handled
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Update => AppAction::ReloadCommits,
+        KeyCommand::Quit => {
+            app.toggle_detail_view();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
+
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
-/// Currently a placeholder showing the selected commit's summary.
 pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, and footer
     let [header_area, content_area, footer_area] = Layout::vertical([

@@ -156,7 +156,7 @@ Guidelines:
   entry (Flags: V4)
 
 ## Refactoring — TUI Architecture (V5)
-- [ ] T096 P1 feat - Refactor event loop to mode-first dispatch: flip the main
+- [X] T096 P1 feat - Refactor event loop to mode-first dispatch: flip the main
   match from action-first to mode-first so there is one small match on `AppMode`
   delegating to a `handle_action(action, app)` function in each view module
   (co-located with `render()`). Each handler returns an `ActionResult` enum

@@ -14,6 +14,9 @@
 
 // Help dialog view showing keybindings
 
+use crate::app::AppAction;
+use crate::event::KeyCommand;
+
 use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
@@ -21,6 +24,17 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+
+/// Handle an action while in Help mode.
+pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppAction {
+    match action {
+        KeyCommand::Quit | KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
 
 /// Render the help dialog as a centered overlay.
 pub fn render(frame: &mut Frame) {

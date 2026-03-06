@@ -14,7 +14,8 @@
 
 // Split strategy selection dialog
 
-use crate::app::{AppMode, AppState, SplitStrategy};
+use crate::app::{AppAction, AppMode, AppState, SplitStrategy};
+use crate::event::KeyCommand;
 use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
@@ -22,6 +23,66 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+
+/// Handle an action while in SplitSelect mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::MoveUp => {
+            app.split_select_up();
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            app.split_select_down();
+            AppAction::Handled
+        }
+        KeyCommand::Confirm => {
+            let strategy = app.selected_split_strategy();
+            let commit_oid = app.commits[app.selection_index].oid.clone();
+            app.mode = AppMode::CommitList;
+            AppAction::PrepareSplit {
+                strategy,
+                commit_oid,
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.mode = AppMode::CommitList;
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
+
+/// Handle an action while in SplitConfirm mode.
+pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::Confirm => {
+            if let AppMode::SplitConfirm(pending) =
+                std::mem::replace(&mut app.mode, AppMode::CommitList)
+            {
+                AppAction::ExecuteSplit {
+                    strategy: pending.strategy,
+                    commit_oid: pending.commit_oid,
+                    head_oid: pending.head_oid,
+                }
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.cancel_split_confirm();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
 
 /// Render the split strategy selection dialog as a centered overlay.
 pub fn render(app: &AppState, frame: &mut Frame) {

@@ -22,7 +22,7 @@ use crossterm::{
 };
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
-    app::{AppMode, AppState, SplitStrategy},
+    app::{AppAction, AppMode, AppState, SplitStrategy},
     editor, event, fragmap, mergetool, views, CommitDiff, CommitInfo,
 };
 use ratatui::{
@@ -175,281 +175,178 @@ fn main() -> Result<()> {
         })?;
 
         let event = event::read()?;
-        let action = event::parse_key_event(event);
+        let action = event::parse_key(event);
 
         app.clear_status_message();
 
-        match action {
-            event::AppAction::MoveUp => match app.mode.clone() {
-                AppMode::CommitList if app.reverse => app.move_down(),
-                AppMode::CommitList => app.move_up(),
-                AppMode::CommitDetail => app.scroll_detail_up(),
-                AppMode::SplitSelect { .. } => app.split_select_up(),
-                AppMode::Help(_)
-                | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_)
-                | AppMode::DropConflict(_) => {}
-            },
-            event::AppAction::MoveDown => match app.mode.clone() {
-                AppMode::CommitList if app.reverse => app.move_up(),
-                AppMode::CommitList => app.move_down(),
-                AppMode::CommitDetail => app.scroll_detail_down(),
-                AppMode::SplitSelect { .. } => app.split_select_down(),
-                AppMode::Help(_)
-                | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_)
-                | AppMode::DropConflict(_) => {}
-            },
-            event::AppAction::PageUp => match app.mode.clone() {
-                AppMode::CommitList if app.reverse => app.page_down(app.commit_list_visible_height),
-                AppMode::CommitList => app.page_up(app.commit_list_visible_height),
-                AppMode::CommitDetail => app.scroll_detail_page_up(app.detail_visible_height),
-                AppMode::Help(_)
-                | AppMode::SplitSelect { .. }
-                | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_)
-                | AppMode::DropConflict(_) => {}
-            },
-            event::AppAction::PageDown => match app.mode.clone() {
-                AppMode::CommitList if app.reverse => app.page_up(app.commit_list_visible_height),
-                AppMode::CommitList => app.page_down(app.commit_list_visible_height),
-                AppMode::CommitDetail => app.scroll_detail_page_down(app.detail_visible_height),
-                AppMode::Help(_)
-                | AppMode::SplitSelect { .. }
-                | AppMode::SplitConfirm(_)
-                | AppMode::DropConfirm(_)
-                | AppMode::DropConflict(_) => {}
-            },
-            event::AppAction::ScrollLeft => {
-                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
-                    app.scroll_fragmap_left();
-                }
-            }
-            event::AppAction::ScrollRight => {
-                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
-                    app.scroll_fragmap_right();
-                }
-            }
-            event::AppAction::ToggleDetail => {
-                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
-                    app.toggle_detail_view();
-                }
-            }
-            event::AppAction::ShowHelp => app.toggle_help(),
-            event::AppAction::Split => {
-                if app.mode == AppMode::CommitList {
-                    app.enter_split_select();
-                }
-            }
-            event::AppAction::Drop => {
-                if app.mode == AppMode::CommitList {
-                    let commit = &app.commits[app.selection_index];
-                    if commit.oid == "staged" || commit.oid == "unstaged" {
-                        app.set_error_message("Cannot drop staged/unstaged changes");
-                    } else {
-                        let commit_oid = commit.oid.clone();
-                        let commit_summary = commit.summary.clone();
-                        let head_oid = match git_repo.head_oid() {
-                            Ok(oid) => oid,
-                            Err(e) => {
-                                app.set_error_message(format!("Failed to get HEAD: {e}"));
-                                continue;
-                            }
-                        };
-                        app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
+        // Mode-first dispatch: each view module handles its own actions.
+        let mode = app.mode.clone();
+        let result = match mode {
+            AppMode::CommitList => views::commit_list::handle_key(action, &mut app),
+            AppMode::CommitDetail => views::commit_detail::handle_key(action, &mut app),
+            AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
+            AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
+            AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
+            AppMode::DropConflict(_) => views::drop::handle_conflict_key(action, &mut app),
+            AppMode::Help(_) => views::help::handle_key(action, &mut app),
+        };
+
+        // Handle side effects that require git operations or terminal access.
+        match result {
+            AppAction::Handled => {}
+            AppAction::Quit => app.should_quit = true,
+            AppAction::ReloadCommits => reload_commits(&git_repo, &mut app),
+            AppAction::PrepareSplit {
+                strategy,
+                commit_oid,
+            } => {
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
                     }
-                }
-            }
-            event::AppAction::Reword => {
-                if app.mode == AppMode::CommitList {
-                    let commit = &app.commits[app.selection_index];
-                    if commit.oid == "staged" || commit.oid == "unstaged" {
-                        app.set_error_message("Cannot reword staged/unstaged changes");
-                    } else {
-                        let commit_oid = commit.oid.clone();
-                        let current_message = commit.message.clone();
-                        let head_oid = match git_repo.head_oid() {
-                            Ok(oid) => oid,
-                            Err(e) => {
-                                app.set_error_message(format!("Failed to get HEAD: {e}"));
-                                continue;
-                            }
-                        };
-                        let editor_result =
-                            editor::edit_message_in_editor(&git_repo, &current_message);
-                        // Force a full repaint — ratatui's buffer is stale after the editor
-                        // temporarily owned the terminal.
-                        terminal.clear()?;
-                        match editor_result {
-                            Err(e) => app.set_error_message(format!("Editor error: {e}")),
-                            Ok(new_message) if new_message == current_message => {}
-                            Ok(new_message) => {
-                                let saved_index = app.selection_index;
-                                match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
-                                    Ok(()) => {
-                                        reload_commits(&git_repo, &mut app);
-                                        app.selection_index =
-                                            saved_index.min(app.commits.len().saturating_sub(1));
-                                    }
-                                    Err(e) => app.set_error_message(format!("Reword failed: {e}")),
-                                }
-                            }
-                        }
+                };
+                let count_result = match strategy {
+                    SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
+                    SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
+                    SplitStrategy::PerHunkGroup => git_repo.count_split_per_hunk_group(
+                        &commit_oid,
+                        &head_oid,
+                        &app.reference_oid,
+                    ),
+                };
+                match count_result {
+                    Err(e) => app.set_error_message(e.to_string()),
+                    Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
+                        app.enter_split_confirm(strategy, commit_oid, head_oid, count);
                     }
-                }
-            }
-            event::AppAction::Confirm => match app.mode.clone() {
-                AppMode::SplitSelect { .. } => {
-                    let strategy = app.selected_split_strategy();
-                    let commit_oid = app.commits[app.selection_index].oid.clone();
-                    let head_oid = match git_repo.head_oid() {
-                        Ok(oid) => oid,
-                        Err(e) => {
-                            app.mode = AppMode::CommitList;
-                            app.set_error_message(format!("Failed to get HEAD: {e}"));
-                            continue;
-                        }
-                    };
-                    let count_result = match strategy {
-                        SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
-                        SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
-                        SplitStrategy::PerHunkGroup => git_repo.count_split_per_hunk_group(
-                            &commit_oid,
-                            &head_oid,
-                            &app.reference_oid,
-                        ),
-                    };
-                    match count_result {
-                        Err(e) => {
-                            app.mode = AppMode::CommitList;
-                            app.set_error_message(e.to_string());
-                        }
-                        Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
-                            app.enter_split_confirm(strategy, commit_oid, head_oid, count);
-                        }
-                        Ok(_) => {
-                            app.mode = AppMode::CommitList;
-                            execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
-                        }
-                    }
-                }
-                AppMode::SplitConfirm(_) => {
-                    if let AppMode::SplitConfirm(pending) =
-                        std::mem::replace(&mut app.mode, AppMode::CommitList)
-                    {
-                        let strategy = pending.strategy;
-                        let commit_oid = pending.commit_oid;
-                        let head_oid = pending.head_oid;
+                    Ok(_) => {
                         execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
                     }
                 }
-                AppMode::DropConfirm(_) => {
-                    if let AppMode::DropConfirm(pending) =
-                        std::mem::replace(&mut app.mode, AppMode::CommitList)
-                    {
-                        let saved_index = app.selection_index;
-                        match git_repo.drop_commit(&pending.commit_oid, &pending.head_oid) {
-                            Ok(RebaseOutcome::Complete) => {
-                                reload_commits(&git_repo, &mut app);
-                                app.selection_index =
-                                    saved_index.min(app.commits.len().saturating_sub(1));
-                                app.set_success_message("Commit dropped");
-                            }
-                            Ok(RebaseOutcome::Conflict(state)) => {
-                                app.enter_drop_conflict(state);
-                            }
-                            Err(e) => {
-                                app.set_error_message(format!("Drop failed: {e}"));
-                            }
-                        }
+            }
+            AppAction::ExecuteSplit {
+                strategy,
+                commit_oid,
+                head_oid,
+            } => {
+                execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
+            }
+            AppAction::PrepareDropConfirm {
+                commit_oid,
+                commit_summary,
+            } => {
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
+                    }
+                };
+                app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
+            }
+            AppAction::ExecuteDrop {
+                commit_oid,
+                head_oid,
+            } => {
+                let saved_index = app.selection_index;
+                match git_repo.drop_commit(&commit_oid, &head_oid) {
+                    Ok(RebaseOutcome::Complete) => {
+                        reload_commits(&git_repo, &mut app);
+                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+                        app.set_success_message("Commit dropped");
+                    }
+                    Ok(RebaseOutcome::Conflict(state)) => {
+                        app.enter_drop_conflict(state);
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Drop failed: {e}"));
                     }
                 }
-                AppMode::DropConflict(_) => {
-                    if let AppMode::DropConflict(state) =
-                        std::mem::replace(&mut app.mode, AppMode::CommitList)
-                    {
-                        let saved_index = app.selection_index;
-                        match git_repo.drop_commit_continue(&state) {
-                            Ok(RebaseOutcome::Complete) => {
-                                reload_commits(&git_repo, &mut app);
-                                app.selection_index =
-                                    saved_index.min(app.commits.len().saturating_sub(1));
-                                app.set_success_message("Commit dropped");
-                            }
-                            Ok(RebaseOutcome::Conflict(new_state)) => {
-                                app.enter_drop_conflict(new_state);
-                            }
-                            Err(e) => {
-                                app.set_error_message(format!("Continue failed: {e}"));
-                            }
-                        }
+            }
+            AppAction::ContinueDrop(state) => {
+                let saved_index = app.selection_index;
+                match git_repo.drop_commit_continue(&state) {
+                    Ok(RebaseOutcome::Complete) => {
+                        reload_commits(&git_repo, &mut app);
+                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+                        app.set_success_message("Commit dropped");
+                    }
+                    Ok(RebaseOutcome::Conflict(new_state)) => {
+                        app.enter_drop_conflict(new_state);
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Continue failed: {e}"));
                     }
                 }
-                AppMode::CommitList | AppMode::CommitDetail => {
-                    app.toggle_detail_view();
-                }
-                AppMode::Help(_) => {}
-            },
-            event::AppAction::Update => {
-                if matches!(app.mode, AppMode::CommitList | AppMode::CommitDetail) {
+            }
+            AppAction::AbortDrop(state) => match git_repo.drop_commit_abort(&state) {
+                Ok(()) => {
                     reload_commits(&git_repo, &mut app);
+                    app.set_success_message("Drop aborted");
                 }
-            }
-            event::AppAction::Mergetool => {
-                if let AppMode::DropConflict(ref state) = app.mode.clone() {
-                    let result = mergetool::run_mergetool(&git_repo, &state.conflicting_files);
-                    // Force a full repaint — ratatui's buffer is stale after the
-                    // tool temporarily owned the terminal.
-                    terminal.clear()?;
-                    match result {
-                        Ok(true) => {
-                            // Refresh the conflict file list so the dialog reflects
-                            // whatever the tool resolved.
-                            let new_files = git_repo.read_conflicting_files();
-                            app.mode = AppMode::DropConflict(git_tailor::repo::ConflictState {
-                                conflicting_files: new_files,
-                                still_unresolved: false,
-                                ..state.clone()
-                            });
-                            app.set_success_message(
-                                "Merge tool finished — press Enter when done or Esc to abort",
-                            );
-                        }
-                        Ok(false) => {
-                            app.set_error_message(
-                                "No merge tool configured (set merge.tool in git config)",
-                            );
-                        }
-                        Err(e) => {
-                            app.set_error_message(format!("Merge tool failed: {e}"));
-                        }
+                Err(e) => {
+                    app.set_error_message(format!("Abort failed: {e}"));
+                }
+            },
+            AppAction::RunMergetool {
+                files,
+                conflict_state,
+            } => {
+                let result = mergetool::run_mergetool(&git_repo, &files);
+                terminal.clear()?;
+                match result {
+                    Ok(true) => {
+                        let new_files = git_repo.read_conflicting_files();
+                        app.mode = AppMode::DropConflict(git_tailor::repo::ConflictState {
+                            conflicting_files: new_files,
+                            still_unresolved: false,
+                            ..conflict_state
+                        });
+                        app.set_success_message(
+                            "Merge tool finished — press Enter when done or Esc to abort",
+                        );
+                    }
+                    Ok(false) => {
+                        app.set_error_message(
+                            "No merge tool configured (set merge.tool in git config)",
+                        );
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Merge tool failed: {e}"));
                     }
                 }
             }
-            event::AppAction::Quit => match app.mode.clone() {
-                AppMode::Help(_) => app.close_help(),
-                AppMode::SplitSelect { .. } => app.mode = AppMode::CommitList,
-                AppMode::SplitConfirm(_) => app.cancel_split_confirm(),
-                AppMode::DropConfirm(_) => app.cancel_drop_confirm(),
-                AppMode::DropConflict(_) => {
-                    if let AppMode::DropConflict(state) =
-                        std::mem::replace(&mut app.mode, AppMode::CommitList)
-                    {
-                        match git_repo.drop_commit_abort(&state) {
+            AppAction::PrepareReword {
+                commit_oid,
+                current_message,
+            } => {
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
+                    }
+                };
+                let editor_result = editor::edit_message_in_editor(&git_repo, &current_message);
+                terminal.clear()?;
+                match editor_result {
+                    Err(e) => app.set_error_message(format!("Editor error: {e}")),
+                    Ok(new_message) if new_message == current_message => {}
+                    Ok(new_message) => {
+                        let saved_index = app.selection_index;
+                        match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
                             Ok(()) => {
                                 reload_commits(&git_repo, &mut app);
-                                app.set_success_message("Drop aborted");
+                                app.selection_index =
+                                    saved_index.min(app.commits.len().saturating_sub(1));
                             }
-                            Err(e) => {
-                                app.set_error_message(format!("Abort failed: {e}"));
-                            }
+                            Err(e) => app.set_error_message(format!("Reword failed: {e}")),
                         }
                     }
                 }
-                AppMode::CommitDetail => app.toggle_detail_view(),
-                AppMode::CommitList => app.should_quit = true,
-            },
-            event::AppAction::None => {}
+            }
         }
 
         if app.should_quit {

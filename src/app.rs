@@ -16,6 +16,56 @@
 
 use crate::{fragmap::FragMap, repo::ConflictState, CommitInfo};
 
+/// Result of a view module's `handle_key` function.
+///
+/// Pure state mutations (scroll, selection, mode transitions) are applied
+/// directly to `AppState` inside the handler. Side effects that require git
+/// operations or terminal access are returned here for `main.rs` to execute.
+#[derive(Debug)]
+pub enum AppAction {
+    /// Fully handled, no side effects needed.
+    Handled,
+    /// The application should quit.
+    Quit,
+    /// Reload commits from the repository.
+    ReloadCommits,
+    /// Begin the split flow: get head_oid, count results, confirm if large.
+    PrepareSplit {
+        strategy: SplitStrategy,
+        commit_oid: String,
+    },
+    /// Execute a split that has already been confirmed.
+    ExecuteSplit {
+        strategy: SplitStrategy,
+        commit_oid: String,
+        head_oid: String,
+    },
+    /// Begin the drop flow: get head_oid from repo, then show confirmation.
+    PrepareDropConfirm {
+        commit_oid: String,
+        commit_summary: String,
+    },
+    /// Execute a confirmed drop.
+    ExecuteDrop {
+        commit_oid: String,
+        head_oid: String,
+    },
+    /// Continue a drop after the user resolved merge conflicts.
+    ContinueDrop(ConflictState),
+    /// Abort a drop that hit conflicts.
+    AbortDrop(ConflictState),
+    /// Launch the merge tool for conflicting files.
+    RunMergetool {
+        files: Vec<String>,
+        conflict_state: ConflictState,
+    },
+    /// Start the reword flow: get head_oid, launch editor, rewrite commit.
+    PrepareReword {
+        commit_oid: String,
+        current_message: String,
+    },
+}
+
 /// Split strategy options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitStrategy {

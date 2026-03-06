@@ -14,7 +14,8 @@
 
 // Commit list view rendering
 
-use crate::app::AppState;
+use crate::app::{AppAction, AppState};
+use crate::event::KeyCommand;
 use crate::fragmap::{self, TouchKind};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -23,6 +24,93 @@ use ratatui::{
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
     Frame,
 };
+
+/// Handle an action while in CommitList mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::MoveUp => {
+            if app.reverse {
+                app.move_down();
+            } else {
+                app.move_up();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            if app.reverse {
+                app.move_up();
+            } else {
+                app.move_down();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::PageUp => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.page_down(h);
+            } else {
+                app.page_up(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::PageDown => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.page_up(h);
+            } else {
+                app.page_down(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::ScrollLeft => {
+            app.scroll_fragmap_left();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollRight => {
+            app.scroll_fragmap_right();
+            AppAction::Handled
+        }
+        KeyCommand::ToggleDetail | KeyCommand::Confirm => {
+            app.toggle_detail_view();
+            AppAction::Handled
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Split => {
+            app.enter_split_select();
+            AppAction::Handled
+        }
+        KeyCommand::Drop => {
+            let commit = &app.commits[app.selection_index];
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                app.set_error_message("Cannot drop staged/unstaged changes");
+                AppAction::Handled
+            } else {
+                AppAction::PrepareDropConfirm {
+                    commit_oid: commit.oid.clone(),
+                    commit_summary: commit.summary.clone(),
+                }
+            }
+        }
+        KeyCommand::Reword => {
+            let commit = &app.commits[app.selection_index];
+            if commit.oid == "staged" || commit.oid == "unstaged" {
+                app.set_error_message("Cannot reword staged/unstaged changes");
+                AppAction::Handled
+            } else {
+                AppAction::PrepareReword {
+                    commit_oid: commit.oid.clone(),
+                    current_message: commit.message.clone(),
+                }
+            }
+        }
+        KeyCommand::Update => AppAction::ReloadCommits,
+        KeyCommand::Quit => AppAction::Quit,
+        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
+    }
+}
 
 /// Number of characters to display for short SHA.
 const SHORT_SHA_LENGTH: usize = 8;

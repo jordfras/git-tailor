@@ -17,9 +17,9 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEvent};
 
-/// Application actions derived from keyboard input.
+/// Semantic commands derived from keyboard input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppAction {
+pub enum KeyCommand {
     MoveUp,
     MoveDown,
     PageUp,
@@ -46,36 +46,36 @@ pub fn read() -> Result<Event> {
     Ok(event::read()?)
 }
 
-/// Parse a terminal event into an application action.
+/// Parse a terminal event into a key command.
 ///
 /// Recognizes arrow keys for navigation, 'i' to toggle detail view, and Esc to
 /// exit detail view or quit application.
-/// Returns AppAction::None for unrecognized events.
-pub fn parse_key_event(event: Event) -> AppAction {
+/// Returns KeyCommand::None for unrecognized events.
+pub fn parse_key(event: Event) -> KeyCommand {
     // To work in Windows, only care about key presses
     if let Event::Key(KeyEvent { code, kind, .. }) = event {
         if kind == event::KeyEventKind::Press {
             return match code {
-                KeyCode::Up | KeyCode::Char('k') => AppAction::MoveUp,
-                KeyCode::Down | KeyCode::Char('j') => AppAction::MoveDown,
-                KeyCode::PageUp => AppAction::PageUp,
-                KeyCode::PageDown => AppAction::PageDown,
-                KeyCode::Left => AppAction::ScrollLeft,
-                KeyCode::Right => AppAction::ScrollRight,
-                KeyCode::Enter => AppAction::Confirm,
-                KeyCode::Char('i') => AppAction::ToggleDetail,
-                KeyCode::Char('h') => AppAction::ShowHelp,
-                KeyCode::Char('s') => AppAction::Split,
-                KeyCode::Char('r') => AppAction::Reword,
-                KeyCode::Char('d') => AppAction::Drop,
-                KeyCode::Char('m') => AppAction::Mergetool,
-                KeyCode::Char('u') => AppAction::Update,
-                KeyCode::Esc | KeyCode::Char('q') => AppAction::Quit,
-                _ => AppAction::None,
+                KeyCode::Up | KeyCode::Char('k') => KeyCommand::MoveUp,
+                KeyCode::Down | KeyCode::Char('j') => KeyCommand::MoveDown,
+                KeyCode::PageUp => KeyCommand::PageUp,
+                KeyCode::PageDown => KeyCommand::PageDown,
+                KeyCode::Left => KeyCommand::ScrollLeft,
+                KeyCode::Right => KeyCommand::ScrollRight,
+                KeyCode::Enter => KeyCommand::Confirm,
+                KeyCode::Char('i') => KeyCommand::ToggleDetail,
+                KeyCode::Char('h') => KeyCommand::ShowHelp,
+                KeyCode::Char('s') => KeyCommand::Split,
+                KeyCode::Char('r') => KeyCommand::Reword,
+                KeyCode::Char('d') => KeyCommand::Drop,
+                KeyCode::Char('m') => KeyCommand::Mergetool,
+                KeyCode::Char('u') => KeyCommand::Update,
+                KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
+                _ => KeyCommand::None,
             };
         }
     }
-    AppAction::None
+    KeyCommand::None
 }
 
 // Re-export commonly used types for convenience

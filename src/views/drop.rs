@@ -14,7 +14,8 @@
 
 // Drop commit dialogs: confirmation and conflict resolution
 
-use crate::app::{AppMode, AppState};
+use crate::app::{AppAction, AppMode, AppState};
+use crate::event::KeyCommand;
 use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
@@ -50,6 +51,72 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
     result.push(remaining.to_string());
     result
+}
+
+/// Handle an action while in DropConfirm mode.
+pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::Confirm => {
+            if let AppMode::DropConfirm(pending) =
+                std::mem::replace(&mut app.mode, AppMode::CommitList)
+            {
+                AppAction::ExecuteDrop {
+                    commit_oid: pending.commit_oid,
+                    head_oid: pending.head_oid,
+                }
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.cancel_drop_confirm();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}
+
+/// Handle an action while in DropConflict mode.
+pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match action {
+        KeyCommand::Confirm => {
+            if let AppMode::DropConflict(state) =
+                std::mem::replace(&mut app.mode, AppMode::CommitList)
+            {
+                AppAction::ContinueDrop(state)
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::Mergetool => {
+            if let AppMode::DropConflict(ref state) = app.mode {
+                AppAction::RunMergetool {
+                    files: state.conflicting_files.clone(),
+                    conflict_state: state.clone(),
+                }
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            if let AppMode::DropConflict(state) =
+                std::mem::replace(&mut app.mode, AppMode::CommitList)
+            {
+                AppAction::AbortDrop(state)
+            } else {
+                AppAction::Handled
+            }
+        }
+        _ => AppAction::Handled,
+    }
 }
 
 /// Render the drop confirmation dialog as a centered overlay.
