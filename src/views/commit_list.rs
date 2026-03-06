@@ -544,6 +544,8 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 // SquashSelect mode: color by relation to squash source.
                 if is_squash_source {
                     Style::new().fg(Color::White)
+                } else if commit_idx_in_fragmap > source_idx {
+                    Style::new().fg(Color::DarkGray)
                 } else if is_synthetic {
                     Style::new().fg(COLOR_SYNTHETIC_LABEL)
                 } else if let Some(ref fm) = app.fragmap {

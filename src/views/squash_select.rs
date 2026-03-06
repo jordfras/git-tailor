@@ -22,7 +22,14 @@ use crate::event::KeyCommand;
 ///
 /// The user navigates the commit list to pick a squash target. The source
 /// commit (from `source_index`) will be squashed *into* the chosen target.
+/// Navigation is clamped so the cursor cannot move to commits later than
+/// the source — squashing into a later commit is not supported.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    let source_index = match app.mode {
+        AppMode::SquashSelect { source_index } => source_index,
+        _ => return AppAction::Handled,
+    };
+
     match action {
         KeyCommand::MoveUp => {
             if app.reverse {
@@ -30,6 +37,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 app.move_up();
             }
+            app.selection_index = app.selection_index.min(source_index);
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
@@ -38,6 +46,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 app.move_down();
             }
+            app.selection_index = app.selection_index.min(source_index);
             AppAction::Handled
         }
         KeyCommand::PageUp => {
@@ -47,6 +56,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 app.page_up(h);
             }
+            app.selection_index = app.selection_index.min(source_index);
             AppAction::Handled
         }
         KeyCommand::PageDown => {
@@ -56,13 +66,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 app.page_down(h);
             }
+            app.selection_index = app.selection_index.min(source_index);
             AppAction::Handled
         }
         KeyCommand::Confirm => {
-            let source_index = match app.mode {
-                AppMode::SquashSelect { source_index } => source_index,
-                _ => return AppAction::Handled,
-            };
             let target_index = app.selection_index;
 
             // Cannot squash onto itself

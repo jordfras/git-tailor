@@ -158,6 +158,48 @@ fn test_squash_navigation_moves_selection() {
     assert_eq!(app.selection_index, 1);
 }
 
+#[test]
+fn test_squash_clamps_to_source_index() {
+    // source_index=1 (middle), start at 1 — cannot move to index 2 (later)
+    let mut app = make_app_in_squash_select(1, 1);
+
+    views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.selection_index, 1);
+
+    views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
+    assert_eq!(app.selection_index, 0);
+
+    views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.selection_index, 1);
+
+    views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.selection_index, 1);
+}
+
+#[test]
+fn test_squash_clamps_in_reverse_mode() {
+    let mut app = make_app_in_squash_select(1, 1);
+    app.reverse = true;
+
+    // In reverse, MoveUp maps to move_down (increase index) — clamped at source
+    views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
+    assert_eq!(app.selection_index, 1);
+
+    // In reverse, MoveDown maps to move_up (decrease index) — allowed
+    views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.selection_index, 0);
+}
+
+#[test]
+fn test_squash_page_down_clamped() {
+    let mut app = make_app_in_squash_select(1, 0);
+    app.commit_list_visible_height = 10;
+
+    // PageDown would jump past source_index — clamped to 1
+    views::squash_select::handle_key(KeyCommand::PageDown, &mut app);
+    assert_eq!(app.selection_index, 1);
+}
+
 fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
     SpanCluster {
         spans: vec![FileSpan {
@@ -248,6 +290,23 @@ fn test_squash_candidate_coloring_conflicting() {
             vec![TouchKind::Modified],
         ],
     });
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+/// Squash mode with source_index=1 (middle commit): commit at index 2 (newest)
+/// should be dimmed with DarkGray to indicate it is an unreachable target.
+#[test]
+fn test_squash_dims_later_commits() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = make_app_in_squash_select(1, 0);
 
     terminal
         .draw(|frame| views::commit_list::render(&mut app, frame))
