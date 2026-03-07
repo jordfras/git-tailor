@@ -17,7 +17,7 @@
 mod common;
 
 use git_tailor::{app::AppState, views};
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 #[test]
 fn test_commit_list_empty() {

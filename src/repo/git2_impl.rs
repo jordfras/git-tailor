@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 
-use crate::{fragmap, CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
+use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, fragmap};
 
 use super::GitRepo;
 
@@ -207,7 +207,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;
@@ -298,7 +300,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;
@@ -411,7 +415,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;

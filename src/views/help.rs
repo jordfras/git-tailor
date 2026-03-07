@@ -15,13 +15,12 @@
 // Help dialog view showing keybindings
 
 use super::dialog::render_centered_dialog;
-use crate::app::AppAction;
-use crate::event::KeyCommand;
+use crate::app::{AppAction, KeyCommand};
 
 use ratatui::{
+    Frame,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    Frame,
 };
 
 /// Handle an action while in Help mode.

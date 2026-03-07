@@ -21,7 +21,7 @@ use git_tailor::{
     repo::ConflictState,
     views,
 };
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState {
     let mut app = AppState::new();

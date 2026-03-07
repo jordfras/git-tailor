@@ -17,8 +17,7 @@
 mod common;
 
 use git_tailor::{
-    app::{AppAction, AppMode, AppState},
-    event::KeyCommand,
+    app::{AppAction, AppMode, AppState, KeyCommand},
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
 };
@@ -38,7 +37,7 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app
 }
 
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 #[test]
 fn test_squash_footer_renders() {

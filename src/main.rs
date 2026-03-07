@@ -18,20 +18,21 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
-    app::{AppAction, AppMode, AppState, SplitStrategy},
-    editor, event, fragmap, mergetool, views, CommitDiff, CommitInfo,
+    CommitDiff, CommitInfo,
+    app::{self, AppAction, AppMode, AppState, SplitStrategy},
+    editor, fragmap, mergetool, views,
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Terminal,
 };
 use std::io;
 
@@ -142,8 +143,8 @@ fn main() -> Result<()> {
             render_mode(&mode, &git_repo, &mut app, frame);
         })?;
 
-        let event = event::read()?;
-        let action = event::parse_key(event);
+        let event = app::read_event()?;
+        let action = app.mode.parse_key(event);
 
         app.clear_status_message();
 

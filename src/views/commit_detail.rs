@@ -15,21 +15,18 @@
 // Commit detail view — metadata and diff
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
-use crate::{
-    app::{AppAction, AppState},
-    event::KeyCommand,
-    repo::GitRepo,
-};
+use crate::app::{AppAction, AppState, KeyCommand};
+use crate::repo::GitRepo;
 
 /// File status indicator for changed files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -16,7 +16,7 @@
 // Usage: cargo run --example dump_fragmap -- <commit-ish>
 
 use git_tailor::repo::{Git2Repo, GitRepo};
-use git_tailor::{fragmap, CommitInfo};
+use git_tailor::{CommitInfo, fragmap};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

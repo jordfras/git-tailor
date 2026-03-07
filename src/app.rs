@@ -14,7 +14,42 @@
 
 // TUI application state management
 
-use crate::{fragmap::FragMap, repo::ConflictState, CommitInfo};
+use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEvent};
+
+use crate::{CommitInfo, fragmap::FragMap, repo::ConflictState};
+
+/// Semantic commands derived from keyboard input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyCommand {
+    MoveUp,
+    MoveDown,
+    PageUp,
+    PageDown,
+    ScrollLeft,
+    ScrollRight,
+    ToggleDetail,
+    ShowHelp,
+    Split,
+    Squash,
+    Fixup,
+    Reword,
+    Drop,
+    Move,
+    Mergetool,
+    Update,
+    Quit,
+    Confirm,
+    None,
+}
+
+/// Read the next terminal event.
+///
+/// Blocks until an event is available. Returns the event wrapped in Result
+/// to handle potential I/O errors.
+pub fn read_event() -> Result<Event> {
+    Ok(event::read()?)
+}
 
 /// Result of a view module's `handle_key` function.
 ///
@@ -143,6 +178,42 @@ impl AppMode {
             | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
+    }
+
+    /// Parse a terminal event into a semantic key command for this mode.
+    ///
+    /// Most keys are mode-independent (arrows, Esc, Enter). Where a key has
+    /// different meanings per mode (e.g. 'm' → Move in CommitList vs Mergetool
+    /// in RebaseConflict), this method resolves the ambiguity.
+    pub fn parse_key(&self, event: Event) -> KeyCommand {
+        if let Event::Key(KeyEvent { code, kind, .. }) = event
+            && kind == event::KeyEventKind::Press
+        {
+            return match code {
+                KeyCode::Up | KeyCode::Char('k') => KeyCommand::MoveUp,
+                KeyCode::Down | KeyCode::Char('j') => KeyCommand::MoveDown,
+                KeyCode::PageUp => KeyCommand::PageUp,
+                KeyCode::PageDown => KeyCommand::PageDown,
+                KeyCode::Left => KeyCommand::ScrollLeft,
+                KeyCode::Right => KeyCommand::ScrollRight,
+                KeyCode::Enter => KeyCommand::Confirm,
+                KeyCode::Char('i') => KeyCommand::ToggleDetail,
+                KeyCode::Char('h') => KeyCommand::ShowHelp,
+                KeyCode::Char('p') => KeyCommand::Split,
+                KeyCode::Char('s') => KeyCommand::Squash,
+                KeyCode::Char('f') => KeyCommand::Fixup,
+                KeyCode::Char('r') => KeyCommand::Reword,
+                KeyCode::Char('d') => KeyCommand::Drop,
+                KeyCode::Char('m') => match self {
+                    AppMode::RebaseConflict(_) => KeyCommand::Mergetool,
+                    _ => KeyCommand::Move,
+                },
+                KeyCode::Char('u') => KeyCommand::Update,
+                KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
+                _ => KeyCommand::None,
+            };
+        }
+        KeyCommand::None
     }
 }
 

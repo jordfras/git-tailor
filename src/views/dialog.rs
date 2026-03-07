@@ -15,11 +15,11 @@
 // Shared dialog rendering utilities for centered overlay dialogs.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Color, Style},
     text::Line,
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 
 /// Render a centered dialog overlay.

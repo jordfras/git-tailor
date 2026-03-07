@@ -14,8 +14,7 @@
 
 // Commit list view rendering
 
-use crate::app::{AppAction, AppMode, AppState};
-use crate::event::KeyCommand;
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use crate::fragmap::{self, TouchKind};
 use ratatui::{
     Frame,
@@ -116,7 +115,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Update => AppAction::ReloadCommits,
         KeyCommand::Quit => AppAction::Quit,
-        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
+        KeyCommand::Mergetool | KeyCommand::Move | KeyCommand::None => AppAction::Handled,
     }
 }
 
