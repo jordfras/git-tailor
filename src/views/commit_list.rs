@@ -758,8 +758,6 @@ fn render_squash_footer(
     frame.render_widget(footer, area);
 }
 
-
-
 fn render_move_footer(
     frame: &mut Frame,
     app: &AppState,

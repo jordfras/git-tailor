@@ -224,6 +224,24 @@ pub trait GitRepo {
     /// and index contain the partially merged state for the user to resolve.
     fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
 
+    /// Move a commit to a different position on the branch.
+    ///
+    /// Removes `commit_oid` from its current position and inserts it
+    /// immediately after `insert_after_oid`. All affected descendants are
+    /// cherry-picked in the new order.
+    ///
+    /// `insert_after_oid` may be the merge-base (reference point) to move
+    /// the commit to the very beginning of the branch.
+    ///
+    /// Returns `RebaseOutcome::Complete` on success or
+    /// `RebaseOutcome::Conflict` when a cherry-pick step conflicts.
+    fn move_commit(
+        &self,
+        commit_oid: &str,
+        insert_after_oid: &str,
+        head_oid: &str,
+    ) -> Result<RebaseOutcome>;
+
     /// Resume a conflicted rebase after the user has resolved conflicts.
     ///
     /// Reads the current index (which the user resolved), creates a commit
