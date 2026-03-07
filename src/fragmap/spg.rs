@@ -477,7 +477,7 @@ fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
     let mut spg = Spg::empty();
 
     for (commit_idx, hunks) in commits {
-        let gen = *commit_idx as i32;
+        let commit_gen = *commit_idx as i32;
 
         let mut prev_nodes = spg.sink_connected_nodes();
         prev_nodes.retain(|n| !n.new_span.is_empty());
@@ -494,7 +494,7 @@ fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
         let active_nodes: Vec<SpgNode> = hunks
             .iter()
             .map(|h| SpgNode {
-                generation: gen,
+                generation: commit_gen,
                 is_active: true,
                 old_span: SpgSpan::from_old_hunk(h),
                 new_span: SpgSpan::from_new_hunk(h),
@@ -506,7 +506,7 @@ fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
         for prev in &prev_nodes {
             for m in spg_moved_span(&prev.new_span, hunks) {
                 propagated_nodes.push(SpgNode {
-                    generation: gen,
+                    generation: commit_gen,
                     is_active: false,
                     old_span: prev.new_span,
                     new_span: m,
@@ -530,7 +530,7 @@ fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
             spg_add_on_top_of(&mut spg, &prev_nodes, cur_node);
         }
 
-        spg_update_dangling(&mut spg, &prev_nodes, gen);
+        spg_update_dangling(&mut spg, &prev_nodes, commit_gen);
     }
 
     spg
@@ -589,7 +589,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
         .find(|(idx, _)| *idx == target_commit_idx)
         .map(|(_, h)| h.as_slice())
         .unwrap_or(&[]);
-    let gen = target_commit_idx as i32;
+    let commit_gen = target_commit_idx as i32;
 
     let spg = build_file_spg(commits_for_file);
     let paths = spg_all_paths(&spg);
@@ -617,7 +617,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
                 }
                 last_active_span = Some(node.new_span);
 
-                if node.generation == gen {
+                if node.generation == commit_gen {
                     for (h, hunk) in k_hunks.iter().enumerate() {
                         if SpgSpan::from_new_hunk(hunk) == node.new_span {
                             k_hunks_on_path.push(h);
