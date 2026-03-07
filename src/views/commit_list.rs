@@ -153,13 +153,10 @@ const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 // Applied when the row is not selected so they are visually distinct from commits.
 const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
 
-// Colors for squash-mode source and target highlighting.
-const COLOR_SQUASH_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
-const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(0, 40, 50);
-
-// Colors for move-mode source and insertion row highlighting.
-const COLOR_MOVE_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
-const COLOR_MOVE_INSERT_BG: Color = Color::Rgb(40, 40, 100);
+// Colors shared across action modes (squash, move, …) for source, target, and insert-point rows.
+const COLOR_ACTION_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
+const COLOR_ACTION_TARGET_BG: Color = Color::Rgb(0, 40, 50);
+const COLOR_ACTION_INSERT_BG: Color = Color::Rgb(40, 40, 100);
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -602,14 +599,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             Style::default()
         };
 
-        // Apply highlight: source gets cyan bg, selection gets reversed,
-        // in squash mode the selected target gets a subtle bg tint.
-        let text_cell_style = if is_squash_source {
-            text_style.fg(Color::White).bg(COLOR_SQUASH_SOURCE_BG)
-        } else if is_selected && squash_source_idx.is_some() {
-            text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
-        } else if is_move_source {
-            text_style.bg(COLOR_MOVE_SOURCE_BG)
+        // Apply highlight: source gets teal bg, selection in an action mode gets
+        // a subtle target-bg tint plus reversed; plain selection gets reversed.
+        let text_cell_style = if is_squash_source || is_move_source {
+            text_style.fg(Color::White).bg(COLOR_ACTION_SOURCE_BG)
+        } else if is_selected && (squash_source_idx.is_some() || move_info.is_some()) {
+            text_style.bg(COLOR_ACTION_TARGET_BG).reversed()
         } else if is_selected {
             text_style.reversed()
         } else {
@@ -655,7 +650,7 @@ fn build_move_separator_row<'a>(
         })
         .unwrap_or("?");
 
-    let style = Style::new().fg(Color::White).bg(COLOR_MOVE_INSERT_BG);
+    let style = Style::new().fg(Color::White).bg(COLOR_ACTION_INSERT_BG);
     let label = format!("▶ move {} here", short_oid);
 
     let mut cells = vec![
@@ -713,8 +708,8 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     frame.render_widget(footer, area);
 }
 
-const SQUASH_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Cyan);
-const SQUASH_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Cyan);
+const ACTION_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Cyan);
+const ACTION_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Cyan);
 
 fn render_squash_footer(
     frame: &mut Frame,
@@ -749,22 +744,21 @@ fn render_squash_footer(
     };
 
     let line = Line::from(vec![
-        Span::styled(format!(" {label} "), SQUASH_FOOTER_STYLE),
-        Span::styled(short_oid, SQUASH_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\" into\u{2026}"), SQUASH_FOOTER_STYLE),
-        Span::styled(" \u{b7} ", SQUASH_FOOTER_STYLE),
-        Span::styled("Enter", SQUASH_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", SQUASH_FOOTER_STYLE),
-        Span::styled("Esc", SQUASH_FOOTER_ACCENT),
-        Span::styled(" cancel", SQUASH_FOOTER_STYLE),
+        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
+        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
+        Span::styled(format!(" \"{summary}\" into\u{2026}"), ACTION_FOOTER_STYLE),
+        Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled("Enter", ACTION_FOOTER_ACCENT),
+        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled("Esc", ACTION_FOOTER_ACCENT),
+        Span::styled(" cancel", ACTION_FOOTER_STYLE),
     ]);
 
-    let footer = Paragraph::new(line).style(SQUASH_FOOTER_STYLE);
+    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 
-const MOVE_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Magenta);
-const MOVE_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Magenta);
+
 
 fn render_move_footer(
     frame: &mut Frame,
@@ -797,19 +791,19 @@ fn render_move_footer(
     };
 
     let line = Line::from(vec![
-        Span::styled(" Move ", MOVE_FOOTER_STYLE),
-        Span::styled(short_oid, MOVE_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\""), MOVE_FOOTER_STYLE),
-        Span::styled(" \u{b7} ", MOVE_FOOTER_STYLE),
-        Span::styled("↑/↓", MOVE_FOOTER_ACCENT),
-        Span::styled(" pick position \u{b7} ", MOVE_FOOTER_STYLE),
-        Span::styled("Enter", MOVE_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", MOVE_FOOTER_STYLE),
-        Span::styled("Esc", MOVE_FOOTER_ACCENT),
-        Span::styled(" cancel", MOVE_FOOTER_STYLE),
+        Span::styled(" Move ", ACTION_FOOTER_STYLE),
+        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
+        Span::styled(format!(" \"{summary}\""), ACTION_FOOTER_STYLE),
+        Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled("↑/↓", ACTION_FOOTER_ACCENT),
+        Span::styled(" pick position \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled("Enter", ACTION_FOOTER_ACCENT),
+        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled("Esc", ACTION_FOOTER_ACCENT),
+        Span::styled(" cancel", ACTION_FOOTER_STYLE),
     ]);
 
-    let footer = Paragraph::new(line).style(MOVE_FOOTER_STYLE);
+    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 
