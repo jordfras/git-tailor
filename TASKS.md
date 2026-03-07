@@ -111,8 +111,11 @@ Guidelines:
 
 ## Interactivity — Move Commit (V4)
 - [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
-  show a "move <short sha> here" insertion row navigable with arrow keys (Flags:
-  V4)
+  show a "move <short sha> here" insertion row navigable with arrow keys.
+  Design: move `KeyCommand` enum and key parsing into `app.rs`, implement
+  `AppMode::parse_key(event: Event) -> KeyCommand` so each mode resolves
+  ambiguous keys ('m' → `MoveCommit` in `CommitList`, `Mergetool` in
+  `RebaseConflict`), and delete the `event` module. (Flags: V4)
 - [ ] T074 P1 feat - Color the insertion row red with "move <short sha> here -
   likely conflict" when moving to a position that would cause a conflict (Flags:
   V4)
