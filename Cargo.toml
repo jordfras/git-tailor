@@ -11,8 +11,8 @@ path = "src/main.rs"
 [dependencies]
 git2 = { version = "0.20", default-features = false }
 anyhow = "1.0"
-ratatui = "0.28"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions"] }
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
 tempfile = "3"

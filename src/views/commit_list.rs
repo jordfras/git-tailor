@@ -18,11 +18,11 @@ use crate::app::{AppAction, AppMode, AppState};
 use crate::event::KeyCommand;
 use crate::fragmap::{self, TouchKind};
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Style, Stylize},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
-    Frame,
 };
 
 /// Handle an action while in CommitList mode.
