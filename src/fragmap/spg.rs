@@ -628,23 +628,23 @@ pub(super) fn build_file_clusters_and_assign_hunks(
             }
         }
 
-        if let Some(sp) = last_active_span {
-            if !commit_oids.is_empty() {
-                let cluster_idx = clusters.len();
-                for h in k_hunks_on_path {
-                    if !hunk_to_clusters[h].contains(&cluster_idx) {
-                        hunk_to_clusters[h].push(cluster_idx);
-                    }
+        if let Some(sp) = last_active_span
+            && !commit_oids.is_empty()
+        {
+            let cluster_idx = clusters.len();
+            for h in k_hunks_on_path {
+                if !hunk_to_clusters[h].contains(&cluster_idx) {
+                    hunk_to_clusters[h].push(cluster_idx);
                 }
-                clusters.push(SpanCluster {
-                    spans: vec![FileSpan {
-                        path: path.to_string(),
-                        start_line: sp.start.max(1) as u32,
-                        end_line: (sp.end - 1).max(1) as u32,
-                    }],
-                    commit_oids,
-                });
             }
+            clusters.push(SpanCluster {
+                spans: vec![FileSpan {
+                    path: path.to_string(),
+                    start_line: sp.start.max(1) as u32,
+                    end_line: (sp.end - 1).max(1) as u32,
+                }],
+                commit_oids,
+            });
         }
     }
 
@@ -686,11 +686,11 @@ pub fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
                 .collect();
             if !hunks.is_empty() {
                 let entry = file_commits.entry(path).or_default();
-                if let Some(last) = entry.last_mut() {
-                    if last.0 == commit_idx {
-                        last.1.extend(hunks);
-                        continue;
-                    }
+                if let Some(last) = entry.last_mut()
+                    && last.0 == commit_idx
+                {
+                    last.1.extend(hunks);
+                    continue;
                 }
                 entry.push((commit_idx, hunks));
             }

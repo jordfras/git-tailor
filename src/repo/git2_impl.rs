@@ -1090,10 +1090,10 @@ fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
         let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0 {
-            if let Ok(p) = std::str::from_utf8(&entry.path) {
-                paths.insert(p.to_string());
-            }
+        if stage > 0
+            && let Ok(p) = std::str::from_utf8(&entry.path)
+        {
+            paths.insert(p.to_string());
         }
     }
     paths.into_iter().collect()

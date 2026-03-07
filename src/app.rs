@@ -161,6 +161,13 @@ pub enum AppMode {
     /// Squash/fixup target selection: user picks which commit to squash the source into.
     /// When `is_fixup` is true the target's message is kept as-is (no editor).
     SquashSelect { source_index: usize, is_fixup: bool },
+    /// Move commit selection: user picks where to insert the source commit.
+    /// `insert_before` is the index in the commit list where the separator row
+    /// appears; the commit will be moved to that position.
+    MoveSelect {
+        source_index: usize,
+        insert_before: usize,
+    },
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -171,7 +178,7 @@ impl AppMode {
     pub fn background(&self) -> Option<AppMode> {
         match self {
             AppMode::CommitList | AppMode::CommitDetail => None,
-            AppMode::SquashSelect { .. } => None,
+            AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
@@ -432,11 +439,11 @@ impl AppState {
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
-        if let Some(commit) = self.commits.get(self.selection_index) {
-            if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.set_error_message("Cannot split staged/unstaged changes");
-                return;
-            }
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message("Cannot split staged/unstaged changes");
+            return;
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
     }
@@ -454,11 +461,11 @@ impl AppState {
 
     fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
         let label = if is_fixup { "fixup" } else { "squash" };
-        if let Some(commit) = self.commits.get(self.selection_index) {
-            if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
-                return;
-            }
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
+            return;
         }
         self.mode = AppMode::SquashSelect {
             source_index: self.selection_index,
@@ -468,6 +475,30 @@ impl AppState {
 
     /// Cancel squash selection and return to CommitList.
     pub fn cancel_squash_select(&mut self) {
+        self.mode = AppMode::CommitList;
+    }
+
+    /// Enter move commit selection mode.
+    /// The insertion cursor starts one position before the source (i.e. one
+    /// slot earlier in the commit list, which visually means "above" in
+    /// chronological order).
+    pub fn enter_move_select(&mut self) {
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message("Cannot move staged/unstaged changes");
+            return;
+        }
+        let source = self.selection_index;
+        let insert_before = source.saturating_sub(1);
+        self.mode = AppMode::MoveSelect {
+            source_index: source,
+            insert_before,
+        };
+    }
+
+    /// Cancel move selection and return to CommitList.
+    pub fn cancel_move_select(&mut self) {
         self.mode = AppMode::CommitList;
     }
 
@@ -491,19 +522,19 @@ impl AppState {
 
     /// Move split strategy selection up.
     pub fn split_select_up(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
-            if *strategy_index > 0 {
-                *strategy_index -= 1;
-            }
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
+            && *strategy_index > 0
+        {
+            *strategy_index -= 1;
         }
     }
 
     /// Move split strategy selection down.
     pub fn split_select_down(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
-            if *strategy_index < SplitStrategy::ALL.len() - 1 {
-                *strategy_index += 1;
-            }
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
+            && *strategy_index < SplitStrategy::ALL.len() - 1
+        {
+            *strategy_index += 1;
         }
     }
 
@@ -526,7 +557,8 @@ impl AppState {
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
-            | AppMode::SquashSelect { .. } => return,
+            | AppMode::SquashSelect { .. }
+            | AppMode::MoveSelect { .. } => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

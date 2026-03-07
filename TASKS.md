@@ -110,7 +110,7 @@ Guidelines:
   behaviour unchanged. (Flags: V4)
 
 ## Interactivity — Move Commit (V4)
-- [ ] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
+- [X] T073 P0 feat - Add move mode on 'm' key: highlight selected commit and
   show a "move <short sha> here" insertion row navigable with arrow keys.
   Design: move `KeyCommand` enum and key parsing into `app.rs`, implement
   `AppMode::parse_key(event: Event) -> KeyCommand` so each mode resolves

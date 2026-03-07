@@ -92,7 +92,7 @@ pub fn render(frame: &mut Frame) {
         ]),
         Line::from(vec![
             Span::styled("   m         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Launch merge tool (during drop conflict)"),
+            Span::raw("Move commit (pick new position)"),
         ]),
         Line::from(vec![
             Span::styled("   h         ", Style::default().fg(Color::Cyan)),

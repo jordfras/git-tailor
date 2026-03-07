@@ -115,7 +115,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Update => AppAction::ReloadCommits,
         KeyCommand::Quit => AppAction::Quit,
-        KeyCommand::Mergetool | KeyCommand::Move | KeyCommand::None => AppAction::Handled,
+        KeyCommand::Move => {
+            app.enter_move_select();
+            AppAction::Handled
+        }
+        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
     }
 }
 
@@ -152,6 +156,10 @@ const COLOR_SYNTHETIC_LABEL: Color = Color::Cyan;
 // Colors for squash-mode source and target highlighting.
 const COLOR_SQUASH_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
 const COLOR_SQUASH_TARGET_BG: Color = Color::Rgb(0, 40, 50);
+
+// Colors for move-mode source and insertion row highlighting.
+const COLOR_MOVE_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
+const COLOR_MOVE_INSERT_BG: Color = Color::Rgb(40, 40, 100);
 
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
@@ -521,85 +529,145 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         _ => None,
     };
 
-    visible_commits
-        .iter()
-        .enumerate()
-        .map(|(visible_index, commit)| {
-            let visual_index = layout.scroll_offset + visible_index;
+    // In MoveSelect mode, extract source and insertion point.
+    let move_info = match app.mode {
+        AppMode::MoveSelect {
+            source_index,
+            insert_before,
+        } => Some((source_index, insert_before)),
+        _ => None,
+    };
 
-            let commit_idx_in_fragmap = if app.reverse {
-                app.commits
-                    .len()
-                    .saturating_sub(1)
-                    .saturating_sub(visual_index)
-            } else {
-                visual_index
-            };
+    let mut rows: Vec<Row<'a>> = Vec::new();
 
-            let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
+    for (visible_index, commit) in visible_commits.iter().enumerate() {
+        let visual_index = layout.scroll_offset + visible_index;
 
-            let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
-            let is_selected = visual_index == layout.visual_selection;
-            let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
+        let commit_idx_in_fragmap = if app.reverse {
+            app.commits
+                .len()
+                .saturating_sub(1)
+                .saturating_sub(visual_index)
+        } else {
+            visual_index
+        };
 
-            // Determine text style based on mode and position.
-            let text_style = if let Some(source_idx) = squash_source_idx {
-                // SquashSelect mode: color by relation to squash source.
-                if is_squash_source {
-                    Style::new().fg(Color::White)
-                } else if commit_idx_in_fragmap > source_idx {
-                    Style::new().fg(Color::DarkGray)
-                } else if is_synthetic {
-                    Style::new().fg(COLOR_SYNTHETIC_LABEL)
-                } else if let Some(ref fm) = app.fragmap {
-                    commit_text_style(fm, source_idx, commit_idx_in_fragmap)
-                } else {
-                    Style::default()
-                }
-            } else if !is_selected {
-                // Normal CommitList mode coloring for non-selected rows.
-                if is_synthetic {
-                    Style::new().fg(COLOR_SYNTHETIC_LABEL)
-                } else if let Some(ref fm) = app.fragmap {
-                    commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
-                } else {
-                    Style::default()
-                }
+        // Insert separator row before this commit if this is the insertion point.
+        if let Some((source_index, insert_before)) = move_info
+            && commit_idx_in_fragmap == insert_before
+            && insert_before != source_index
+        {
+            rows.push(build_move_separator_row(app, layout, source_index));
+        }
+
+        let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
+
+        let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
+        let is_selected = visual_index == layout.visual_selection;
+        let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
+        let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);
+
+        // Determine text style based on mode and position.
+        let text_style = if let Some(source_idx) = squash_source_idx {
+            // SquashSelect mode: color by relation to squash source.
+            if is_squash_source {
+                Style::new().fg(Color::White)
+            } else if commit_idx_in_fragmap > source_idx {
+                Style::new().fg(Color::DarkGray)
+            } else if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                commit_text_style(fm, source_idx, commit_idx_in_fragmap)
             } else {
                 Style::default()
-            };
-
-            // Apply highlight: source gets cyan bg, selection gets reversed,
-            // in squash mode the selected target gets a subtle bg tint.
-            let text_cell_style = if is_squash_source {
-                text_style.fg(Color::White).bg(COLOR_SQUASH_SOURCE_BG)
-            } else if is_selected && squash_source_idx.is_some() {
-                text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
-            } else if is_selected {
-                text_style.reversed()
-            } else {
-                text_style
-            };
-
-            let mut cells = vec![
-                Cell::from(Span::styled(short_sha, text_cell_style)),
-                Cell::from(Span::styled(commit.summary.clone(), text_cell_style)),
-            ];
-
-            if let Some(ref fragmap) = app.fragmap {
-                if !layout.display_clusters.is_empty() {
-                    cells.push(build_fragmap_cell(
-                        fragmap,
-                        commit_idx_in_fragmap,
-                        &layout.display_clusters,
-                        is_selected,
-                    ));
-                }
             }
+        } else if move_info.is_some() {
+            if is_move_source {
+                Style::new().fg(Color::DarkGray)
+            } else if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else {
+                Style::default()
+            }
+        } else if !is_selected {
+            // Normal CommitList mode coloring for non-selected rows.
+            if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
+            } else {
+                Style::default()
+            }
+        } else {
+            Style::default()
+        };
 
-            Row::new(cells)
+        // Apply highlight: source gets cyan bg, selection gets reversed,
+        // in squash mode the selected target gets a subtle bg tint.
+        let text_cell_style = if is_squash_source {
+            text_style.fg(Color::White).bg(COLOR_SQUASH_SOURCE_BG)
+        } else if is_selected && squash_source_idx.is_some() {
+            text_style.bg(COLOR_SQUASH_TARGET_BG).reversed()
+        } else if is_move_source {
+            text_style.bg(COLOR_MOVE_SOURCE_BG)
+        } else if is_selected {
+            text_style.reversed()
+        } else {
+            text_style
+        };
+
+        let mut cells = vec![
+            Cell::from(Span::styled(short_sha, text_cell_style)),
+            Cell::from(Span::styled(commit.summary.clone(), text_cell_style)),
+        ];
+
+        if let Some(ref fragmap) = app.fragmap
+            && !layout.display_clusters.is_empty()
+        {
+            cells.push(build_fragmap_cell(
+                fragmap,
+                commit_idx_in_fragmap,
+                &layout.display_clusters,
+                is_selected,
+            ));
+        }
+
+        rows.push(Row::new(cells));
+    }
+
+    rows
+}
+
+/// Build the styled "▶ move here" separator row for MoveSelect mode.
+fn build_move_separator_row<'a>(
+    app: &AppState,
+    layout: &LayoutInfo,
+    source_index: usize,
+) -> Row<'a> {
+    let source = app.commits.get(source_index);
+    let short_oid = source
+        .map(|c| {
+            if c.oid.len() >= SHORT_SHA_LENGTH {
+                &c.oid[..SHORT_SHA_LENGTH]
+            } else {
+                &c.oid
+            }
         })
-        .collect()
+        .unwrap_or("?");
+
+    let style = Style::new().fg(Color::White).bg(COLOR_MOVE_INSERT_BG);
+    let label = format!("▶ move {} here", short_oid);
+
+    let mut cells = vec![
+        Cell::from(Span::styled("", style)),
+        Cell::from(Span::styled(label, style)),
+    ];
+
+    if !layout.display_clusters.is_empty() {
+        cells.push(Cell::from(Span::styled("", style)));
+    }
+
+    Row::new(cells)
 }
 
 fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
@@ -621,6 +689,15 @@ fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     } = app.mode
     {
         render_squash_footer(frame, app, area, source_index, is_fixup);
+        return;
+    }
+
+    if let AppMode::MoveSelect {
+        source_index,
+        insert_before,
+    } = app.mode
+    {
+        render_move_footer(frame, app, area, source_index, insert_before);
         return;
     }
 
@@ -683,6 +760,56 @@ fn render_squash_footer(
     ]);
 
     let footer = Paragraph::new(line).style(SQUASH_FOOTER_STYLE);
+    frame.render_widget(footer, area);
+}
+
+const MOVE_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Magenta);
+const MOVE_FOOTER_ACCENT: Style = Style::new().fg(Color::Gray).bg(Color::Magenta);
+
+fn render_move_footer(
+    frame: &mut Frame,
+    app: &AppState,
+    area: Rect,
+    source_index: usize,
+    _insert_before: usize,
+) {
+    let source = match app.commits.get(source_index) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let short_oid = if source.oid.len() >= SHORT_SHA_LENGTH {
+        &source.oid[..SHORT_SHA_LENGTH]
+    } else {
+        &source.oid
+    };
+
+    let max_summary_len = (area.width as usize)
+        .saturating_sub(
+            " Move  \"\" \u{b7} ↑/↓ pick position \u{b7} Enter confirm \u{b7} Esc cancel".len(),
+        )
+        .saturating_sub(short_oid.len());
+
+    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
+        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
+    } else {
+        source.summary.clone()
+    };
+
+    let line = Line::from(vec![
+        Span::styled(" Move ", MOVE_FOOTER_STYLE),
+        Span::styled(short_oid, MOVE_FOOTER_ACCENT),
+        Span::styled(format!(" \"{summary}\""), MOVE_FOOTER_STYLE),
+        Span::styled(" \u{b7} ", MOVE_FOOTER_STYLE),
+        Span::styled("↑/↓", MOVE_FOOTER_ACCENT),
+        Span::styled(" pick position \u{b7} ", MOVE_FOOTER_STYLE),
+        Span::styled("Enter", MOVE_FOOTER_ACCENT),
+        Span::styled(" confirm \u{b7} ", MOVE_FOOTER_STYLE),
+        Span::styled("Esc", MOVE_FOOTER_ACCENT),
+        Span::styled(" cancel", MOVE_FOOTER_STYLE),
+    ]);
+
+    let footer = Paragraph::new(line).style(MOVE_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 
