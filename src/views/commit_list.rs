@@ -516,7 +516,25 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let visible_commits = if display_commits.is_empty() {
         &display_commits[..]
     } else {
-        let end = (layout.scroll_offset + layout.available_height).min(display_commits.len());
+        // When a move separator row is visible it occupies one table row,
+        // so we show one fewer commit to keep everything within bounds.
+        let separator_visible = match app.mode {
+            AppMode::MoveSelect {
+                source_index,
+                insert_before,
+            } if insert_before != source_index => {
+                let vis_start = layout.scroll_offset;
+                let vis_end = (vis_start + layout.available_height).min(display_commits.len());
+                insert_before >= vis_start && insert_before <= vis_end
+            }
+            _ => false,
+        };
+        let height = if separator_visible {
+            layout.available_height.saturating_sub(1)
+        } else {
+            layout.available_height
+        };
+        let end = (layout.scroll_offset + height).min(display_commits.len());
         &display_commits[layout.scroll_offset..end]
     };
 
@@ -628,6 +646,17 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         }
 
         rows.push(Row::new(cells));
+    }
+
+    // Append separator after the last visible commit when moving to the end.
+    if let Some((source_index, insert_before)) = move_info {
+        let last_visible_idx = layout.scroll_offset + visible_commits.len();
+        if insert_before >= last_visible_idx
+            && insert_before == app.commits.len()
+            && insert_before != source_index
+        {
+            rows.push(build_move_separator_row(app, layout, source_index));
+        }
     }
 
     rows

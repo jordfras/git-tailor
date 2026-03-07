@@ -210,15 +210,22 @@ fn test_move_navigation_reverse_inverts_direction() {
 }
 
 #[test]
-fn test_move_confirm_returns_handled_with_message() {
+fn test_move_confirm_returns_execute_move() {
     let mut app = make_app_in_move_select(2, 0);
+    app.reference_oid = "ref000".to_string();
 
     let result = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
-    assert!(matches!(result, AppAction::Handled));
+    match result {
+        AppAction::ExecuteMove {
+            source_oid,
+            insert_after_oid,
+        } => {
+            assert_eq!(source_oid, "eee555fff666");
+            assert_eq!(insert_after_oid, "ref000");
+        }
+        other => panic!("expected ExecuteMove, got {other:?}"),
+    }
     assert_eq!(app.mode, AppMode::CommitList);
-    // Should have a success message (not an error)
-    assert!(app.status_message.is_some());
-    assert!(!app.status_is_error);
 }
 
 #[test]

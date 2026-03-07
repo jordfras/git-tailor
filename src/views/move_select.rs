@@ -32,9 +32,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    // Valid insertion positions: 0..=commits.len()-1, excluding source_index
-    // (moving a commit to its own position is a no-op).
-    let max_insert = app.commits.len().saturating_sub(1);
+    // Valid insertion positions: 0..=commits.len(), excluding source_index.
+    // Position N means "insert before commit N"; position commits.len() means
+    // "insert after the last commit" (i.e. move to HEAD).
+    let max_insert = app.commits.len();
 
     match action {
         KeyCommand::MoveUp => {
@@ -89,13 +90,22 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             let source_oid = source.oid.clone();
 
+            // insert_before is the commit-list index where the separator sits.
+            // The source should be placed *after* the commit at insert_before - 1,
+            // or after the reference point if insert_before == 0.
+            let insert_after_oid = if insert_before == 0 {
+                app.reference_oid.clone()
+            } else {
+                let idx = (insert_before - 1).min(app.commits.len().saturating_sub(1));
+                app.commits[idx].oid.clone()
+            };
+
             app.mode = AppMode::CommitList;
-            app.set_success_message(format!(
-                "Move {} → position {} (not yet implemented)",
-                &source_oid[..source_oid.len().min(8)],
-                insert_before,
-            ));
-            AppAction::Handled
+
+            AppAction::ExecuteMove {
+                source_oid,
+                insert_after_oid,
+            }
         }
         KeyCommand::ShowHelp => {
             app.toggle_help();
