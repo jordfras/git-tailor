@@ -115,7 +115,12 @@ Guidelines:
   Design: move `KeyCommand` enum and key parsing into `app.rs`, implement
   `AppMode::parse_key(event: Event) -> KeyCommand` so each mode resolves
   ambiguous keys ('m' → `MoveCommit` in `CommitList`, `Mergetool` in
-  `RebaseConflict`), and delete the `event` module. (Flags: V4)
+  `RebaseConflict`), and delete the `event` module.
+  UI: add `AppMode::MoveCommit { source_index: usize, insert_before: usize }`;
+  `build_rows` injects a styled separator row (e.g. `▶ move here`) at the
+  insertion point — same pattern as the existing squash source highlight. A thin
+  line between rows is not feasible with ratatui's Table widget without
+  reimplementing layout. (Flags: V4)
 - [ ] T074 P1 feat - Color the insertion row red with "move <short sha> here -
   likely conflict" when moving to a position that would cause a conflict (Flags:
   V4)
