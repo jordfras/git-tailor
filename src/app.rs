@@ -108,6 +108,11 @@ pub enum AppAction {
         target_message: String,
         is_fixup: bool,
     },
+    /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
+    ExecuteMove {
+        source_oid: String,
+        insert_after_oid: String,
+    },
 }
 
 /// Split strategy options.

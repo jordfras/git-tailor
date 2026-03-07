@@ -449,6 +449,32 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            AppAction::ExecuteMove {
+                source_oid,
+                insert_after_oid,
+            } => {
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
+                    }
+                };
+                let saved_index = app.selection_index;
+                match git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid) {
+                    Ok(RebaseOutcome::Complete) => {
+                        reload_commits(&git_repo, &mut app);
+                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+                        app.set_success_message("Commit moved");
+                    }
+                    Ok(RebaseOutcome::Conflict(state)) => {
+                        app.enter_rebase_conflict(*state);
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Move failed: {e}"));
+                    }
+                }
+            }
         }
 
         if app.should_quit {
