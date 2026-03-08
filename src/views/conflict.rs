@@ -127,6 +127,16 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
             note,
             Style::default().fg(Color::Yellow),
         )));
+    } else if state.operation_label == "Squash" {
+        let note = if state.squash_context.is_some() {
+            " The squash itself caused the conflict."
+        } else {
+            " A commit being rebased after the squash conflicted."
+        };
+        lines.push(Line::from(Span::styled(
+            note,
+            Style::default().fg(Color::Yellow),
+        )));
     }
 
     if remaining > 0 {
