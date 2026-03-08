@@ -522,7 +522,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             AppMode::MoveSelect {
                 source_index,
                 insert_before,
-            } if insert_before != source_index => {
+            } if insert_before != source_index && insert_before != source_index + 1 => {
                 let vis_start = layout.scroll_offset;
                 let vis_end = (vis_start + layout.available_height).min(display_commits.len());
                 insert_before >= vis_start && insert_before <= vis_end
@@ -571,6 +571,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         if let Some((source_index, insert_before)) = move_info
             && commit_idx_in_fragmap == insert_before
             && insert_before != source_index
+            && insert_before != source_index + 1
         {
             rows.push(build_move_separator_row(app, layout, source_index));
         }
@@ -654,6 +655,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         if insert_before >= last_visible_idx
             && insert_before == app.commits.len()
             && insert_before != source_index
+            && insert_before != source_index + 1
         {
             rows.push(build_move_separator_row(app, layout, source_index));
         }

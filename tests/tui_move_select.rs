@@ -80,8 +80,8 @@ fn test_move_select_separator_at_middle() {
     let backend = TestBackend::new(80, 12);
     let mut terminal = Terminal::new(backend.clone()).unwrap();
 
-    // Source is index 0 (oldest), insertion at 1 (middle)
-    let mut app = make_app_in_move_select(0, 1);
+    // Source is index 0 (oldest), insertion at 2 (first valid middle position)
+    let mut app = make_app_in_move_select(0, 2);
 
     terminal
         .draw(|frame| {
@@ -136,17 +136,17 @@ fn test_move_navigation_skips_source() {
     // Source is index 1 (middle), start insertion at 0
     let mut app = make_app_in_move_select(1, 0);
 
-    // MoveDown should skip source_index 1 and land on 2
+    // MoveDown should skip both no-op positions (1 and 2) and land on 3
     views::move_select::handle_key(KeyCommand::MoveDown, &mut app);
     assert_eq!(
         app.mode,
         AppMode::MoveSelect {
             source_index: 1,
-            insert_before: 2,
+            insert_before: 3,
         }
     );
 
-    // MoveUp should skip source_index 1 and land on 0
+    // MoveUp should skip both no-op positions (2 and 1) and land on 0
     views::move_select::handle_key(KeyCommand::MoveUp, &mut app);
     assert_eq!(
         app.mode,
@@ -236,6 +236,17 @@ fn test_move_confirm_at_same_position_shows_error() {
     let result = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
     // Should remain in MoveSelect mode
+    assert!(matches!(app.mode, AppMode::MoveSelect { .. }));
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn test_move_confirm_at_source_plus_one_shows_error() {
+    // insert_before == source_index + 1 → also a no-op (insert after self)
+    let mut app = make_app_in_move_select(1, 2);
+
+    let result = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
+    assert!(matches!(result, AppAction::Handled));
     assert!(matches!(app.mode, AppMode::MoveSelect { .. }));
     assert!(app.status_is_error);
 }

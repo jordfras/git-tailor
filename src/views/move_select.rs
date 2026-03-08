@@ -37,6 +37,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     // "insert after the last commit" (i.e. move to HEAD).
     let max_insert = app.commits.len();
 
+    // Both source_index and source_index + 1 are no-op positions:
+    // "insert before self" and "insert after self" both leave the commit
+    // in the same place.
+    let is_noop = |pos: usize| pos == source_index || pos == source_index + 1;
+
     match action {
         KeyCommand::MoveUp => {
             let mut next = if app.reverse {
@@ -44,12 +49,17 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 insert_before.saturating_sub(1)
             };
-            if next == source_index {
-                next = if app.reverse {
-                    next.saturating_add(1).min(max_insert)
-                } else {
-                    next.saturating_sub(1)
-                };
+            for _ in 0..2 {
+                if is_noop(next) {
+                    next = if app.reverse {
+                        next.saturating_add(1).min(max_insert)
+                    } else {
+                        next.saturating_sub(1)
+                    };
+                }
+            }
+            if is_noop(next) {
+                next = insert_before;
             }
             app.mode = AppMode::MoveSelect {
                 source_index,
@@ -63,12 +73,17 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             } else {
                 insert_before.saturating_add(1).min(max_insert)
             };
-            if next == source_index {
-                next = if app.reverse {
-                    next.saturating_sub(1)
-                } else {
-                    next.saturating_add(1).min(max_insert)
-                };
+            for _ in 0..2 {
+                if is_noop(next) {
+                    next = if app.reverse {
+                        next.saturating_sub(1)
+                    } else {
+                        next.saturating_add(1).min(max_insert)
+                    };
+                }
+            }
+            if is_noop(next) {
+                next = insert_before;
             }
             app.mode = AppMode::MoveSelect {
                 source_index,
@@ -77,7 +92,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Confirm => {
-            if insert_before == source_index {
+            if is_noop(insert_before) {
                 app.set_error_message("Commit is already at this position");
                 return AppAction::Handled;
             }
