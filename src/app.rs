@@ -472,6 +472,17 @@ impl AppState {
             self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
             return;
         }
+        let real_count = self
+            .commits
+            .iter()
+            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .count();
+        if real_count < 2 {
+            self.set_error_message(format!(
+                "Nothing to {label} — only one commit on the branch"
+            ));
+            return;
+        }
         self.mode = AppMode::SquashSelect {
             source_index: self.selection_index,
             is_fixup,

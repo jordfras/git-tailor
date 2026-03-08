@@ -150,6 +150,32 @@ fn test_squash_blocked_on_staged_row() {
 }
 
 #[test]
+fn test_squash_blocked_on_single_commit() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_squash_select();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn test_fixup_blocked_on_single_commit() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_fixup_select();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status_is_error);
+}
+
+#[test]
 fn test_squash_navigation_moves_selection() {
     let mut app = make_app_in_squash_select(2, 2);
 
