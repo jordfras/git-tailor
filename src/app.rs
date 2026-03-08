@@ -271,6 +271,10 @@ pub struct AppState {
     pub detail_scroll_offset: usize,
     /// Maximum vertical scroll offset for the detail view (updated during render).
     pub max_detail_scroll: usize,
+    /// Horizontal scroll offset for the detail view.
+    pub detail_h_scroll_offset: usize,
+    /// Maximum horizontal scroll offset for the detail view (updated during render).
+    pub max_detail_h_scroll: usize,
     /// Visible height of the commit list area (updated during render).
     pub commit_list_visible_height: usize,
     /// Visible height of the detail view area (updated during render).
@@ -296,6 +300,8 @@ impl AppState {
             mode: AppMode::CommitList,
             detail_scroll_offset: 0,
             max_detail_scroll: 0,
+            detail_h_scroll_offset: 0,
+            max_detail_h_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             status_message: None,
@@ -318,6 +324,8 @@ impl AppState {
             mode: AppMode::CommitList,
             detail_scroll_offset: 0,
             max_detail_scroll: 0,
+            detail_h_scroll_offset: 0,
+            max_detail_h_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
             status_message: None,
@@ -364,6 +372,20 @@ impl AppState {
     pub fn scroll_detail_down(&mut self) {
         if self.detail_scroll_offset < self.max_detail_scroll {
             self.detail_scroll_offset += 1;
+        }
+    }
+
+    /// Scroll detail view left (decrease horizontal offset).
+    pub fn scroll_detail_left(&mut self) {
+        if self.detail_h_scroll_offset > 0 {
+            self.detail_h_scroll_offset -= 1;
+        }
+    }
+
+    /// Scroll detail view right (increase horizontal offset).
+    pub fn scroll_detail_right(&mut self) {
+        if self.detail_h_scroll_offset < self.max_detail_h_scroll {
+            self.detail_h_scroll_offset += 1;
         }
     }
 
