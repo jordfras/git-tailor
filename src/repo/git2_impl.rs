@@ -687,6 +687,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))
@@ -722,6 +723,7 @@ impl GitRepo for Git2Repo {
                     remaining_oids: state.remaining_oids.clone(),
                     conflicting_files: collect_conflict_files(repo),
                     still_unresolved: true,
+                    moved_commit_oid: state.moved_commit_oid.clone(),
                     squash_context: state.squash_context.clone(),
                 },
             )));
@@ -774,6 +776,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: new_remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: state.moved_commit_oid.clone(),
                         squash_context: None,
                     },
                 )))
@@ -886,6 +889,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: Some(commit_oid.to_string()),
                         squash_context: None,
                     },
                 )))
@@ -943,6 +947,7 @@ impl GitRepo for Git2Repo {
                     remaining_oids: vec![],
                     conflicting_files: collect_conflict_files(repo),
                     still_unresolved: false,
+                    moved_commit_oid: None,
                     squash_context: Some(super::SquashContext {
                         base_oid: base_oid.to_string(),
                         source_oid: source_oid.to_string(),
@@ -1001,6 +1006,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))
@@ -1070,6 +1076,7 @@ impl GitRepo for Git2Repo {
             remaining_oids: vec![],
             conflicting_files: collect_conflict_files(repo),
             still_unresolved: false,
+            moved_commit_oid: None,
             squash_context: Some(super::SquashContext {
                 base_oid: base_oid.to_string(),
                 source_oid: source_oid.to_string(),
@@ -1146,6 +1153,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))

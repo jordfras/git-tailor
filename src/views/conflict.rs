@@ -115,6 +115,20 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         }
     }
 
+    // For move operations, clarify whether the moved commit itself conflicted
+    // or a commit being rebased on top of it.
+    if let Some(ref moved_oid) = state.moved_commit_oid {
+        let note = if state.conflicting_commit_oid == *moved_oid {
+            " The moved commit itself caused the conflict."
+        } else {
+            " A commit being rebased on top of the moved commit conflicted."
+        };
+        lines.push(Line::from(Span::styled(
+            note,
+            Style::default().fg(Color::Yellow),
+        )));
+    }
+
     if remaining > 0 {
         let note = format!(" ({remaining} commit(s) still to rebase after this)");
         for chunk in wrap_text(&note, iw) {

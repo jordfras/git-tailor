@@ -126,7 +126,7 @@ Guidelines:
   V4)
 - [X] T075 P0 feat - Execute the move via git2 cherry-pick rebase onto the new
   position, abort and notify user on conflict (Flags: V4)
-- [ ] T076 P2 feat - On conflict, tell the user whether the conflict is in the
+- [X] T076 P2 feat - On conflict, tell the user whether the conflict is in the
   moved commit or in a commit rebased on top of it (Flags: V4)
 
 ## Interactivity — Squash Commit (V4)

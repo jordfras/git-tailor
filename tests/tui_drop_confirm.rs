@@ -114,6 +114,7 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         remaining_oids: remaining.iter().map(|s| s.to_string()).collect(),
         conflicting_files: vec![],
         still_unresolved: false,
+        moved_commit_oid: None,
         squash_context: None,
     });
     app
@@ -198,6 +199,7 @@ fn test_drop_conflict_dialog_long_summary() {
         remaining_oids: vec!["111111111111".to_string(), "222222222222".to_string()],
         conflicting_files: vec![],
         still_unresolved: false,
+        moved_commit_oid: None,
         squash_context: None,
     });
 
@@ -235,6 +237,7 @@ fn test_drop_conflict_dialog_with_files() {
             "tests/integration.rs".to_string(),
         ],
         still_unresolved: false,
+        moved_commit_oid: None,
         squash_context: None,
     });
 
@@ -268,6 +271,7 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         remaining_oids: vec![],
         conflicting_files: vec!["src/parser/mod.rs".to_string()],
         still_unresolved: true,
+        moved_commit_oid: None,
         squash_context: None,
     });
 

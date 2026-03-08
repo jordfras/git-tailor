@@ -59,6 +59,10 @@ pub struct ConflictState {
     /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
+    /// When this conflict was triggered by a move operation, this holds the OID
+    /// of the commit being moved. The conflict view uses it to tell the user
+    /// whether the moved commit itself conflicted or a successor did.
+    pub moved_commit_oid: Option<String>,
     /// When present, the conflict arose during the initial squash tree
     /// creation (source vs target overlap). After the user resolves the
     /// conflict the TUI should open the editor and then call
