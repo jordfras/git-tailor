@@ -298,3 +298,39 @@ fn test_enter_move_select_sets_correct_indices() {
         }
     );
 }
+
+#[test]
+fn test_enter_move_select_oldest_commit_starts_at_valid_position() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaa111bbb222", "First"),
+        common::create_test_commit("ccc333ddd444", "Second"),
+        common::create_test_commit("eee555fff666", "Third"),
+    ];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_move_select();
+
+    // source=0 → no-ops are 0 and 1, so first valid position is 2
+    assert_eq!(
+        app.mode,
+        AppMode::MoveSelect {
+            source_index: 0,
+            insert_before: 2,
+        }
+    );
+}
+
+#[test]
+fn test_enter_move_select_single_commit_blocked() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_move_select();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status_is_error);
+}

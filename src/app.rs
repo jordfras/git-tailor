@@ -494,8 +494,28 @@ impl AppState {
             self.set_error_message("Cannot move staged/unstaged changes");
             return;
         }
+
+        // Count real (non-synthetic) commits; moving requires at least 2.
+        let real_count = self
+            .commits
+            .iter()
+            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .count();
+        if real_count < 2 {
+            self.set_error_message("Nothing to move — only one commit on the branch");
+            return;
+        }
+
         let source = self.selection_index;
-        let insert_before = source.saturating_sub(1);
+        let max = self.commits.len();
+        // Pick the first valid (non-no-op) position. No-ops are source and
+        // source + 1, so try source - 1 first, then scan forward.
+        let insert_before = if source > 0 {
+            source - 1
+        } else {
+            // source == 0 → first valid position is 2 (skip 0 and 1)
+            2.min(max)
+        };
         self.mode = AppMode::MoveSelect {
             source_index: source,
             insert_before,
