@@ -597,11 +597,13 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else {
                 Style::default()
             }
-        } else if move_info.is_some() {
+        } else if let Some((source_idx, _)) = move_info {
             if is_move_source {
                 Style::new().fg(Color::DarkGray)
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                commit_text_style(fm, source_idx, commit_idx_in_fragmap)
             } else {
                 Style::default()
             }
