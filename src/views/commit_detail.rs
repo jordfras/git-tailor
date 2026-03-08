@@ -246,8 +246,8 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                             DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
                         };
 
-                        // Remove trailing newline if present
-                        let content_str = line.content.trim_end_matches('\n');
+                        // Remove trailing newline (including Windows-style \r\n)
+                        let content_str = line.content.trim_end_matches(['\n', '\r']);
                         content.push(Line::from(Span::styled(
                             format!("{}{}", prefix, content_str),
                             style,
