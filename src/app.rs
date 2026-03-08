@@ -162,7 +162,7 @@ pub enum AppMode {
     DropConfirm(PendingDrop),
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
-    RebaseConflict(ConflictState),
+    RebaseConflict(Box<ConflictState>),
     /// Squash/fixup target selection: user picks which commit to squash the source into.
     /// When `is_fixup` is true the target's message is kept as-is (no editor).
     SquashSelect { source_index: usize, is_fixup: bool },
@@ -438,7 +438,7 @@ impl AppState {
 
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
-        self.mode = AppMode::RebaseConflict(state);
+        self.mode = AppMode::RebaseConflict(Box::new(state));
     }
 
     /// Enter split strategy selection mode.

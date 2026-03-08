@@ -30,7 +30,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(state) =
                 std::mem::replace(&mut app.mode, AppMode::CommitList)
             {
-                AppAction::RebaseContinue(state)
+                AppAction::RebaseContinue(*state)
             } else {
                 AppAction::Handled
             }
@@ -39,7 +39,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(ref state) = app.mode {
                 AppAction::RunMergetool {
                     files: state.conflicting_files.clone(),
-                    conflict_state: state.clone(),
+                    conflict_state: state.as_ref().clone(),
                 }
             } else {
                 AppAction::Handled
@@ -53,7 +53,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(state) =
                 std::mem::replace(&mut app.mode, AppMode::CommitList)
             {
-                AppAction::RebaseAbort(state)
+                AppAction::RebaseAbort(*state)
             } else {
                 AppAction::Handled
             }

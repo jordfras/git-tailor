@@ -326,11 +326,11 @@ fn main() -> Result<()> {
                 match result {
                     Ok(true) => {
                         let new_files = git_repo.read_conflicting_files();
-                        app.mode = AppMode::RebaseConflict(git_tailor::repo::ConflictState {
+                        app.mode = AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
                             conflicting_files: new_files,
                             still_unresolved: false,
                             ..conflict_state
-                        });
+                        }));
                         app.set_success_message(
                             "Merge tool finished — press Enter when done or Esc to abort",
                         );
