@@ -368,7 +368,10 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     let mut terminal = Terminal::new(backend.clone()).unwrap();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("crlf001", "File with CRLF line endings")];
+    app.commits = vec![common::create_test_commit(
+        "crlf001",
+        "File with CRLF line endings",
+    )];
     app.selection_index = 0;
 
     terminal
