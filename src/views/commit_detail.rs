@@ -57,11 +57,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::ScrollLeft => {
-            app.scroll_fragmap_left();
+            app.scroll_detail_left();
             AppAction::Handled
         }
         KeyCommand::ScrollRight => {
-            app.scroll_fragmap_right();
+            app.scroll_detail_right();
             AppAction::Handled
         }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
@@ -246,8 +246,8 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                             DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
                         };
 
-                        // Remove trailing newline if present
-                        let content_str = line.content.trim_end_matches('\n');
+                        // Remove trailing newline (including Windows-style \r\n)
+                        let content_str = line.content.trim_end_matches(['\n', '\r']);
                         content.push(Line::from(Span::styled(
                             format!("{}{}", prefix, content_str),
                             style,
@@ -259,44 +259,73 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
             }
         }
 
-        // Calculate scrolling bounds
+        // Compute max line width for horizontal scrollbar (pass 1: tentative v-scrollbar width)
+        let max_line_width = content.iter().map(|l| l.width()).max().unwrap_or(0);
         let total_lines = content.len();
-        let visible_height = content_area.height as usize;
+        let v_scrollbar_width_tentative: u16 = if total_lines > content_area.height as usize {
+            1
+        } else {
+            0
+        };
+        let text_area_width = content_area
+            .width
+            .saturating_sub(v_scrollbar_width_tentative) as usize;
+        let max_h_scroll = max_line_width.saturating_sub(text_area_width);
+        let h_scrollbar_height: u16 = if max_h_scroll > 0 { 1 } else { 0 };
+
+        // Final visible height (accounting for horizontal scrollbar row)
+        let visible_height = content_area.height.saturating_sub(h_scrollbar_height) as usize;
         let max_scroll = total_lines.saturating_sub(visible_height);
 
         // Update scroll state in app for proper bounds and page scrolling
         app.max_detail_scroll = max_scroll;
         app.detail_visible_height = visible_height;
+        app.max_detail_h_scroll = max_h_scroll;
 
-        // Clamp scroll offset to valid range
+        // Clamp scroll offsets to valid range
         let scroll_offset = app.detail_scroll_offset.min(max_scroll);
+        let h_scroll = app.detail_h_scroll_offset.min(max_h_scroll);
 
-        // Split content area to make room for scrollbar
-        let scrollbar_width = if max_scroll > 0 { 1 } else { 0 };
-        let scrollbar_area = Rect {
+        // Layout: v-scrollbar strip on the left, h-scrollbar strip at the bottom
+        let v_scrollbar_width: u16 = if max_scroll > 0 { 1 } else { 0 };
+        let v_scrollbar_area = Rect {
             x: content_area.x,
             y: content_area.y,
-            width: scrollbar_width,
-            height: content_area.height,
+            width: v_scrollbar_width,
+            height: content_area.height.saturating_sub(h_scrollbar_height),
         };
         let text_area = Rect {
-            x: content_area.x + scrollbar_width,
+            x: content_area.x + v_scrollbar_width,
             y: content_area.y,
-            width: content_area.width.saturating_sub(scrollbar_width),
-            height: content_area.height,
+            width: content_area.width.saturating_sub(v_scrollbar_width),
+            height: content_area.height.saturating_sub(h_scrollbar_height),
+        };
+        let h_scrollbar_area = Rect {
+            x: content_area.x + v_scrollbar_width,
+            y: content_area.y + content_area.height.saturating_sub(h_scrollbar_height),
+            width: content_area.width.saturating_sub(v_scrollbar_width),
+            height: h_scrollbar_height,
         };
 
-        let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, 0));
+        let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, h_scroll as u16));
         frame.render_widget(paragraph, text_area);
 
-        // Render scrollbar if content doesn't fit
         if max_scroll > 0 && visible_height > 0 {
             render_scrollbar(
                 frame,
-                scrollbar_area,
+                v_scrollbar_area,
                 scroll_offset,
                 total_lines,
                 visible_height,
+            );
+        }
+        if max_h_scroll > 0 && text_area_width > 0 {
+            render_h_scrollbar(
+                frame,
+                h_scrollbar_area,
+                h_scroll,
+                max_line_width,
+                text_area_width,
             );
         }
     }
@@ -398,5 +427,51 @@ fn render_scrollbar(
     }
 
     let scrollbar = Paragraph::new(scrollbar_lines);
+    frame.render_widget(scrollbar, area);
+}
+
+/// Render a horizontal scrollbar indicating horizontal scroll position.
+fn render_h_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    h_scroll: usize,
+    max_line_width: usize,
+    visible_width: usize,
+) {
+    if area.width == 0 || max_line_width == 0 {
+        return;
+    }
+
+    let track_width = area.width as usize;
+
+    // Calculate thumb size (proportional to visible content)
+    let thumb_size = ((visible_width as f64 / max_line_width as f64) * track_width as f64)
+        .ceil()
+        .max(1.0) as usize;
+    let thumb_size = thumb_size.min(track_width);
+
+    // Calculate thumb position
+    let scrollable_track = track_width.saturating_sub(thumb_size);
+    let max_offset = max_line_width.saturating_sub(visible_width);
+    let thumb_position = if max_offset > 0 {
+        ((h_scroll as f64 / max_offset as f64) * scrollable_track as f64).round() as usize
+    } else {
+        0
+    };
+
+    // Build scrollbar as a single line of characters
+    let mut chars = String::new();
+    for i in 0..track_width {
+        if i >= thumb_position && i < thumb_position + thumb_size {
+            chars.push('█');
+        } else {
+            chars.push('─');
+        }
+    }
+
+    let scrollbar = Paragraph::new(Line::from(Span::styled(
+        chars,
+        Style::default().fg(Color::DarkGray),
+    )));
     frame.render_widget(scrollbar, area);
 }
