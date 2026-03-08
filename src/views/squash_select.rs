@@ -15,8 +15,7 @@
 // Squash target selection — key handling only; rendering is done via the
 // commit list footer (see `render_footer` in commit_list.rs).
 
-use crate::app::{AppAction, AppMode, AppState};
-use crate::event::KeyCommand;
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 
 /// Handle an action while in SquashSelect mode.
 ///

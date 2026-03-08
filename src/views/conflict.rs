@@ -15,13 +15,12 @@
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
 use super::dialog::{inner_width, render_centered_dialog, wrap_text};
-use crate::app::{AppAction, AppMode, AppState};
-use crate::event::KeyCommand;
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
+    Frame,
     layout::Alignment,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    Frame,
 };
 
 /// Handle an action while in RebaseConflict mode.
@@ -31,7 +30,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(state) =
                 std::mem::replace(&mut app.mode, AppMode::CommitList)
             {
-                AppAction::RebaseContinue(state)
+                AppAction::RebaseContinue(*state)
             } else {
                 AppAction::Handled
             }
@@ -40,7 +39,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(ref state) = app.mode {
                 AppAction::RunMergetool {
                     files: state.conflicting_files.clone(),
-                    conflict_state: state.clone(),
+                    conflict_state: state.as_ref().clone(),
                 }
             } else {
                 AppAction::Handled
@@ -54,7 +53,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             if let AppMode::RebaseConflict(state) =
                 std::mem::replace(&mut app.mode, AppMode::CommitList)
             {
-                AppAction::RebaseAbort(state)
+                AppAction::RebaseAbort(*state)
             } else {
                 AppAction::Handled
             }
@@ -114,6 +113,30 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         for chunk in wrap_text(commit_summary, iw.saturating_sub(1)) {
             lines.push(Line::from(Span::raw(format!(" {chunk}"))));
         }
+    }
+
+    // For move operations, clarify whether the moved commit itself conflicted
+    // or a commit being rebased on top of it.
+    if let Some(ref moved_oid) = state.moved_commit_oid {
+        let note = if state.conflicting_commit_oid == *moved_oid {
+            " The moved commit itself caused the conflict."
+        } else {
+            " A commit being rebased on top of the moved commit conflicted."
+        };
+        lines.push(Line::from(Span::styled(
+            note,
+            Style::default().fg(Color::Yellow),
+        )));
+    } else if state.operation_label == "Squash" {
+        let note = if state.squash_context.is_some() {
+            " The squash itself caused the conflict."
+        } else {
+            " A commit being rebased after the squash conflicted."
+        };
+        lines.push(Line::from(Span::styled(
+            note,
+            Style::default().fg(Color::Yellow),
+        )));
     }
 
     if remaining > 0 {

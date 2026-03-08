@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use git_tailor::{CommitInfo, repo::Git2Repo};
 use git2::{Repository, Signature};
-use git_tailor::{repo::Git2Repo, CommitInfo};
 use std::fs;
 use tempfile::TempDir;
 

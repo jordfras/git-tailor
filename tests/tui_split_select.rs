@@ -20,7 +20,7 @@ use git_tailor::{
     app::{AppMode, AppState},
     views,
 };
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 fn make_app_in_split_select(strategy_index: usize) -> AppState {
     let mut app = AppState::new();

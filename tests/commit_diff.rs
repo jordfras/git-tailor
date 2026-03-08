@@ -14,8 +14,8 @@
 
 mod common;
 
+use git_tailor::{DiffLineKind, repo::GitRepo};
 use git2::Signature;
-use git_tailor::{repo::GitRepo, DiffLineKind};
 use std::fs;
 
 #[test]

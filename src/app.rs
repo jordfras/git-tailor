@@ -14,7 +14,42 @@
 
 // TUI application state management
 
-use crate::{fragmap::FragMap, repo::ConflictState, CommitInfo};
+use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyEvent};
+
+use crate::{CommitInfo, fragmap::FragMap, repo::ConflictState};
+
+/// Semantic commands derived from keyboard input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyCommand {
+    MoveUp,
+    MoveDown,
+    PageUp,
+    PageDown,
+    ScrollLeft,
+    ScrollRight,
+    ToggleDetail,
+    ShowHelp,
+    Split,
+    Squash,
+    Fixup,
+    Reword,
+    Drop,
+    Move,
+    Mergetool,
+    Update,
+    Quit,
+    Confirm,
+    None,
+}
+
+/// Read the next terminal event.
+///
+/// Blocks until an event is available. Returns the event wrapped in Result
+/// to handle potential I/O errors.
+pub fn read_event() -> Result<Event> {
+    Ok(event::read()?)
+}
 
 /// Result of a view module's `handle_key` function.
 ///
@@ -73,6 +108,11 @@ pub enum AppAction {
         target_message: String,
         is_fixup: bool,
     },
+    /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
+    ExecuteMove {
+        source_oid: String,
+        insert_after_oid: String,
+    },
 }
 
 /// Split strategy options.
@@ -122,10 +162,17 @@ pub enum AppMode {
     DropConfirm(PendingDrop),
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
-    RebaseConflict(ConflictState),
+    RebaseConflict(Box<ConflictState>),
     /// Squash/fixup target selection: user picks which commit to squash the source into.
     /// When `is_fixup` is true the target's message is kept as-is (no editor).
     SquashSelect { source_index: usize, is_fixup: bool },
+    /// Move commit selection: user picks where to insert the source commit.
+    /// `insert_before` is the index in the commit list where the separator row
+    /// appears; the commit will be moved to that position.
+    MoveSelect {
+        source_index: usize,
+        insert_before: usize,
+    },
     /// Help dialog overlay; carries the mode to return to when closed.
     Help(Box<AppMode>),
 }
@@ -136,13 +183,49 @@ impl AppMode {
     pub fn background(&self) -> Option<AppMode> {
         match self {
             AppMode::CommitList | AppMode::CommitDetail => None,
-            AppMode::SquashSelect { .. } => None,
+            AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
+    }
+
+    /// Parse a terminal event into a semantic key command for this mode.
+    ///
+    /// Most keys are mode-independent (arrows, Esc, Enter). Where a key has
+    /// different meanings per mode (e.g. 'm' → Move in CommitList vs Mergetool
+    /// in RebaseConflict), this method resolves the ambiguity.
+    pub fn parse_key(&self, event: Event) -> KeyCommand {
+        if let Event::Key(KeyEvent { code, kind, .. }) = event
+            && kind == event::KeyEventKind::Press
+        {
+            return match code {
+                KeyCode::Up | KeyCode::Char('k') => KeyCommand::MoveUp,
+                KeyCode::Down | KeyCode::Char('j') => KeyCommand::MoveDown,
+                KeyCode::PageUp => KeyCommand::PageUp,
+                KeyCode::PageDown => KeyCommand::PageDown,
+                KeyCode::Left => KeyCommand::ScrollLeft,
+                KeyCode::Right => KeyCommand::ScrollRight,
+                KeyCode::Enter => KeyCommand::Confirm,
+                KeyCode::Char('i') => KeyCommand::ToggleDetail,
+                KeyCode::Char('h') => KeyCommand::ShowHelp,
+                KeyCode::Char('p') => KeyCommand::Split,
+                KeyCode::Char('s') => KeyCommand::Squash,
+                KeyCode::Char('f') => KeyCommand::Fixup,
+                KeyCode::Char('r') => KeyCommand::Reword,
+                KeyCode::Char('d') => KeyCommand::Drop,
+                KeyCode::Char('m') => match self {
+                    AppMode::RebaseConflict(_) => KeyCommand::Mergetool,
+                    _ => KeyCommand::Move,
+                },
+                KeyCode::Char('u') => KeyCommand::Update,
+                KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
+                _ => KeyCommand::None,
+            };
+        }
+        KeyCommand::None
     }
 }
 
@@ -355,17 +438,17 @@ impl AppState {
 
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
-        self.mode = AppMode::RebaseConflict(state);
+        self.mode = AppMode::RebaseConflict(Box::new(state));
     }
 
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
-        if let Some(commit) = self.commits.get(self.selection_index) {
-            if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.set_error_message("Cannot split staged/unstaged changes");
-                return;
-            }
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message("Cannot split staged/unstaged changes");
+            return;
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
     }
@@ -383,11 +466,22 @@ impl AppState {
 
     fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
         let label = if is_fixup { "fixup" } else { "squash" };
-        if let Some(commit) = self.commits.get(self.selection_index) {
-            if commit.oid == "staged" || commit.oid == "unstaged" {
-                self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
-                return;
-            }
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
+            return;
+        }
+        let real_count = self
+            .commits
+            .iter()
+            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .count();
+        if real_count < 2 {
+            self.set_error_message(format!(
+                "Nothing to {label} — only one commit on the branch"
+            ));
+            return;
         }
         self.mode = AppMode::SquashSelect {
             source_index: self.selection_index,
@@ -397,6 +491,50 @@ impl AppState {
 
     /// Cancel squash selection and return to CommitList.
     pub fn cancel_squash_select(&mut self) {
+        self.mode = AppMode::CommitList;
+    }
+
+    /// Enter move commit selection mode.
+    /// The insertion cursor starts one position before the source (i.e. one
+    /// slot earlier in the commit list, which visually means "above" in
+    /// chronological order).
+    pub fn enter_move_select(&mut self) {
+        if let Some(commit) = self.commits.get(self.selection_index)
+            && (commit.oid == "staged" || commit.oid == "unstaged")
+        {
+            self.set_error_message("Cannot move staged/unstaged changes");
+            return;
+        }
+
+        // Count real (non-synthetic) commits; moving requires at least 2.
+        let real_count = self
+            .commits
+            .iter()
+            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .count();
+        if real_count < 2 {
+            self.set_error_message("Nothing to move — only one commit on the branch");
+            return;
+        }
+
+        let source = self.selection_index;
+        let max = self.commits.len();
+        // Pick the first valid (non-no-op) position. No-ops are source and
+        // source + 1, so try source - 1 first, then scan forward.
+        let insert_before = if source > 0 {
+            source - 1
+        } else {
+            // source == 0 → first valid position is 2 (skip 0 and 1)
+            2.min(max)
+        };
+        self.mode = AppMode::MoveSelect {
+            source_index: source,
+            insert_before,
+        };
+    }
+
+    /// Cancel move selection and return to CommitList.
+    pub fn cancel_move_select(&mut self) {
         self.mode = AppMode::CommitList;
     }
 
@@ -420,19 +558,19 @@ impl AppState {
 
     /// Move split strategy selection up.
     pub fn split_select_up(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
-            if *strategy_index > 0 {
-                *strategy_index -= 1;
-            }
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
+            && *strategy_index > 0
+        {
+            *strategy_index -= 1;
         }
     }
 
     /// Move split strategy selection down.
     pub fn split_select_down(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode {
-            if *strategy_index < SplitStrategy::ALL.len() - 1 {
-                *strategy_index += 1;
-            }
+        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
+            && *strategy_index < SplitStrategy::ALL.len() - 1
+        {
+            *strategy_index += 1;
         }
     }
 
@@ -455,7 +593,8 @@ impl AppState {
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
-            | AppMode::SquashSelect { .. } => return,
+            | AppMode::SquashSelect { .. }
+            | AppMode::MoveSelect { .. } => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

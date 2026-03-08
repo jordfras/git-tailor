@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 
-use crate::{fragmap, CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
+use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, fragmap};
 
 use super::GitRepo;
 
@@ -207,7 +207,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;
@@ -298,7 +300,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;
@@ -411,7 +415,9 @@ impl GitRepo for Git2Repo {
         let commit = repo.find_commit(commit_git_oid)?;
 
         if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent (merge commits and root commits are not supported)");
+            anyhow::bail!(
+                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
+            );
         }
         let parent_commit = commit.parent(0)?;
         let parent_tree = parent_commit.tree()?;
@@ -681,6 +687,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))
@@ -716,6 +723,7 @@ impl GitRepo for Git2Repo {
                     remaining_oids: state.remaining_oids.clone(),
                     conflicting_files: collect_conflict_files(repo),
                     still_unresolved: true,
+                    moved_commit_oid: state.moved_commit_oid.clone(),
                     squash_context: state.squash_context.clone(),
                 },
             )));
@@ -768,6 +776,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: new_remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: state.moved_commit_oid.clone(),
                         squash_context: None,
                     },
                 )))
@@ -805,6 +814,87 @@ impl GitRepo for Git2Repo {
 
     fn read_conflicting_files(&self) -> Vec<String> {
         collect_conflict_files(&self.inner)
+    }
+
+    fn move_commit(
+        &self,
+        commit_oid: &str,
+        insert_after_oid: &str,
+        head_oid: &str,
+    ) -> Result<super::RebaseOutcome> {
+        let repo = &self.inner;
+
+        let commit_git_oid =
+            git2::Oid::from_str(commit_oid).context("Invalid commit OID for move")?;
+        let insert_after_git_oid =
+            git2::Oid::from_str(insert_after_oid).context("Invalid insert-after OID for move")?;
+        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for move")?;
+
+        let commit = repo.find_commit(commit_git_oid)?;
+        if commit.parent_count() != 1 {
+            anyhow::bail!("Cannot move a merge or root commit");
+        }
+        let source_parent_oid = commit.parent_id(0)?;
+
+        let original_branch_oid = head_oid.to_string();
+
+        // The rebase base is the earlier of insert_after and source's parent.
+        // On a linear branch merge_base returns the older commit.
+        let base_oid = repo.merge_base(insert_after_git_oid, source_parent_oid)?;
+
+        // Collect all commits between base (exclusive) and HEAD (inclusive).
+        let all_descendants = self.collect_descendants(base_oid, head_git_oid)?;
+
+        // Build reordered list: remove source, insert after the target.
+        let mut reordered: Vec<git2::Oid> = all_descendants
+            .iter()
+            .filter(|&&oid| oid != commit_git_oid)
+            .copied()
+            .collect();
+
+        let insert_pos = if insert_after_git_oid == base_oid {
+            0
+        } else {
+            reordered
+                .iter()
+                .position(|&oid| oid == insert_after_git_oid)
+                .context("insert_after_oid not found among branch commits")?
+                + 1
+        };
+        reordered.insert(insert_pos, commit_git_oid);
+
+        let result = self.cherry_pick_chain(base_oid, &reordered)?;
+        match result {
+            CherryPickResult::Complete(tip) => {
+                self.advance_branch_ref(tip, "git-tailor: move commit")?;
+                self.checkout_head()?;
+                Ok(super::RebaseOutcome::Complete)
+            }
+            CherryPickResult::Conflict {
+                tip,
+                conflicting_idx,
+            } => {
+                let conflicting_oid = reordered[conflicting_idx];
+                let remaining: Vec<String> = reordered[conflicting_idx + 1..]
+                    .iter()
+                    .map(|oid| oid.to_string())
+                    .collect();
+
+                Ok(super::RebaseOutcome::Conflict(Box::new(
+                    super::ConflictState {
+                        operation_label: "Move".to_string(),
+                        original_branch_oid,
+                        new_tip_oid: tip.to_string(),
+                        conflicting_commit_oid: conflicting_oid.to_string(),
+                        remaining_oids: remaining,
+                        conflicting_files: collect_conflict_files(repo),
+                        still_unresolved: false,
+                        moved_commit_oid: Some(commit_oid.to_string()),
+                        squash_context: None,
+                    },
+                )))
+            }
+        }
     }
 
     fn squash_commits(
@@ -857,6 +947,7 @@ impl GitRepo for Git2Repo {
                     remaining_oids: vec![],
                     conflicting_files: collect_conflict_files(repo),
                     still_unresolved: false,
+                    moved_commit_oid: None,
                     squash_context: Some(super::SquashContext {
                         base_oid: base_oid.to_string(),
                         source_oid: source_oid.to_string(),
@@ -915,6 +1006,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))
@@ -984,6 +1076,7 @@ impl GitRepo for Git2Repo {
             remaining_oids: vec![],
             conflicting_files: collect_conflict_files(repo),
             still_unresolved: false,
+            moved_commit_oid: None,
             squash_context: Some(super::SquashContext {
                 base_oid: base_oid.to_string(),
                 source_oid: source_oid.to_string(),
@@ -1060,6 +1153,7 @@ impl GitRepo for Git2Repo {
                         remaining_oids: remaining,
                         conflicting_files: collect_conflict_files(repo),
                         still_unresolved: false,
+                        moved_commit_oid: None,
                         squash_context: None,
                     },
                 )))
@@ -1084,10 +1178,10 @@ fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
         let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0 {
-            if let Ok(p) = std::str::from_utf8(&entry.path) {
-                paths.insert(p.to_string());
-            }
+        if stage > 0
+            && let Ok(p) = std::str::from_utf8(&entry.path)
+        {
+            paths.insert(p.to_string());
         }
     }
     paths.into_iter().collect()

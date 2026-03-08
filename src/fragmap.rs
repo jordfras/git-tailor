@@ -319,11 +319,11 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
                 let entry = file_commits.entry(path).or_default();
                 // Merge hunks from the same file and commit (can happen when
                 // a commit has multiple FileDiff entries for the same path)
-                if let Some(last) = entry.last_mut() {
-                    if last.0 == commit_idx {
-                        last.1.extend(hunks);
-                        continue;
-                    }
+                if let Some(last) = entry.last_mut()
+                    && last.0 == commit_idx
+                {
+                    last.1.extend(hunks);
+                    continue;
                 }
                 entry.push((commit_idx, hunks));
             }
@@ -395,11 +395,11 @@ pub fn assign_hunk_groups(
                 .collect();
             if !hunks.is_empty() {
                 let entry = file_commits.entry(path).or_default();
-                if let Some(last) = entry.last_mut() {
-                    if last.0 == commit_idx {
-                        last.1.extend(hunks);
-                        continue;
-                    }
+                if let Some(last) = entry.last_mut()
+                    && last.0 == commit_idx
+                {
+                    last.1.extend(hunks);
+                    continue;
                 }
                 entry.push((commit_idx, hunks));
             }

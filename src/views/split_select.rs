@@ -15,13 +15,12 @@
 // Split strategy selection dialog
 
 use super::dialog::render_centered_dialog;
-use crate::app::{AppAction, AppMode, AppState, SplitStrategy};
-use crate::event::KeyCommand;
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
 use ratatui::{
+    Frame,
     layout::Alignment,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    Frame,
 };
 
 /// Handle an action while in SplitSelect mode.

@@ -17,8 +17,7 @@
 mod common;
 
 use git_tailor::{
-    app::{AppAction, AppMode, AppState},
-    event::KeyCommand,
+    app::{AppAction, AppMode, AppState, KeyCommand},
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
 };
@@ -38,7 +37,7 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app
 }
 
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 #[test]
 fn test_squash_footer_renders() {
@@ -146,6 +145,32 @@ fn test_squash_blocked_on_staged_row() {
     app.enter_squash_select();
 
     // Should still be in CommitList (blocked)
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn test_squash_blocked_on_single_commit() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_squash_select();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn test_fixup_blocked_on_single_commit() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_fixup_select();
+
     assert_eq!(app.mode, AppMode::CommitList);
     assert!(app.status_is_error);
 }

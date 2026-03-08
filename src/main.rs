@@ -18,20 +18,21 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
-    app::{AppAction, AppMode, AppState, SplitStrategy},
-    editor, event, fragmap, mergetool, views, CommitDiff, CommitInfo,
+    CommitDiff, CommitInfo,
+    app::{self, AppAction, AppMode, AppState, SplitStrategy},
+    editor, fragmap, mergetool, views,
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Terminal,
 };
 use std::io;
 
@@ -142,8 +143,8 @@ fn main() -> Result<()> {
             render_mode(&mode, &git_repo, &mut app, frame);
         })?;
 
-        let event = event::read()?;
-        let action = event::parse_key(event);
+        let event = app::read_event()?;
+        let action = app.mode.parse_key(event);
 
         app.clear_status_message();
 
@@ -157,6 +158,7 @@ fn main() -> Result<()> {
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
             AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
             AppMode::SquashSelect { .. } => views::squash_select::handle_key(action, &mut app),
+            AppMode::MoveSelect { .. } => views::move_select::handle_key(action, &mut app),
             AppMode::Help(_) => views::help::handle_key(action, &mut app),
         };
 
@@ -324,11 +326,12 @@ fn main() -> Result<()> {
                 match result {
                     Ok(true) => {
                         let new_files = git_repo.read_conflicting_files();
-                        app.mode = AppMode::RebaseConflict(git_tailor::repo::ConflictState {
-                            conflicting_files: new_files,
-                            still_unresolved: false,
-                            ..conflict_state
-                        });
+                        app.mode =
+                            AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+                                conflicting_files: new_files,
+                                still_unresolved: false,
+                                ..conflict_state
+                            }));
                         app.set_success_message(
                             "Merge tool finished — press Enter when done or Esc to abort",
                         );
@@ -444,6 +447,32 @@ fn main() -> Result<()> {
                         Err(e) => {
                             app.set_error_message(format!("{label} failed: {e}"));
                         }
+                    }
+                }
+            }
+            AppAction::ExecuteMove {
+                source_oid,
+                insert_after_oid,
+            } => {
+                let head_oid = match git_repo.head_oid() {
+                    Ok(oid) => oid,
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to get HEAD: {e}"));
+                        continue;
+                    }
+                };
+                let saved_index = app.selection_index;
+                match git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid) {
+                    Ok(RebaseOutcome::Complete) => {
+                        reload_commits(&git_repo, &mut app);
+                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+                        app.set_success_message("Commit moved");
+                    }
+                    Ok(RebaseOutcome::Conflict(state)) => {
+                        app.enter_rebase_conflict(*state);
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Move failed: {e}"));
                     }
                 }
             }
@@ -620,6 +649,7 @@ fn render_mode(
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
         AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
+        AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
         AppMode::Help(_) => views::help::render(frame),
     }
 }

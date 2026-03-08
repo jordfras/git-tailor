@@ -1,0 +1,135 @@
+// Copyright 2026 Thomas Johannesson
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Move commit target selection — key handling only; rendering is done via
+// the commit list (separator row injection + footer).
+
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+
+/// Handle an action while in MoveSelect mode.
+///
+/// The user navigates an insertion cursor between commits. The cursor
+/// (`insert_before`) represents the position where the source commit will
+/// be placed. Arrow keys move the insertion point; Enter confirms; Esc
+/// cancels.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    let (source_index, insert_before) = match app.mode {
+        AppMode::MoveSelect {
+            source_index,
+            insert_before,
+        } => (source_index, insert_before),
+        _ => return AppAction::Handled,
+    };
+
+    // Valid insertion positions: 0..=commits.len(), excluding source_index.
+    // Position N means "insert before commit N"; position commits.len() means
+    // "insert after the last commit" (i.e. move to HEAD).
+    let max_insert = app.commits.len();
+
+    // Both source_index and source_index + 1 are no-op positions:
+    // "insert before self" and "insert after self" both leave the commit
+    // in the same place.
+    let is_noop = |pos: usize| pos == source_index || pos == source_index + 1;
+
+    match action {
+        KeyCommand::MoveUp => {
+            let mut next = if app.reverse {
+                insert_before.saturating_add(1).min(max_insert)
+            } else {
+                insert_before.saturating_sub(1)
+            };
+            for _ in 0..2 {
+                if is_noop(next) {
+                    next = if app.reverse {
+                        next.saturating_add(1).min(max_insert)
+                    } else {
+                        next.saturating_sub(1)
+                    };
+                }
+            }
+            if is_noop(next) {
+                next = insert_before;
+            }
+            app.mode = AppMode::MoveSelect {
+                source_index,
+                insert_before: next,
+            };
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            let mut next = if app.reverse {
+                insert_before.saturating_sub(1)
+            } else {
+                insert_before.saturating_add(1).min(max_insert)
+            };
+            for _ in 0..2 {
+                if is_noop(next) {
+                    next = if app.reverse {
+                        next.saturating_sub(1)
+                    } else {
+                        next.saturating_add(1).min(max_insert)
+                    };
+                }
+            }
+            if is_noop(next) {
+                next = insert_before;
+            }
+            app.mode = AppMode::MoveSelect {
+                source_index,
+                insert_before: next,
+            };
+            AppAction::Handled
+        }
+        KeyCommand::Confirm => {
+            if is_noop(insert_before) {
+                app.set_error_message("Commit is already at this position");
+                return AppAction::Handled;
+            }
+
+            let source = &app.commits[source_index];
+            if source.oid == "staged" || source.oid == "unstaged" {
+                app.set_error_message("Cannot move staged/unstaged changes");
+                return AppAction::Handled;
+            }
+
+            let source_oid = source.oid.clone();
+
+            // insert_before is the commit-list index where the separator sits.
+            // The source should be placed *after* the commit at insert_before - 1,
+            // or after the reference point if insert_before == 0.
+            let insert_after_oid = if insert_before == 0 {
+                app.reference_oid.clone()
+            } else {
+                let idx = (insert_before - 1).min(app.commits.len().saturating_sub(1));
+                app.commits[idx].oid.clone()
+            };
+
+            app.mode = AppMode::CommitList;
+
+            AppAction::ExecuteMove {
+                source_oid,
+                insert_after_oid,
+            }
+        }
+        KeyCommand::ShowHelp => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        KeyCommand::Quit => {
+            app.cancel_move_select();
+            AppAction::Handled
+        }
+        _ => AppAction::Handled,
+    }
+}

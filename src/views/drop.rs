@@ -15,13 +15,12 @@
 // Drop commit confirmation dialog
 
 use super::dialog::{inner_width, render_centered_dialog, wrap_text};
-use crate::app::{AppAction, AppMode, AppState};
-use crate::event::KeyCommand;
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
+    Frame,
     layout::Alignment,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    Frame,
 };
 
 /// Handle an action while in DropConfirm mode.

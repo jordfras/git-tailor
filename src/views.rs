@@ -20,5 +20,6 @@ pub mod conflict;
 pub mod dialog;
 pub mod drop;
 pub mod help;
+pub mod move_select;
 pub mod split_select;
 pub mod squash_select;

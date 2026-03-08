@@ -17,11 +17,12 @@
 mod common;
 
 use git_tailor::{
+    CommitInfo,
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
-    views, CommitInfo,
+    views,
 };
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{Terminal, backend::TestBackend};
 
 /// Build a FragMap with the given commit OIDs, clusters, and matrix.
 fn create_fragmap(

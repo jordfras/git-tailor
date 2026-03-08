@@ -59,6 +59,10 @@ pub struct ConflictState {
     /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
+    /// When this conflict was triggered by a move operation, this holds the OID
+    /// of the commit being moved. The conflict view uses it to tell the user
+    /// whether the moved commit itself conflicted or a successor did.
+    pub moved_commit_oid: Option<String>,
     /// When present, the conflict arose during the initial squash tree
     /// creation (source vs target overlap). After the user resolves the
     /// conflict the TUI should open the editor and then call
@@ -223,6 +227,24 @@ pub trait GitRepo {
     /// step produces merge conflicts. In the conflict case the working tree
     /// and index contain the partially merged state for the user to resolve.
     fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+
+    /// Move a commit to a different position on the branch.
+    ///
+    /// Removes `commit_oid` from its current position and inserts it
+    /// immediately after `insert_after_oid`. All affected descendants are
+    /// cherry-picked in the new order.
+    ///
+    /// `insert_after_oid` may be the merge-base (reference point) to move
+    /// the commit to the very beginning of the branch.
+    ///
+    /// Returns `RebaseOutcome::Complete` on success or
+    /// `RebaseOutcome::Conflict` when a cherry-pick step conflicts.
+    fn move_commit(
+        &self,
+        commit_oid: &str,
+        insert_after_oid: &str,
+        head_oid: &str,
+    ) -> Result<RebaseOutcome>;
 
     /// Resume a conflicted rebase after the user has resolved conflicts.
     ///
