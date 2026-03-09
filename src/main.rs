@@ -268,7 +268,8 @@ fn main() -> Result<()> {
                         Ok(msg) if msg.trim().is_empty() => {
                             let _ = git_repo.rebase_abort(&state);
                             reload_commits(&git_repo, &mut app);
-                            app.set_error_message("Squash aborted: empty commit message");
+                            let label = &state.operation_label;
+                            app.set_error_message(format!("{label} aborted: empty commit message"));
                         }
                         Ok(msg) => {
                             let saved_index = app.selection_index;
@@ -420,7 +421,7 @@ fn main() -> Result<()> {
                             continue;
                         }
                         Ok(msg) if msg.trim().is_empty() => {
-                            app.set_error_message("Squash aborted: empty commit message");
+                            app.set_error_message(format!("{label} aborted: empty commit message"));
                             continue;
                         }
                         Ok(msg) => Some(msg),
