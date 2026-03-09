@@ -503,16 +503,16 @@ fn execute_split(
     match strategy {
         SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.set_error_message(e.to_string()),
+            Err(e) => app.set_error_message(format!("Split failed: {e}")),
         },
         SplitStrategy::PerHunk => match git_repo.split_commit_per_hunk(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.set_error_message(e.to_string()),
+            Err(e) => app.set_error_message(format!("Split failed: {e}")),
         },
         SplitStrategy::PerHunkGroup => {
             match git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid) {
                 Ok(()) => reload_commits(git_repo, app),
-                Err(e) => app.set_error_message(e.to_string()),
+                Err(e) => app.set_error_message(format!("Split failed: {e}")),
             }
         }
     }
