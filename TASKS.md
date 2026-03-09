@@ -297,6 +297,15 @@ Guidelines:
   existing format/clippy/test checks, failing the build if any dependency
   license conflicts are detected; ensure this runs on pull requests and main
   branch pushes (Flags: V5)
+- [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
+  `.github/workflows/release.yml` that triggers on version tags (`v*`), builds
+  the `gt` binary for `x86_64-unknown-linux-musl` (fully static, covers WSL2 and
+  all Linux distros), `x86_64-pc-windows-msvc` (Windows native), and optionally
+  `aarch64-unknown-linux-gnu` and `aarch64-apple-darwin`; use
+  `taiki-e/upload-rust-binary-action` to strip, archive, and attach binaries to
+  the GitHub Release automatically; the musl target should produce a zero
+  shared-library binary (add `RUSTFLAGS=-C target-feature=+crt-static` if
+  needed) so no system libs beyond the kernel are required (Flags: V5)
 - [ ] T114 P2 feat - Write comprehensive README.md documentation: describe what
   the tool does (interactive git commit browser with fragmap visualization and
   rebase operations), installation instructions, basic usage guide with key
