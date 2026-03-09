@@ -115,8 +115,8 @@ Guidelines:
   Design: move `KeyCommand` enum and key parsing into `app.rs`, implement
   `AppMode::parse_key(event: Event) -> KeyCommand` so each mode resolves
   ambiguous keys ('m' → `MoveCommit` in `CommitList`, `Mergetool` in
-  `RebaseConflict`), and delete the `event` module.
-  UI: add `AppMode::MoveCommit { source_index: usize, insert_before: usize }`;
+  `RebaseConflict`), and delete the `event` module. UI: add
+  `AppMode::MoveCommit { source_index: usize, insert_before: usize }`;
   `build_rows` injects a styled separator row (e.g. `▶ move here`) at the
   insertion point — same pattern as the existing squash source highlight. A thin
   line between rows is not feasible with ratatui's Table widget without
@@ -187,17 +187,16 @@ Guidelines:
   `squash_select::handle_key`, clamp navigation so the cursor cannot move to
   commits later than (above) the source commit — squashing into a later commit
   is not supported; also dim the rows above the source in the commit list when
-  in SquashSelect mode to visually indicate they are unreachable targets
-  (Flags: V4)
+  in SquashSelect mode to visually indicate they are unreachable targets (Flags:
+  V4)
 - [X] T104 P1 feat - Add fixup mode on 'f' key: works identically to squash
   ('s') — enters `SquashSelect`, uses the same target-picking UI, candidate
   coloring, and conflict handling — but instead of opening the editor with both
   messages concatenated, it silently keeps the target commit's message as-is
   (the source commit's message is discarded); reuse `squash_try_combine`,
   `squash_commits`, and `squash_finalize` with the target's message passed
-  directly, skipping `edit_message_in_editor`; update the footer context line
-  to say "Fixup" instead of "Squash" and add 'f' to the help dialog
-  (Flags: V4)
+  directly, skipping `edit_message_in_editor`; update the footer context line to
+  say "Fixup" instead of "Squash" and add 'f' to the help dialog (Flags: V4)
 
 ## Interactivity — Reword Commit (V4)
 - [X] T088 P1 feat - Implement `resolve_editor()` helper: walk GIT_EDITOR env
@@ -223,7 +222,94 @@ Guidelines:
   (show an error) only when the selected row is a staged or unstaged synthetic
   entry (Flags: V4)
 
+## Interactivity — Fragmap View (V5)
+- [ ] T108 P1 fix - Fix fragmap relations not following file renames: when a
+  file is renamed across commits, spans should cluster together if they overlap
+  the same logical content, but currently they are treated as separate files and
+  don't form clusters. Investigate the original fragmap Python implementation
+  (https://github.com/amollberg/fragmap) to see how rename detection is handled
+  in span clustering, and adapt the SPG logic in `src/fragmap/spg.rs` to
+  properly track renamed files so that overlapping spans across renames are
+  correctly clustered together (Flags: V5)
+- [ ] T106 P2 feat - Refactor fragmap cell rendering into a `FragmapTheme` trait
+  with methods like `touched_symbol()`, `connector_symbol()`, `touched_style()`,
+  `connector_style()` that accept context (relation type, whether the cluster is
+  focus-related, whether the row is selected) and return the glyph and `Style`;
+  implement `DefaultTheme` reproducing the current behavior; replace the inline
+  constant lookups in `fragmap_cell_content`, `fragmap_connector_content`, and
+  `build_fragmap_cell` with calls through the trait so that adding new rendering
+  modes (T105) doesn't require scattering conditionals throughout the rendering
+  functions (Flags: V5)
+- [ ] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
+  clusters related to the focus commit (selected commit in CommitList, source
+  commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
+  and `┃` for connectors — while unrelated clusters use light glyphs — `▪` for
+  touched squares and `┆` for connectors. Colors stay unchanged (white for
+  conflicting squares, grey for squashable squares, red/yellow for connectors).
+  This makes it immediately scannable which hunk groups the focus commit
+  participates in without introducing new colors. "Related" means the cluster
+  column contains a touch from the focus commit. Implement as a `FocusTheme`
+  behind the `FragmapTheme` trait from T106. (Flags: V5)
+- [ ] T107 P3 feat - Add CLI flag `--no-focus-glyphs` (or similar) to disable
+  the glyph-weight focus highlighting from T105 and fall back to the uniform
+  heavy-glyph rendering (DefaultTheme from T106); store the choice in `AppState`
+  and select the appropriate `FragmapTheme` implementation at startup (Flags:
+  V5)
+
+## CLI Output & Compatibility (V5)
+- [ ] T109 P2 feat - Add `--print-matrix` (or similar) CLI flag to output the
+  commit SHA/title list and fragmap matrix to stdout without launching the
+  interactive TUI, mimicking the behavior of the original fragmap tool; format
+  output with one commit per line showing short SHA, title, and the row of the
+  fragmap matrix using the same symbols as the TUI (`█`, `│`, space), then exit
+  (Flags: V5)
+- [ ] T110 P3 feat - Add `--no-color` CLI flag to disable all color output when
+  used with `--print-matrix` from T109, producing plain text output suitable for
+  piping or automated processing; ensure this works correctly with the fragmap
+  symbols and commit list formatting (Flags: V5)
+- [ ] T111 P3 feat - Replace the current example application in `examples/` with
+  a compatibility test that runs both the original fragmap tool and git-tailor
+  in `--print-matrix --no-color` mode on the same repository, then compares
+  their outputs; the comparison must account for potentially different column
+  ordering (cluster columns may appear in different sequences) while verifying
+  that the same commit-cluster relationships are detected; fail with a clear
+  diff if the tools disagree on which commits touch which clusters (Flags: V5)
+
+## Build & CI (V5)
+- [ ] T112 P3 feat - Set up cargo-deny with configuration to check dependency
+  licenses are compatible with Apache 2.0: install cargo-deny, create
+  `deny.toml` config allowing Apache-compatible licenses (Apache-2.0, MIT,
+  BSD-2-Clause, BSD-3-Clause, ISC, etc.), deny copyleft licenses (GPL, LGPL,
+  AGPL), and add `cargo deny check` command to verify no license violations in
+  the dependency tree (Flags: V5)
+- [ ] T113 P3 feat - Add cargo-deny to GitHub Actions CI: create or update
+  `.github/workflows/ci.yml` to run `cargo deny check licenses` alongside
+  existing format/clippy/test checks, failing the build if any dependency
+  license conflicts are detected; ensure this runs on pull requests and main
+  branch pushes (Flags: V5)
+- [ ] T114 P2 feat - Write comprehensive README.md documentation: describe what
+  the tool does (interactive git commit browser with fragmap visualization and
+  rebase operations), installation instructions, basic usage guide with key
+  bindings, attribution to original fragmap tool (reference NOTICE file), note
+  that the entire tool is AI-generated, and include a prominent data safety
+  disclaimer warning users to push their changes before using the tool since any
+  bugs may cause permanent data loss — author takes no responsibility for data
+  loss under any circumstances, see Apache 2.0 license text (Flags: V5)
+- [ ] T115 P2 feat - Add CHANGELOG.md following keepachangelog.com format:
+  create initial changelog with sections for Unreleased, version entries (Added,
+  Changed, Deprecated, Removed, Fixed, Security), and update AGENTS.md to
+  instruct AI agents to ask users whether changes should be noted in the
+  changelog when completing tasks that add user-visible features or fix bugs
+  (Flags: V5)
+
 ## Refactoring — TUI Architecture (V5)
+- [ ] T116 P3 feat - Review codebase for refactoring opportunities: audit
+  existing code for duplication, overly complex functions, inconsistent
+  patterns, and areas where abstractions could simplify implementation; identify
+  specific refactoring targets like extracting common dialog patterns,
+  consolidating similar error handling, reducing parameter passing, and
+  improving module boundaries; create follow-up tasks for the most impactful
+  improvements (Flags: V5)
 - [X] T096 P1 feat - Refactor event loop to mode-first dispatch: flip the main
   match from action-first to mode-first so there is one small match on `AppMode`
   delegating to a `handle_action(action, app)` function in each view module
