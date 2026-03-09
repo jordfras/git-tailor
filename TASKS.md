@@ -14,6 +14,27 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Basic UI (V5)
+- [ ] T120 P2 fix - "Hunk groups" header label is truncated when the fragmap
+  matrix has fewer columns than the label is wide: in `build_constraints` the
+  third column uses `Constraint::Length(layout.fragmap_col_width)`, which clips
+  the 11-character label to as few characters as there are cluster columns; fix
+  by using `Constraint::Min(layout.fragmap_col_width)` (or
+  `Constraint::Length(layout.fragmap_col_width.max(MIN_HEADER_WIDTH))`) for the
+  fragmap column so the header always has enough room to display the full label
+  (Flags: V5)
+- [ ] T121 P2 fix - Help dialog wraps long key-binding lines mid-text, splitting
+  a single entry across two rows without indentation — making it hard to read;
+  find the help text rendering in `views/help.rs` and ensure each entry either
+  fits on one line or wraps with a hanging indent (e.g. align continuation lines
+  under the description column) so no entry appears to be two separate bindings
+  (Flags: V5)
+- [ ] T122 P2 fix - Dialogs that show multi-line body text (e.g. the "some
+  conflicts are still unresolved" conflict dialog and similar) wrap long lines
+  without preserving indentation: continuation lines start at column 0 inside
+  the dialog instead of aligning with the start of the text on the first line;
+  update `render_centered_dialog` (or the individual dialog callers) to apply a
+  hanging indent when wrapping body lines, so wrapped text is visually grouped
+  under its first line (Flags: V5)
 - [ ] T119 P1 fix - Handle Ctrl+C gracefully: always quit the application
   immediately regardless of the current mode; if the app is in `RebaseConflict`
   mode (i.e. a rebase is in progress with a half-applied working tree), call
@@ -21,10 +42,10 @@ Guidelines:
   exiting, so the repo is never left in a broken state; for all other modes
   (including selection overlays like SquashSelect, MoveSelect, SplitSelect —
   none of which have touched the repo yet) simply quit directly; parse
-  `KeyCode::Char('c')` with `KeyModifiers::CONTROL` in `AppMode::parse_key`,
-  map it to a new `KeyCommand::ForceQuit`, and handle it in `main.rs` outside
-  the per-mode dispatch so it cannot be shadowed; ensure raw mode and the
-  alternate screen are properly restored before exit (Flags: V5)
+  `KeyCode::Char('c')` with `KeyModifiers::CONTROL` in `AppMode::parse_key`, map
+  it to a new `KeyCommand::ForceQuit`, and handle it in `main.rs` outside the
+  per-mode dispatch so it cannot be shadowed; ensure raw mode and the alternate
+  screen are properly restored before exit (Flags: V5)
 - [ ] T117 P2 feat - Allow the user to move the vertical separator bar between
   the commit list and the right panel (fragmap / commit detail) using Ctrl+Left
   and Ctrl+Right arrow keys; store the offset as a signed integer in `AppState`
