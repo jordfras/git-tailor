@@ -7,10 +7,20 @@ Guidelines:
 - Flags (optional): CLARIFICATION, HUMAN INPUT, HUMAN TASK, DUPLICATE.
 - Version flags (optional): V1, V2 etc. (used to group versions/releases).
 - Mark completion by [ ] → [X]. Keep changes atomic (one commit per task).
+- Mark won't-do tasks by [ ] → [-] and add `WONT DO` to Flags.
 - Completed tasks are archived in TASKS-COMPLETED.md.
 
 
 ## UNCATEGORIZED
+
+## Interactivity — Basic UI (V5)
+- [ ] T117 P2 feat - Allow the user to move the vertical separator bar between
+  the commit list and the right panel (fragmap / commit detail) using Ctrl+Left
+  and Ctrl+Right arrow keys; store the offset as a signed integer in `AppState`
+  (e.g. `split_offset: i16`) defaulting to 0, clamp it so both sides keep a
+  minimum width, parse `Ctrl+Left` / `Ctrl+Right` in `AppMode::parse_key` as new
+  `KeyCommand` variants (`SplitLeft` / `SplitRight`), and apply the offset to
+  the `split_x` constant in `render_main_view`
 
 ## Core Behavior & Constraints (V4)
 - [X] T081 P0 feat - Exclude the reference point (merge-base) commit from the
@@ -121,9 +131,9 @@ Guidelines:
   insertion point — same pattern as the existing squash source highlight. A thin
   line between rows is not feasible with ratatui's Table widget without
   reimplementing layout. (Flags: V4)
-- [ ] T074 P1 feat - Color the insertion row red with "move <short sha> here -
+- [-] T074 P1 feat - Color the insertion row red with "move <short sha> here -
   likely conflict" when moving to a position that would cause a conflict (Flags:
-  V4)
+  V4, WONT DO)
 - [X] T075 P0 feat - Execute the move via git2 cherry-pick rebase onto the new
   position, abort and notify user on conflict (Flags: V4)
 - [X] T076 P2 feat - On conflict, tell the user whether the conflict is in the
