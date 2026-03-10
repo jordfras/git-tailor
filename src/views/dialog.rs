@@ -98,3 +98,19 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     result.push(remaining.to_string());
     result
 }
+
+/// Like [`wrap_text`], but preserves the leading whitespace of the first line
+/// as a hanging indent on all continuation lines so wrapped text stays
+/// visually grouped under its first line.
+pub fn wrap_text_indent(text: &str, width: usize) -> Vec<String> {
+    let indent: String = text.chars().take_while(|c| *c == ' ').collect();
+    let chunks = wrap_text(text, width);
+    if chunks.len() <= 1 || indent.is_empty() {
+        return chunks;
+    }
+    let mut result = vec![chunks[0].clone()];
+    for chunk in &chunks[1..] {
+        result.push(format!("{indent}{chunk}"));
+    }
+    result
+}

@@ -28,7 +28,7 @@ Guidelines:
   fits on one line or wraps with a hanging indent (e.g. align continuation lines
   under the description column) so no entry appears to be two separate bindings
   (Flags: V5)
-- [ ] T122 P2 fix - Dialogs that show multi-line body text (e.g. the "some
+- [X] T122 P2 fix - Dialogs that show multi-line body text (e.g. the "some
   conflicts are still unresolved" conflict dialog and similar) wrap long lines
   without preserving indentation: continuation lines start at column 0 inside
   the dialog instead of aligning with the start of the text on the first line;
