@@ -22,7 +22,7 @@ Guidelines:
   `Constraint::Length(layout.fragmap_col_width.max(MIN_HEADER_WIDTH))`) for the
   fragmap column so the header always has enough room to display the full label
   (Flags: V5)
-- [ ] T121 P2 fix - Help dialog wraps long key-binding lines mid-text, splitting
+- [X] T121 P2 fix - Help dialog wraps long key-binding lines mid-text, splitting
   a single entry across two rows without indentation — making it hard to read;
   find the help text rendering in `views/help.rs` and ensure each entry either
   fits on one line or wraps with a hanging indent (e.g. align continuation lines

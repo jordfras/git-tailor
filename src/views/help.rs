@@ -80,7 +80,7 @@ pub fn render(frame: &mut Frame) {
         ]),
         Line::from(vec![
             Span::styled("   f         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Fixup commit (keep target message)"),
+            Span::raw("Fixup commit (pick target)"),
         ]),
         Line::from(vec![
             Span::styled("   r         ", Style::default().fg(Color::Cyan)),
