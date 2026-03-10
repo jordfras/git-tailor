@@ -502,7 +502,12 @@ fn build_fragmap_cell<'a>(
             }
         })
         .collect();
-    Cell::from(Line::from(spans))
+    let cell = Cell::from(Line::from(spans));
+    if is_selected {
+        cell.style(Style::new().bg(COLOR_SELECTED_FRAGMAP_BG))
+    } else {
+        cell
+    }
 }
 
 /// Build all visible table rows.
