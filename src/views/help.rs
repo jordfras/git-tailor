@@ -58,6 +58,10 @@ pub fn render(frame: &mut Frame) {
             Span::styled("   ←/→       ", Style::default().fg(Color::Cyan)),
             Span::raw("Scroll fragmap left/right"),
         ]),
+        Line::from(vec![
+            Span::styled("   Ctrl ←/→  ", Style::default().fg(Color::Cyan)),
+            Span::raw("Move separator bar left/right"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             " Views",

@@ -46,7 +46,7 @@ Guidelines:
   it to a new `KeyCommand::ForceQuit`, and handle it in `main.rs` outside the
   per-mode dispatch so it cannot be shadowed; ensure raw mode and the alternate
   screen are properly restored before exit (Flags: V5)
-- [ ] T117 P2 feat - Allow the user to move the vertical separator bar between
+- [X] T117 P2 feat - Allow the user to move the vertical separator bar between
   the commit list and the right panel (fragmap / commit detail) using Ctrl+Left
   and Ctrl+Right arrow keys; store the offset as a signed integer in `AppState`
   (e.g. `split_offset: i16`) defaulting to 0, clamp it so both sides keep a

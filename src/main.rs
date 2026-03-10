@@ -17,6 +17,7 @@
 use anyhow::Result;
 use clap::Parser;
 use crossterm::{
+    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -112,6 +113,13 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
+    let kb_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
+    if kb_enhanced {
+        execute!(
+            stderr,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
     let backend = CrosstermBackend::new(stderr);
     let mut terminal = Terminal::new(backend)?;
 
@@ -154,6 +162,15 @@ fn main() -> Result<()> {
                 let _ = git_repo.rebase_abort(state);
             }
             break;
+        }
+
+        if action == app::KeyCommand::SeparatorLeft {
+            app.separator_offset = app.separator_offset.saturating_sub(4);
+            continue;
+        }
+        if action == app::KeyCommand::SeparatorRight {
+            app.separator_offset = app.separator_offset.saturating_add(4);
+            continue;
         }
 
         // Mode-first dispatch: each view module handles its own actions.
@@ -493,6 +510,9 @@ fn main() -> Result<()> {
     }
 
     disable_raw_mode()?;
+    if kb_enhanced {
+        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+    }
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
@@ -591,8 +611,18 @@ fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
 /// Render the main view with split screen (commit list on left, detail on right).
 fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::Frame) {
     let area = frame.area();
-    let split_x = 72; // SHA(10) + sep(1) + title(60) + sep(1)
-    let left_width = split_x.min(area.width);
+    const BASE_SPLIT_X: i32 = 72; // SHA(10) + gap(1) + title(60) + gap(1)
+    // MIN_LEFT: scrollbar(1) + SHA(10) + col-gap(1) + min-title(10) + panel-sep(1) = 23
+    // This matches CommitList mode's minimum separator position so both modes
+    // stop at the same column, and SHA is never obscured by the panel separator.
+    const MIN_LEFT: i32 = 23;
+    const MIN_RIGHT: i32 = 20;
+    let max_offset = (area.width as i32 - BASE_SPLIT_X - MIN_RIGHT).max(0);
+    let min_offset = (MIN_LEFT - BASE_SPLIT_X).min(0);
+    let clamped_offset = (app.separator_offset as i32).clamp(min_offset, max_offset);
+    app.separator_offset = clamped_offset as i16;
+    let separator_x = ((BASE_SPLIT_X + clamped_offset) as u16).min(area.width);
+    let left_width = separator_x.min(area.width);
     let right_width = area.width.saturating_sub(left_width);
 
     if right_width > 0 {
@@ -609,10 +639,15 @@ fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut rat
             height: area.height,
         };
 
-        // Temporarily hide fragmap so commit list renders without it
+        // Temporarily hide fragmap so commit list renders without it.
+        // Also save/restore separator_offset: compute_layout writes it back
+        // based on the sub-panel width, which would clobber the value that
+        // render_main_view already clamped to the panel-boundary range.
         let saved_fragmap = app.fragmap.take();
+        let saved_offset = app.separator_offset;
         views::commit_list::render_in_area(app, frame, left_area);
         app.fragmap = saved_fragmap;
+        app.separator_offset = saved_offset;
 
         // Render separator between left and right
         let sep_height = area.height.saturating_sub(1); // exclude footer row

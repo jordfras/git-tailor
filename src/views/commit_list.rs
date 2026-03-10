@@ -119,7 +119,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_move_select();
             AppAction::Handled
         }
-        KeyCommand::Mergetool | KeyCommand::None | KeyCommand::ForceQuit => AppAction::Handled,
+        KeyCommand::Mergetool
+        | KeyCommand::None
+        | KeyCommand::ForceQuit
+        | KeyCommand::SeparatorLeft
+        | KeyCommand::SeparatorRight => AppAction::Handled,
     }
 }
 
@@ -365,7 +369,41 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize;
+    // Establish the natural (separator_offset=0) baseline using the same formula as
+    // before T117: title is whatever fits after allocating maximum fragmap space.
+    let natural_fragmap_w = effective_width.saturating_sub(10 + 2 + 20) as usize;
+    let natural_h_scroll = app.fragmap_scroll_offset.min(
+        visible_clusters
+            .len()
+            .saturating_sub(natural_fragmap_w.max(1)),
+    );
+    let natural_frag_col_w: u16 = if visible_clusters.is_empty() {
+        0
+    } else {
+        let end = (natural_h_scroll + natural_fragmap_w).min(visible_clusters.len());
+        end.saturating_sub(natural_h_scroll) as u16
+    };
+    let natural_title = effective_width
+        .saturating_sub(10 + 2 + natural_frag_col_w)
+        .min(MAX_TITLE_WIDTH);
+
+    // Apply separator_offset on top of the natural baseline. Clamp and write back
+    // immediately so reversing direction takes effect without delay.
+    let max_title = effective_width.saturating_sub(10 + 2 + 1) as i32;
+    let min_title: i32 = 10;
+    let title_width: u16 = if max_title >= min_title {
+        let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
+        app.separator_offset = (w - natural_title as i32) as i16;
+        w as u16
+    } else {
+        app.separator_offset = 0;
+        0
+    };
+
+    // Derive fragmap available width from the final title_width so that the
+    // table constraints (SHA + title + fragmap) always sum to effective_width.
+    let fragmap_available_width = effective_width.saturating_sub(10 + 2 + title_width) as usize;
+
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -381,13 +419,6 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     };
 
     let fragmap_col_width = display_clusters.len() as u16;
-    let title_width = if fragmap_col_width > 0 {
-        effective_width
-            .saturating_sub(10 + 2 + fragmap_col_width)
-            .min(MAX_TITLE_WIDTH)
-    } else {
-        0
-    };
 
     let visual_selection = if app.reverse {
         app.commits
@@ -443,7 +474,10 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
             Constraint::Min(layout.fragmap_col_width),
         ]
     } else {
-        vec![Constraint::Length(10), Constraint::Min(20)]
+        // Min(0) for title: SHA's Length(10) always wins over the title column
+        // so the SHA is never squished when the panel is narrow (e.g. the left
+        // sub-panel in CommitDetail view).
+        vec![Constraint::Length(10), Constraint::Min(0)]
     }
 }
 

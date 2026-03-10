@@ -42,6 +42,8 @@ pub enum KeyCommand {
     Confirm,
     /// Ctrl+C: quit immediately, aborting any in-progress rebase first.
     ForceQuit,
+    SeparatorLeft,
+    SeparatorRight,
     None,
 }
 
@@ -200,12 +202,24 @@ impl AppMode {
     /// different meanings per mode (e.g. 'm' → Move in CommitList vs Mergetool
     /// in RebaseConflict), this method resolves the ambiguity.
     pub fn parse_key(&self, event: Event) -> KeyCommand {
-        if let Event::Key(KeyEvent { code, modifiers, kind, .. }) = event
+        if let Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        }) = event
             && kind == event::KeyEventKind::Press
         {
             // Ctrl+C always force-quits regardless of mode.
             if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
                 return KeyCommand::ForceQuit;
+            }
+            if modifiers.contains(KeyModifiers::CONTROL) {
+                match code {
+                    KeyCode::Left => return KeyCommand::SeparatorLeft,
+                    KeyCode::Right => return KeyCommand::SeparatorRight,
+                    _ => {}
+                }
             }
             return match code {
                 KeyCode::Up | KeyCode::Char('k') => KeyCommand::MoveUp,
@@ -289,6 +303,8 @@ pub struct AppState {
     pub status_message: Option<String>,
     /// Whether the current status message represents an error (red) or success (green).
     pub status_is_error: bool,
+    /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
+    pub separator_offset: i16,
 }
 
 impl AppState {
@@ -312,6 +328,7 @@ impl AppState {
             detail_visible_height: 0,
             status_message: None,
             status_is_error: false,
+            separator_offset: 0,
         }
     }
 
@@ -336,6 +353,7 @@ impl AppState {
             detail_visible_height: 0,
             status_message: None,
             status_is_error: false,
+            separator_offset: 0,
         }
     }
 
