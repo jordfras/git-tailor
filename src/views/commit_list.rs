@@ -440,7 +440,7 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
         vec![
             Constraint::Length(10),
             Constraint::Length(layout.title_width),
-            Constraint::Length(layout.fragmap_col_width),
+            Constraint::Min(layout.fragmap_col_width),
         ]
     } else {
         vec![Constraint::Length(10), Constraint::Min(20)]

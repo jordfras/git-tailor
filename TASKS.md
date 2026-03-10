@@ -14,7 +14,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Basic UI (V5)
-- [ ] T120 P2 fix - "Hunk groups" header label is truncated when the fragmap
+- [X] T120 P2 fix - "Hunk groups" header label is truncated when the fragmap
   matrix has fewer columns than the label is wide: in `build_constraints` the
   third column uses `Constraint::Length(layout.fragmap_col_width)`, which clips
   the 11-character label to as few characters as there are cluster columns; fix
