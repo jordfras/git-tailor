@@ -119,7 +119,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_move_select();
             AppAction::Handled
         }
-        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
+        KeyCommand::Mergetool | KeyCommand::None | KeyCommand::ForceQuit => AppAction::Handled,
     }
 }
 

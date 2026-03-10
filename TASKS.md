@@ -35,7 +35,7 @@ Guidelines:
   update `render_centered_dialog` (or the individual dialog callers) to apply a
   hanging indent when wrapping body lines, so wrapped text is visually grouped
   under its first line (Flags: V5)
-- [ ] T119 P1 fix - Handle Ctrl+C gracefully: always quit the application
+- [X] T119 P1 fix - Handle Ctrl+C gracefully: always quit the application
   immediately regardless of the current mode; if the app is in `RebaseConflict`
   mode (i.e. a rebase is in progress with a half-applied working tree), call
   `rebase_abort` first to restore the branch to its original state before

@@ -15,7 +15,7 @@
 // TUI application state management
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{CommitInfo, fragmap::FragMap, repo::ConflictState};
 
@@ -40,6 +40,8 @@ pub enum KeyCommand {
     Update,
     Quit,
     Confirm,
+    /// Ctrl+C: quit immediately, aborting any in-progress rebase first.
+    ForceQuit,
     None,
 }
 
@@ -198,9 +200,13 @@ impl AppMode {
     /// different meanings per mode (e.g. 'm' → Move in CommitList vs Mergetool
     /// in RebaseConflict), this method resolves the ambiguity.
     pub fn parse_key(&self, event: Event) -> KeyCommand {
-        if let Event::Key(KeyEvent { code, kind, .. }) = event
+        if let Event::Key(KeyEvent { code, modifiers, kind, .. }) = event
             && kind == event::KeyEventKind::Press
         {
+            // Ctrl+C always force-quits regardless of mode.
+            if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+                return KeyCommand::ForceQuit;
+            }
             return match code {
                 KeyCode::Up | KeyCode::Char('k') => KeyCommand::MoveUp,
                 KeyCode::Down | KeyCode::Char('j') => KeyCommand::MoveDown,

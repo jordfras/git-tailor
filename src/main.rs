@@ -148,6 +148,14 @@ fn main() -> Result<()> {
 
         app.clear_status_message();
 
+        // Ctrl+C: abort any in-progress rebase then quit immediately.
+        if action == app::KeyCommand::ForceQuit {
+            if let AppMode::RebaseConflict(ref state) = app.mode {
+                let _ = git_repo.rebase_abort(state);
+            }
+            break;
+        }
+
         // Mode-first dispatch: each view module handles its own actions.
         let mode = app.mode.clone();
         let result = match mode {
