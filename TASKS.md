@@ -382,7 +382,7 @@ Guidelines:
   views/main_view.rs: move the split-panel orchestrator (separator clamping,
   left/right area computation, fragmap hide/restore, commit_list + commit_detail
   coordination) out of main.rs into a proper view module (Flags: V6)
-- [ ] T124 P2 feat - Extract fragmap rendering helpers into
+- [X] T124 P2 feat - Extract fragmap rendering helpers into
   views/hunk_groups.rs: move build_fragmap_cell, fragmap_cell_content,
   fragmap_connector_content, cluster_relation, commit_text_style, fragmap color
   constants, and render_horizontal_scrollbar out of commit_list.rs into a
