@@ -49,6 +49,16 @@ struct Cli {
     /// the cluster layout.
     #[arg(short = 'f', long)]
     full: bool,
+
+    /// Print the fragmap matrix to stdout and exit without launching the TUI.
+    ///
+    /// Output format matches the original fragmap tool: one commit per line
+    /// with short SHA (cyan), title (grey when fully squashable), and one
+    /// character per cluster column ('.' = empty, white-bg space = direct
+    /// touch, yellow-bg space = squashable connector, red-bg space =
+    /// conflicting connector).
+    #[arg(short = 's', long = "static")]
+    static_output: bool,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -100,6 +110,27 @@ fn main() -> Result<()> {
             cli.commit_ish
         );
         eprintln!("The current branch has no commits beyond the common ancestor.");
+        return Ok(());
+    }
+
+    if cli.static_output {
+        let mut commit_diffs: Vec<CommitDiff> = commits
+            .iter()
+            .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
+            .collect();
+        if commit_diffs.len() != commits.len() {
+            anyhow::bail!("Failed to load diffs for all commits");
+        }
+        if let Some(d) = git_repo.staged_diff() {
+            commit_diffs.push(d);
+        }
+        if let Some(d) = git_repo.unstaged_diff() {
+            commit_diffs.push(d);
+        }
+        print!(
+            "{}",
+            git_tailor::static_views::fragmap::render(&commit_diffs, cli.full, true)
+        );
         return Ok(());
     }
 

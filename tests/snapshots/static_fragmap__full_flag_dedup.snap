@@ -1,0 +1,6 @@
+---
+source: tests/static_fragmap.rs
+expression: dedup
+---
+aaaa0000 Commit A                  █
+bbbb2222 Commit B                  █

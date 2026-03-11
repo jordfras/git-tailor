@@ -1,0 +1,7 @@
+---
+source: tests/static_fragmap.rs
+expression: output
+---
+aaaa0000 Touch A                   .██.
+bbbb2222 Unrelated                 █.│.
+cccc4444 Touch A again             ..██

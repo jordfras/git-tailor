@@ -1,0 +1,6 @@
+---
+source: tests/static_fragmap.rs
+expression: output
+---
+aabbccdd Real commit               ██.
+00000000 (staged changes)          .██

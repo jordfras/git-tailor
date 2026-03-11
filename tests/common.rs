@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use git_tailor::{CommitInfo, repo::Git2Repo};
+use git_tailor::{CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, repo::Git2Repo};
 use git2::{Repository, Signature};
 use std::fs;
 use tempfile::TempDir;
@@ -177,6 +177,33 @@ impl TestRepo {
     pub fn checkout(&self, refname: &str) {
         self.repo.set_head(refname).unwrap();
         self.repo.checkout_head(None).unwrap();
+    }
+}
+
+/// Build a minimal `CommitDiff` with a single file hunk for use in static fragmap tests.
+///
+/// `hunk_range` is `(start_line, line_count)` for both old and new sides.
+#[allow(dead_code)]
+pub fn create_test_commit_diff(
+    oid: &str,
+    summary: &str,
+    path: &str,
+    hunk_range: (u32, u32),
+) -> CommitDiff {
+    CommitDiff {
+        commit: create_test_commit(oid, summary),
+        files: vec![FileDiff {
+            old_path: Some(path.to_string()),
+            new_path: Some(path.to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: hunk_range.0,
+                old_lines: hunk_range.1,
+                new_start: hunk_range.0,
+                new_lines: hunk_range.1,
+                lines: vec![],
+            }],
+        }],
     }
 }
 

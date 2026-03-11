@@ -19,6 +19,7 @@ pub mod editor;
 pub mod fragmap;
 pub mod mergetool;
 pub mod repo;
+pub mod static_views;
 pub mod views;
 
 /// Represents commit metadata extracted from git repository.

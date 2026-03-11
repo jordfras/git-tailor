@@ -299,19 +299,24 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
-- [ ] T109 P2 feat - Add `--print-matrix` (or similar) CLI flag to output the
-  commit SHA/title list and fragmap matrix to stdout without launching the
-  interactive TUI, mimicking the behavior of the original fragmap tool; format
-  output with one commit per line showing short SHA, title, and the row of the
-  fragmap matrix using the same symbols as the TUI (`█`, `│`, space), then exit
-  (Flags: V5)
+- [X] T109 P2 feat - Add `--static` CLI flag to output the commit SHA/title list
+  and fragmap matrix to stdout without launching the interactive TUI, mimicking
+  the behavior of the original fragmap tool; format each row as: short SHA in
+  cyan, commit title truncated to 26 chars (grey if the commit is fully
+  squashable, normal otherwise), then one character per cluster column — `.` for
+  empty, a white-background space (`\x1b[47m \x1b[0m`) for a direct hunk-group
+  touch (regardless of squash status), a yellow-background space
+  (`\x1b[43m \x1b[0m`) for a squashable connector between two touching commits,
+  and a red-background space (`\x1b[41m \x1b[0m`) for a conflicting connector;
+  skip staged/unstaged synthetic rows (not present in original fragmap output);
+  then exit (Flags: V5)
 - [ ] T110 P3 feat - Add `--no-color` CLI flag to disable all color output when
-  used with `--print-matrix` from T109, producing plain text output suitable for
+  used with `--static` from T109, producing plain text output suitable for
   piping or automated processing; ensure this works correctly with the fragmap
   symbols and commit list formatting (Flags: V5)
 - [ ] T111 P3 feat - Replace the current example application in `examples/` with
   a compatibility test that runs both the original fragmap tool and git-tailor
-  in `--print-matrix --no-color` mode on the same repository, then compares
+  in `--static --no-color` mode on the same repository, then compares
   their outputs; the comparison must account for potentially different column
   ordering (cluster columns may appear in different sequences) while verifying
   that the same commit-cluster relationships are detected; fail with a clear
