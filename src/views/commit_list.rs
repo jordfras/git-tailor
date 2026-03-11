@@ -585,7 +585,7 @@ fn build_move_separator_row<'a>(
     Row::new(cells)
 }
 
-fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     if let Some(msg) = &app.status_message {
         let bg = if app.status_is_error {
             Color::Red

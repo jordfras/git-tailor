@@ -194,6 +194,24 @@ fn test_separator_default_position() {
         "│",
         "separator on selected data row should be '│', not overwritten by row highlight"
     );
+    // Footer row (last row) must span the full terminal width — not capped to
+    // the left panel. The footer text starts with a space then the OID, so
+    // column 1 should be 'a' (first char of "abc123def456"). A cell in the
+    // right half (sep_col+10) should also be non-null (blue background extends
+    // past the separator).
+    let last_row = 19usize;
+    let footer_oid_start = cell_at(&terminal, 1, last_row);
+    assert_eq!(
+        footer_oid_start, "a",
+        "footer should start with the commit OID at col 1"
+    );
+    // A cell well past the separator should be a space (blue bg fill), not the
+    // null character that appears for completely-unpainted cells.
+    let footer_far_right = cell_at(&terminal, sep_col + 10, last_row);
+    assert_ne!(
+        footer_far_right, "\u{0}",
+        "footer should extend past the separator column into the right half"
+    );
     insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
 }
 

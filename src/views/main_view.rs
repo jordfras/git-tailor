@@ -83,6 +83,15 @@ pub fn render(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::
         frame.render_widget(Paragraph::new(separator_spans), sep_area);
 
         views::commit_detail::render(git_repo, frame, app, right_area);
+
+        // Render footer at full terminal width so it isn't capped to the left panel.
+        let footer_area = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(1),
+            width: area.width,
+            height: 1,
+        };
+        views::commit_list::render_footer(frame, app, footer_area);
     } else {
         // Screen too narrow, just show commit list
         views::commit_list::render(app, frame);
