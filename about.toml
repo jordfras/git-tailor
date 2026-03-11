@@ -1,0 +1,9 @@
+# cargo-about configuration
+# Run: cargo about generate about.hbs > THIRD_PARTY_LICENSES.html
+
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
