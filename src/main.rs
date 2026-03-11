@@ -157,15 +157,6 @@ fn main() -> Result<()> {
             break;
         }
 
-        if action == app::KeyCommand::SeparatorLeft {
-            app.separator_offset = app.separator_offset.saturating_sub(4);
-            continue;
-        }
-        if action == app::KeyCommand::SeparatorRight {
-            app.separator_offset = app.separator_offset.saturating_add(4);
-            continue;
-        }
-
         // Mode-first dispatch: each view module handles its own actions.
         let mode = app.mode.clone();
         let result = match mode {

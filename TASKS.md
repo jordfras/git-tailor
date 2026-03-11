@@ -388,7 +388,7 @@ Guidelines:
   constants, and render_horizontal_scrollbar out of commit_list.rs into a
   dedicated module. commit_list.rs calls into hunk_groups for the third table
   column (Flags: V6)
-- [ ] T125 P3 feat - Move SeparatorLeft/Right handling out of main event loop:
+- [X] T125 P3 feat - Move SeparatorLeft/Right handling out of main event loop:
   instead of the event loop doing
   `if action == SeparatorLeft { ... continue; }`, handle separator_offset
   mutation inside the view handle_key (main_view or commit_list), returning

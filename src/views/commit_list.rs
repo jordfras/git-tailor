@@ -120,11 +120,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_move_select();
             AppAction::Handled
         }
-        KeyCommand::Mergetool
-        | KeyCommand::None
-        | KeyCommand::ForceQuit
-        | KeyCommand::SeparatorLeft
-        | KeyCommand::SeparatorRight => AppAction::Handled,
+        KeyCommand::Mergetool | KeyCommand::None | KeyCommand::ForceQuit => AppAction::Handled,
+        KeyCommand::SeparatorLeft => {
+            app.separator_offset = app.separator_offset.saturating_sub(4);
+            AppAction::Handled
+        }
+        KeyCommand::SeparatorRight => {
+            app.separator_offset = app.separator_offset.saturating_add(4);
+            AppAction::Handled
+        }
     }
 }
 

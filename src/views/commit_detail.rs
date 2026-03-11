@@ -77,6 +77,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.toggle_detail_view();
             AppAction::Handled
         }
+        KeyCommand::SeparatorLeft => {
+            app.separator_offset = app.separator_offset.saturating_sub(4);
+            AppAction::Handled
+        }
+        KeyCommand::SeparatorRight => {
+            app.separator_offset = app.separator_offset.saturating_add(4);
+            AppAction::Handled
+        }
         _ => AppAction::Handled,
     }
 }
