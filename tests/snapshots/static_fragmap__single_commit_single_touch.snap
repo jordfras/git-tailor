@@ -2,4 +2,4 @@
 source: tests/static_fragmap.rs
 expression: output
 ---
-aabbccdd Add feature               █
+aabbccdd Add feature               #

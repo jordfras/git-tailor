@@ -310,7 +310,7 @@ Guidelines:
   and a red-background space (`\x1b[41m \x1b[0m`) for a conflicting connector;
   skip staged/unstaged synthetic rows (not present in original fragmap output);
   then exit (Flags: V5)
-- [ ] T110 P3 feat - Add `--no-color` CLI flag to disable all color output when
+- [X] T110 P3 feat - Add `--no-color` CLI flag to disable all color output when
   used with `--static` from T109, producing plain text output suitable for
   piping or automated processing; ensure this works correctly with the fragmap
   symbols and commit list formatting (Flags: V5)

@@ -58,9 +58,9 @@ const PLAIN: Symbols = Symbols {
     sha_start: "",
     reset: "",
     grey_start: "",
-    cell_touch: "█",
-    cell_squashable: "│",
-    cell_conflicting: "│",
+    cell_touch: "#",
+    cell_squashable: "^",
+    cell_conflicting: "|",
     cell_empty: ".",
 };
 

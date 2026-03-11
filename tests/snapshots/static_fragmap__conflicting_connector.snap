@@ -2,7 +2,7 @@
 source: tests/static_fragmap.rs
 expression: output
 ---
-aaaa0000 Touch 1                   .███...
-bbbb2222 Touch 2                   ..████.
-cccc4444 Unrelated                 █..│.│.
-dddd6666 Touch 3                   ...█.██
+aaaa0000 Touch 1                   .###...
+bbbb2222 Touch 2                   ..####.
+cccc4444 Unrelated                 #..|.^.
+dddd6666 Touch 3                   ...#.##

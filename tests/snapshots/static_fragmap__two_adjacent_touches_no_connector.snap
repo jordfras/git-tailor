@@ -2,5 +2,5 @@
 source: tests/static_fragmap.rs
 expression: output
 ---
-aabbccdd First                     ██.
-eeff0000 Second                    .██
+aabbccdd First                     ##.
+eeff0000 Second                    .##

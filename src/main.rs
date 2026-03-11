@@ -59,6 +59,14 @@ struct Cli {
     /// conflicting connector).
     #[arg(short = 's', long = "static")]
     static_output: bool,
+
+    /// Disable ANSI color output. Requires --static.
+    ///
+    /// Uses plain ASCII symbols matching `fragmap --no-color`:
+    /// '#' for a direct touch, '|' for a squashable connector,
+    /// '^' for a conflicting connector, '.' for an empty cell.
+    #[arg(long = "no-color", requires = "static_output")]
+    no_color: bool,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -129,7 +137,7 @@ fn main() -> Result<()> {
         }
         print!(
             "{}",
-            git_tailor::static_views::fragmap::render(&commit_diffs, cli.full, true)
+            git_tailor::static_views::fragmap::render(&commit_diffs, cli.full, !cli.no_color)
         );
         return Ok(());
     }

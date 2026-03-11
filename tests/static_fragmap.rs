@@ -114,8 +114,8 @@ fn test_conflicting_connector() {
     // After SHA (8) + space + title (26) there should be a `│` connector.
     let matrix_part = &row2[8 + 1 + 26..];
     assert!(
-        matrix_part.contains('│'),
-        "expected conflicting connector │ in: {matrix_part:?}"
+        matrix_part.contains('|'),
+        "expected conflicting connector | in: {matrix_part:?}"
     );
 }
 
