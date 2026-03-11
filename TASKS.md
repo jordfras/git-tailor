@@ -378,5 +378,20 @@ Guidelines:
   Help), then simplify the render dispatch in `main.rs` to call
   `render_mode(background)` then `render_mode(foreground)` instead of
   hand-coding the layering for each overlay variant (Flags: V5)
+- [ ] T123 P2 feat - Extract render_main_view from main.rs into
+  views/main_view.rs: move the split-panel orchestrator (separator clamping,
+  left/right area computation, fragmap hide/restore, commit_list + commit_detail
+  coordination) out of main.rs into a proper view module (Flags: V6)
+- [ ] T124 P2 feat - Extract fragmap rendering helpers into
+  views/hunk_groups.rs: move build_fragmap_cell, fragmap_cell_content,
+  fragmap_connector_content, cluster_relation, commit_text_style, fragmap color
+  constants, and render_horizontal_scrollbar out of commit_list.rs into a
+  dedicated module. commit_list.rs calls into hunk_groups for the third table
+  column (Flags: V6)
+- [ ] T125 P3 feat - Move SeparatorLeft/Right handling out of main event loop:
+  instead of the event loop doing
+  `if action == SeparatorLeft { ... continue; }`, handle separator_offset
+  mutation inside the view handle_key (main_view or commit_list), returning
+  AppAction::Handled (Flags: V6)
 
 ## Notes
