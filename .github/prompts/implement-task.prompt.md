@@ -30,6 +30,7 @@ Guidelines:
 - Flags (optional): CLARIFICATION, HUMAN INPUT, HUMAN TASK, DUPLICATE.
 - Version flags (optional): V1, V2 etc. (used to group versions/releases).
 - Mark completion by [ ] → [X]. Keep changes atomic (one commit per task).
+- Mark won't-do tasks by [ ] → [-] and add `WONT DO` to Flags.
 
 ## Example
 - [ ] T001 P1 feat - Initial placeholder task (Flags: CLARIFICATION, V1)
@@ -54,6 +55,7 @@ Guidelines:
   3. Notify users that you did housekeeping on TASKS.md.
 - Only after UNCATEGORIZED is empty proceed and optional house keeping.
 - If $ARGUMENTS specifies a line number, task ID (e.g. T003), unique phrase, or partial title, match that task.
+- Never select a task marked `[-]` (won't do) — skip it entirely as if it were completed.
 - Else pick highest priority unchecked task WITHOUT HUMAN INPUT or CLARIFICATION flags. If none exist, request user clarification to proceed on a flagged task.
 - After selecting a task, always ask user for confirmation before proceeding to clarification/validation steps. Wait for explicit approval (e.g. "proceed", "yes", "confirm").
 - Echo the exact original task line.

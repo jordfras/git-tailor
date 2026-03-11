@@ -5,7 +5,7 @@ expression: buffer
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
-        "SHA        Title                                                       │Hu      ",
+        "SHA        Title                                                       │Hunk gro",
         "cccc5555   Fix config typo                                             │█       ",
         "bbbb3333   Unrelated change                                            ││█      ",
         "aaaa1111   Add config file                                             │█       ",
@@ -27,7 +27,7 @@ Buffer {
         x: 71, y: 1, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 1, fg: DarkGray, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
         x: 73, y: 1, fg: Reset, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
-        x: 74, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 2, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 73, y: 2, fg: White, bg: Reset, underline: Reset, modifier: NONE,

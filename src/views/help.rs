@@ -58,18 +58,18 @@ pub fn render(frame: &mut Frame) {
             Span::styled("   ←/→       ", Style::default().fg(Color::Cyan)),
             Span::raw("Scroll fragmap left/right"),
         ]),
+        Line::from(vec![
+            Span::styled("   Ctrl ←/→  ", Style::default().fg(Color::Cyan)),
+            Span::raw("Move separator bar left/right"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
-            " Views",
+            " Operations",
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle commit detail view"),
-        ]),
         Line::from(vec![
             Span::styled("   p         ", Style::default().fg(Color::Cyan)),
             Span::raw("Split commit (choose strategy)"),
@@ -80,7 +80,7 @@ pub fn render(frame: &mut Frame) {
         ]),
         Line::from(vec![
             Span::styled("   f         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Fixup commit (keep target message)"),
+            Span::raw("Fixup commit (pick target)"),
         ]),
         Line::from(vec![
             Span::styled("   r         ", Style::default().fg(Color::Cyan)),
@@ -93,6 +93,18 @@ pub fn render(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("   m         ", Style::default().fg(Color::Cyan)),
             Span::raw("Move commit (pick new position)"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Views",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle commit detail view"),
         ]),
         Line::from(vec![
             Span::styled("   h         ", Style::default().fg(Color::Cyan)),

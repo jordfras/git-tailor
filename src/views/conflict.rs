@@ -14,7 +14,7 @@
 
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
-use super::dialog::{inner_width, render_centered_dialog, wrap_text};
+use super::dialog::{inner_width, render_centered_dialog, wrap_text, wrap_text_indent};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
@@ -123,25 +123,29 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         } else {
             " A commit being rebased on top of the moved commit conflicted."
         };
-        lines.push(Line::from(Span::styled(
-            note,
-            Style::default().fg(Color::Yellow),
-        )));
+        for chunk in wrap_text_indent(note, iw) {
+            lines.push(Line::from(Span::styled(
+                chunk,
+                Style::default().fg(Color::Yellow),
+            )));
+        }
     } else if state.operation_label == "Squash" {
         let note = if state.squash_context.is_some() {
             " The squash itself caused the conflict."
         } else {
             " A commit being rebased after the squash conflicted."
         };
-        lines.push(Line::from(Span::styled(
-            note,
-            Style::default().fg(Color::Yellow),
-        )));
+        for chunk in wrap_text_indent(note, iw) {
+            lines.push(Line::from(Span::styled(
+                chunk,
+                Style::default().fg(Color::Yellow),
+            )));
+        }
     }
 
     if remaining > 0 {
         let note = format!(" ({remaining} commit(s) still to rebase after this)");
-        for chunk in wrap_text(&note, iw) {
+        for chunk in wrap_text_indent(&note, iw) {
             lines.push(Line::from(Span::raw(chunk)));
         }
     }
@@ -176,10 +180,15 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
 
     lines.push(Line::from(""));
     if state.still_unresolved {
-        lines.push(Line::from(Span::styled(
+        for chunk in wrap_text_indent(
             " ! Still unresolved — fix all conflicts above before continuing",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )));
+            iw,
+        ) {
+            lines.push(Line::from(Span::styled(
+                chunk,
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            )));
+        }
         lines.push(Line::from(""));
     }
     lines.push(Line::from(Span::raw(

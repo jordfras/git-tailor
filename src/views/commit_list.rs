@@ -14,8 +14,9 @@
 
 // Commit list view rendering
 
+use super::hunk_groups;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
-use crate::fragmap::{self, TouchKind};
+use crate::fragmap::TouchKind;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -119,7 +120,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_move_select();
             AppAction::Handled
         }
-        KeyCommand::Mergetool | KeyCommand::None => AppAction::Handled,
+        KeyCommand::Mergetool | KeyCommand::None | KeyCommand::ForceQuit => AppAction::Handled,
+        KeyCommand::SeparatorLeft => {
+            app.separator_offset = app.separator_offset.saturating_sub(4);
+            AppAction::Handled
+        }
+        KeyCommand::SeparatorRight => {
+            app.separator_offset = app.separator_offset.saturating_add(4);
+            AppAction::Handled
+        }
     }
 }
 
@@ -129,25 +138,6 @@ const SHORT_SHA_LENGTH: usize = 8;
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 const SEPARATOR_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
-
-// Fragmap visualization symbols
-const CLUSTER_TOUCHED_CONFLICTING: &str = "█";
-const CLUSTER_TOUCHED_SQUASHABLE: &str = "█";
-const CLUSTER_CONNECTOR_CONFLICTING: &str = "│";
-const CLUSTER_CONNECTOR_SQUASHABLE: &str = "│";
-
-// Connector colors
-const COLOR_CONFLICTING: Color = Color::Red;
-const COLOR_SQUASHABLE: Color = Color::Yellow;
-
-// Cell colors
-const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
-const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
-
-// Background applied to the fragmap matrix columns of the selected row.
-// Kept separate from the text-cell highlight (which uses terminal Reversed)
-// so that the vertical lines and filled squares keep their foreground colors.
-const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 
 // Foreground color for synthetic working-tree rows (staged / unstaged).
 // Applied when the row is not selected so they are visually distinct from commits.
@@ -177,89 +167,6 @@ struct LayoutInfo {
     visual_selection: usize,
     scroll_offset: usize,
 }
-/// Determine a commit's relationship to the earliest earlier commit in a cluster.
-///
-/// Returns None if the commit doesn't touch the cluster or no earlier commit does.
-fn cluster_relation(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    cluster_idx: usize,
-) -> Option<fragmap::SquashRelation> {
-    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
-        return None;
-    }
-    for earlier_idx in 0..commit_idx {
-        if fragmap.matrix[earlier_idx][cluster_idx] != TouchKind::None {
-            return Some(fragmap.cluster_relation(earlier_idx, commit_idx, cluster_idx));
-        }
-    }
-    None
-}
-
-/// Determine cell content and style for a commit-cluster intersection.
-///
-/// Returns None if the commit doesn't touch the cluster.
-fn fragmap_cell_content(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    cluster_idx: usize,
-) -> Option<(&'static str, Style)> {
-    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
-        return None;
-    }
-
-    match cluster_relation(fragmap, commit_idx, cluster_idx) {
-        Some(fragmap::SquashRelation::Squashable) => Some((
-            CLUSTER_TOUCHED_SQUASHABLE,
-            Style::new().fg(COLOR_TOUCHED_SQUASHABLE),
-        )),
-        Some(fragmap::SquashRelation::Conflicting) => Some((
-            CLUSTER_TOUCHED_CONFLICTING,
-            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
-        )),
-        _ => Some((
-            CLUSTER_TOUCHED_CONFLICTING,
-            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
-        )),
-    }
-}
-
-/// Determine connector content for a cell where the commit does NOT touch the cluster.
-///
-/// If there are touching commits both above and below this row in the same
-/// column, draw a vertical connector line colored by the relationship that
-/// the lower square has with an earlier commit.
-fn fragmap_connector_content(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    cluster_idx: usize,
-) -> Option<(&'static str, Style)> {
-    let has_above = (0..commit_idx)
-        .rev()
-        .any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
-
-    let below = ((commit_idx + 1)..fragmap.commits.len())
-        .find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
-
-    match (has_above, below) {
-        (true, Some(below_idx)) => {
-            // Color connector by the lower square's relationship
-            match cluster_relation(fragmap, below_idx, cluster_idx) {
-                Some(fragmap::SquashRelation::Conflicting) => Some((
-                    CLUSTER_CONNECTOR_CONFLICTING,
-                    Style::new().fg(COLOR_CONFLICTING),
-                )),
-                Some(fragmap::SquashRelation::Squashable) => Some((
-                    CLUSTER_CONNECTOR_SQUASHABLE,
-                    Style::new().fg(COLOR_SQUASHABLE),
-                )),
-                _ => None,
-            }
-        }
-        _ => None,
-    }
-}
-
 /// Render the commit list view.
 ///
 /// Takes application state and renders the commit list to the terminal frame.
@@ -268,10 +175,25 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     render_in_area(app, frame, frame.area());
 }
 
+/// Render the commit list view in a specific area, without showing fragmap columns.
+/// The fragmap is still used for row coloring; only the column display is suppressed.
+/// Used by the detail-panel split view where fragmap columns would be out of place.
+pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame, area: Rect) {
+    // Hide fragmap only for layout (column sizing) so no fragmap columns appear;
+    // restore it before build_rows so commit_text_style still gets fragmap colors.
+    let saved_fragmap = app.fragmap.take();
+    let layout = compute_layout(app, area);
+    app.fragmap = saved_fragmap;
+    render_in_area_with_layout(app, frame, layout);
+}
+
 /// Render the commit list view in a specific area.
 pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
     let layout = compute_layout(app, area);
+    render_in_area_with_layout(app, frame, layout);
+}
 
+fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: LayoutInfo) {
     // Store visible height for page scrolling
     app.commit_list_visible_height = layout.available_height;
 
@@ -317,7 +239,15 @@ pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
     render_footer(frame, app, layout.footer_area);
 
     if let Some(hs_area) = layout.h_scrollbar_area {
-        render_horizontal_scrollbar(frame, hs_area, content_area, &layout);
+        hunk_groups::render_horizontal_scrollbar(
+            frame,
+            hs_area,
+            layout.title_width,
+            layout.fragmap_col_width,
+            layout.visible_clusters.len(),
+            layout.fragmap_available_width,
+            layout.h_scroll_offset,
+        );
     }
 }
 
@@ -365,7 +295,41 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let fragmap_available_width = effective_width.saturating_sub(10 + 1 + 20 + 1) as usize;
+    // Establish the natural (separator_offset=0) baseline using the same formula as
+    // before T117: title is whatever fits after allocating maximum fragmap space.
+    let natural_fragmap_w = effective_width.saturating_sub(10 + 2 + 20) as usize;
+    let natural_h_scroll = app.fragmap_scroll_offset.min(
+        visible_clusters
+            .len()
+            .saturating_sub(natural_fragmap_w.max(1)),
+    );
+    let natural_frag_col_w: u16 = if visible_clusters.is_empty() {
+        0
+    } else {
+        let end = (natural_h_scroll + natural_fragmap_w).min(visible_clusters.len());
+        end.saturating_sub(natural_h_scroll) as u16
+    };
+    let natural_title = effective_width
+        .saturating_sub(10 + 2 + natural_frag_col_w)
+        .min(MAX_TITLE_WIDTH);
+
+    // Apply separator_offset on top of the natural baseline. Clamp and write back
+    // immediately so reversing direction takes effect without delay.
+    let max_title = effective_width.saturating_sub(10 + 2 + 1) as i32;
+    let min_title: i32 = 10;
+    let title_width: u16 = if max_title >= min_title {
+        let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
+        app.separator_offset = (w - natural_title as i32) as i16;
+        w as u16
+    } else {
+        app.separator_offset = 0;
+        0
+    };
+
+    // Derive fragmap available width from the final title_width so that the
+    // table constraints (SHA + title + fragmap) always sum to effective_width.
+    let fragmap_available_width = effective_width.saturating_sub(10 + 2 + title_width) as usize;
+
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -381,13 +345,6 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     };
 
     let fragmap_col_width = display_clusters.len() as u16;
-    let title_width = if fragmap_col_width > 0 {
-        effective_width
-            .saturating_sub(10 + 2 + fragmap_col_width)
-            .min(MAX_TITLE_WIDTH)
-    } else {
-        0
-    };
 
     let visual_selection = if app.reverse {
         app.commits
@@ -440,69 +397,14 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
         vec![
             Constraint::Length(10),
             Constraint::Length(layout.title_width),
-            Constraint::Length(layout.fragmap_col_width),
+            Constraint::Min(layout.fragmap_col_width),
         ]
     } else {
-        vec![Constraint::Length(10), Constraint::Min(20)]
+        // Min(0) for title: SHA's Length(10) always wins over the title column
+        // so the SHA is never squished when the panel is narrow (e.g. the left
+        // sub-panel in CommitDetail view).
+        vec![Constraint::Length(10), Constraint::Min(0)]
     }
-}
-
-/// Determine the text style for a non-selected commit row.
-///
-/// Yellow: squash partner — either the selected commit can squash into this
-/// commit, or this commit can squash into the selected commit.
-/// Red: shares a cluster but not a squash partner.
-/// DarkGray: this commit is itself fully squashable (intrinsic property).
-fn commit_text_style(fragmap: &fragmap::FragMap, selection_idx: usize, commit_idx: usize) -> Style {
-    let is_squash_partner = fragmap
-        .squash_target(selection_idx)
-        .is_some_and(|t| t == commit_idx)
-        || fragmap
-            .squash_target(commit_idx)
-            .is_some_and(|t| t == selection_idx);
-
-    if is_squash_partner {
-        Style::new().fg(COLOR_SQUASHABLE)
-    } else if fragmap.shares_cluster_with(selection_idx, commit_idx) {
-        Style::new().fg(COLOR_CONFLICTING)
-    } else if fragmap.is_fully_squashable(commit_idx) {
-        Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
-    } else {
-        Style::default()
-    }
-}
-
-/// Build a single fragmap cell from the visible cluster columns.
-///
-/// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
-/// background of every span so the row is visually highlighted without
-/// inverting the foreground colors of the symbols.
-fn build_fragmap_cell<'a>(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    display_clusters: &[usize],
-    is_selected: bool,
-) -> Cell<'a> {
-    let spans: Vec<Span> = display_clusters
-        .iter()
-        .map(|&cluster_idx| {
-            let base_style = if is_selected {
-                Style::new().bg(COLOR_SELECTED_FRAGMAP_BG)
-            } else {
-                Style::new()
-            };
-            if let Some((symbol, style)) = fragmap_cell_content(fragmap, commit_idx, cluster_idx) {
-                Span::styled(symbol, base_style.patch(style))
-            } else if let Some((symbol, style)) =
-                fragmap_connector_content(fragmap, commit_idx, cluster_idx)
-            {
-                Span::styled(symbol, base_style.patch(style))
-            } else {
-                Span::styled(" ", base_style)
-            }
-        })
-        .collect();
-    Cell::from(Line::from(spans))
 }
 
 /// Build all visible table rows.
@@ -593,7 +495,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
             } else {
                 Style::default()
             }
@@ -603,7 +505,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
             } else {
                 Style::default()
             }
@@ -612,7 +514,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
             } else {
                 Style::default()
             }
@@ -640,7 +542,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         if let Some(ref fragmap) = app.fragmap
             && !layout.display_clusters.is_empty()
         {
-            cells.push(build_fragmap_cell(
+            cells.push(hunk_groups::build_fragmap_cell(
                 fragmap,
                 commit_idx_in_fragmap,
                 &layout.display_clusters,
@@ -698,7 +600,7 @@ fn build_move_separator_row<'a>(
     Row::new(cells)
 }
 
-fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     if let Some(msg) = &app.status_message {
         let bg = if app.status_is_error {
             Color::Red
@@ -858,33 +760,4 @@ fn render_vertical_scrollbar(
         ..sb_area
     };
     frame.render_stateful_widget(scrollbar, data_area, &mut state);
-}
-
-fn render_horizontal_scrollbar(
-    frame: &mut Frame,
-    hs_area: Rect,
-    content_area: Rect,
-    layout: &LayoutInfo,
-) {
-    let fragmap_x = content_area.x + 10 + 1 + layout.title_width + 1;
-    let area = Rect {
-        x: fragmap_x,
-        width: layout.fragmap_col_width,
-        ..hs_area
-    };
-
-    let mut state = ScrollbarState::new(
-        layout
-            .visible_clusters
-            .len()
-            .saturating_sub(layout.fragmap_available_width),
-    )
-    .position(layout.h_scroll_offset);
-
-    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
-        .begin_symbol(None)
-        .end_symbol(None)
-        .track_symbol(Some("─"));
-
-    frame.render_stateful_widget(scrollbar, area, &mut state);
 }

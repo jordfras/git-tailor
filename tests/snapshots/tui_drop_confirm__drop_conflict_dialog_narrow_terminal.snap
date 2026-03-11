@@ -13,7 +13,7 @@ Buffer {
         "  │ Conflict in abc123def4           │  ",
         "  │ Refactor parser module           │  ",
         "  │ (1 commit(s) still to rebase     │  ",
-        "  │after this)                       │  ",
+        "  │ after this)                      │  ",
         "  │                                  │  ",
         "  │ Resolve conflicts in your working│  ",
         "  │tree, then:                       │  ",

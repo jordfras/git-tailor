@@ -17,6 +17,7 @@
 use anyhow::Result;
 use clap::Parser;
 use crossterm::{
+    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -26,14 +27,7 @@ use git_tailor::{
     app::{self, AppAction, AppMode, AppState, SplitStrategy},
     editor, fragmap, mergetool, views,
 };
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::Rect,
-    style::{Color, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 /// Interactive TUI for working with Git commits.
@@ -112,6 +106,13 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
+    let kb_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
+    if kb_enhanced {
+        execute!(
+            stderr,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
     let backend = CrosstermBackend::new(stderr);
     let mut terminal = Terminal::new(backend)?;
 
@@ -147,6 +148,14 @@ fn main() -> Result<()> {
         let action = app.mode.parse_key(event);
 
         app.clear_status_message();
+
+        // Ctrl+C: abort any in-progress rebase then quit immediately.
+        if action == app::KeyCommand::ForceQuit {
+            if let AppMode::RebaseConflict(ref state) = app.mode {
+                let _ = git_repo.rebase_abort(state);
+            }
+            break;
+        }
 
         // Mode-first dispatch: each view module handles its own actions.
         let mode = app.mode.clone();
@@ -268,7 +277,8 @@ fn main() -> Result<()> {
                         Ok(msg) if msg.trim().is_empty() => {
                             let _ = git_repo.rebase_abort(&state);
                             reload_commits(&git_repo, &mut app);
-                            app.set_error_message("Squash aborted: empty commit message");
+                            let label = &state.operation_label;
+                            app.set_error_message(format!("{label} aborted: empty commit message"));
                         }
                         Ok(msg) => {
                             let saved_index = app.selection_index;
@@ -420,7 +430,7 @@ fn main() -> Result<()> {
                             continue;
                         }
                         Ok(msg) if msg.trim().is_empty() => {
-                            app.set_error_message("Squash aborted: empty commit message");
+                            app.set_error_message(format!("{label} aborted: empty commit message"));
                             continue;
                         }
                         Ok(msg) => Some(msg),
@@ -484,6 +494,9 @@ fn main() -> Result<()> {
     }
 
     disable_raw_mode()?;
+    if kb_enhanced {
+        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
+    }
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
@@ -503,16 +516,16 @@ fn execute_split(
     match strategy {
         SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.set_error_message(e.to_string()),
+            Err(e) => app.set_error_message(format!("Split failed: {e}")),
         },
         SplitStrategy::PerHunk => match git_repo.split_commit_per_hunk(commit_oid, head_oid) {
             Ok(()) => reload_commits(git_repo, app),
-            Err(e) => app.set_error_message(e.to_string()),
+            Err(e) => app.set_error_message(format!("Split failed: {e}")),
         },
         SplitStrategy::PerHunkGroup => {
             match git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid) {
                 Ok(()) => reload_commits(git_repo, app),
-                Err(e) => app.set_error_message(e.to_string()),
+                Err(e) => app.set_error_message(format!("Split failed: {e}")),
             }
         }
     }
@@ -579,57 +592,6 @@ fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
     app.detail_scroll_offset = 0;
 }
 
-/// Render the main view with split screen (commit list on left, detail on right).
-fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::Frame) {
-    let area = frame.area();
-    let split_x = 72; // SHA(10) + sep(1) + title(60) + sep(1)
-    let left_width = split_x.min(area.width);
-    let right_width = area.width.saturating_sub(left_width);
-
-    if right_width > 0 {
-        let left_area = Rect {
-            x: area.x,
-            y: area.y,
-            width: left_width,
-            height: area.height,
-        };
-        let right_area = Rect {
-            x: area.x + left_width,
-            y: area.y,
-            width: right_width,
-            height: area.height,
-        };
-
-        // Temporarily hide fragmap so commit list renders without it
-        let saved_fragmap = app.fragmap.take();
-        views::commit_list::render_in_area(app, frame, left_area);
-        app.fragmap = saved_fragmap;
-
-        // Render separator between left and right
-        let sep_height = area.height.saturating_sub(1); // exclude footer row
-        let separator_spans: Vec<Line> = (0..sep_height)
-            .map(|_| {
-                Line::from(Span::styled(
-                    "│",
-                    Style::new().fg(Color::White).bg(Color::Blue),
-                ))
-            })
-            .collect();
-        let sep_area = Rect {
-            x: left_area.x + left_width - 1,
-            y: area.y,
-            width: 1,
-            height: sep_height,
-        };
-        frame.render_widget(Paragraph::new(separator_spans), sep_area);
-
-        views::commit_detail::render(git_repo, frame, app, right_area);
-    } else {
-        // Screen too narrow, just show commit list
-        views::commit_list::render(app, frame);
-    }
-}
-
 /// Render a mode, recursively drawing its background first for overlay modes.
 fn render_mode(
     mode: &AppMode,
@@ -643,7 +605,7 @@ fn render_mode(
 
     match mode {
         AppMode::CommitList => views::commit_list::render(app, frame),
-        AppMode::CommitDetail => render_main_view(git_repo, app, frame),
+        AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
