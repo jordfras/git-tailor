@@ -54,14 +54,12 @@ pub fn render(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::
             height: area.height,
         };
 
-        // Temporarily hide fragmap so commit list renders without it.
-        // Also save/restore separator_offset: compute_layout writes it back
-        // based on the sub-panel width, which would clobber the value that
-        // render already clamped to the panel-boundary range.
-        let saved_fragmap = app.fragmap.take();
+        // Suppress fragmap columns in the narrow left panel but keep the fragmap
+        // for row coloring.  Also restore separator_offset: compute_layout writes
+        // it back based on sub-panel width, which would clobber the value we
+        // already clamped to the panel-boundary range.
         let saved_offset = app.separator_offset;
-        views::commit_list::render_in_area(app, frame, left_area);
-        app.fragmap = saved_fragmap;
+        views::commit_list::render_in_area_without_fragmap_cols(app, frame, left_area);
         app.separator_offset = saved_offset;
 
         // Render separator between left and right

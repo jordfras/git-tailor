@@ -175,10 +175,25 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     render_in_area(app, frame, frame.area());
 }
 
+/// Render the commit list view in a specific area, without showing fragmap columns.
+/// The fragmap is still used for row coloring; only the column display is suppressed.
+/// Used by the detail-panel split view where fragmap columns would be out of place.
+pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame, area: Rect) {
+    // Hide fragmap only for layout (column sizing) so no fragmap columns appear;
+    // restore it before build_rows so commit_text_style still gets fragmap colors.
+    let saved_fragmap = app.fragmap.take();
+    let layout = compute_layout(app, area);
+    app.fragmap = saved_fragmap;
+    render_in_area_with_layout(app, frame, layout);
+}
+
 /// Render the commit list view in a specific area.
 pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
     let layout = compute_layout(app, area);
+    render_in_area_with_layout(app, frame, layout);
+}
 
+fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: LayoutInfo) {
     // Store visible height for page scrolling
     app.commit_list_visible_height = layout.available_height;
 
