@@ -44,7 +44,7 @@ pub fn render(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::
         let left_area = Rect {
             x: area.x,
             y: area.y,
-            width: left_width,
+            width: left_width.saturating_sub(1), // exclude the separator column itself
             height: area.height,
         };
         let right_area = Rect {

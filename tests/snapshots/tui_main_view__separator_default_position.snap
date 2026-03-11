@@ -77,5 +77,7 @@ Buffer {
         x: 71, y: 18, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 18, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 19, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 71, y: 19, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 72, y: 19, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

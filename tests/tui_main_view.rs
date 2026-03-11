@@ -187,6 +187,13 @@ fn test_separator_default_position() {
         "│",
         "separator should be at column {sep_col} with offset 0"
     );
+    // Row 1 is the selected commit (selection_index = 0). The selection
+    // highlight must not bleed into the separator column.
+    assert_eq!(
+        cell_at(&terminal, sep_col, 1),
+        "│",
+        "separator on selected data row should be '│', not overwritten by row highlight"
+    );
     insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
 }
 
