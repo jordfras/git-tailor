@@ -48,6 +48,18 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
+- [ ] T126 P2 feat - Add `--compat-squash` CLI flag (for use with `--static`) to
+  match the original fragmap tool's connector coloring rule: a connector between
+  two commits in a cluster column is rendered as squashable (yellow / `^`) only
+  when the lower commit is *fully* squashable into the same single upper commit
+  (i.e. `fragmap.is_fully_squashable()` is true and `squash_target()` points to
+  that upper commit); otherwise the connector is rendered as conflicting (red /
+  `|`) even if the individual cluster pair would be squashable in isolation;
+  without the flag the current per-cluster behavior is preserved (Flags: V5)
+- [ ] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
+  currently `--static` always outputs commits in the order returned by
+  `list_commits` (newest-first); when `--reverse` is also passed the rows should
+  be printed oldest-first, matching the interactive TUI behavior (Flags: V5)
 - [ ] T111 P3 feat - Replace the current example application in `examples/` with
   a compatibility test that runs both the original fragmap tool and git-tailor
   in `--static --no-color` mode on the same repository, then compares
