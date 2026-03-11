@@ -378,7 +378,7 @@ Guidelines:
   Help), then simplify the render dispatch in `main.rs` to call
   `render_mode(background)` then `render_mode(foreground)` instead of
   hand-coding the layering for each overlay variant (Flags: V5)
-- [ ] T123 P2 feat - Extract render_main_view from main.rs into
+- [X] T123 P2 feat - Extract render_main_view from main.rs into
   views/main_view.rs: move the split-panel orchestrator (separator clamping,
   left/right area computation, fragmap hide/restore, commit_list + commit_detail
   coordination) out of main.rs into a proper view module (Flags: V6)

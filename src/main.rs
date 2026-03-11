@@ -27,14 +27,7 @@ use git_tailor::{
     app::{self, AppAction, AppMode, AppState, SplitStrategy},
     editor, fragmap, mergetool, views,
 };
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::Rect,
-    style::{Color, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
 /// Interactive TUI for working with Git commits.
@@ -608,72 +601,6 @@ fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
     app.detail_scroll_offset = 0;
 }
 
-/// Render the main view with split screen (commit list on left, detail on right).
-fn render_main_view(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::Frame) {
-    let area = frame.area();
-    const BASE_SPLIT_X: i32 = 72; // SHA(10) + gap(1) + title(60) + gap(1)
-    // MIN_LEFT: scrollbar(1) + SHA(10) + col-gap(1) + min-title(10) + panel-sep(1) = 23
-    // This matches CommitList mode's minimum separator position so both modes
-    // stop at the same column, and SHA is never obscured by the panel separator.
-    const MIN_LEFT: i32 = 23;
-    const MIN_RIGHT: i32 = 20;
-    let max_offset = (area.width as i32 - BASE_SPLIT_X - MIN_RIGHT).max(0);
-    let min_offset = (MIN_LEFT - BASE_SPLIT_X).min(0);
-    let clamped_offset = (app.separator_offset as i32).clamp(min_offset, max_offset);
-    app.separator_offset = clamped_offset as i16;
-    let separator_x = ((BASE_SPLIT_X + clamped_offset) as u16).min(area.width);
-    let left_width = separator_x.min(area.width);
-    let right_width = area.width.saturating_sub(left_width);
-
-    if right_width > 0 {
-        let left_area = Rect {
-            x: area.x,
-            y: area.y,
-            width: left_width,
-            height: area.height,
-        };
-        let right_area = Rect {
-            x: area.x + left_width,
-            y: area.y,
-            width: right_width,
-            height: area.height,
-        };
-
-        // Temporarily hide fragmap so commit list renders without it.
-        // Also save/restore separator_offset: compute_layout writes it back
-        // based on the sub-panel width, which would clobber the value that
-        // render_main_view already clamped to the panel-boundary range.
-        let saved_fragmap = app.fragmap.take();
-        let saved_offset = app.separator_offset;
-        views::commit_list::render_in_area(app, frame, left_area);
-        app.fragmap = saved_fragmap;
-        app.separator_offset = saved_offset;
-
-        // Render separator between left and right
-        let sep_height = area.height.saturating_sub(1); // exclude footer row
-        let separator_spans: Vec<Line> = (0..sep_height)
-            .map(|_| {
-                Line::from(Span::styled(
-                    "│",
-                    Style::new().fg(Color::White).bg(Color::Blue),
-                ))
-            })
-            .collect();
-        let sep_area = Rect {
-            x: left_area.x + left_width - 1,
-            y: area.y,
-            width: 1,
-            height: sep_height,
-        };
-        frame.render_widget(Paragraph::new(separator_spans), sep_area);
-
-        views::commit_detail::render(git_repo, frame, app, right_area);
-    } else {
-        // Screen too narrow, just show commit list
-        views::commit_list::render(app, frame);
-    }
-}
-
 /// Render a mode, recursively drawing its background first for overlay modes.
 fn render_mode(
     mode: &AppMode,
@@ -687,7 +614,7 @@ fn render_mode(
 
     match mode {
         AppMode::CommitList => views::commit_list::render(app, frame),
-        AppMode::CommitDetail => render_main_view(git_repo, app, frame),
+        AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
