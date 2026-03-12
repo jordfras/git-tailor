@@ -48,14 +48,17 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
-- [ ] T126 P2 feat - Add `--compat-squash` CLI flag (for use with `--static`) to
-  match the original fragmap tool's connector coloring rule: a connector between
-  two commits in a cluster column is rendered as squashable (yellow / `^`) only
-  when the lower commit is *fully* squashable into the same single upper commit
+- [ ] T126 P2 feat - Add `--squashable-scope <commit|cluster>` CLI argument
+  controlling what the squashable connector color/symbol means:
+  `cluster` (default in TUI) — a connector in a column is squashable when *that
+  cluster pair alone* has no intervening touches (current per-cluster behavior);
+  `commit` (default in `--static`) — a connector is squashable only when the
+  *entire lower commit* is fully squashable into the same single upper commit
   (i.e. `fragmap.is_fully_squashable()` is true and `squash_target()` points to
-  that upper commit); otherwise the connector is rendered as conflicting (red /
-  `|`) even if the individual cluster pair would be squashable in isolation;
-  without the flag the current per-cluster behavior is preserved (Flags: V5)
+  that upper commit), matching the original fragmap tool's stricter rule;
+  the argument must be valid in both TUI and `--static` modes; store the choice
+  in `AppState` and thread it through the fragmap connector rendering logic in
+  both `static_views::fragmap::render` and the TUI fragmap widget (Flags: V5)
 - [X] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
   currently `--static` always outputs commits in the order returned by
   `list_commits` (newest-first); when `--reverse` is also passed the rows should
