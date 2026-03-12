@@ -48,6 +48,18 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
+- [ ] T128 P2 feat - Adapt title column width to terminal width in `--static`
+  output: the original fragmap tool sets the title column width dynamically so
+  that the SHA + title + hunk-group matrix fills the available terminal width;
+  investigate the original Python implementation
+  (https://github.com/amollberg/fragmap) to understand the exact layout
+  algorithm (how many columns it reserves for SHA, separators, and the matrix,
+  and how it clamps the title width), then implement the same or equivalent
+  logic in `static_views::fragmap::render` — the title currently uses a fixed
+  26-character truncation; instead, detect the terminal width (via
+  `crossterm::terminal::size()` or a passed-in width, falling back to 80),
+  compute `title_width = terminal_width − sha_width − separators − matrix_width`
+  clamped to a sensible minimum, and truncate/pad the title to that width (Flags: V5)
 - [X] T126 P2 feat - Add `--squashable-scope <commit|group>` CLI argument
   controlling what the squashable connector color/symbol means:
   `group` (default in TUI) — a connector in a column is squashable when *that
