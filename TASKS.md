@@ -75,7 +75,7 @@ Guidelines:
   currently `--static` always outputs commits in the order returned by
   `list_commits` (newest-first); when `--reverse` is also passed the rows should
   be printed oldest-first, matching the interactive TUI behavior (Flags: V5)
-- [ ] T111 P3 feat - Replace the current example application in `examples/` with
+- [x] T111 P3 feat - Replace the current example application in `examples/` with
   a compatibility tool that takes a commit-ish as its argument, uses it to find
   the merge-base (same as `--static`), then builds a `Fragmap` object in the
   normal way and also runs the original `fragmap` binary (if installed) on the
