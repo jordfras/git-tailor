@@ -173,7 +173,7 @@ impl GitRepo for Git2Repo {
         }
 
         Some(CommitDiff {
-            commit: synthetic_commit_info("staged", "Staged changes"),
+            commit: synthetic_commit_info("staged", "(staged changes)"),
             files,
         })
     }
@@ -194,7 +194,7 @@ impl GitRepo for Git2Repo {
         }
 
         Some(CommitDiff {
-            commit: synthetic_commit_info("unstaged", "Unstaged changes"),
+            commit: synthetic_commit_info("unstaged", "(unstaged changes)"),
             files,
         })
     }

@@ -25,7 +25,9 @@ use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState, SplitStrategy},
-    editor, fragmap, mergetool, views,
+    editor, fragmap,
+    fragmap::SquashableScope,
+    mergetool, views,
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
@@ -49,6 +51,34 @@ struct Cli {
     /// the cluster layout.
     #[arg(short = 'f', long)]
     full: bool,
+
+    /// Print the fragmap matrix to stdout and exit without launching the TUI.
+    ///
+    /// Output format matches the original fragmap tool: one commit per line
+    /// with short SHA (cyan), title (grey when fully squashable), and one
+    /// character per cluster column ('.' = empty, white-bg space = direct
+    /// touch, yellow-bg space = squashable connector, red-bg space =
+    /// conflicting connector).
+    #[arg(short = 's', long = "static")]
+    static_output: bool,
+
+    /// Disable ANSI color output. Requires --static.
+    ///
+    /// Uses plain ASCII symbols matching `fragmap --no-color`:
+    /// '#' for a direct touch, '|' for a squashable connector,
+    /// '^' for a conflicting connector, '.' for an empty cell.
+    #[arg(long = "no-color", requires = "static_output")]
+    no_color: bool,
+
+    /// Controls what the yellow squashable-connector indicator means.
+    ///
+    /// `group` (TUI default): a connector is squashable when that specific
+    /// hunk-group pair has no intervening touches.
+    /// `commit` (--static default): a connector is squashable only when the
+    /// entire lower commit is fully squashable into the same single upper
+    /// commit, matching the original fragmap tool's rule.
+    #[arg(long = "squashable-scope", value_enum)]
+    squashable_scope: Option<SquashableScope>,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -103,6 +133,34 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if cli.static_output {
+        let mut commit_diffs: Vec<CommitDiff> = commits
+            .iter()
+            .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
+            .collect();
+        if commit_diffs.len() != commits.len() {
+            anyhow::bail!("Failed to load diffs for all commits");
+        }
+        if let Some(d) = git_repo.staged_diff() {
+            commit_diffs.push(d);
+        }
+        if let Some(d) = git_repo.unstaged_diff() {
+            commit_diffs.push(d);
+        }
+        print!(
+            "{}",
+            git_tailor::static_views::fragmap::render(
+                &commit_diffs,
+                cli.full,
+                !cli.no_color,
+                cli.reverse,
+                cli.squashable_scope.unwrap_or(SquashableScope::Commit),
+                crossterm::terminal::size().ok().map(|(w, _)| w),
+            )
+        );
+        return Ok(());
+    }
+
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
@@ -118,6 +176,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
+    app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
     app.reference_oid = reference_oid;
 
     // Append staged/unstaged working-tree changes as synthetic rows at the

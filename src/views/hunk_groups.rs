@@ -17,7 +17,7 @@
 // These functions build the third column of the commit table — the
 // cluster-matrix visualization — plus its horizontal scrollbar.
 
-use crate::fragmap::{self, TouchKind};
+use crate::fragmap::{self, SquashableScope, TouchKind};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -65,28 +65,39 @@ fn cluster_relation(
 /// Determine cell content and style for a commit-cluster intersection.
 ///
 /// Returns None if the commit doesn't touch the cluster.
+/// With `Group` scope a square is grey when that group pair is squashable.
+/// With `Commit` scope a square is grey only when the entire commit is fully
+/// squashable into a single target commit.
 fn fragmap_cell_content(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
     cluster_idx: usize,
+    scope: SquashableScope,
 ) -> Option<(&'static str, Style)> {
     if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
         return None;
     }
 
-    match cluster_relation(fragmap, commit_idx, cluster_idx) {
-        Some(fragmap::SquashRelation::Squashable) => Some((
+    let is_squashable = match scope {
+        SquashableScope::Group => {
+            matches!(
+                cluster_relation(fragmap, commit_idx, cluster_idx),
+                Some(fragmap::SquashRelation::Squashable)
+            )
+        }
+        SquashableScope::Commit => fragmap.is_fully_squashable(commit_idx),
+    };
+
+    if is_squashable {
+        Some((
             CLUSTER_TOUCHED_SQUASHABLE,
             Style::new().fg(COLOR_TOUCHED_SQUASHABLE),
-        )),
-        Some(fragmap::SquashRelation::Conflicting) => Some((
+        ))
+    } else {
+        Some((
             CLUSTER_TOUCHED_CONFLICTING,
             Style::new().fg(COLOR_TOUCHED_CONFLICTING),
-        )),
-        _ => Some((
-            CLUSTER_TOUCHED_CONFLICTING,
-            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
-        )),
+        ))
     }
 }
 
@@ -99,6 +110,7 @@ fn fragmap_connector_content(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
     cluster_idx: usize,
+    scope: SquashableScope,
 ) -> Option<(&'static str, Style)> {
     let has_above = (0..commit_idx)
         .rev()
@@ -108,17 +120,19 @@ fn fragmap_connector_content(
         .find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
 
     match (has_above, below) {
-        (true, Some(below_idx)) => match cluster_relation(fragmap, below_idx, cluster_idx) {
-            Some(fragmap::SquashRelation::Conflicting) => Some((
-                CLUSTER_CONNECTOR_CONFLICTING,
-                Style::new().fg(COLOR_CONFLICTING),
-            )),
-            Some(fragmap::SquashRelation::Squashable) => Some((
-                CLUSTER_CONNECTOR_SQUASHABLE,
-                Style::new().fg(COLOR_SQUASHABLE),
-            )),
-            _ => None,
-        },
+        (true, Some(below_idx)) => {
+            match fragmap.connector_squashable(below_idx, cluster_idx, scope) {
+                Some(true) => Some((
+                    CLUSTER_CONNECTOR_SQUASHABLE,
+                    Style::new().fg(COLOR_SQUASHABLE),
+                )),
+                Some(false) => Some((
+                    CLUSTER_CONNECTOR_CONFLICTING,
+                    Style::new().fg(COLOR_CONFLICTING),
+                )),
+                None => None,
+            }
+        }
         _ => None,
     }
 }
@@ -163,6 +177,7 @@ pub fn build_fragmap_cell<'a>(
     commit_idx: usize,
     display_clusters: &[usize],
     is_selected: bool,
+    scope: SquashableScope,
 ) -> Cell<'a> {
     let spans: Vec<Span> = display_clusters
         .iter()
@@ -172,10 +187,12 @@ pub fn build_fragmap_cell<'a>(
             } else {
                 Style::new()
             };
-            if let Some((symbol, style)) = fragmap_cell_content(fragmap, commit_idx, cluster_idx) {
+            if let Some((symbol, style)) =
+                fragmap_cell_content(fragmap, commit_idx, cluster_idx, scope)
+            {
                 Span::styled(symbol, base_style.patch(style))
             } else if let Some((symbol, style)) =
-                fragmap_connector_content(fragmap, commit_idx, cluster_idx)
+                fragmap_connector_content(fragmap, commit_idx, cluster_idx, scope)
             {
                 Span::styled(symbol, base_style.patch(style))
             } else {

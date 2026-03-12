@@ -49,9 +49,9 @@ Guidelines:
   2. Determine Priority, Category, Flags (ask user if unclear; default P2 feat if truly unspecified).
   3. Move the fully specified task line into the correct thematic section.
   4. Remove the original uncategorized line.
-- BEFORE selecting any task: If the number of completed tasks grow beyond ~50 clean up by
-  1. Add the completed tasks to TASKS-COMPLETED.md (create file if it does not exist), with the existing category.
-  2. Remove the task from TASKS.md.
+- BEFORE selecting any task: If the number of completed/won't-do tasks grow beyond ~50 clean up by
+  1. Add the completed (`[X]`) and won't-do (`[-]`) tasks to TASKS-COMPLETED.md (create file if it does not exist), with the existing category header.
+  2. Remove those tasks (and any resulting empty section headers) from TASKS.md.
   3. Notify users that you did housekeeping on TASKS.md.
 - Only after UNCATEGORIZED is empty proceed and optional house keeping.
 - If $ARGUMENTS specifies a line number, task ID (e.g. T003), unique phrase, or partial title, match that task.

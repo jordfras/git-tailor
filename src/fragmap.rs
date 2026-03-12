@@ -665,6 +665,35 @@ impl FragMap {
 
         SquashRelation::Squashable
     }
+
+    /// Determine whether a connector between `below_idx` and its earliest
+    /// earlier neighbour in `cluster_idx` should be rendered as squashable.
+    ///
+    /// Returns `None` if there is no connector (no touch above or no `below`).
+    /// Returns `Some(true)` for squashable, `Some(false)` for conflicting.
+    ///
+    /// `scope` controls the rule used:
+    /// - `Cluster`: per-cluster pair only (fine-grained).
+    /// - `Commit`: the entire lower commit must be fully squashable into the
+    ///   same single upper commit (strict, matching the original fragmap tool).
+    pub fn connector_squashable(
+        &self,
+        commit_idx: usize,
+        cluster_idx: usize,
+        scope: SquashableScope,
+    ) -> Option<bool> {
+        let earlier = (0..commit_idx).find(|&i| self.matrix[i][cluster_idx] != TouchKind::None)?;
+
+        match scope {
+            SquashableScope::Group => Some(
+                self.cluster_relation(earlier, commit_idx, cluster_idx)
+                    == SquashRelation::Squashable,
+            ),
+            SquashableScope::Commit => {
+                Some(self.squash_target(commit_idx).is_some_and(|t| t == earlier))
+            }
+        }
+    }
 }
 
 /// Build the commits × clusters matrix with TouchKind values.
@@ -716,6 +745,24 @@ fn determine_touch_kind(commit_diff: &CommitDiff, cluster: &SpanCluster) -> Touc
     }
 
     TouchKind::None
+}
+
+/// Controls how the squashable connector indicator is computed.
+///
+/// Determines what the yellow-connector symbol means in the fragmap matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum SquashableScope {
+    /// A connector is squashable when *that specific hunk-group pair alone* has
+    /// no intervening touches. This is the granular per-group rule, and is
+    /// the default for the interactive TUI.
+    #[default]
+    Group,
+    /// A connector is squashable only when the *entire lower commit* is fully
+    /// squashable into the same single upper commit (i.e. `squash_target()`
+    /// returns `Some` and all groups agree on the same target). This is the
+    /// stricter whole-commit rule, matching the original fragmap tool, and is
+    /// the default for `--static` output.
+    Commit,
 }
 
 /// The relationship between two commits within a specific cluster.
