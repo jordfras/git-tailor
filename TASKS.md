@@ -76,12 +76,14 @@ Guidelines:
   `list_commits` (newest-first); when `--reverse` is also passed the rows should
   be printed oldest-first, matching the interactive TUI behavior (Flags: V5)
 - [ ] T111 P3 feat - Replace the current example application in `examples/` with
-  a compatibility test that runs both the original fragmap tool and git-tailor
-  in `--static --no-color` mode on the same repository, then compares
-  their outputs; the comparison must account for potentially different column
-  ordering (cluster columns may appear in different sequences) while verifying
-  that the same commit-cluster relationships are detected; fail with a clear
-  diff if the tools disagree on which commits touch which clusters (Flags: V5)
+  a compatibility tool that takes a commit-ish as its argument, uses it to find
+  the merge-base (same as `--static`), then builds a `Fragmap` object in the
+  normal way and also runs the original `fragmap` binary (if installed) on the
+  same repository/ref; the tool renders git-tailor's result through the static
+  view and compares the two outputs column-by-column (columns may be in any
+  order); if the same commit-cluster relationships are present in both it
+  prints "OK"; otherwise it prints the `fragmap` output, then git-tailor's
+  static output, plus a short summary explaining what differs (Flags: V5)
 
 ## Build & CI (V5)
 - [ ] T112 P3 feat - Set up cargo-deny with configuration to check dependency
