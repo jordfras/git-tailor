@@ -137,7 +137,12 @@ fn main() -> Result<()> {
         }
         print!(
             "{}",
-            git_tailor::static_views::fragmap::render(&commit_diffs, cli.full, !cli.no_color)
+            git_tailor::static_views::fragmap::render(
+                &commit_diffs,
+                cli.full,
+                !cli.no_color,
+                cli.reverse,
+            )
         );
         return Ok(());
     }

@@ -27,7 +27,7 @@ use git_tailor::static_views::fragmap::render;
 
 /// Render `commit_diffs` without colors and return the String.
 fn plain(commit_diffs: &[git_tailor::CommitDiff]) -> String {
-    render(commit_diffs, false, false)
+    render(commit_diffs, false, false, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,43 @@ fn test_synthetic_staged_row_included() {
     );
 }
 
+/// With `reverse = true`, rows are printed oldest-first, and connectors between
+/// commits remain correct (squashable/conflicting classification is unchanged).
+#[test]
+fn test_reverse_flag_output_order() {
+    // Three commits: 0=newest touches lines 1-5; 1=middle (unrelated); 2=oldest touches lines 1-5
+    // Normal: newest first → row0=#, row1=connector, row2=#
+    // Reverse: oldest first → row0=#, row1=connector, row2=#  (same data, flipped)
+    let diffs = vec![
+        common::create_test_commit_diff("aaaa00001111", "Newest commit", "src/lib.rs", (1, 5)),
+        common::create_test_commit_diff("bbbb22223333", "Middle commit", "other.rs", (1, 3)),
+        common::create_test_commit_diff("cccc44445555", "Oldest commit", "src/lib.rs", (1, 5)),
+    ];
+
+    let normal = render(&diffs, false, false, false);
+    let reversed = render(&diffs, false, false, true);
+
+    // Row order is flipped
+    assert!(
+        normal.lines().next().unwrap().contains("Newest commit"),
+        "normal: first row should be newest"
+    );
+    assert!(
+        reversed.lines().next().unwrap().contains("Oldest commit"),
+        "reverse: first row should be oldest"
+    );
+
+    // The cluster columns (chars after SHA+title) should be identical in both directions
+    // because the fragmap is built from the same data; only row order differs.
+    let normal_cols: Vec<&str> = normal.lines().map(|l| &l[35..]).collect();
+    let reversed_cols: Vec<&str> = reversed.lines().map(|l| &l[35..]).collect();
+    assert_eq!(
+        normal_cols,
+        reversed_cols.iter().rev().cloned().collect::<Vec<_>>(),
+        "cluster columns should be mirror images of each other"
+    );
+}
+
 /// With `full = true`, identical cluster columns are NOT merged, so the row
 /// may have more columns than with the default deduplication.
 #[test]
@@ -147,8 +184,8 @@ fn test_full_flag_no_dedup() {
         common::create_test_commit_diff("aaaa00001111", "Commit A", "src/lib.rs", (1, 5)),
         common::create_test_commit_diff("bbbb22223333", "Commit B", "src/lib.rs", (1, 5)),
     ];
-    let dedup = render(&diffs, false, false);
-    let full = render(&diffs, true, false);
+    let dedup = render(&diffs, false, false, false);
+    let full = render(&diffs, true, false, false);
     // Both should be valid; with two overlapping identical hunks the cluster
     // count may differ depending on deduplication.
     insta::assert_snapshot!("full_flag_dedup", dedup);

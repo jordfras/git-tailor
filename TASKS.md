@@ -56,7 +56,7 @@ Guidelines:
   that upper commit); otherwise the connector is rendered as conflicting (red /
   `|`) even if the individual cluster pair would be squashable in isolation;
   without the flag the current per-cluster behavior is preserved (Flags: V5)
-- [ ] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
+- [X] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
   currently `--static` always outputs commits in the order returned by
   `list_commits` (newest-first); when `--reverse` is also passed the rows should
   be printed oldest-first, matching the interactive TUI behavior (Flags: V5)

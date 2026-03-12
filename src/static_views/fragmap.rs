@@ -84,25 +84,31 @@ fn connector_is_squashable(
 /// `full` controls whether identical cluster columns are deduplicated.
 /// `colors` selects ANSI color output (matching the original fragmap tool)
 /// versus plain Unicode output (suitable for tests and `--no-color` piping).
-pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool) -> String {
+/// `reverse` prints rows oldest-first (highest matrix index first).
+pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool, reverse: bool) -> String {
     let s = if colors { &COLORED } else { &PLAIN };
 
     let fmap = fm::build_fragmap(commit_diffs, !full);
     let mut out = String::new();
 
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
+    let indices: Box<dyn Iterator<Item = usize>> = if reverse {
+        Box::new((0..commit_diffs.len()).rev())
+    } else {
+        Box::new(0..commit_diffs.len())
+    };
+
+    for commit_idx in indices {
+        let diff = &commit_diffs[commit_idx];
         let commit = &diff.commit;
         let sha8 = &commit.oid[..8.min(commit.oid.len())];
         let title: String = commit.summary.chars().take(26).collect();
         let title_padded = format!("{title:<26}");
 
-        // SHA
         out.push_str(s.sha_start);
         out.push_str(sha8);
         out.push_str(s.reset);
         out.push(' ');
 
-        // Title — grey when every cluster this commit touches is squashable
         if fmap.is_fully_squashable(commit_idx) {
             out.push_str(s.grey_start);
             out.push_str(&title_padded);
@@ -111,7 +117,6 @@ pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool) -> String {
             out.push_str(&title_padded);
         }
 
-        // Cluster columns
         for cluster_idx in 0..fmap.clusters.len() {
             if fmap.matrix[commit_idx][cluster_idx] != fm::TouchKind::None {
                 out.push_str(s.cell_touch);
@@ -121,6 +126,9 @@ pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool) -> String {
                 let below = ((commit_idx + 1)..commit_diffs.len())
                     .find(|&i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None);
 
+                // In reverse display each gap row still uses the same matrix-based
+                // connector logic: has_above checks lower indices and below checks
+                // higher indices — the iteration order doesn't change the computation.
                 if has_above && let Some(below_idx) = below {
                     match connector_is_squashable(&fmap, below_idx, cluster_idx) {
                         Some(true) => out.push_str(s.cell_squashable),
