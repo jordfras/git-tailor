@@ -48,7 +48,7 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
-- [ ] T128 P2 feat - Adapt title column width to terminal width in `--static`
+- [x] T128 P2 feat - Adapt title column width to terminal width in `--static`
   output: the original fragmap tool sets the title column width dynamically so
   that the SHA + title + hunk-group matrix fills the available terminal width;
   investigate the original Python implementation

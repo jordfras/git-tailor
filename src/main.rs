@@ -155,6 +155,7 @@ fn main() -> Result<()> {
                 !cli.no_color,
                 cli.reverse,
                 cli.squashable_scope.unwrap_or(SquashableScope::Commit),
+                crossterm::terminal::size().ok().map(|(w, _)| w),
             )
         );
         return Ok(());

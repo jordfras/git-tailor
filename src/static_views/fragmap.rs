@@ -81,12 +81,16 @@ const PLAIN_REVERSE: Symbols = Symbols {
 /// versus plain Unicode output (suitable for tests and `--no-color` piping).
 /// `reverse` prints rows oldest-first (highest matrix index first).
 /// `scope` controls what the squashable connector indicator means.
+/// `term_width` is the terminal column count used to compute the title column
+/// width dynamically (matching the original fragmap tool's layout algorithm).
+/// When `None` a fixed 26-character title width is used.
 pub fn render(
     commit_diffs: &[CommitDiff],
     full: bool,
     colors: bool,
     reverse: bool,
     scope: SquashableScope,
+    term_width: Option<u16>,
 ) -> String {
     let s = if colors {
         &COLORED
@@ -97,6 +101,41 @@ pub fn render(
     };
 
     let fmap = fm::build_fragmap(commit_diffs, !full);
+    let n_clusters = fmap.clusters.len();
+
+    // Compute the title column width following the original fragmap tool's
+    // layout algorithm (fragmap/console_ui.py):
+    //
+    //   terminal_width = reported - 2   (ConEmu/Cmder wraps 2 cols early)
+    //   title_width = max(MIN, min(
+    //       longest_title + 1,
+    //       terminal_width / 2,
+    //       terminal_width - (8 + 1 + 1 + n_clusters),
+    //   ))
+    //
+    // Fields: SHA(8) + space(1) + title(title_width) + space(1) + matrix(n_clusters)
+    const FIXED_TITLE_WIDTH: usize = 26;
+    const MIN_TITLE_WIDTH: usize = 10;
+    const SHA_WIDTH: usize = 8;
+
+    let title_width = if let Some(tw) = term_width {
+        let terminal_width = (tw as usize).saturating_sub(2);
+        let max_actual = commit_diffs
+            .iter()
+            .map(|d| d.commit.summary.chars().count())
+            .max()
+            .unwrap_or(0)
+            + 1;
+        // space between SHA and title (1); no separator before matrix (matches existing format)
+        let overhead = SHA_WIDTH + 1 + n_clusters;
+        let dynamic = max_actual
+            .min(terminal_width / 2)
+            .min(terminal_width.saturating_sub(overhead));
+        dynamic.max(MIN_TITLE_WIDTH)
+    } else {
+        FIXED_TITLE_WIDTH
+    };
+
     let mut out = String::new();
 
     let indices: Box<dyn Iterator<Item = usize>> = if reverse {
@@ -109,8 +148,8 @@ pub fn render(
         let diff = &commit_diffs[commit_idx];
         let commit = &diff.commit;
         let sha8 = &commit.oid[..8.min(commit.oid.len())];
-        let title: String = commit.summary.chars().take(26).collect();
-        let title_padded = format!("{title:<26}");
+        let title: String = commit.summary.chars().take(title_width).collect();
+        let title_padded = format!("{title:<title_width$}");
 
         out.push_str(s.sha_start);
         out.push_str(sha8);

@@ -29,7 +29,14 @@ use git_tailor::{CommitDiff, DeltaStatus, FileDiff, Hunk};
 
 /// Render `commit_diffs` without colors and return the String.
 fn plain(commit_diffs: &[git_tailor::CommitDiff]) -> String {
-    render(commit_diffs, false, false, false, SquashableScope::Group)
+    render(
+        commit_diffs,
+        false,
+        false,
+        false,
+        SquashableScope::Group,
+        None,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +161,8 @@ fn test_reverse_flag_output_order() {
         common::create_test_commit_diff("cccc44445555", "Oldest commit", "src/lib.rs", (1, 5)),
     ];
 
-    let normal = render(&diffs, false, false, false, SquashableScope::Group);
-    let reversed = render(&diffs, false, false, true, SquashableScope::Group);
+    let normal = render(&diffs, false, false, false, SquashableScope::Group, None);
+    let reversed = render(&diffs, false, false, true, SquashableScope::Group, None);
 
     // Row order is flipped
     assert!(
@@ -193,8 +200,8 @@ fn test_full_flag_no_dedup() {
         common::create_test_commit_diff("aaaa00001111", "Commit A", "src/lib.rs", (1, 5)),
         common::create_test_commit_diff("bbbb22223333", "Commit B", "src/lib.rs", (1, 5)),
     ];
-    let dedup = render(&diffs, false, false, false, SquashableScope::Group);
-    let full = render(&diffs, true, false, false, SquashableScope::Group);
+    let dedup = render(&diffs, false, false, false, SquashableScope::Group, None);
+    let full = render(&diffs, true, false, false, SquashableScope::Group, None);
     // Both should be valid; with two overlapping identical hunks the cluster
     // count may differ depending on deduplication.
     insta::assert_snapshot!("full_flag_dedup", dedup);
@@ -213,7 +220,7 @@ fn test_squashable_scope_group_shows_squashable_connector() {
         common::create_test_commit_diff("cccc44445555", "Touch A again", "src/lib.rs", (5, 10)),
     ];
 
-    let out = render(&diffs, false, false, false, SquashableScope::Group);
+    let out = render(&diffs, false, false, false, SquashableScope::Group, None);
 
     let row_b = out.lines().nth(1).unwrap();
     assert!(
@@ -264,8 +271,8 @@ fn test_squashable_scope_commit_stricter_than_group() {
         c_diff,
     ];
 
-    let group_out = render(&diffs, false, false, false, SquashableScope::Group);
-    let commit_out = render(&diffs, false, false, false, SquashableScope::Commit);
+    let group_out = render(&diffs, false, false, false, SquashableScope::Group, None);
+    let commit_out = render(&diffs, false, false, false, SquashableScope::Commit, None);
 
     let row_b_group = group_out.lines().nth(1).unwrap();
     let row_b_commit = commit_out.lines().nth(1).unwrap();
