@@ -165,14 +165,21 @@ fn test_reverse_flag_output_order() {
         "reverse: first row should be oldest"
     );
 
-    // The cluster columns (chars after SHA+title) should be identical in both directions
-    // because the fragmap is built from the same data; only row order differs.
+    // The cluster columns reflect the same fragmap data, but the squashable
+    // connector symbol flips: '^' points up toward target in normal order,
+    // 'v' points down toward target in reverse order.
     let normal_cols: Vec<&str> = normal.lines().map(|l| &l[35..]).collect();
     let reversed_cols: Vec<&str> = reversed.lines().map(|l| &l[35..]).collect();
+    let reversed_cols_normalized: Vec<String> =
+        reversed_cols.iter().map(|s| s.replace('v', "^")).collect();
     assert_eq!(
         normal_cols,
-        reversed_cols.iter().rev().cloned().collect::<Vec<_>>(),
-        "cluster columns should be mirror images of each other"
+        reversed_cols_normalized
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        "cluster columns (with ^ normalized) should be mirror images of each other"
     );
 }
 

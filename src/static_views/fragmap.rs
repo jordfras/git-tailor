@@ -64,6 +64,11 @@ const PLAIN: Symbols = Symbols {
     cell_empty: ".",
 };
 
+const PLAIN_REVERSE: Symbols = Symbols {
+    cell_squashable: "v",
+    ..PLAIN
+};
+
 /// Determine the connector kind between two touching commits in a cluster.
 ///
 /// Returns `None` if only one side is present; `Some(true)` for squashable,
@@ -86,7 +91,13 @@ fn connector_is_squashable(
 /// versus plain Unicode output (suitable for tests and `--no-color` piping).
 /// `reverse` prints rows oldest-first (highest matrix index first).
 pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool, reverse: bool) -> String {
-    let s = if colors { &COLORED } else { &PLAIN };
+    let s = if colors {
+        &COLORED
+    } else if reverse {
+        &PLAIN_REVERSE
+    } else {
+        &PLAIN
+    };
 
     let fmap = fm::build_fragmap(commit_diffs, !full);
     let mut out = String::new();
