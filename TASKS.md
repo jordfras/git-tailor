@@ -48,10 +48,10 @@ Guidelines:
   V5)
 
 ## CLI Output & Compatibility (V5)
-- [ ] T126 P2 feat - Add `--squashable-scope <commit|cluster>` CLI argument
+- [X] T126 P2 feat - Add `--squashable-scope <commit|group>` CLI argument
   controlling what the squashable connector color/symbol means:
-  `cluster` (default in TUI) — a connector in a column is squashable when *that
-  cluster pair alone* has no intervening touches (current per-cluster behavior);
+  `group` (default in TUI) — a connector in a column is squashable when *that
+  hunk-group pair alone* has no intervening touches (current per-group behavior);
   `commit` (default in `--static`) — a connector is squashable only when the
   *entire lower commit* is fully squashable into the same single upper commit
   (i.e. `fragmap.is_fully_squashable()` is true and `squash_target()` points to

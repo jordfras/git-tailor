@@ -25,7 +25,9 @@ use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState, SplitStrategy},
-    editor, fragmap, mergetool, views,
+    editor, fragmap,
+    fragmap::SquashableScope,
+    mergetool, views,
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
@@ -67,6 +69,16 @@ struct Cli {
     /// '^' for a conflicting connector, '.' for an empty cell.
     #[arg(long = "no-color", requires = "static_output")]
     no_color: bool,
+
+    /// Controls what the yellow squashable-connector indicator means.
+    ///
+    /// `group` (TUI default): a connector is squashable when that specific
+    /// hunk-group pair has no intervening touches.
+    /// `commit` (--static default): a connector is squashable only when the
+    /// entire lower commit is fully squashable into the same single upper
+    /// commit, matching the original fragmap tool's rule.
+    #[arg(long = "squashable-scope", value_enum)]
+    squashable_scope: Option<SquashableScope>,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -142,6 +154,7 @@ fn main() -> Result<()> {
                 cli.full,
                 !cli.no_color,
                 cli.reverse,
+                cli.squashable_scope.unwrap_or(SquashableScope::Commit),
             )
         );
         return Ok(());
@@ -162,6 +175,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
+    app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
     app.reference_oid = reference_oid;
 
     // Append staged/unstaged working-tree changes as synthetic rows at the

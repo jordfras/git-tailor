@@ -24,7 +24,10 @@
 // produces clean readable output suitable for snapshot tests or plain-text
 // piping.
 
-use crate::{CommitDiff, fragmap as fm};
+use crate::{
+    CommitDiff,
+    fragmap::{self as fm, SquashableScope},
+};
 
 /// Symbol set used when rendering a row.
 struct Symbols {
@@ -69,19 +72,6 @@ const PLAIN_REVERSE: Symbols = Symbols {
     ..PLAIN
 };
 
-/// Determine the connector kind between two touching commits in a cluster.
-///
-/// Returns `None` if only one side is present; `Some(true)` for squashable,
-/// `Some(false)` for conflicting.
-fn connector_is_squashable(
-    fmap: &fm::FragMap,
-    below_idx: usize,
-    cluster_idx: usize,
-) -> Option<bool> {
-    let earlier = (0..below_idx).find(|&i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None)?;
-    Some(fmap.cluster_relation(earlier, below_idx, cluster_idx) == fm::SquashRelation::Squashable)
-}
-
 /// Render the fragmap matrix for all `commit_diffs` to a `String`.
 ///
 /// `commit_diffs` contains all commits in display order (regular commits
@@ -90,7 +80,14 @@ fn connector_is_squashable(
 /// `colors` selects ANSI color output (matching the original fragmap tool)
 /// versus plain Unicode output (suitable for tests and `--no-color` piping).
 /// `reverse` prints rows oldest-first (highest matrix index first).
-pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool, reverse: bool) -> String {
+/// `scope` controls what the squashable connector indicator means.
+pub fn render(
+    commit_diffs: &[CommitDiff],
+    full: bool,
+    colors: bool,
+    reverse: bool,
+    scope: SquashableScope,
+) -> String {
     let s = if colors {
         &COLORED
     } else if reverse {
@@ -137,11 +134,8 @@ pub fn render(commit_diffs: &[CommitDiff], full: bool, colors: bool, reverse: bo
                 let below = ((commit_idx + 1)..commit_diffs.len())
                     .find(|&i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None);
 
-                // In reverse display each gap row still uses the same matrix-based
-                // connector logic: has_above checks lower indices and below checks
-                // higher indices — the iteration order doesn't change the computation.
                 if has_above && let Some(below_idx) = below {
-                    match connector_is_squashable(&fmap, below_idx, cluster_idx) {
+                    match fmap.connector_squashable(below_idx, cluster_idx, scope) {
                         Some(true) => out.push_str(s.cell_squashable),
                         Some(false) => out.push_str(s.cell_conflicting),
                         None => out.push_str(s.cell_empty),

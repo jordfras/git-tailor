@@ -19,7 +19,7 @@ mod common;
 use git_tailor::{
     CommitInfo,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
+    fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
     views,
 };
 use ratatui::{Terminal, backend::TestBackend};
@@ -323,6 +323,88 @@ fn test_fragmap_horizontal_scroll() {
     app.selection_index = 0;
     app.fragmap_scroll_offset = 4;
     app.fragmap = Some(create_fragmap(oids, clusters, matrix));
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+/// C touches cluster0 (also touched by A) and cluster2 (only C).
+/// With `Group` scope: the A↔C pair in cluster0 is squashable, so
+/// B's connector is Yellow and C's cluster0 square is DarkGray.
+#[test]
+fn test_fragmap_squashable_scope_group() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaaa11112222", "Touch config"),
+        common::create_test_commit("bbbb33334444", "Unrelated change"),
+        common::create_test_commit("cccc55556666", "Touch config and unique"),
+    ];
+    app.selection_index = 0;
+    app.squashable_scope = SquashableScope::Group;
+
+    // Cluster 0: A and C touch it → squashable pair under Group scope.
+    // Cluster 1: B only.
+    // Cluster 2: C only (no earlier commit → C is NOT fully squashable under Commit scope).
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
+            simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
+            simple_cluster("unique.rs", 1, 5, &["cccc55556666"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::None, TouchKind::None],
+            vec![TouchKind::None, TouchKind::Modified, TouchKind::None],
+            vec![TouchKind::Modified, TouchKind::None, TouchKind::Modified],
+        ],
+    ));
+
+    terminal
+        .draw(|frame| views::commit_list::render(&mut app, frame))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+/// Same fragmap as `test_fragmap_squashable_scope_group` but with `Commit`
+/// scope.  Because C also touches cluster2 (no earlier partner) it is NOT
+/// fully squashable, so B's connector becomes Red and C's cluster0 square
+/// becomes White (not DarkGray).
+#[test]
+fn test_fragmap_squashable_scope_commit() {
+    let backend = TestBackend::new(80, 10);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("aaaa11112222", "Touch config"),
+        common::create_test_commit("bbbb33334444", "Unrelated change"),
+        common::create_test_commit("cccc55556666", "Touch config and unique"),
+    ];
+    app.selection_index = 0;
+    app.squashable_scope = SquashableScope::Commit;
+
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
+            simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
+            simple_cluster("unique.rs", 1, 5, &["cccc55556666"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::None, TouchKind::None],
+            vec![TouchKind::None, TouchKind::Modified, TouchKind::None],
+            vec![TouchKind::Modified, TouchKind::None, TouchKind::Modified],
+        ],
+    ));
 
     terminal
         .draw(|frame| views::commit_list::render(&mut app, frame))

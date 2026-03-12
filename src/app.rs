@@ -17,7 +17,11 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{CommitInfo, fragmap::FragMap, repo::ConflictState};
+use crate::{
+    CommitInfo,
+    fragmap::{FragMap, SquashableScope},
+    repo::ConflictState,
+};
 
 /// Semantic commands derived from keyboard input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +281,8 @@ pub struct AppState {
     pub reverse: bool,
     /// Show all hunk-group columns without deduplication (--full flag).
     pub full_fragmap: bool,
+    /// Controls what the squashable connector symbol means in the fragmap.
+    pub squashable_scope: SquashableScope,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.
     pub reference_oid: String,
@@ -316,6 +322,7 @@ impl AppState {
             selection_index: 0,
             reverse: false,
             full_fragmap: false,
+            squashable_scope: SquashableScope::Group,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
@@ -341,6 +348,7 @@ impl AppState {
             selection_index,
             reverse: false,
             full_fragmap: false,
+            squashable_scope: SquashableScope::Group,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
