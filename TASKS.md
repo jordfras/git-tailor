@@ -106,7 +106,7 @@ Guidelines:
   the GitHub Release automatically; the musl target should produce a zero
   shared-library binary (add `RUSTFLAGS=-C target-feature=+crt-static` if
   needed) so no system libs beyond the kernel are required (Flags: V5)
-- [ ] T114 P2 feat - Write comprehensive README.md documentation: describe what
+- [X] T114 P2 feat - Write comprehensive README.md documentation: describe what
   the tool does (interactive git commit browser with fragmap visualization and
   rebase operations), installation instructions, basic usage guide with key
   bindings, attribution to original fragmap tool (reference NOTICE file), note
