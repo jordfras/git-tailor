@@ -115,7 +115,7 @@ Guidelines:
   disclaimer warning users to push their changes before using the tool since any
   bugs may cause permanent data loss — author takes no responsibility for data
   loss under any circumstances, see Apache 2.0 license text (Flags: V5)
-- [ ] T115 P2 feat - Add CHANGELOG.md following keepachangelog.com format:
+- [X] T115 P2 feat - Add CHANGELOG.md following keepachangelog.com format:
   create initial changelog with sections for Unreleased, version entries (Added,
   Changed, Deprecated, Removed, Fixed, Security), and update AGENTS.md to
   instruct AI agents to ask users whether changes should be noted in the
