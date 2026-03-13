@@ -1,4 +1,5 @@
 # git-tailor
+![git-tailor logo](doc/git-tailor_banner.png)
 
 An interactive terminal tool for tidying up Git commits on a branch — squash,
 reorder, split, drop, and reword commits before submitting a pull request or
@@ -9,11 +10,11 @@ The left panel shows your commits. The right panel shows a **hunk group matrix**
 code, and whether combining them would be safe or risky.
 
 > **⚠ Data safety — please read before use**
->
+> 
 > This tool rewrites history. Always push your branch to a remote before running
 > it. The author takes **no responsibility** for data loss of any kind. Use at
 > your own risk. See [LICENSE](LICENSE) for the full disclaimer.
->
+> 
 > This tool was developed entirely through AI-assisted ("vibe coded") sessions
 > using AI agents. It has been reviewed and tested, but may contain bugs.
 
