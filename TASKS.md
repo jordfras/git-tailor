@@ -59,18 +59,19 @@ Guidelines:
   26-character truncation; instead, detect the terminal width (via
   `crossterm::terminal::size()` or a passed-in width, falling back to 80),
   compute `title_width = terminal_width − sha_width − separators − matrix_width`
-  clamped to a sensible minimum, and truncate/pad the title to that width (Flags: V5)
+  clamped to a sensible minimum, and truncate/pad the title to that width
+  (Flags: V5)
 - [X] T126 P2 feat - Add `--squashable-scope <commit|group>` CLI argument
-  controlling what the squashable connector color/symbol means:
-  `group` (default in TUI) — a connector in a column is squashable when *that
-  hunk-group pair alone* has no intervening touches (current per-group behavior);
-  `commit` (default in `--static`) — a connector is squashable only when the
-  *entire lower commit* is fully squashable into the same single upper commit
-  (i.e. `fragmap.is_fully_squashable()` is true and `squash_target()` points to
-  that upper commit), matching the original fragmap tool's stricter rule;
-  the argument must be valid in both TUI and `--static` modes; store the choice
-  in `AppState` and thread it through the fragmap connector rendering logic in
-  both `static_views::fragmap::render` and the TUI fragmap widget (Flags: V5)
+  controlling what the squashable connector color/symbol means: `group` (default
+  in TUI) — a connector in a column is squashable when *that hunk-group pair
+  alone* has no intervening touches (current per-group behavior); `commit`
+  (default in `--static`) — a connector is squashable only when the *entire
+  lower commit* is fully squashable into the same single upper commit (i.e.
+  `fragmap.is_fully_squashable()` is true and `squash_target()` points to that
+  upper commit), matching the original fragmap tool's stricter rule; the
+  argument must be valid in both TUI and `--static` modes; store the choice in
+  `AppState` and thread it through the fragmap connector rendering logic in both
+  `static_views::fragmap::render` and the TUI fragmap widget (Flags: V5)
 - [X] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
   currently `--static` always outputs commits in the order returned by
   `list_commits` (newest-first); when `--reverse` is also passed the rows should
@@ -81,9 +82,9 @@ Guidelines:
   normal way and also runs the original `fragmap` binary (if installed) on the
   same repository/ref; the tool renders git-tailor's result through the static
   view and compares the two outputs column-by-column (columns may be in any
-  order); if the same commit-cluster relationships are present in both it
-  prints "OK"; otherwise it prints the `fragmap` output, then git-tailor's
-  static output, plus a short summary explaining what differs (Flags: V5)
+  order); if the same commit-cluster relationships are present in both it prints
+  "OK"; otherwise it prints the `fragmap` output, then git-tailor's static
+  output, plus a short summary explaining what differs (Flags: V5)
 
 ## Build & CI (V5)
 - [ ] T112 P3 feat - Set up cargo-deny with configuration to check dependency
@@ -129,5 +130,20 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements (Flags: V5)
+
+## Bug Fixes (V5)
+- [ ] T129 P1 bug - Fix move/drop/fixup/squash/split losing working-tree and
+  index changes: currently these rebase operations discard any uncommitted
+  changes (both staged and unstaged) that exist in the working tree when the
+  operation is applied; `reword` already preserves them correctly, so audit how
+  `reword` saves and restores the working-tree and index state and apply the
+  same stash-and-restore (or equivalent) pattern to `move_commit`,
+  `drop_commit`, `squash_commit`, `fixup_commit`, and `split_commit` in the
+  rebase engine; add integration tests in the `tests/` directory covering all
+  five operations with both staged changes (files added to the index but not
+  committed) and unstaged changes (modified tracked files not yet staged),
+  asserting that after the operation completes the working tree and index
+  reflect the same content that was present before the operation started (Flags:
+  V5)
 
 ## Notes
