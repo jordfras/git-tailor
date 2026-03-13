@@ -134,7 +134,7 @@ When you select a commit, the other commits are colored relative to it:
 
 ## Attribution
 
-Git Tailor is inspired by [tig](https://github.com/jonas/tig) and
+Git-tailor is inspired by [tig](https://github.com/jonas/tig) and
 [fragmap](https://github.com/amollberg/fragmap).
 
 The source code of **fragmap** has been used by AI agents to produce code for
