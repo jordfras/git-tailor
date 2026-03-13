@@ -132,7 +132,7 @@ Guidelines:
   improvements (Flags: V5)
 
 ## Bug Fixes (V5)
-- [ ] T129 P1 bug - Fix move/drop/fixup/squash/split losing working-tree and
+- [X] T129 P1 bug - Fix move/drop/fixup/squash/split losing working-tree and
   index changes: currently these rebase operations discard any uncommitted
   changes (both staged and unstaged) that exist in the working tree when the
   operation is applied; `reword` already preserves them correctly, so audit how

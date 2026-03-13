@@ -673,3 +673,140 @@ fn split_per_hunk_group_multi_path_three_groups() {
     let b_prime_oid = commits_above_base[4];
     assert_eq!(file_content_at(&test.repo, b_prime_oid, "b.txt"), "BB1\n");
 }
+
+// ---------------------------------------------------------------------------
+// Dirty-state preservation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_file_preserves_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")], "big change");
+
+    // Stage a change to an unrelated file before the operation
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    // The staged file must still be staged (present in the index at stage 0)
+    let mut idx = test.repo.index().unwrap();
+    idx.read(true).unwrap();
+    assert!(
+        idx.get_path(std::path::Path::new("unrelated.txt"), 0)
+            .is_some(),
+        "staged file should still be in the index after split"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("unrelated.txt")).unwrap(),
+        "staged work\n",
+        "staged file on disk should be unchanged"
+    );
+}
+
+#[test]
+fn split_per_file_preserves_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    // c.txt is committed in base but NOT touched by to_split, so modifying it
+    // won't trigger the dirty-overlap guard.
+    let _base = test.commit_files(
+        &[
+            ("a.txt", "alpha\n"),
+            ("b.txt", "beta\n"),
+            ("c.txt", "gamma\n"),
+        ],
+        "base",
+    );
+    let to_split = test.commit_files(&[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")], "big change");
+
+    // Write an unstaged change to c.txt (not touched by to_split)
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("c.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    // The unstaged modification must survive
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("c.txt")).unwrap(),
+        "unstaged work\n",
+        "unstaged content should be unchanged after split"
+    );
+}
+
+#[test]
+fn split_per_hunk_preserves_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "line1\nline2\n", "base");
+    let to_split = test.commit_file("a.txt", "LINE1\nline2\nLINE3\n", "two hunks");
+
+    // Stage a change to an unrelated file
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let mut idx = test.repo.index().unwrap();
+    idx.read(true).unwrap();
+    assert!(
+        idx.get_path(std::path::Path::new("unrelated.txt"), 0)
+            .is_some(),
+        "staged file should still be in the index after split"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("unrelated.txt")).unwrap(),
+        "staged work\n",
+        "staged file on disk should be unchanged"
+    );
+}
+
+#[test]
+fn split_per_hunk_preserves_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "line1\nline2\n", "base");
+    let to_split = test.commit_file("a.txt", "LINE1\nline2\nLINE3\n", "two hunks");
+
+    // Write an unstaged change to an unrelated tracked file
+    let workdir = test.repo.workdir().unwrap();
+    // Use a file that won't overlap with the commit being split
+    test.commit_file("other.txt", "other\n", "add other");
+    std::fs::write(workdir.join("other.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("other.txt")).unwrap(),
+        "unstaged work\n",
+        "unstaged content should be unchanged after split"
+    );
+}
