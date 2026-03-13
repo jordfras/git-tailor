@@ -134,15 +134,29 @@ clear structure instead of comments.
 After modifying any Rust code, run these commands in order:
 
 1. **`cargo fmt`** — Format code according to Rust style guidelines
-2. **`cargo clippy`** — Run linter to catch common mistakes and suggest
-   improvements
-3. **`cargo check`** — Verify code compiles
-4. **`cargo test`** — Run test suite
+2. **`cargo clippy --all-targets`** — Run linter to catch common mistakes and
+   suggest improvements (includes examples, tests, and benchmarks)
+3. **`cargo test`** — Run test suite
 
 Fix any clippy warnings before committing. The codebase should maintain zero
 warnings.
 
-## Key Domain Model
+### Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+format. When completing a task, ask the user whether the change warrants a
+changelog entry before committing. User-visible changes that typically need an
+entry:
+
+- New CLI flags or arguments → **Added**
+- New TUI features or interactive behaviors → **Added**
+- Changed behavior users will notice → **Changed**
+- Bug fixes → **Fixed**
+
+Internal-only changes (refactors, test additions, CI tweaks, doc corrections)
+generally do **not** need a changelog entry — confirm with the user if unsure.
+
+
 
 ### Commit & Diff Types
 

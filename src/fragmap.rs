@@ -752,15 +752,14 @@ fn determine_touch_kind(commit_diff: &CommitDiff, cluster: &SpanCluster) -> Touc
 /// Determines what the yellow-connector symbol means in the fragmap matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum SquashableScope {
-    /// A connector is squashable when *that specific hunk-group pair alone* has
+    /// A connector is squashable when *that specific hunk group pair alone* has
     /// no intervening touches. This is the granular per-group rule, and is
     /// the default for the interactive TUI.
     #[default]
     Group,
-    /// A connector is squashable only when the *entire lower commit* is fully
-    /// squashable into the same single upper commit (i.e. `squash_target()`
-    /// returns `Some` and all groups agree on the same target). This is the
-    /// stricter whole-commit rule, matching the original fragmap tool, and is
+    /// A connector is squashable only when the *entire later commit* is fully
+    /// squashable into the same single earlier commit. This is a stricter
+    /// whole-commit rule, matching the original fragmap tool, and is
     /// the default for `--static` output.
     Commit,
 }

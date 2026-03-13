@@ -181,7 +181,7 @@ fn strip_ansi(s: &str) -> String {
 /// the sentinel `"<wt>"` so it compares equal to git-tailor's synthetic rows.
 fn parse_rows(output: &str) -> Vec<(String, String)> {
     let candidates: Vec<(String, String)> = output
-        .split(|c: char| c == '\n' || c == '\r')
+        .split(['\n', '\r'])
         .filter(|l| l.len() >= 9)
         .filter_map(|l| {
             let raw_sha8 = &l[..8];
@@ -237,6 +237,7 @@ type Profile = BTreeSet<String>;
 ///
 /// - fragmap uses "00000000" for all uncommitted changes.
 /// - git-tailor uses "staged" and "unstaged" as separate synthetic oids.
+///
 /// All three collapse to "<wt>" so they compare equal.
 fn normalize_sha(s: &str) -> String {
     if s == "00000000" || s.starts_with("staged") || s.starts_with("unstage") {

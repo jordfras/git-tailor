@@ -482,3 +482,62 @@ fn drop_commit_with_no_descendants() {
         "HEAD should point to base after dropping the only commit above it"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Dirty-state guard tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn drop_commit_blocked_with_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "v1\n", "base");
+    let to_drop = test.commit_file("b.txt", "content\n", "to drop");
+
+    // Stage a change to an unrelated file
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&to_drop.to_string(), &to_drop.to_string());
+
+    assert!(
+        result.is_err(),
+        "drop should be blocked when staged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}
+
+#[test]
+fn drop_commit_blocked_with_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "v1\n", "base");
+    let to_drop = test.commit_file("b.txt", "content\n", "to drop");
+
+    // Modify a tracked file without staging
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&to_drop.to_string(), &to_drop.to_string());
+
+    assert!(
+        result.is_err(),
+        "drop should be blocked when unstaged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}

@@ -497,3 +497,141 @@ fn squash_finalize_after_conflict_resolution() {
     // Squash commit's parent should be target's parent (the base commit)
     assert_eq!(head_commit.parent_count(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Dirty-state guard tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn squash_commits_blocked_with_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target");
+    let source = test.commit_file("b.txt", "source\n", "source");
+
+    // Stage a change to an unrelated file
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.squash_commits(
+        &source.to_string(),
+        &target.to_string(),
+        "combined",
+        &source.to_string(),
+    );
+
+    assert!(
+        result.is_err(),
+        "squash should be blocked when staged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}
+
+#[test]
+fn squash_commits_blocked_with_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target");
+    let source = test.commit_file("b.txt", "source\n", "source");
+
+    // Modify a tracked file without staging
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.squash_commits(
+        &source.to_string(),
+        &target.to_string(),
+        "combined",
+        &source.to_string(),
+    );
+
+    assert!(
+        result.is_err(),
+        "squash should be blocked when unstaged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}
+
+#[test]
+fn squash_try_combine_blocked_with_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target");
+    let source = test.commit_file("b.txt", "source\n", "source");
+
+    // Stage a change to an unrelated file
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.squash_try_combine(
+        &source.to_string(),
+        &target.to_string(),
+        "combined",
+        &source.to_string(),
+    );
+
+    assert!(
+        result.is_err(),
+        "squash_try_combine should be blocked when staged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}
+
+#[test]
+fn squash_try_combine_blocked_with_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target");
+    let source = test.commit_file("b.txt", "source\n", "source");
+
+    // Modify a tracked file without staging
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.squash_try_combine(
+        &source.to_string(),
+        &target.to_string(),
+        "combined",
+        &source.to_string(),
+    );
+
+    assert!(
+        result.is_err(),
+        "squash_try_combine should be blocked when unstaged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+}

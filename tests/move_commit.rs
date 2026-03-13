@@ -258,3 +258,66 @@ fn move_commit_preserves_file_contents() {
         .collect();
     assert_eq!(messages, vec!["A", "C", "B"]);
 }
+
+// ---------------------------------------------------------------------------
+// Dirty-state guard tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn move_commit_blocked_with_staged_changes() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let a = test.commit_file("a.txt", "a\n", "A");
+    let b = test.commit_file("b.txt", "b\n", "B");
+
+    // Stage a change to an unrelated file
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("unrelated.txt"))
+        .unwrap();
+    index.write().unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.move_commit(&b.to_string(), &base.to_string(), &b.to_string());
+
+    assert!(
+        result.is_err(),
+        "move should be blocked when staged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+    let _ = a;
+}
+
+#[test]
+fn move_commit_blocked_with_unstaged_changes() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let a = test.commit_file("a.txt", "a\n", "A");
+    let b = test.commit_file("b.txt", "b\n", "B");
+
+    // Modify a tracked file without staging
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.move_commit(&b.to_string(), &base.to_string(), &b.to_string());
+
+    assert!(
+        result.is_err(),
+        "move should be blocked when unstaged changes exist"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("staged or unstaged"),
+        "error should mention staged/unstaged: {msg}"
+    );
+    let _ = a;
+}

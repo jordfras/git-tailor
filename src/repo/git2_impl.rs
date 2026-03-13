@@ -642,6 +642,8 @@ impl GitRepo for Git2Repo {
     }
 
     fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<super::RebaseOutcome> {
+        self.check_no_dirty_state()?;
+
         let repo = &self.inner;
 
         let commit_git_oid =
@@ -822,6 +824,8 @@ impl GitRepo for Git2Repo {
         insert_after_oid: &str,
         head_oid: &str,
     ) -> Result<super::RebaseOutcome> {
+        self.check_no_dirty_state()?;
+
         let repo = &self.inner;
 
         let commit_git_oid =
@@ -904,6 +908,8 @@ impl GitRepo for Git2Repo {
         message: &str,
         head_oid: &str,
     ) -> Result<super::RebaseOutcome> {
+        self.check_no_dirty_state()?;
+
         let repo = &self.inner;
 
         let source_git_oid =
@@ -1036,6 +1042,8 @@ impl GitRepo for Git2Repo {
         combined_message: &str,
         head_oid: &str,
     ) -> Result<Option<super::ConflictState>> {
+        self.check_no_dirty_state()?;
+
         let repo = &self.inner;
 
         let source_git_oid =
@@ -1474,6 +1482,21 @@ fn apply_selected_hunks_to_tree(
 }
 
 impl Git2Repo {
+    /// Refuse if the working tree or index has any staged or unstaged changes.
+    ///
+    /// Called before operations that end with `checkout_head(force)`, which
+    /// would silently discard any dirty state.  The user should stash or
+    /// commit their changes before running such operations.
+    fn check_no_dirty_state(&self) -> Result<()> {
+        if self.staged_diff().is_some() || self.unstaged_diff().is_some() {
+            anyhow::bail!(
+                "You have staged or unstaged changes. \
+                 Stash or commit them before running this operation."
+            );
+        }
+        Ok(())
+    }
+
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
     fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
         let mut overlapping: Vec<String> = Vec::new();
