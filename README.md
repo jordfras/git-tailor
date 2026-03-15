@@ -59,14 +59,7 @@ gt v1.2.3            # commits since a tag
 
 ## The interface
 
-```
-┌─ Commits ───────────────────┬─ Hunk groups ──────────────┐
-│ abc12345 Add login page     │ █ . . █ . .                │
-│ def67890 Fix typo in readme │ . . . . . .                │
-│ 789abcde Refactor auth flow │ █ █ . . . .                │
-│ 012bcdef Update tests       │ . │ . █ . .                │
-└─────────────────────────────┴────────────────────────────┘
-```
+![tui](doc/tui_example.png)
 
 Each **column** in the hunk group matrix represents a group of related hunks (a
 contiguous set of lines in a file that is touched by one or more commits). A
