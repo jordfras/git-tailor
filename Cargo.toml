@@ -10,7 +10,7 @@ squash, reorder, split, drop, and reword commits before submitting a
 pull request or pushing to a shared branch.
 """
 repository = "https://github.com/jordfras/git-tailor"
-keywords = ["git", "commit", "rebase", "tui", "cli", "squash", "split", "reorder"]
+keywords = ["git", "commit", "tui", "squash", "split"]
 categories = ["command-line-utilities", "development-tools::version-control", "visualization"]
 exclude = ["/.github", "about.hbs", "about.toml", "examples", "AGENTS.md", "TASKS.md", "TASKS-COMPLETED.md"]
 
