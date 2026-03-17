@@ -12,6 +12,11 @@ Guidelines:
 
 
 ## UNCATEGORIZED
+- [ ] T130 P2 feat - Auto-detect the repository default branch when no `<BASE>`
+  is provided on the command line: resolve `origin/HEAD` via
+  `git rev-parse --abbrev-ref origin/HEAD` (libgit2: look up the symbolic target
+  of `refs/remotes/origin/HEAD`) and use the resulting branch as the base; fall
+  back to the current hard-coded default if `origin/HEAD` is not set.
 
 ## Interactivity — Fragmap View (V5)
 - [ ] T108 P1 fix - Fix fragmap relations not following file renames: when a
