@@ -182,3 +182,33 @@ fn test_commit_diff_metadata() {
     assert!(diff.commit.date.as_deref().is_some_and(|d| !d.is_empty()));
     assert_eq!(diff.commit.parent_oids.len(), 0);
 }
+
+/// `commit_diff_for_fragmap` should detect renames via `find_similar`
+/// and produce a single `FileDiff` with `old_path ≠ new_path`.
+#[test]
+fn test_commit_diff_for_fragmap_detects_rename() {
+    let test = common::TestRepo::new();
+    // Need an initial commit so the rename commit has a parent.
+    test.commit_file("old_name.rs", "line 1\nline 2\nline 3\n", "initial");
+    let c2 = test.rename_file(
+        "old_name.rs",
+        "new_name.rs",
+        Some("line 1\nline 2 modified\nline 3\n"),
+        "rename file",
+    );
+
+    let diff = test
+        .git_repo()
+        .commit_diff_for_fragmap(&c2.to_string())
+        .unwrap();
+
+    // find_similar should collapse the delete+add into a single renamed entry
+    assert_eq!(
+        diff.files.len(),
+        1,
+        "expected single file delta after rename"
+    );
+    let f = &diff.files[0];
+    assert_eq!(f.old_path.as_deref(), Some("old_name.rs"));
+    assert_eq!(f.new_path.as_deref(), Some("new_name.rs"));
+}

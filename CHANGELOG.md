@@ -16,6 +16,9 @@ The format is based on
 
 ### Fixed
 
+- Fragmap now tracks file renames across commits: when a file is renamed,
+  overlapping spans in the old and new paths are correctly clustered together
+  instead of being treated as unrelated files.
 - Added possibility to perform drop, move and squash operations when there are
   unstaged/staged changes in a submodule.
 

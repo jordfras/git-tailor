@@ -14,7 +14,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Fragmap View (V5)
-- [ ] T108 P1 fix - Fix fragmap relations not following file renames: when a
+- [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
   file is renamed across commits, spans should cluster together if they overlap
   the same logical content, but currently they are treated as separate files and
   don't form clusters. Investigate the original fragmap Python implementation

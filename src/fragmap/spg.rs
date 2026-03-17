@@ -666,36 +666,8 @@ pub(super) fn enumerate_file_spg_paths(
 /// Diagnostic: dump per-file SPG stats (for debugging, not used in production).
 #[doc(hidden)]
 pub fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
-    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
-        for file in &diff.files {
-            let path = match &file.new_path {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-            let hunks: Vec<HunkInfo> = file
-                .hunks
-                .iter()
-                .map(|h| HunkInfo {
-                    old_start: h.old_start,
-                    old_lines: h.old_lines,
-                    new_start: h.new_start,
-                    new_lines: h.new_lines,
-                })
-                .collect();
-            if !hunks.is_empty() {
-                let entry = file_commits.entry(path).or_default();
-                if let Some(last) = entry.last_mut()
-                    && last.0 == commit_idx
-                {
-                    last.1.extend(hunks);
-                    continue;
-                }
-                entry.push((commit_idx, hunks));
-            }
-        }
-    }
+    let file_commits =
+        super::collect_file_commits(commit_diffs, &super::build_rename_map(commit_diffs));
 
     let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
     sorted_paths.sort();

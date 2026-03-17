@@ -148,9 +148,11 @@ impl GitRepo for Git2Repo {
         opts.context_lines(0);
         opts.interhunk_lines(0);
 
-        let diff =
+        let mut diff =
             self.inner
                 .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+
+        diff.find_similar(None)?;
 
         extract_commit_diff(&diff, &commit)
     }
@@ -1036,10 +1038,7 @@ impl GitRepo for Git2Repo {
     }
 
     fn default_branch(&self) -> Option<String> {
-        let reference = self
-            .inner
-            .find_reference("refs/remotes/origin/HEAD")
-            .ok()?;
+        let reference = self.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
         let target = reference.symbolic_target()?;
         // Strip the "refs/remotes/" prefix so the caller can pass the result
         // directly to find_reference_point (e.g. "origin/main").

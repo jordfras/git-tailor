@@ -27,6 +27,74 @@ mod spg;
 pub use spg::dump_per_file_spg_stats;
 use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
+/// Build a map from every known file path to the canonical (earliest) name for
+/// that file, following rename chains across commits.
+///
+/// The commit diffs must be in chronological order (oldest first).  When a
+/// `FileDiff` has `old_path ≠ new_path` the old name's canonical entry is
+/// propagated to the new name.
+pub(crate) fn build_rename_map(commit_diffs: &[CommitDiff]) -> HashMap<String, String> {
+    let mut canonical: HashMap<String, String> = HashMap::new();
+    for diff in commit_diffs {
+        for file in &diff.files {
+            if let (Some(old), Some(new)) = (&file.old_path, &file.new_path)
+                && old != new
+            {
+                let root = canonical.get(old).cloned().unwrap_or_else(|| old.clone());
+                canonical.insert(new.clone(), root);
+            }
+        }
+    }
+    canonical
+}
+
+/// Resolve a file path to its canonical (earliest) name using the rename map.
+fn canonical_path<'a>(path: &'a str, rename_map: &'a HashMap<String, String>) -> &'a str {
+    rename_map.get(path).map(|s| s.as_str()).unwrap_or(path)
+}
+
+/// Collect per-file hunk lists grouped by canonical path.
+///
+/// This is the shared grouping logic used by [`build_fragmap`],
+/// [`assign_hunk_groups`], [`extract_spans_propagated`], and
+/// [`dump_per_file_spg_stats`].
+pub(crate) fn collect_file_commits(
+    commit_diffs: &[CommitDiff],
+    rename_map: &HashMap<String, String>,
+) -> HashMap<String, Vec<(usize, Vec<HunkInfo>)>> {
+    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
+    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
+        for file in &diff.files {
+            let path = match &file.new_path {
+                Some(p) => p.clone(),
+                None => continue,
+            };
+            let key = canonical_path(&path, rename_map).to_owned();
+            let hunks: Vec<HunkInfo> = file
+                .hunks
+                .iter()
+                .map(|h| HunkInfo {
+                    old_start: h.old_start,
+                    old_lines: h.old_lines,
+                    new_start: h.new_start,
+                    new_lines: h.new_lines,
+                })
+                .collect();
+            if !hunks.is_empty() {
+                let entry = file_commits.entry(key).or_default();
+                if let Some(last) = entry.last_mut()
+                    && last.0 == commit_idx
+                {
+                    last.1.extend(hunks);
+                    continue;
+                }
+                entry.push((commit_idx, hunks));
+            }
+        }
+    }
+    file_commits
+}
+
 /// A span of line numbers within a specific file.
 ///
 /// Represents a contiguous range of lines that were touched by a commit,
@@ -52,36 +120,8 @@ pub struct FileSpan {
 /// The result: every span is expressed in the FINAL file version's coordinates,
 /// making overlap-based clustering correct across commits.
 pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(String, Vec<FileSpan>)> {
-    // Group hunks by file path across all commits.
-    // For each file we need the commit index + hunks in chronological order.
-    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
-        for file in &diff.files {
-            let path = match &file.new_path {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-
-            let hunks: Vec<HunkInfo> = file
-                .hunks
-                .iter()
-                .map(|h| HunkInfo {
-                    old_start: h.old_start,
-                    old_lines: h.old_lines,
-                    new_start: h.new_start,
-                    new_lines: h.new_lines,
-                })
-                .collect();
-
-            if !hunks.is_empty() {
-                file_commits
-                    .entry(path)
-                    .or_default()
-                    .push((commit_idx, hunks));
-            }
-        }
-    }
+    let rename_map = build_rename_map(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &rename_map);
 
     // For each file, propagate every commit's spans forward to the final version.
     let mut all_spans: Vec<(usize, FileSpan)> = Vec::new();
@@ -138,7 +178,7 @@ pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(String, Vec
 
 /// Lightweight copy of the hunk header fields needed for propagation.
 #[derive(Debug, Clone)]
-struct HunkInfo {
+pub(crate) struct HunkInfo {
     old_start: u32,
     old_lines: u32,
     new_start: u32,
@@ -295,40 +335,8 @@ pub struct FragMap {
 /// `false` to keep every raw hunk cluster as its own column, which is useful
 /// for debugging the cluster layout.
 pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap {
-    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
-        for file in &diff.files {
-            let path = match &file.new_path {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-
-            let hunks: Vec<HunkInfo> = file
-                .hunks
-                .iter()
-                .map(|h| HunkInfo {
-                    old_start: h.old_start,
-                    old_lines: h.old_lines,
-                    new_start: h.new_start,
-                    new_lines: h.new_lines,
-                })
-                .collect();
-
-            if !hunks.is_empty() {
-                let entry = file_commits.entry(path).or_default();
-                // Merge hunks from the same file and commit (can happen when
-                // a commit has multiple FileDiff entries for the same path)
-                if let Some(last) = entry.last_mut()
-                    && last.0 == commit_idx
-                {
-                    last.1.extend(hunks);
-                    continue;
-                }
-                entry.push((commit_idx, hunks));
-            }
-        }
-    }
+    let rename_map = build_rename_map(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &rename_map);
 
     let mut clusters: Vec<SpanCluster> = Vec::new();
 
@@ -345,7 +353,7 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
     }
 
     let commits: Vec<String> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
-    let matrix = build_matrix(&commits, &clusters, commit_diffs);
+    let matrix = build_matrix(&commits, &clusters, commit_diffs, &rename_map);
 
     FragMap {
         commits,
@@ -375,36 +383,8 @@ pub fn assign_hunk_groups(
         .iter()
         .position(|d| d.commit.oid == commit_oid)?;
 
-    // Build file_commits the same way build_fragmap does.
-    let mut file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
-        for file in &diff.files {
-            let path = match &file.new_path {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-            let hunks: Vec<HunkInfo> = file
-                .hunks
-                .iter()
-                .map(|h| HunkInfo {
-                    old_start: h.old_start,
-                    old_lines: h.old_lines,
-                    new_start: h.new_start,
-                    new_lines: h.new_lines,
-                })
-                .collect();
-            if !hunks.is_empty() {
-                let entry = file_commits.entry(path).or_default();
-                if let Some(last) = entry.last_mut()
-                    && last.0 == commit_idx
-                {
-                    last.1.extend(hunks);
-                    continue;
-                }
-                entry.push((commit_idx, hunks));
-            }
-        }
-    }
+    let rename_map = build_rename_map(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &rename_map);
 
     let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
     sorted_paths.sort();
@@ -704,6 +684,7 @@ fn build_matrix(
     commits: &[String],
     clusters: &[SpanCluster],
     commit_diffs: &[CommitDiff],
+    rename_map: &HashMap<String, String>,
 ) -> Vec<Vec<TouchKind>> {
     let mut matrix = vec![vec![TouchKind::None; clusters.len()]; commits.len()];
 
@@ -711,10 +692,9 @@ fn build_matrix(
         let commit_diff = &commit_diffs[commit_idx];
 
         for (cluster_idx, cluster) in clusters.iter().enumerate() {
-            // Check if this commit touches this cluster
             if cluster.commit_oids.contains(commit_oid) {
-                // Determine the touch kind
-                matrix[commit_idx][cluster_idx] = determine_touch_kind(commit_diff, cluster);
+                matrix[commit_idx][cluster_idx] =
+                    determine_touch_kind(commit_diff, cluster, rename_map);
             }
         }
     }
@@ -725,14 +705,21 @@ fn build_matrix(
 /// Determine how a commit touches a cluster (Added/Modified/Deleted).
 ///
 /// Looks at the files in the commit that overlap with the cluster's spans
-/// to classify the type of change.
-fn determine_touch_kind(commit_diff: &CommitDiff, cluster: &SpanCluster) -> TouchKind {
+/// to classify the type of change. Uses the rename map to match file paths
+/// across renames.
+fn determine_touch_kind(
+    commit_diff: &CommitDiff,
+    cluster: &SpanCluster,
+    rename_map: &HashMap<String, String>,
+) -> TouchKind {
     for cluster_span in &cluster.spans {
+        let cluster_canonical = canonical_path(&cluster_span.path, rename_map);
         for file in &commit_diff.files {
-            // Check if this file matches the cluster span
             let file_path = file.new_path.as_ref().or(file.old_path.as_ref());
-            if file_path.map(|p| p == &cluster_span.path).unwrap_or(false) {
-                // Classify based on file paths
+            let matches = file_path
+                .map(|p| canonical_path(p, rename_map) == cluster_canonical)
+                .unwrap_or(false);
+            if matches {
                 if file.old_path.is_none() && file.new_path.is_some() {
                     return TouchKind::Added;
                 } else if file.old_path.is_some() && file.new_path.is_none() {
@@ -2247,8 +2234,9 @@ mod tests {
     }
 
     #[test]
-    fn build_fragmap_file_rename_cluster_uses_new_path() {
-        // A commit that renames foo.rs → bar.rs. The cluster should track bar.rs.
+    fn build_fragmap_file_rename_cluster_uses_canonical_path() {
+        // A commit that renames foo.rs → bar.rs. The cluster should track
+        // the canonical (earliest) path — foo.rs.
         let c1 = CommitDiff {
             commit: make_commit_info_with_oid("c1"),
             files: vec![FileDiff {
@@ -2266,7 +2254,43 @@ mod tests {
         };
         let fm = build_fragmap(&[c1], true);
         assert_eq!(fm.clusters.len(), 1);
-        assert_eq!(fm.clusters[0].spans[0].path, "bar.rs");
+        assert_eq!(fm.clusters[0].spans[0].path, "foo.rs");
+    }
+
+    #[test]
+    fn build_fragmap_rename_groups_old_and_new_in_same_cluster() {
+        // Commit 0 touches foo.rs lines 1-10.
+        // Commit 1 renames foo.rs → bar.rs and modifies overlapping lines 5-12.
+        // Both should land in the same cluster because the rename map links
+        // bar.rs back to the canonical name foo.rs.
+        let c0 = make_commit_diff(
+            "c0",
+            vec![make_file_diff(Some("foo.rs"), Some("foo.rs"), 1, 0, 1, 10)],
+        );
+        let c1 = CommitDiff {
+            commit: make_commit_info_with_oid("c1"),
+            files: vec![FileDiff {
+                old_path: Some("foo.rs".to_string()),
+                new_path: Some("bar.rs".to_string()),
+                status: crate::DeltaStatus::Modified,
+                hunks: vec![Hunk {
+                    old_start: 5,
+                    old_lines: 6,
+                    new_start: 5,
+                    new_lines: 8,
+                    lines: vec![],
+                }],
+            }],
+        };
+        let fm = build_fragmap(&[c0, c1], true);
+        // Both commits share a cluster — the overlapping region groups them.
+        assert!(
+            fm.clusters.iter().any(|cl| {
+                cl.commit_oids.contains(&"c0".to_string())
+                    && cl.commit_oids.contains(&"c1".to_string())
+            }),
+            "expected c0 and c1 to share a cluster via rename tracking"
+        );
     }
 
     #[test]

@@ -151,6 +151,51 @@ impl TestRepo {
             .unwrap()
     }
 
+    /// Rename a file and optionally modify its content in a single commit.
+    /// If `new_content` is `None`, the file keeps its current content.
+    #[allow(dead_code)]
+    pub fn rename_file(
+        &self,
+        old_path: &str,
+        new_path: &str,
+        new_content: Option<&str>,
+        message: &str,
+    ) -> git2::Oid {
+        let repo_path = self.repo.workdir().unwrap();
+        let old_file = repo_path.join(old_path);
+        let new_file = repo_path.join(new_path);
+
+        let content = match new_content {
+            Some(c) => c.to_string(),
+            None => fs::read_to_string(&old_file).unwrap(),
+        };
+
+        fs::remove_file(&old_file).unwrap();
+        if let Some(parent) = new_file.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&new_file, content).unwrap();
+
+        let mut index = self.repo.index().unwrap();
+        index.remove_path(std::path::Path::new(old_path)).unwrap();
+        index.add_path(std::path::Path::new(new_path)).unwrap();
+        index.write().unwrap();
+
+        let tree_oid = index.write_tree().unwrap();
+        let tree = self.repo.find_tree(tree_oid).unwrap();
+
+        let sig = Signature::now("Test User", "test@example.com").unwrap();
+        let parent_commit = self.repo.head().unwrap();
+        let parent = self
+            .repo
+            .find_commit(parent_commit.target().unwrap())
+            .unwrap();
+
+        self.repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
+            .unwrap()
+    }
+
     #[allow(dead_code)]
     pub fn create_branch(&self, name: &str, target: git2::Oid) {
         let commit = self.repo.find_commit(target).unwrap();
