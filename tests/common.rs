@@ -207,6 +207,35 @@ pub fn create_test_commit_diff(
     }
 }
 
+/// Stage a gitlink (submodule pointer) entry in the repo's index at `path`
+/// pointing at `target_oid`, without making a commit.
+///
+/// This simulates the state produced by `git submodule update` or a manual
+/// submodule bump — the working tree inside the submodule directory is
+/// unaffected; only the gitlink entry in the index changes.
+#[allow(dead_code)]
+pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid) {
+    let mut index = repo.index().unwrap();
+    index.read(true).unwrap();
+    index
+        .add(&git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode: 0o160000,
+            uid: 0,
+            gid: 0,
+            file_size: 0,
+            id: target_oid,
+            flags: 0,
+            flags_extended: 0,
+            path: path.as_bytes().to_vec(),
+        })
+        .unwrap();
+    index.write().unwrap();
+}
+
 /// Build a minimal `CommitInfo` for use in TUI snapshot tests.
 #[allow(dead_code)]
 pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {

@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
 ## [Unreleased]
+
+### Fixed
+
+- Added possibility to perform drop, move and squash operations when there are
+  unstaged/staged changes in a submodule.
+
+
+## [0.1.0] - 2026-03-15
 
 ### Added
 

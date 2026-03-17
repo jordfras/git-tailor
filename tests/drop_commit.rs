@@ -541,3 +541,24 @@ fn drop_commit_blocked_with_unstaged_changes() {
         "error should mention staged/unstaged: {msg}"
     );
 }
+
+#[test]
+fn drop_commit_allowed_with_staged_submodule() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let to_drop = test.commit_file("a.txt", "v2\n", "to drop");
+
+    // Stage a submodule pointer update — the only dirty state is a gitlink.
+    common::stage_gitlink(&test.repo, "libs/sub", base);
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &to_drop.to_string())
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "drop should succeed when only a submodule pointer is staged; got {result:?}"
+    );
+}

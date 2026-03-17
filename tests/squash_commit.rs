@@ -635,3 +635,58 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
         "error should mention staged/unstaged: {msg}"
     );
 }
+
+#[test]
+fn squash_commits_allowed_with_staged_submodule() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("b.txt", "b\n", "target commit");
+    let source = test.commit_file("c.txt", "c\n", "source commit");
+
+    // Stage a submodule pointer update — the only dirty state is a gitlink.
+    common::stage_gitlink(&test.repo, "libs/sub", base);
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .squash_commits(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed",
+            &source.to_string(),
+        )
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "squash should succeed when only a submodule pointer is staged; got {result:?}"
+    );
+}
+
+#[test]
+fn squash_try_combine_allowed_with_staged_submodule() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("b.txt", "b\n", "target commit");
+    let source = test.commit_file("c.txt", "c\n", "source commit");
+
+    // Stage a submodule pointer update — the only dirty state is a gitlink.
+    common::stage_gitlink(&test.repo, "libs/sub", base);
+
+    let git_repo = test.git_repo();
+    // Returns Ok(None) when there is no merge conflict — both files differ.
+    let result = git_repo
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed",
+            &source.to_string(),
+        )
+        .unwrap();
+
+    assert!(
+        result.is_none(),
+        "squash_try_combine should succeed (no conflict) when only a submodule pointer is staged"
+    );
+}

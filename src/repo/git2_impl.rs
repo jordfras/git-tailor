@@ -1482,13 +1482,42 @@ fn apply_selected_hunks_to_tree(
 }
 
 impl Git2Repo {
-    /// Refuse if the working tree or index has any staged or unstaged changes.
+    /// Refuse if the working tree or index has any staged or unstaged changes,
+    /// ignoring submodule pointer updates (consistent with `git rebase`).
+    ///
+    /// Gitlink entries (mode `0o160000`) are skipped because libgit2's
+    /// `checkout_head` does not recurse into submodule directories, so a dirty
+    /// submodule reference cannot be silently discarded.
     ///
     /// Called before operations that end with `checkout_head(force)`, which
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
-        if self.staged_diff().is_some() || self.unstaged_diff().is_some() {
+        let mut opts = git2::DiffOptions::new();
+        opts.context_lines(0);
+        opts.interhunk_lines(0);
+
+        let head_tree = self.inner.head().ok().and_then(|h| h.peel_to_tree().ok());
+
+        // Returns true only when the delta is a real file change, not a gitlink.
+        let is_real = |delta: git2::DiffDelta| {
+            delta.old_file().mode() != git2::FileMode::Commit
+                && delta.new_file().mode() != git2::FileMode::Commit
+        };
+
+        let has_staged = self
+            .inner
+            .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
+            .map(|d| d.deltas().any(is_real))
+            .unwrap_or(false);
+
+        let has_unstaged = self
+            .inner
+            .diff_index_to_workdir(None, Some(&mut opts))
+            .map(|d| d.deltas().any(is_real))
+            .unwrap_or(false);
+
+        if has_staged || has_unstaged {
             anyhow::bail!(
                 "You have staged or unstaged changes. \
                  Stash or commit them before running this operation."

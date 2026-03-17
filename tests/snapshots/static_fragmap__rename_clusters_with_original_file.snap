@@ -1,0 +1,7 @@
+---
+source: tests/static_fragmap.rs
+assertion_line: 319
+expression: output
+---
+aaaa0000 Add old.rs                ##
+bbbb2222 Rename old to new         .#
