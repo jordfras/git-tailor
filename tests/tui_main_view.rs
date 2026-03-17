@@ -139,6 +139,10 @@ impl GitRepo for NoOpRepo {
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
     }
+
+    fn default_branch(&self) -> Option<String> {
+        None
+    }
 }
 
 fn app_with_commits() -> AppState {

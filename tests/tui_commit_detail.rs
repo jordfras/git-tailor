@@ -143,6 +143,10 @@ impl GitRepo for NoOpRepo {
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
     }
+
+    fn default_branch(&self) -> Option<String> {
+        None
+    }
 }
 
 /// GitRepo stub that returns a fixed CommitDiff for the selected commit OID.
@@ -258,6 +262,10 @@ impl GitRepo for FakeDiffRepo {
     }
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
+    }
+
+    fn default_branch(&self) -> Option<String> {
+        None
     }
 }
 

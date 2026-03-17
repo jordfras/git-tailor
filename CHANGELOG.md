@@ -8,6 +8,12 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `<BASE>` argument is now optional. When omitted, `gt` resolves `origin/HEAD`
+  to determine the repository's default upstream branch (e.g. `origin/main`).
+  Falls back to `main` if `origin/HEAD` is not configured.
+
 ### Fixed
 
 - Added possibility to perform drop, move and squash operations when there are

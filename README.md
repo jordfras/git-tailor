@@ -31,7 +31,7 @@ Requires Rust 1.85 or later.
 ## Usage
 
 ```sh
-gt <base>
+gt [base]
 ```
 
 `<base>` identifies the branch or point you forked from — typically the target
@@ -40,10 +40,15 @@ be a direct ancestor of `HEAD`: the **merge-base** (common ancestor) between
 `<base>` and `HEAD` is used as the reference point. All commits between that
 merge-base and `HEAD` are shown.
 
+When `<base>` is omitted, `gt` automatically uses the repository's default
+upstream branch by resolving `origin/HEAD`. If that is not configured it falls
+back to `main`.
+
 ```sh
 gt main              # commits on top of main
 gt origin/main       # commits not yet pushed
 gt v1.2.3            # commits since a tag
+gt                   # auto-detect default branch (origin/HEAD or main)
 ```
 
 **Flags:**

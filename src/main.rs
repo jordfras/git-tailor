@@ -37,7 +37,11 @@ use std::io;
 #[command(name = "gt")]
 struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
-    base: String,
+    ///
+    /// When omitted, the tool resolves `origin/HEAD` to find the repository's
+    /// default upstream branch (e.g. `origin/main`).  If `origin/HEAD` is not
+    /// configured it falls back to `main`.
+    base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).
     #[arg(short, long)]
@@ -99,7 +103,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let git_repo = Git2Repo::open(std::env::current_dir()?)?;
-    let reference_oid = git_repo.find_reference_point(&cli.base)?;
+    let base = cli.base.unwrap_or_else(|| {
+        git_repo
+            .default_branch()
+            .unwrap_or_else(|| "main".to_string())
+    });
+    let reference_oid = git_repo.find_reference_point(&base)?;
     let head_oid = git_repo.head_oid()?;
 
     let commits = git_repo.list_commits(&head_oid, &reference_oid)?;
@@ -115,7 +124,7 @@ fn main() -> Result<()> {
     if commits.is_empty() {
         eprintln!(
             "No commits to display: HEAD is at the merge-base with '{}'",
-            cli.base
+            base
         );
         eprintln!("The current branch has no commits beyond the common ancestor.");
         return Ok(());

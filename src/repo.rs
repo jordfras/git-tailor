@@ -333,6 +333,19 @@ pub trait GitRepo {
     /// the updated index to disk. Must be called after a merge tool resolves a
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
     fn stage_file(&self, path: &str) -> Result<()>;
+
+    /// Return the name of the repository's default upstream branch.
+    ///
+    /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
+    /// that `git remote set-head origin --auto` sets) and strips the
+    /// `refs/remotes/` prefix so the returned value can be passed directly to
+    /// `find_reference_point`.  For example when `origin/HEAD` points to
+    /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
+    ///
+    /// Returns `None` when the remote tracking ref is absent or has no symbolic
+    /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
+    /// never set).
+    fn default_branch(&self) -> Option<String>;
 }
 
 impl ConflictState {

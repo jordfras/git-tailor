@@ -1035,6 +1035,17 @@ impl GitRepo for Git2Repo {
         Ok(())
     }
 
+    fn default_branch(&self) -> Option<String> {
+        let reference = self
+            .inner
+            .find_reference("refs/remotes/origin/HEAD")
+            .ok()?;
+        let target = reference.symbolic_target()?;
+        // Strip the "refs/remotes/" prefix so the caller can pass the result
+        // directly to find_reference_point (e.g. "origin/main").
+        target.strip_prefix("refs/remotes/").map(str::to_string)
+    }
+
     fn squash_try_combine(
         &self,
         source_oid: &str,
