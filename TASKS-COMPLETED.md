@@ -430,3 +430,80 @@
   `if action == SeparatorLeft { ... continue; }`, handle separator_offset
   mutation inside the view handle_key (main_view or commit_list), returning
   AppAction::Handled (Flags: V6)
+
+## CLI Output & Compatibility (V5) — continued
+- [X] T128 P2 feat - Adapt title column width to terminal width in `--static`
+  output: the original fragmap tool sets the title column width dynamically so
+  that the SHA + title + hunk-group matrix fills the available terminal width;
+  investigate the original Python implementation
+  (https://github.com/amollberg/fragmap) to understand the exact layout
+  algorithm (how many columns it reserves for SHA, separators, and the matrix,
+  and how it clamps the title width), then implement the same or equivalent
+  logic in `static_views::fragmap::render` — the title currently uses a fixed
+  26-character truncation; instead, detect the terminal width (via
+  `crossterm::terminal::size()` or a passed-in width, falling back to 80),
+  compute `title_width = terminal_width − sha_width − separators − matrix_width`
+  clamped to a sensible minimum, and truncate/pad the title to that width
+  (Flags: V5)
+- [X] T126 P2 feat - Add `--squashable-scope <commit|group>` CLI argument
+  controlling what the squashable connector color/symbol means: `group` (default
+  in TUI) — a connector in a column is squashable when *that hunk-group pair
+  alone* has no intervening touches (current per-group behavior); `commit`
+  (default in `--static`) — a connector is squashable only when the *entire
+  lower commit* is fully squashable into the same single upper commit (i.e.
+  `fragmap.is_fully_squashable()` is true and `squash_target()` points to that
+  upper commit), matching the original fragmap tool's stricter rule; the
+  argument must be valid in both TUI and `--static` modes; store the choice in
+  `AppState` and thread it through the fragmap connector rendering logic in both
+  `static_views::fragmap::render` and the TUI fragmap widget (Flags: V5)
+- [X] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
+  currently `--static` always outputs commits in the order returned by
+  `list_commits` (newest-first); when `--reverse` is also passed the rows should
+  be printed oldest-first, matching the interactive TUI behavior (Flags: V5)
+- [x] T111 P3 feat - Replace the current example application in `examples/` with
+  a compatibility tool that takes a commit-ish as its argument, uses it to find
+  the merge-base (same as `--static`), then builds a `Fragmap` object in the
+  normal way and also runs the original `fragmap` binary (if installed) on the
+  same repository/ref; the tool renders git-tailor's result through the static
+  view and compares the two outputs column-by-column (columns may be in any
+  order); if the same commit-cluster relationships are present in both it prints
+  "OK"; otherwise it prints the `fragmap` output, then git-tailor's static
+  output, plus a short summary explaining what differs (Flags: V5)
+
+## Build & CI (V5) — continued
+- [X] T114 P2 feat - Write comprehensive README.md documentation: describe what
+  the tool does (interactive git commit browser with fragmap visualization and
+  rebase operations), installation instructions, basic usage guide with key
+  bindings, attribution to original fragmap tool (reference NOTICE file), note
+  that the entire tool is AI-generated, and include a prominent data safety
+  disclaimer warning users to push their changes before using the tool since any
+  bugs may cause permanent data loss — author takes no responsibility for data
+  loss under any circumstances, see Apache 2.0 license text (Flags: V5)
+- [X] T115 P2 feat - Add CHANGELOG.md following keepachangelog.com format:
+  create initial changelog with sections for Unreleased, version entries (Added,
+  Changed, Deprecated, Removed, Fixed, Security), and update AGENTS.md to
+  instruct AI agents to ask users whether changes should be noted in the
+  changelog when completing tasks that add user-visible features or fix bugs
+  (Flags: V5)
+
+## Bug Fixes (V5) — continued
+- [X] T129 P1 bug - Fix move/drop/fixup/squash/split losing working-tree and
+  index changes: currently these rebase operations discard any uncommitted
+  changes (both staged and unstaged) that exist in the working tree when the
+  operation is applied; `reword` already preserves them correctly, so audit how
+  `reword` saves and restores the working-tree and index state and apply the
+  same stash-and-restore (or equivalent) pattern to `move_commit`,
+  `drop_commit`, `squash_commit`, `fixup_commit`, and `split_commit` in the
+  rebase engine; add integration tests in the `tests/` directory covering all
+  five operations with both staged changes (files added to the index but not
+  committed) and unstaged changes (modified tracked files not yet staged),
+  asserting that after the operation completes the working tree and index
+  reflect the same content that was present before the operation started (Flags:
+  V5)
+
+## Interactivity — Auto-detection (V5)
+- [X] T130 P2 feat - Auto-detect the repository default branch when no `<BASE>`
+  is provided on the command line: resolve `origin/HEAD` via
+  `git rev-parse --abbrev-ref origin/HEAD` (libgit2: look up the symbolic target
+  of `refs/remotes/origin/HEAD`) and use the resulting branch as the base; fall
+  back to the current hard-coded default if `origin/HEAD` is not set.
