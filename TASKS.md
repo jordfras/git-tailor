@@ -13,6 +13,33 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Bug Fixes — Squash & Fixup
+- [ ] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
+  editor: when a fixup operation causes a conflict in the squash tree itself and
+  the user resolves it, `RebaseContinue` in `main.rs` always opens the editor
+  for the commit message (via `squash_finalize`) regardless of whether the
+  operation was a squash or a fixup; the `SquashContext` needs an `is_fixup`
+  field (or equivalent) so that the editor is skipped and the target message is
+  used as-is when finalizing a fixup, mirroring the non-conflict path in
+  `PrepareSquash`
+- [ ] T132 P1 bug - Fixup conflict falsely reported as still unresolved: after
+  the user resolves a conflict during a fixup (either manually or via mergetool)
+  and presses Enter to continue, `rebase_continue` in `git2_impl.rs` re-reads
+  the index with `index.read(true)` and calls `index.has_conflicts()`, which
+  returns true even though the working-tree file has been correctly resolved and
+  staged; investigate whether libgit2's in-memory index is not being refreshed
+  from disk before the `has_conflicts()` check, or whether deleted-file
+  conflicts leave behind phantom stage entries, and fix so that a genuinely
+  resolved index is not incorrectly treated as unresolved
+- [ ] T133 P1 bug - Aborting a fixup after a conflict leaves dirty working tree:
+  `rebase_abort` in `git2_impl.rs` resets the branch ref and calls
+  `checkout_head()`, but this does not clean up untracked files or staged
+  deletions that were left behind by the failed cherry-pick (e.g. a file that
+  was deleted in the conflict appears as a staged deletion and also as an
+  untracked file after the abort); the abort should additionally clean untracked
+  files and reset the index so the working tree matches HEAD, similar to what
+  `git checkout -f HEAD` followed by `git clean -fd` would do
+
 ## Interactivity — Fragmap View (V5)
 - [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
   file is renamed across commits, spans should cluster together if they overlap
