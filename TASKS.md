@@ -22,7 +22,7 @@ Guidelines:
   field (or equivalent) so that the editor is skipped and the target message is
   used as-is when finalizing a fixup, mirroring the non-conflict path in
   `PrepareSquash`
-- [ ] T132 P1 bug - Fixup conflict falsely reported as still unresolved: after
+- [X] T132 P1 bug - Fixup conflict falsely reported as still unresolved: after
   the user resolves a conflict during a fixup (either manually or via mergetool)
   and presses Enter to continue, `rebase_continue` in `git2_impl.rs` re-reads
   the index with `index.read(true)` and calls `index.has_conflicts()`, which

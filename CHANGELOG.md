@@ -19,6 +19,10 @@ The format is based on
 - Fixup operations that hit a squash-tree conflict no longer open the commit
   message editor after the conflict is resolved — the target commit's message
   is used as-is, matching the behavior of a conflict-free fixup.
+- Resolving a conflict that involves a deleted or renamed file (modify/delete
+  conflict) is no longer falsely reported as still unresolved: `stage_file`
+  now correctly stages the deletion when the file is absent from the working
+  tree instead of failing with "file not found".
 - Fragmap now tracks file renames across commits: when a file is renamed,
   overlapping spans in the old and new paths are correctly clustered together
   instead of being treated as unrelated files.

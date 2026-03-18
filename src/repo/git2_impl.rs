@@ -1029,9 +1029,26 @@ impl GitRepo for Git2Repo {
         index
             .read(true)
             .context("failed to refresh index from disk")?;
-        index
-            .add_path(std::path::Path::new(path))
-            .with_context(|| format!("failed to stage '{path}'"))?;
+
+        let workdir = repo
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+
+        if workdir.join(path).exists() {
+            // File is present — add it to clear conflict stages and create a
+            // normal stage-0 entry.
+            index
+                .add_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to stage '{path}'"))?;
+        } else {
+            // File was deleted — remove all index entries for this path
+            // (stages 0, 1, 2, 3) so the deletion is staged and no phantom
+            // conflict entries remain.
+            index
+                .remove_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to remove '{path}' from index"))?;
+        }
+
         index
             .write()
             .context("failed to write index after staging")?;
