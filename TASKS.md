@@ -31,14 +31,18 @@ Guidelines:
   from disk before the `has_conflicts()` check, or whether deleted-file
   conflicts leave behind phantom stage entries, and fix so that a genuinely
   resolved index is not incorrectly treated as unresolved
-- [ ] T133 P1 bug - Aborting a fixup after a conflict leaves dirty working tree:
+- [X] T133 P1 bug - Aborting a fixup after a conflict leaves dirty working tree:
   `rebase_abort` in `git2_impl.rs` resets the branch ref and calls
   `checkout_head()`, but this does not clean up untracked files or staged
   deletions that were left behind by the failed cherry-pick (e.g. a file that
   was deleted in the conflict appears as a staged deletion and also as an
   untracked file after the abort); the abort should additionally clean untracked
   files and reset the index so the working tree matches HEAD, similar to what
-  `git checkout -f HEAD` followed by `git clean -fd` would do
+  `git checkout -f HEAD` followed by `git clean -fd` would do (fixed by T130:
+  libgit2's `checkout_head(force)` already resets both the index and workdir to
+  HEAD, including files absent from HEAD's tree; the dirty-workdir symptom was a
+  consequence of T130's `stage_file` bug leaving the index in a corrupt state;
+  integration test added to confirm)
 
 ## Interactivity — Fragmap View (V5)
 - [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
