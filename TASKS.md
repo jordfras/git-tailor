@@ -14,7 +14,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Bug Fixes — Squash & Fixup
-- [ ] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
+- [X] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
   editor: when a fixup operation causes a conflict in the squash tree itself and
   the user resolves it, `RebaseContinue` in `main.rs` always opens the editor
   for the commit message (via `squash_finalize`) regardless of whether the

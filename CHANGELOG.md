@@ -16,6 +16,9 @@ The format is based on
 
 ### Fixed
 
+- Fixup operations that hit a squash-tree conflict no longer open the commit
+  message editor after the conflict is resolved — the target commit's message
+  is used as-is, matching the behavior of a conflict-free fixup.
 - Fragmap now tracks file renames across commits: when a file is renamed,
   overlapping spans in the old and new paths are correctly clustered together
   instead of being treated as unrelated files.

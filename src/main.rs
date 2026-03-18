@@ -303,10 +303,9 @@ fn main() -> Result<()> {
             }
             AppAction::RebaseContinue(state) => {
                 // Squash-time tree conflict: the user has resolved the
-                // combined tree. Open the editor for the commit message,
-                // then finalize.
+                // combined tree. For squash, open the editor; for fixup,
+                // use the stored target message directly.
                 if let Some(ref ctx) = state.squash_context {
-                    let combined = ctx.combined_message.clone();
                     let original_oid = state.original_branch_oid.clone();
                     let ctx_clone = ctx.clone();
 
@@ -322,36 +321,52 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
-                    terminal.clear()?;
-                    match editor_result {
-                        Err(e) => {
-                            let _ = git_repo.rebase_abort(&state);
-                            reload_commits(&git_repo, &mut app);
-                            app.set_error_message(format!("Editor error: {e}"));
-                        }
-                        Ok(msg) if msg.trim().is_empty() => {
-                            let _ = git_repo.rebase_abort(&state);
-                            reload_commits(&git_repo, &mut app);
-                            let label = &state.operation_label;
-                            app.set_error_message(format!("{label} aborted: empty commit message"));
-                        }
-                        Ok(msg) => {
-                            let saved_index = app.selection_index;
-                            match git_repo.squash_finalize(&ctx_clone, &msg, &original_oid) {
-                                Ok(RebaseOutcome::Complete) => {
-                                    reload_commits(&git_repo, &mut app);
-                                    app.selection_index =
-                                        saved_index.min(app.commits.len().saturating_sub(1));
-                                    app.set_success_message("Commits squashed");
-                                }
-                                Ok(RebaseOutcome::Conflict(new_state)) => {
-                                    app.enter_rebase_conflict(*new_state);
-                                }
-                                Err(e) => {
-                                    app.set_error_message(format!("Squash failed: {e}"));
-                                }
+                    // Fixup: skip the editor and use the stored target message.
+                    // Squash: open the editor with the combined message.
+                    let final_msg = if ctx.is_fixup {
+                        ctx.combined_message.clone()
+                    } else {
+                        let combined = ctx.combined_message.clone();
+                        let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                        terminal.clear()?;
+                        match editor_result {
+                            Err(e) => {
+                                let _ = git_repo.rebase_abort(&state);
+                                reload_commits(&git_repo, &mut app);
+                                app.set_error_message(format!("Editor error: {e}"));
+                                continue;
                             }
+                            Ok(msg) if msg.trim().is_empty() => {
+                                let _ = git_repo.rebase_abort(&state);
+                                reload_commits(&git_repo, &mut app);
+                                let label = &state.operation_label;
+                                app.set_error_message(format!(
+                                    "{label} aborted: empty commit message"
+                                ));
+                                continue;
+                            }
+                            Ok(msg) => msg,
+                        }
+                    };
+
+                    let saved_index = app.selection_index;
+                    match git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid) {
+                        Ok(RebaseOutcome::Complete) => {
+                            reload_commits(&git_repo, &mut app);
+                            app.selection_index =
+                                saved_index.min(app.commits.len().saturating_sub(1));
+                            let success_msg = if ctx_clone.is_fixup {
+                                "Commit fixed up"
+                            } else {
+                                "Commits squashed"
+                            };
+                            app.set_success_message(success_msg);
+                        }
+                        Ok(RebaseOutcome::Conflict(new_state)) => {
+                            app.enter_rebase_conflict(*new_state);
+                        }
+                        Err(e) => {
+                            app.set_error_message(format!("Squash failed: {e}"));
                         }
                     }
                     continue;
@@ -457,11 +472,24 @@ fn main() -> Result<()> {
                 };
 
                 let label = if is_fixup { "Fixup" } else { "Squash" };
+                // For fixup, use only the target message; for squash use the
+                // combined message so it is shown in the editor.
+                let message_for_context = if is_fixup {
+                    target_message.clone()
+                } else {
+                    format!("{target_message}\n\n{source_message}")
+                };
                 let combined = format!("{target_message}\n\n{source_message}");
 
                 // Try the tree combination first. If it conflicts, let the
                 // user resolve before opening the editor (T080).
-                match git_repo.squash_try_combine(&source_oid, &target_oid, &combined, &head_oid) {
+                match git_repo.squash_try_combine(
+                    &source_oid,
+                    &target_oid,
+                    &message_for_context,
+                    is_fixup,
+                    &head_oid,
+                ) {
                     Ok(Some(conflict_state)) => {
                         app.enter_rebase_conflict(conflict_state);
                         continue;

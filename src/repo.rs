@@ -80,10 +80,15 @@ pub struct SquashContext {
     pub source_oid: String,
     /// OID of the target commit (author/committer are taken from here).
     pub target_oid: String,
-    /// The combined default message (target + source), shown in the editor.
+    /// The message to use for the squash commit. For squash this is the
+    /// combined (target + source) message shown in the editor; for fixup
+    /// this is just the target message, used as-is without opening an editor.
     pub combined_message: String,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<String>,
+    /// When true the operation is a fixup: the editor is skipped and
+    /// `combined_message` (the target message) is used directly.
+    pub is_fixup: bool,
 }
 
 /// Abstraction over git repository operations.
@@ -305,12 +310,14 @@ pub trait GitRepo {
     /// Returns `Ok(Some(ConflictState))` when the cherry-pick conflicts. The
     /// conflict is written to the working tree and index. The `ConflictState`
     /// carries a `SquashContext` so the TUI can let the user resolve, then
-    /// open the editor, then call `squash_finalize`.
+    /// (for squash) open the editor and call `squash_finalize`, or (for fixup)
+    /// call `squash_finalize` directly without opening the editor.
     fn squash_try_combine(
         &self,
         source_oid: &str,
         target_oid: &str,
         combined_message: &str,
+        is_fixup: bool,
         head_oid: &str,
     ) -> Result<Option<ConflictState>>;
 

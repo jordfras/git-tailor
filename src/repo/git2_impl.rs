@@ -962,6 +962,7 @@ impl GitRepo for Git2Repo {
                         target_oid: target_oid.to_string(),
                         combined_message: message.to_string(),
                         descendant_oids: descendants,
+                        is_fixup: false,
                     }),
                 },
             )));
@@ -1050,6 +1051,7 @@ impl GitRepo for Git2Repo {
         source_oid: &str,
         target_oid: &str,
         combined_message: &str,
+        is_fixup: bool,
         head_oid: &str,
     ) -> Result<Option<super::ConflictState>> {
         self.check_no_dirty_state()?;
@@ -1086,8 +1088,10 @@ impl GitRepo for Git2Repo {
 
         self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
 
+        let operation_label = if is_fixup { "Fixup" } else { "Squash" }.to_string();
+
         Ok(Some(super::ConflictState {
-            operation_label: "Squash".to_string(),
+            operation_label,
             original_branch_oid,
             new_tip_oid: target_git_oid.to_string(),
             conflicting_commit_oid: source_git_oid.to_string(),
@@ -1101,6 +1105,7 @@ impl GitRepo for Git2Repo {
                 target_oid: target_oid.to_string(),
                 combined_message: combined_message.to_string(),
                 descendant_oids: descendants,
+                is_fixup,
             }),
         }))
     }

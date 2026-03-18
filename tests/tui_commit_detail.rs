@@ -128,6 +128,7 @@ impl GitRepo for NoOpRepo {
         _source_oid: &str,
         _target_oid: &str,
         _combined_message: &str,
+        _is_fixup: bool,
         _head_oid: &str,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()
@@ -248,6 +249,7 @@ impl GitRepo for FakeDiffRepo {
         _source_oid: &str,
         _target_oid: &str,
         _combined_message: &str,
+        _is_fixup: bool,
         _head_oid: &str,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()

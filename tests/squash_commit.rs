@@ -402,7 +402,13 @@ fn squash_try_combine_returns_none_when_clean() {
     let head = git_repo.head_oid().unwrap();
 
     let result = git_repo
-        .squash_try_combine(&source.to_string(), &target.to_string(), "combined", &head)
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "combined",
+            false,
+            &head,
+        )
         .unwrap();
 
     assert!(result.is_none(), "clean merge should return None");
@@ -425,6 +431,7 @@ fn squash_try_combine_returns_conflict_state() {
             &source.to_string(),
             &target.to_string(),
             "combined msg",
+            false,
             &head,
         )
         .unwrap()
@@ -454,7 +461,13 @@ fn squash_finalize_after_conflict_resolution() {
 
     // Step 1: try combine -> conflict
     let state = git_repo
-        .squash_try_combine(&source.to_string(), &target.to_string(), "combined", &head)
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "combined",
+            false,
+            &head,
+        )
         .unwrap()
         .expect("should conflict");
 
@@ -473,6 +486,7 @@ fn squash_finalize_after_conflict_resolution() {
         target_oid: target.to_string(),
         combined_message: "combined".to_string(),
         descendant_oids: vec![],
+        is_fixup: false,
     };
 
     let result = git_repo
@@ -591,6 +605,7 @@ fn squash_try_combine_blocked_with_staged_changes() {
         &source.to_string(),
         &target.to_string(),
         "combined",
+        false,
         &source.to_string(),
     );
 
@@ -622,6 +637,7 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
         &source.to_string(),
         &target.to_string(),
         "combined",
+        false,
         &source.to_string(),
     );
 
@@ -681,6 +697,7 @@ fn squash_try_combine_allowed_with_staged_submodule() {
             &source.to_string(),
             &target.to_string(),
             "squashed",
+            false,
             &source.to_string(),
         )
         .unwrap();
