@@ -34,7 +34,11 @@ use std::io;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
 #[derive(Parser)]
-#[command(name = "gt")]
+#[command(
+    //name = "gt",
+    version,
+    help_template = "{name} {version}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
+)]
 struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
     ///
