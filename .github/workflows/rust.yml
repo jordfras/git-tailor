@@ -20,6 +20,10 @@ jobs:
       run: cargo fmt --all -- --check --verbose
     - name: Clippy
       run: cargo clippy --all-targets -- -D warnings --verbose
+    - name: Licenses
+      uses: EmbarkStudios/cargo-deny-action@v2
+      with:
+        command: check licenses
     - name: Build
       run: cargo build --all-targets --verbose
     - name: Run tests

@@ -104,7 +104,7 @@ Guidelines:
   BSD-2-Clause, BSD-3-Clause, ISC, etc.), deny copyleft licenses (GPL, LGPL,
   AGPL), and add `cargo deny check` command to verify no license violations in
   the dependency tree
-- [ ] T113 P3 feat - Add cargo-deny to GitHub Actions CI: create or update
+- [X] T113 P3 feat - Add cargo-deny to GitHub Actions CI: create or update
   `.github/workflows/ci.yml` to run `cargo deny check licenses` alongside
   existing format/clippy/test checks, failing the build if any dependency
   license conflicts are detected; ensure this runs on pull requests and main
