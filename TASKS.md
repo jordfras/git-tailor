@@ -98,7 +98,7 @@ Guidelines:
 ## CLI Output & Compatibility
 
 ## Build & CI
-- [ ] T112 P3 feat - Set up cargo-deny with configuration to check dependency
+- [X] T112 P3 feat - Set up cargo-deny with configuration to check dependency
   licenses are compatible with Apache 2.0: install cargo-deny, create
   `deny.toml` config allowing Apache-compatible licenses (Apache-2.0, MIT,
   BSD-2-Clause, BSD-3-Clause, ISC, etc.), deny copyleft licenses (GPL, LGPL,
