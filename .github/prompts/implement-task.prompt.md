@@ -28,12 +28,11 @@ Guidelines:
 - Priorities: P0 (urgent) → P3 (low).
 - Categories: bug | feat | fix | idea | human.
 - Flags (optional): CLARIFICATION, HUMAN INPUT, HUMAN TASK, DUPLICATE.
-- Version flags (optional): V1, V2 etc. (used to group versions/releases).
 - Mark completion by [ ] → [X]. Keep changes atomic (one commit per task).
 - Mark won't-do tasks by [ ] → [-] and add `WONT DO` to Flags.
 
 ## Example
-- [ ] T001 P1 feat - Initial placeholder task (Flags: CLARIFICATION, V1)
+- [ ] T001 P1 feat - Initial placeholder task (Flags: CLARIFICATION)
 
 ## UNCATEGORIZED
 - Add brand new tasks here before categorization (human or agent). The agent MUST first review this section before selecting any other task. For each uncategorized task: assign an ID (T###), priority, category, and flags; then move it into the proper thematic section; finally REMOVE it from UNCATEGORIZED.
