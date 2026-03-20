@@ -52,6 +52,16 @@ Guidelines:
   git2's in-memory state or a cached copy rather than re-reading from the
   working tree on disk when checking conflict status or launching the mergetool
 
+## Interactivity — Conflict Resolution
+- [ ] T135 P2 feat - Add option to open the configured editor when resolving a
+  conflict: the conflict view currently offers a key binding to launch the
+  mergetool (`core.mergetool` / `merge.tool`); add a second key binding (e.g.
+  `e`) that instead opens the conflicted file in the user's configured editor
+  (`core.editor`, falling back to `$VISUAL`, then `$EDITOR`, then a sensible
+  default such as `vi`); after the editor exits, re-check the file for conflict
+  markers and update the conflict view state accordingly, the same way the
+  mergetool path does
+
 ## Interactivity — Fragmap View
 - [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
   file is renamed across commits, spans should cluster together if they overlap
