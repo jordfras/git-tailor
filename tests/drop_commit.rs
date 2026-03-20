@@ -637,3 +637,98 @@ fn rebase_abort_leaves_clean_working_tree() {
         "no untracked files should remain after abort: {untracked:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Auto-stage resolved conflicts (T132)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
+    // Simulates the user resolving a conflict in an external editor (e.g.
+    // VS Code) and saving the file without explicitly staging it. The
+    // auto_stage_resolved_conflicts method should detect the resolution
+    // and stage the file so that rebase_continue succeeds.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "line1\n", "base");
+    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
+    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => *s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Simulate external editor: write resolved content but do NOT stage.
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "line1\nline3\n").unwrap();
+
+    // Index still has conflict entries at this point.
+    assert!(
+        !git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should still be in the index before auto-staging"
+    );
+
+    // Auto-stage should detect the file no longer has conflict markers.
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    // Conflict entries should be cleared now.
+    assert!(
+        git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should be cleared after auto-staging"
+    );
+
+    // rebase_continue should succeed.
+    let result = git_repo.rebase_continue(&state).unwrap();
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "expected Complete after auto-staging, got {result:?}"
+    );
+
+    let commits = commits_from_head(&test.repo, base);
+    assert_eq!(commits.len(), 1);
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(
+        file_content_at(&test.repo, head_oid, "a.txt"),
+        "line1\nline3\n"
+    );
+}
+
+#[test]
+fn auto_stage_does_not_stage_file_with_conflict_markers() {
+    // If the working-tree file still contains conflict markers,
+    // auto_stage_resolved_conflicts must leave it alone.
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "line1\n", "base");
+    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
+    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => *s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Working tree already has conflict markers from write_conflicts_to_workdir.
+    // auto_stage should NOT clear them.
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    assert!(
+        !git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should still be present when markers remain"
+    );
+}

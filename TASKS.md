@@ -43,7 +43,7 @@ Guidelines:
   HEAD, including files absent from HEAD's tree; the dirty-workdir symptom was a
   consequence of T130's `stage_file` bug leaving the index in a corrupt state;
   integration test added to confirm)
-- [ ] T134 P1 bug - External editor conflict resolution not detected during
+- [X] T134 P1 bug - External editor conflict resolution not detected during
   squash/fixup: when a conflict occurs during squash or fixup and the user
   resolves it by editing the conflicted file in an external editor (e.g. VS
   Code) and saving, git-tailor does not detect the resolution; opening the

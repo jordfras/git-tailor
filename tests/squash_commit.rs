@@ -822,3 +822,81 @@ fn squash_abort_leaves_clean_working_tree() {
         "no untracked files should remain after abort: {untracked:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Auto-stage resolved conflicts (T132)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn squash_finalize_after_external_conflict_resolution_without_staging() {
+    // Simulates the user resolving a squash-time conflict in an external
+    // editor (e.g. VS Code) without explicitly staging the file. After
+    // calling auto_stage_resolved_conflicts, squash_finalize should succeed.
+    use git_tailor::repo::SquashContext;
+
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target changes a");
+    let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
+    let source = test.commit_file("a.txt", "source\n", "source changes a");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    let state = git_repo
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "combined",
+            false,
+            &head,
+        )
+        .unwrap()
+        .expect("should conflict");
+
+    // Simulate external editor: write resolved content but do NOT stage.
+    let workdir = git_repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+
+    // Index still has conflict entries.
+    assert!(
+        !git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should still be in index before auto-staging"
+    );
+
+    // Auto-stage should detect the resolution.
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    assert!(
+        git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should be cleared after auto-staging"
+    );
+
+    let ctx = SquashContext {
+        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        source_oid: source.to_string(),
+        target_oid: target.to_string(),
+        combined_message: "combined".to_string(),
+        descendant_oids: vec![],
+        is_fixup: false,
+    };
+
+    let result = git_repo
+        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "should complete after auto-staging: {result:?}"
+    );
+
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(
+        file_content_at(&test.repo, head_oid, "a.txt"),
+        "resolved\n",
+        "resolved content should be in HEAD"
+    );
+}

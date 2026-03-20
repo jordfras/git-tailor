@@ -341,6 +341,16 @@ pub trait GitRepo {
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
     fn stage_file(&self, path: &str) -> Result<()>;
 
+    /// Auto-stage conflicting files whose working-tree content no longer
+    /// contains conflict markers.
+    ///
+    /// When a user resolves conflicts in an external editor (instead of the
+    /// built-in mergetool), the index still carries stage 1/2/3 entries.
+    /// This method reads each file from disk and stages it if the standard
+    /// `<<<<<<<` marker is absent, so that `index.has_conflicts()` reflects
+    /// the actual resolution state.
+    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
+
     /// Return the name of the repository's default upstream branch.
     ///
     /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer

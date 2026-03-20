@@ -1055,6 +1055,28 @@ impl GitRepo for Git2Repo {
         Ok(())
     }
 
+    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
+        let workdir = self
+            .inner
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+
+        for path in files {
+            let full_path = workdir.join(path);
+            if !full_path.exists() {
+                // File was deleted — stage the deletion to clear conflict entries.
+                self.stage_file(path)?;
+                continue;
+            }
+            let content = std::fs::read(&full_path)
+                .with_context(|| format!("failed to read '{path}' from working tree"))?;
+            if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
+                self.stage_file(path)?;
+            }
+        }
+        Ok(())
+    }
+
     fn default_branch(&self) -> Option<String> {
         let reference = self.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
         let target = reference.symbolic_target()?;

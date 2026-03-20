@@ -27,6 +27,10 @@ The format is based on
   working tree: `checkout_head` (force) already resets both the index and
   workdir to HEAD, including removing any files written during conflict checkout
   that are absent from HEAD's tree.
+- Conflicts resolved in an external editor (e.g. VS Code) are now detected
+  when pressing Enter to continue: the app auto-stages working-tree files
+  whose conflict markers have been removed, so the index reflects the actual
+  resolution state. Previously only the built-in mergetool path worked.
 - Fragmap now tracks file renames across commits: when a file is renamed,
   overlapping spans in the old and new paths are correctly clustered together
   instead of being treated as unrelated files.

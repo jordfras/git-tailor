@@ -306,6 +306,10 @@ fn main() -> Result<()> {
                 }
             }
             AppAction::RebaseContinue(state) => {
+                // Auto-stage files the user resolved in an external editor
+                // so that the index reflects the working-tree state.
+                let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
+
                 // Squash-time tree conflict: the user has resolved the
                 // combined tree. For squash, open the editor; for fixup,
                 // use the stored target message directly.

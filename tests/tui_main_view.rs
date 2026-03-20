@@ -140,6 +140,9 @@ impl GitRepo for NoOpRepo {
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
     }
+    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
+        unimplemented!()
+    }
 
     fn default_branch(&self) -> Option<String> {
         None
