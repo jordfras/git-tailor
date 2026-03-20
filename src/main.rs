@@ -435,6 +435,38 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            AppAction::RunEditor {
+                files,
+                conflict_state,
+            } => {
+                let workdir = git_repo.workdir();
+                let result: anyhow::Result<()> = (|| {
+                    let workdir = workdir
+                        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+                    for file_path in &files {
+                        editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
+                    }
+                    Ok(())
+                })();
+                terminal.clear()?;
+                match result {
+                    Ok(()) => {
+                        let new_files = git_repo.read_conflicting_files();
+                        app.mode =
+                            AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+                                conflicting_files: new_files,
+                                still_unresolved: false,
+                                ..conflict_state
+                            }));
+                        app.set_success_message(
+                            "Editor finished — press Enter when done or Esc to abort",
+                        );
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Editor failed: {e}"));
+                    }
+                }
+            }
             AppAction::PrepareReword {
                 commit_oid,
                 current_message,

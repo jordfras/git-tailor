@@ -14,6 +14,9 @@
 
 use crate::repo::GitRepo;
 
+use anyhow::Context as _;
+use crossterm::{execute, terminal};
+
 /// Resolve the editor command to use for editing commit messages.
 ///
 /// Walks git's canonical editor lookup chain:
@@ -40,24 +43,14 @@ fn resolve_editor(repo: &impl GitRepo) -> String {
     "vi".to_string()
 }
 
-/// Open `message` in the configured editor and return the edited result.
-///
-/// Suspends the TUI (disables raw mode, leaves the alternate screen) before
-/// launching the editor, then restores it unconditionally before returning.
-/// Works for both terminal-UI editors (e.g. `vim`, `emacs -nw`) and GUI
-/// editors that manage their own window (e.g. `code --wait`).
+/// Suspend the TUI, open `path` in the configured editor, then restore the TUI.
 ///
 /// The editor command may include arguments (e.g. `"emacs -nw"`) — they are
-/// split on whitespace and forwarded before the temp-file path.
-pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Result<String> {
-    use anyhow::Context;
-    use crossterm::{execute, terminal};
-    use std::io::Write as _;
-
-    let mut tmpfile =
-        tempfile::NamedTempFile::new().context("failed to create temp file for commit message")?;
-    write!(tmpfile, "{message}").context("failed to write commit message to temp file")?;
-
+/// split on whitespace and forwarded before the file path.  Works for both
+/// terminal editors (e.g. `vim`) and GUI editors that manage their own window
+/// (e.g. `code --wait`).  The TUI is restored unconditionally so the app is
+/// never left in a broken state.
+fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
     let editor_cmd = resolve_editor(repo);
     let mut parts = editor_cmd.split_whitespace();
     let prog = parts
@@ -72,7 +65,7 @@ pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Res
 
     let status = std::process::Command::new(prog)
         .args(&args)
-        .arg(tmpfile.path())
+        .arg(path)
         .status();
 
     // Restore TUI unconditionally so the app is never left in a broken state.
@@ -83,8 +76,28 @@ pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Res
     if !status.success() {
         anyhow::bail!("editor exited with {status}");
     }
+    Ok(())
+}
+
+/// Open `message` in the configured editor and return the edited result.
+pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Result<String> {
+    use std::io::Write as _;
+
+    let mut tmpfile =
+        tempfile::NamedTempFile::new().context("failed to create temp file for commit message")?;
+    write!(tmpfile, "{message}").context("failed to write commit message to temp file")?;
+
+    launch_editor(repo, tmpfile.path())?;
 
     let edited =
         std::fs::read_to_string(tmpfile.path()).context("failed to read edited commit message")?;
     Ok(edited.trim().to_string() + "\n")
+}
+
+/// Open an existing working-tree file in the configured editor.
+///
+/// `path` should be the absolute path to the file.  Returns when the editor
+/// process exits.
+pub fn open_file_in_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
+    launch_editor(repo, path)
 }

@@ -53,7 +53,7 @@ Guidelines:
   working tree on disk when checking conflict status or launching the mergetool
 
 ## Interactivity — Conflict Resolution
-- [ ] T135 P2 feat - Add option to open the configured editor when resolving a
+- [X] T135 P2 feat - Add option to open the configured editor when resolving a
   conflict: the conflict view currently offers a key binding to launch the
   mergetool (`core.mergetool` / `merge.tool`); add a second key binding (e.g.
   `e`) that instead opens the conflicted file in the user's configured editor

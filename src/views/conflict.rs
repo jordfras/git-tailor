@@ -45,6 +45,16 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
                 AppAction::Handled
             }
         }
+        KeyCommand::OpenEditor => {
+            if let AppMode::RebaseConflict(ref state) = app.mode {
+                AppAction::RunEditor {
+                    files: state.conflicting_files.clone(),
+                    conflict_state: state.as_ref().clone(),
+                }
+            } else {
+                AppAction::Handled
+            }
+        }
         KeyCommand::ShowHelp => {
             app.toggle_help();
             AppAction::Handled
@@ -191,18 +201,16 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         }
         lines.push(Line::from(""));
     }
-    lines.push(Line::from(Span::raw(
-        " Resolve conflicts in your working tree, then:",
-    )));
-    lines.push(Line::from(""));
     lines.push(
         Line::from(vec![
             Span::styled("Enter ", Style::default().fg(Color::Green)),
             Span::raw("Continue   "),
             Span::styled("m ", Style::default().fg(Color::Cyan)),
             Span::raw("Mergetool   "),
+            Span::styled("e ", Style::default().fg(Color::Cyan)),
+            Span::raw("Editor   "),
             Span::styled("Esc ", Style::default().fg(Color::Red)),
-            Span::raw(format!("Abort entire {label_lower}")),
+            Span::raw("Abort"),
         ])
         .alignment(Alignment::Center),
     );

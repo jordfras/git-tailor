@@ -13,6 +13,10 @@ The format is based on
 - `<BASE>` argument is now optional. When omitted, `gt` resolves `origin/HEAD`
   to determine the repository's default upstream branch (e.g. `origin/main`).
   Falls back to `main` if `origin/HEAD` is not configured.
+- Press `e` in the conflict dialog to open each conflicting file directly in the
+  configured editor (`GIT_EDITOR` → `core.editor` → `$VISUAL` → `$EDITOR` →
+  `vi`). After the editor exits the conflict state is refreshed, the same way
+  the mergetool (`m`) path works.
 
 ### Fixed
 
@@ -27,9 +31,9 @@ The format is based on
   working tree: `checkout_head` (force) already resets both the index and
   workdir to HEAD, including removing any files written during conflict checkout
   that are absent from HEAD's tree.
-- Conflicts resolved in an external editor (e.g. VS Code) are now detected
-  when pressing Enter to continue: the app auto-stages working-tree files
-  whose conflict markers have been removed, so the index reflects the actual
+- Conflicts resolved in an external editor (e.g. VS Code) are now detected when
+  pressing Enter to continue: the app auto-stages working-tree files whose
+  conflict markers have been removed, so the index reflects the actual
   resolution state. Previously only the built-in mergetool path worked.
 - Fragmap now tracks file renames across commits: when a file is renamed,
   overlapping spans in the old and new paths are correctly clustered together
