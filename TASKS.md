@@ -43,6 +43,15 @@ Guidelines:
   HEAD, including files absent from HEAD's tree; the dirty-workdir symptom was a
   consequence of T130's `stage_file` bug leaving the index in a corrupt state;
   integration test added to confirm)
+- [ ] T134 P1 bug - External editor conflict resolution not detected during
+  squash/fixup: when a conflict occurs during squash or fixup and the user
+  resolves it by editing the conflicted file in an external editor (e.g. VS
+  Code) and saving, git-tailor does not detect the resolution; opening the
+  built-in mergetool afterward still shows the original conflict markers as if
+  the external edits were ignored; resolving via the built-in mergetool works
+  correctly; the likely cause is that git-tailor reads the file content from
+  git2's in-memory state or a cached copy rather than re-reading from the
+  working tree on disk when checking conflict status or launching the mergetool
 
 ## Interactivity — Fragmap View (V5)
 - [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
