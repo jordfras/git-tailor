@@ -73,12 +73,20 @@ Produce a concise bullet plan:
 - Constitution / architectural principle alignment (reference sections if available)
 - Files to change (relative paths)
 - Minimal diff strategy (why changes are smallest possible)
-- Test approach (existing tests, new tests only if essential)
+- Test approach:
+  - **Bug tasks**: prefer TDD — write a failing test first that demonstrates the
+    bug, commit it separately, then implement the fix. The test commit message
+    should be prefixed with `test:` and reference the task title. Only skip
+    the failing-test commit if the bug cannot be exercised by an automated test.
+  - **Feat/fix tasks**: new tests only if essential.
 - Risks & rollback steps
 Wait for user APPROVAL. Stop if not approved.
 
 ### 5. Implement
 After approval:
+- **Bug tasks (TDD)**: before writing the fix, write a failing test that
+  reproduces the bug and commit it alone (prefix: `test:`). Then implement the
+  fix in a subsequent commit and confirm the test now passes.
 - Apply smallest possible, atomic changes (optimize for a single concise commit per task).
 - If task inherently requires multiple steps, propose splitting before proceeding.
 - Avoid unrelated refactors.
