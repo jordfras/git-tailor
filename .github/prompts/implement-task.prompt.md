@@ -28,12 +28,11 @@ Guidelines:
 - Priorities: P0 (urgent) → P3 (low).
 - Categories: bug | feat | fix | idea | human.
 - Flags (optional): CLARIFICATION, HUMAN INPUT, HUMAN TASK, DUPLICATE.
-- Version flags (optional): V1, V2 etc. (used to group versions/releases).
 - Mark completion by [ ] → [X]. Keep changes atomic (one commit per task).
 - Mark won't-do tasks by [ ] → [-] and add `WONT DO` to Flags.
 
 ## Example
-- [ ] T001 P1 feat - Initial placeholder task (Flags: CLARIFICATION, V1)
+- [ ] T001 P1 feat - Initial placeholder task (Flags: CLARIFICATION)
 
 ## UNCATEGORIZED
 - Add brand new tasks here before categorization (human or agent). The agent MUST first review this section before selecting any other task. For each uncategorized task: assign an ID (T###), priority, category, and flags; then move it into the proper thematic section; finally REMOVE it from UNCATEGORIZED.
@@ -73,16 +72,34 @@ Produce a concise bullet plan:
 - Goal & acceptance criteria (derived + user clarifications)
 - Constitution / architectural principle alignment (reference sections if available)
 - Files to change (relative paths)
-- Minimal diff strategy (why changes are smallest possible)
-- Test approach (existing tests, new tests only if essential)
+- Design quality check: assess whether the existing code structure is a good
+  fit for this change. If the area is fragile, duplicated, or poorly abstracted,
+  identify the specific problem and propose one or more preparatory refactoring
+  tasks (with suggested category and title). Ask the user whether to add them to
+  TASKS.md and tackle them first, or proceed with the current task as-is. Do NOT
+  add tasks to TASKS.md without explicit user approval.
+- Scope: implement the smallest change that is also correct and does not make
+  the design worse. A prior refactor commit that makes the actual change cleaner
+  is in scope; unrelated cleanup is not.
+- Test approach:
+  - **Bug tasks**: prefer TDD — write a failing test first that demonstrates the
+    bug, commit it separately, then implement the fix. The test commit message
+    should be prefixed with `test:` and reference the task title. Only skip
+    the failing-test commit if the bug cannot be exercised by an automated test.
+  - **Feat/fix tasks**: new tests only if essential.
 - Risks & rollback steps
 Wait for user APPROVAL. Stop if not approved.
 
 ### 5. Implement
 After approval:
+- **Bug tasks (TDD)**: before writing the fix, write a failing test that
+  reproduces the bug and commit it alone (prefix: `test:`). Then implement the
+  fix in a subsequent commit and confirm the test now passes.
 - Apply smallest possible, atomic changes (optimize for a single concise commit per task).
+- If a preparatory refactor was identified in the plan, commit it separately
+  before the main change.
 - If task inherently requires multiple steps, propose splitting before proceeding.
-- Avoid unrelated refactors.
+- Avoid unrelated cleanup (out-of-scope refactors belong in their own task).
 - Keep shared/domain logic host-neutral (follow project conventions, e.g. packages/, libs/, src/domain/).
 - No new dependencies unless explicitly approved.
 - No secrets or credentials added.

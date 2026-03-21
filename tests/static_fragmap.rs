@@ -290,3 +290,46 @@ fn test_squashable_scope_commit_stricter_than_group() {
         "Commit scope: B row should have conflicting connector (|), got: {row_b_commit:?}"
     );
 }
+
+/// When a file is renamed between commits, overlapping spans should cluster
+/// together — the rename should not break the relation.
+#[test]
+fn test_rename_clusters_with_original_file() {
+    // Commit 0: adds lines 1-10 in "src/old.rs"
+    let c0 = common::create_test_commit_diff("aaaa00001111", "Add old.rs", "src/old.rs", (1, 10));
+
+    // Commit 1: renames "src/old.rs" → "src/new.rs" and modifies overlapping lines 5-12
+    let c1 = CommitDiff {
+        commit: common::create_test_commit("bbbb22223333", "Rename old to new"),
+        files: vec![FileDiff {
+            old_path: Some("src/old.rs".to_string()),
+            new_path: Some("src/new.rs".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 5,
+                old_lines: 6,
+                new_start: 5,
+                new_lines: 8,
+                lines: vec![],
+            }],
+        }],
+    };
+
+    let output = plain(&[c0, c1]);
+    insta::assert_snapshot!(output);
+
+    // The rename map links "src/new.rs" back to "src/old.rs", so the SPG
+    // processes both commits under the same file. The overlapping portion
+    // (lines 5-10) forms a shared cluster; the non-overlapping part of c0
+    // (lines 1-4) forms a second cluster touched only by c0.
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2, "expected exactly 2 rows");
+
+    // c1 (rename commit) must touch at least one cluster, proving it was
+    // grouped with c0's file instead of being isolated.
+    let c1_matrix = &lines[1][35..].trim();
+    assert!(
+        c1_matrix.contains('#'),
+        "rename commit should touch a shared cluster: {c1_matrix:?}"
+    );
+}

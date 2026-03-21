@@ -34,10 +34,18 @@ use std::io;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
 #[derive(Parser)]
-#[command(name = "gt")]
+#[command(
+    //name = "gt",
+    version,
+    help_template = "{name} {version}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
+)]
 struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
-    base: String,
+    ///
+    /// When omitted, the tool resolves `origin/HEAD` to find the repository's
+    /// default upstream branch (e.g. `origin/main`).  If `origin/HEAD` is not
+    /// configured it falls back to `main`.
+    base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).
     #[arg(short, long)]
@@ -99,7 +107,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let git_repo = Git2Repo::open(std::env::current_dir()?)?;
-    let reference_oid = git_repo.find_reference_point(&cli.base)?;
+    let base = cli.base.unwrap_or_else(|| {
+        git_repo
+            .default_branch()
+            .unwrap_or_else(|| "main".to_string())
+    });
+    let reference_oid = git_repo.find_reference_point(&base)?;
     let head_oid = git_repo.head_oid()?;
 
     let commits = git_repo.list_commits(&head_oid, &reference_oid)?;
@@ -115,7 +128,7 @@ fn main() -> Result<()> {
     if commits.is_empty() {
         eprintln!(
             "No commits to display: HEAD is at the merge-base with '{}'",
-            cli.base
+            base
         );
         eprintln!("The current branch has no commits beyond the common ancestor.");
         return Ok(());
@@ -293,11 +306,14 @@ fn main() -> Result<()> {
                 }
             }
             AppAction::RebaseContinue(state) => {
+                // Auto-stage files the user resolved in an external editor
+                // so that the index reflects the working-tree state.
+                let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
+
                 // Squash-time tree conflict: the user has resolved the
-                // combined tree. Open the editor for the commit message,
-                // then finalize.
+                // combined tree. For squash, open the editor; for fixup,
+                // use the stored target message directly.
                 if let Some(ref ctx) = state.squash_context {
-                    let combined = ctx.combined_message.clone();
                     let original_oid = state.original_branch_oid.clone();
                     let ctx_clone = ctx.clone();
 
@@ -313,36 +329,52 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
-                    terminal.clear()?;
-                    match editor_result {
-                        Err(e) => {
-                            let _ = git_repo.rebase_abort(&state);
-                            reload_commits(&git_repo, &mut app);
-                            app.set_error_message(format!("Editor error: {e}"));
-                        }
-                        Ok(msg) if msg.trim().is_empty() => {
-                            let _ = git_repo.rebase_abort(&state);
-                            reload_commits(&git_repo, &mut app);
-                            let label = &state.operation_label;
-                            app.set_error_message(format!("{label} aborted: empty commit message"));
-                        }
-                        Ok(msg) => {
-                            let saved_index = app.selection_index;
-                            match git_repo.squash_finalize(&ctx_clone, &msg, &original_oid) {
-                                Ok(RebaseOutcome::Complete) => {
-                                    reload_commits(&git_repo, &mut app);
-                                    app.selection_index =
-                                        saved_index.min(app.commits.len().saturating_sub(1));
-                                    app.set_success_message("Commits squashed");
-                                }
-                                Ok(RebaseOutcome::Conflict(new_state)) => {
-                                    app.enter_rebase_conflict(*new_state);
-                                }
-                                Err(e) => {
-                                    app.set_error_message(format!("Squash failed: {e}"));
-                                }
+                    // Fixup: skip the editor and use the stored target message.
+                    // Squash: open the editor with the combined message.
+                    let final_msg = if ctx.is_fixup {
+                        ctx.combined_message.clone()
+                    } else {
+                        let combined = ctx.combined_message.clone();
+                        let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                        terminal.clear()?;
+                        match editor_result {
+                            Err(e) => {
+                                let _ = git_repo.rebase_abort(&state);
+                                reload_commits(&git_repo, &mut app);
+                                app.set_error_message(format!("Editor error: {e}"));
+                                continue;
                             }
+                            Ok(msg) if msg.trim().is_empty() => {
+                                let _ = git_repo.rebase_abort(&state);
+                                reload_commits(&git_repo, &mut app);
+                                let label = &state.operation_label;
+                                app.set_error_message(format!(
+                                    "{label} aborted: empty commit message"
+                                ));
+                                continue;
+                            }
+                            Ok(msg) => msg,
+                        }
+                    };
+
+                    let saved_index = app.selection_index;
+                    match git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid) {
+                        Ok(RebaseOutcome::Complete) => {
+                            reload_commits(&git_repo, &mut app);
+                            app.selection_index =
+                                saved_index.min(app.commits.len().saturating_sub(1));
+                            let success_msg = if ctx_clone.is_fixup {
+                                "Commit fixed up"
+                            } else {
+                                "Commits squashed"
+                            };
+                            app.set_success_message(success_msg);
+                        }
+                        Ok(RebaseOutcome::Conflict(new_state)) => {
+                            app.enter_rebase_conflict(*new_state);
+                        }
+                        Err(e) => {
+                            app.set_error_message(format!("Squash failed: {e}"));
                         }
                     }
                     continue;
@@ -403,6 +435,38 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            AppAction::RunEditor {
+                files,
+                conflict_state,
+            } => {
+                let workdir = git_repo.workdir();
+                let result: anyhow::Result<()> = (|| {
+                    let workdir = workdir
+                        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+                    for file_path in &files {
+                        editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
+                    }
+                    Ok(())
+                })();
+                terminal.clear()?;
+                match result {
+                    Ok(()) => {
+                        let new_files = git_repo.read_conflicting_files();
+                        app.mode =
+                            AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+                                conflicting_files: new_files,
+                                still_unresolved: false,
+                                ..conflict_state
+                            }));
+                        app.set_success_message(
+                            "Editor finished — press Enter when done or Esc to abort",
+                        );
+                    }
+                    Err(e) => {
+                        app.set_error_message(format!("Editor failed: {e}"));
+                    }
+                }
+            }
             AppAction::PrepareReword {
                 commit_oid,
                 current_message,
@@ -448,11 +512,24 @@ fn main() -> Result<()> {
                 };
 
                 let label = if is_fixup { "Fixup" } else { "Squash" };
+                // For fixup, use only the target message; for squash use the
+                // combined message so it is shown in the editor.
+                let message_for_context = if is_fixup {
+                    target_message.clone()
+                } else {
+                    format!("{target_message}\n\n{source_message}")
+                };
                 let combined = format!("{target_message}\n\n{source_message}");
 
                 // Try the tree combination first. If it conflicts, let the
                 // user resolve before opening the editor (T080).
-                match git_repo.squash_try_combine(&source_oid, &target_oid, &combined, &head_oid) {
+                match git_repo.squash_try_combine(
+                    &source_oid,
+                    &target_oid,
+                    &message_for_context,
+                    is_fixup,
+                    &head_oid,
+                ) {
                     Ok(Some(conflict_state)) => {
                         app.enter_rebase_conflict(conflict_state);
                         continue;

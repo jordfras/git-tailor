@@ -128,6 +128,7 @@ impl GitRepo for NoOpRepo {
         _source_oid: &str,
         _target_oid: &str,
         _combined_message: &str,
+        _is_fixup: bool,
         _head_oid: &str,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()
@@ -142,6 +143,13 @@ impl GitRepo for NoOpRepo {
     }
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
+    }
+    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn default_branch(&self) -> Option<String> {
+        None
     }
 }
 
@@ -244,6 +252,7 @@ impl GitRepo for FakeDiffRepo {
         _source_oid: &str,
         _target_oid: &str,
         _combined_message: &str,
+        _is_fixup: bool,
         _head_oid: &str,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()
@@ -258,6 +267,13 @@ impl GitRepo for FakeDiffRepo {
     }
     fn stage_file(&self, _path: &str) -> Result<()> {
         unimplemented!()
+    }
+    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn default_branch(&self) -> Option<String> {
+        None
     }
 }
 

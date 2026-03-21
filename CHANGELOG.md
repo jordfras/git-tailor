@@ -5,7 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+
 ## [Unreleased]
+
+### Added
+
+- `<BASE>` argument is now optional. When omitted, `gt` resolves `origin/HEAD`
+  to determine the repository's default upstream branch (e.g. `origin/main`).
+  Falls back to `main` if `origin/HEAD` is not configured.
+- Press `e` in the conflict dialog to open each conflicting file directly in the
+  configured editor (`GIT_EDITOR` → `core.editor` → `$VISUAL` → `$EDITOR` →
+  `vi`). After the editor exits the conflict state is refreshed, the same way
+  the mergetool (`m`) path works.
+
+### Fixed
+
+- Fixup operations that hit a squash-tree conflict no longer open the commit
+  message editor after the conflict is resolved — the target commit's message is
+  used as-is, matching the behavior of a conflict-free fixup.
+- Resolving a conflict that involves a deleted or renamed file (modify/delete
+  conflict) is no longer falsely reported as still unresolved: `stage_file` now
+  correctly stages the deletion when the file is absent from the working tree
+  instead of failing with "file not found".
+- Aborting a squash or fixup after a conflict now correctly leaves a clean
+  working tree: `checkout_head` (force) already resets both the index and
+  workdir to HEAD, including removing any files written during conflict checkout
+  that are absent from HEAD's tree.
+- Conflicts resolved in an external editor (e.g. VS Code) are now detected when
+  pressing Enter to continue: the app auto-stages working-tree files whose
+  conflict markers have been removed, so the index reflects the actual
+  resolution state. Previously only the built-in mergetool path worked.
+- Fragmap now tracks file renames across commits: when a file is renamed,
+  overlapping spans in the old and new paths are correctly clustered together
+  instead of being treated as unrelated files.
+- Added possibility to perform drop, move and squash operations when there are
+  unstaged/staged changes in a submodule.
+
+
+## [0.1.0] - 2026-03-15
 
 ### Added
 

@@ -321,3 +321,27 @@ fn move_commit_blocked_with_unstaged_changes() {
     );
     let _ = a;
 }
+
+#[test]
+fn move_commit_allowed_with_staged_submodule() {
+    let test = common::TestRepo::new();
+
+    // ref → A → B → C(source) → HEAD; move C to after A
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let a = test.commit_file("x.txt", "x\n", "A");
+    let _b = test.commit_file("y.txt", "y\n", "B");
+    let c = test.commit_file("z.txt", "z\n", "C");
+
+    // Stage a submodule pointer update — the only dirty state is a gitlink.
+    common::stage_gitlink(&test.repo, "libs/sub", base);
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .move_commit(&c.to_string(), &a.to_string(), &c.to_string())
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "move should succeed when only a submodule pointer is staged; got {result:?}"
+    );
+}

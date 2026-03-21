@@ -14,6 +14,8 @@
 
 mod common;
 
+use git_tailor::repo::GitRepo;
+
 #[test]
 fn test_merge_base_with_branch_name() {
     let test = common::TestRepo::new();
@@ -126,4 +128,58 @@ fn test_merge_base_with_diverged_branches() {
 
     let merge_base = test.repo.merge_base(a_oid, b_oid).unwrap();
     assert_eq!(merge_base, base);
+}
+
+// ---------------------------------------------------------------------------
+// default_branch tests
+// ---------------------------------------------------------------------------
+
+/// Helper: register a fake remote and point refs/remotes/origin/HEAD at the
+/// given branch tracking ref.  No network activity; everything is local.
+fn set_origin_head(repo: &git2::Repository, branch: &str) {
+    // Create the tracking branch ref so origin/HEAD has a valid target.
+    let tracking_refname = format!("refs/remotes/origin/{branch}");
+    let head_oid = repo.head().unwrap().target().unwrap();
+    repo.reference(&tracking_refname, head_oid, true, "test setup")
+        .unwrap();
+
+    // Create refs/remotes/origin/HEAD as a symbolic ref pointing at the
+    // tracking branch.
+    let symbolic_target = tracking_refname.clone();
+    repo.reference_symbolic(
+        "refs/remotes/origin/HEAD",
+        &symbolic_target,
+        true,
+        "test setup",
+    )
+    .unwrap();
+}
+
+#[test]
+fn default_branch_returns_origin_head_when_set() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    set_origin_head(&test.repo, "main");
+
+    let git_repo = test.git_repo();
+    assert_eq!(git_repo.default_branch(), Some("origin/main".to_string()));
+}
+
+#[test]
+fn default_branch_returns_none_when_origin_head_absent() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    // No remote configured at all.
+    let git_repo = test.git_repo();
+    assert_eq!(git_repo.default_branch(), None);
+}
+
+#[test]
+fn default_branch_reflects_non_main_default() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    set_origin_head(&test.repo, "master");
+
+    let git_repo = test.git_repo();
+    assert_eq!(git_repo.default_branch(), Some("origin/master".to_string()));
 }

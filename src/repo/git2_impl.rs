@@ -148,9 +148,11 @@ impl GitRepo for Git2Repo {
         opts.context_lines(0);
         opts.interhunk_lines(0);
 
-        let diff =
+        let mut diff =
             self.inner
                 .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+
+        diff.find_similar(None)?;
 
         extract_commit_diff(&diff, &commit)
     }
@@ -960,6 +962,7 @@ impl GitRepo for Git2Repo {
                         target_oid: target_oid.to_string(),
                         combined_message: message.to_string(),
                         descendant_oids: descendants,
+                        is_fixup: false,
                     }),
                 },
             )));
@@ -1026,13 +1029,60 @@ impl GitRepo for Git2Repo {
         index
             .read(true)
             .context("failed to refresh index from disk")?;
-        index
-            .add_path(std::path::Path::new(path))
-            .with_context(|| format!("failed to stage '{path}'"))?;
+
+        let workdir = repo
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+
+        if workdir.join(path).exists() {
+            // File is present — add it to clear conflict stages and create a
+            // normal stage-0 entry.
+            index
+                .add_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to stage '{path}'"))?;
+        } else {
+            // File was deleted — remove all index entries for this path
+            // (stages 0, 1, 2, 3) so the deletion is staged and no phantom
+            // conflict entries remain.
+            index
+                .remove_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to remove '{path}' from index"))?;
+        }
+
         index
             .write()
             .context("failed to write index after staging")?;
         Ok(())
+    }
+
+    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
+        let workdir = self
+            .inner
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+
+        for path in files {
+            let full_path = workdir.join(path);
+            if !full_path.exists() {
+                // File was deleted — stage the deletion to clear conflict entries.
+                self.stage_file(path)?;
+                continue;
+            }
+            let content = std::fs::read(&full_path)
+                .with_context(|| format!("failed to read '{path}' from working tree"))?;
+            if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
+                self.stage_file(path)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn default_branch(&self) -> Option<String> {
+        let reference = self.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
+        let target = reference.symbolic_target()?;
+        // Strip the "refs/remotes/" prefix so the caller can pass the result
+        // directly to find_reference_point (e.g. "origin/main").
+        target.strip_prefix("refs/remotes/").map(str::to_string)
     }
 
     fn squash_try_combine(
@@ -1040,6 +1090,7 @@ impl GitRepo for Git2Repo {
         source_oid: &str,
         target_oid: &str,
         combined_message: &str,
+        is_fixup: bool,
         head_oid: &str,
     ) -> Result<Option<super::ConflictState>> {
         self.check_no_dirty_state()?;
@@ -1076,8 +1127,10 @@ impl GitRepo for Git2Repo {
 
         self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
 
+        let operation_label = if is_fixup { "Fixup" } else { "Squash" }.to_string();
+
         Ok(Some(super::ConflictState {
-            operation_label: "Squash".to_string(),
+            operation_label,
             original_branch_oid,
             new_tip_oid: target_git_oid.to_string(),
             conflicting_commit_oid: source_git_oid.to_string(),
@@ -1091,6 +1144,7 @@ impl GitRepo for Git2Repo {
                 target_oid: target_oid.to_string(),
                 combined_message: combined_message.to_string(),
                 descendant_oids: descendants,
+                is_fixup,
             }),
         }))
     }
@@ -1482,13 +1536,42 @@ fn apply_selected_hunks_to_tree(
 }
 
 impl Git2Repo {
-    /// Refuse if the working tree or index has any staged or unstaged changes.
+    /// Refuse if the working tree or index has any staged or unstaged changes,
+    /// ignoring submodule pointer updates (consistent with `git rebase`).
+    ///
+    /// Gitlink entries (mode `0o160000`) are skipped because libgit2's
+    /// `checkout_head` does not recurse into submodule directories, so a dirty
+    /// submodule reference cannot be silently discarded.
     ///
     /// Called before operations that end with `checkout_head(force)`, which
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
-        if self.staged_diff().is_some() || self.unstaged_diff().is_some() {
+        let mut opts = git2::DiffOptions::new();
+        opts.context_lines(0);
+        opts.interhunk_lines(0);
+
+        let head_tree = self.inner.head().ok().and_then(|h| h.peel_to_tree().ok());
+
+        // Returns true only when the delta is a real file change, not a gitlink.
+        let is_real = |delta: git2::DiffDelta| {
+            delta.old_file().mode() != git2::FileMode::Commit
+                && delta.new_file().mode() != git2::FileMode::Commit
+        };
+
+        let has_staged = self
+            .inner
+            .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
+            .map(|d| d.deltas().any(is_real))
+            .unwrap_or(false);
+
+        let has_unstaged = self
+            .inner
+            .diff_index_to_workdir(None, Some(&mut opts))
+            .map(|d| d.deltas().any(is_real))
+            .unwrap_or(false);
+
+        if has_staged || has_unstaged {
             anyhow::bail!(
                 "You have staged or unstaged changes. \
                  Stash or commit them before running this operation."

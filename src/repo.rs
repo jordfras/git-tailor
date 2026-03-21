@@ -80,10 +80,15 @@ pub struct SquashContext {
     pub source_oid: String,
     /// OID of the target commit (author/committer are taken from here).
     pub target_oid: String,
-    /// The combined default message (target + source), shown in the editor.
+    /// The message to use for the squash commit. For squash this is the
+    /// combined (target + source) message shown in the editor; for fixup
+    /// this is just the target message, used as-is without opening an editor.
     pub combined_message: String,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<String>,
+    /// When true the operation is a fixup: the editor is skipped and
+    /// `combined_message` (the target message) is used directly.
+    pub is_fixup: bool,
 }
 
 /// Abstraction over git repository operations.
@@ -305,12 +310,14 @@ pub trait GitRepo {
     /// Returns `Ok(Some(ConflictState))` when the cherry-pick conflicts. The
     /// conflict is written to the working tree and index. The `ConflictState`
     /// carries a `SquashContext` so the TUI can let the user resolve, then
-    /// open the editor, then call `squash_finalize`.
+    /// (for squash) open the editor and call `squash_finalize`, or (for fixup)
+    /// call `squash_finalize` directly without opening the editor.
     fn squash_try_combine(
         &self,
         source_oid: &str,
         target_oid: &str,
         combined_message: &str,
+        is_fixup: bool,
         head_oid: &str,
     ) -> Result<Option<ConflictState>>;
 
@@ -333,6 +340,29 @@ pub trait GitRepo {
     /// the updated index to disk. Must be called after a merge tool resolves a
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
     fn stage_file(&self, path: &str) -> Result<()>;
+
+    /// Auto-stage conflicting files whose working-tree content no longer
+    /// contains conflict markers.
+    ///
+    /// When a user resolves conflicts in an external editor (instead of the
+    /// built-in mergetool), the index still carries stage 1/2/3 entries.
+    /// This method reads each file from disk and stages it if the standard
+    /// `<<<<<<<` marker is absent, so that `index.has_conflicts()` reflects
+    /// the actual resolution state.
+    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
+
+    /// Return the name of the repository's default upstream branch.
+    ///
+    /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
+    /// that `git remote set-head origin --auto` sets) and strips the
+    /// `refs/remotes/` prefix so the returned value can be passed directly to
+    /// `find_reference_point`.  For example when `origin/HEAD` points to
+    /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
+    ///
+    /// Returns `None` when the remote tracking ref is absent or has no symbolic
+    /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
+    /// never set).
+    fn default_branch(&self) -> Option<String>;
 }
 
 impl ConflictState {

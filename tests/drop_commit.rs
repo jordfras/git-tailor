@@ -541,3 +541,194 @@ fn drop_commit_blocked_with_unstaged_changes() {
         "error should mention staged/unstaged: {msg}"
     );
 }
+
+#[test]
+fn drop_commit_allowed_with_staged_submodule() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let to_drop = test.commit_file("a.txt", "v2\n", "to drop");
+
+    // Stage a submodule pointer update — the only dirty state is a gitlink.
+    common::stage_gitlink(&test.repo, "libs/sub", base);
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &to_drop.to_string())
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "drop should succeed when only a submodule pointer is staged; got {result:?}"
+    );
+}
+
+/// After aborting a conflicted operation, the working tree must be completely
+/// clean — no staged changes, no unstaged changes, and no untracked files left
+/// behind by the conflict checkout.
+#[test]
+fn rebase_abort_leaves_clean_working_tree() {
+    // Scenario: drop a commit whose descendant modifies a file that the
+    // dropped commit also touched. This creates a conflict where the
+    // working tree is dirtied (conflict markers written).
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Abort — must restore branch and leave a clean working tree.
+    git_repo.rebase_abort(&state).unwrap();
+
+    // Branch ref is restored.
+    let current_head = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(current_head, head, "HEAD should be restored after abort");
+
+    // No staged changes.
+    let head_tree = test.repo.head().unwrap().peel_to_tree().unwrap();
+    let staged_diff = test
+        .repo
+        .diff_tree_to_index(Some(&head_tree), None, None)
+        .unwrap();
+    assert_eq!(
+        staged_diff.deltas().len(),
+        0,
+        "no staged changes should remain after abort: {:?}",
+        staged_diff
+            .deltas()
+            .map(|d| d.new_file().path().unwrap().display().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    // No unstaged changes.
+    let unstaged_diff = test.repo.diff_index_to_workdir(None, None).unwrap();
+    assert_eq!(
+        unstaged_diff.deltas().len(),
+        0,
+        "no unstaged changes should remain after abort: {:?}",
+        unstaged_diff
+            .deltas()
+            .map(|d| d.new_file().path().unwrap().display().to_string())
+            .collect::<Vec<_>>()
+    );
+
+    // No untracked files left behind by the conflict checkout.
+    let mut status_opts = git2::StatusOptions::new();
+    status_opts.include_untracked(true);
+    status_opts.recurse_untracked_dirs(true);
+    let statuses = test.repo.statuses(Some(&mut status_opts)).unwrap();
+    let untracked: Vec<_> = statuses
+        .iter()
+        .filter(|e| e.status().contains(git2::Status::WT_NEW))
+        .map(|e| e.path().unwrap_or("?").to_string())
+        .collect();
+    assert!(
+        untracked.is_empty(),
+        "no untracked files should remain after abort: {untracked:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Auto-stage resolved conflicts (T132)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
+    // Simulates the user resolving a conflict in an external editor (e.g.
+    // VS Code) and saving the file without explicitly staging it. The
+    // auto_stage_resolved_conflicts method should detect the resolution
+    // and stage the file so that rebase_continue succeeds.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "line1\n", "base");
+    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
+    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => *s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Simulate external editor: write resolved content but do NOT stage.
+    let workdir = test.repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "line1\nline3\n").unwrap();
+
+    // Index still has conflict entries at this point.
+    assert!(
+        !git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should still be in the index before auto-staging"
+    );
+
+    // Auto-stage should detect the file no longer has conflict markers.
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    // Conflict entries should be cleared now.
+    assert!(
+        git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should be cleared after auto-staging"
+    );
+
+    // rebase_continue should succeed.
+    let result = git_repo.rebase_continue(&state).unwrap();
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "expected Complete after auto-staging, got {result:?}"
+    );
+
+    let commits = commits_from_head(&test.repo, base);
+    assert_eq!(commits.len(), 1);
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(
+        file_content_at(&test.repo, head_oid, "a.txt"),
+        "line1\nline3\n"
+    );
+}
+
+#[test]
+fn auto_stage_does_not_stage_file_with_conflict_markers() {
+    // If the working-tree file still contains conflict markers,
+    // auto_stage_resolved_conflicts must leave it alone.
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "line1\n", "base");
+    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
+    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .unwrap();
+
+    let state = match result {
+        RebaseOutcome::Conflict(s) => *s,
+        RebaseOutcome::Complete => panic!("expected Conflict"),
+    };
+
+    // Working tree already has conflict markers from write_conflicts_to_workdir.
+    // auto_stage should NOT clear them.
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    assert!(
+        !git_repo.read_conflicting_files().is_empty(),
+        "conflict entries should still be present when markers remain"
+    );
+}

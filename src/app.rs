@@ -41,6 +41,7 @@ pub enum KeyCommand {
     Drop,
     Move,
     Mergetool,
+    OpenEditor,
     Update,
     Quit,
     Confirm,
@@ -99,6 +100,11 @@ pub enum AppAction {
     RebaseAbort(ConflictState),
     /// Launch the merge tool for conflicting files.
     RunMergetool {
+        files: Vec<String>,
+        conflict_state: ConflictState,
+    },
+    /// Open conflicting files in the configured editor.
+    RunEditor {
         files: Vec<String>,
         conflict_state: ConflictState,
     },
@@ -243,6 +249,10 @@ impl AppMode {
                 KeyCode::Char('m') => match self {
                     AppMode::RebaseConflict(_) => KeyCommand::Mergetool,
                     _ => KeyCommand::Move,
+                },
+                KeyCode::Char('e') => match self {
+                    AppMode::RebaseConflict(_) => KeyCommand::OpenEditor,
+                    _ => KeyCommand::None,
                 },
                 KeyCode::Char('u') => KeyCommand::Update,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,

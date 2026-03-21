@@ -443,3 +443,73 @@ fn stage_file_and_check_content_matches_written_file() {
         "no conflicts should remain after staging"
     );
 }
+
+/// When a conflict involves a deleted file (e.g. a fixup whose source commit
+/// deletes a file that target also modified), the resolved state is that the
+/// file is absent from the working tree. Calling `stage_file` on a path that
+/// no longer exists must clear the conflict entries rather than failing or
+/// leaving phantom stage entries.
+#[test]
+fn stage_file_clears_conflict_for_deleted_file() {
+    // Scenario for a genuine modify/delete conflict:
+    //
+    //   _base:         a.txt = "original\n"
+    //   target:        a.txt = "target-version\n"  (parent = _base)
+    //   _intermediate: a.txt = "intermediate\n"    (parent = target)
+    //   _source:       a.txt deleted               (parent = _intermediate)
+    //
+    // cherry-pick(_source, target) 3-way merge:
+    //   ancestor = _intermediate (a.txt = "intermediate\n")
+    //   ours     = target        (a.txt = "target-version\n")
+    //   theirs   = _source       (a.txt absent)
+    //
+    // ancestor != ours → modify/delete conflict.
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target-version\n", "target modifies a");
+    let _intermediate = test.commit_file("a.txt", "intermediate\n", "intermediate modifies a");
+    let _source = test.delete_file("a.txt", "source deletes a");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    // squash_try_combine should detect a conflict.
+    let state = git_repo
+        .squash_try_combine(
+            &_source.to_string(),
+            &target.to_string(),
+            "combined",
+            false,
+            &head,
+        )
+        .unwrap()
+        .expect("delete/modify should conflict");
+
+    assert!(
+        !state.conflicting_files.is_empty(),
+        "should report conflicting files"
+    );
+    let conflict_path = &state.conflicting_files[0];
+
+    // The user resolves by accepting the deletion: the file is absent from
+    // the working tree (checkout_index with allow_conflicts may or may not
+    // write the file — for a delete/modify conflict libgit2 may leave it
+    // with conflict markers or absent). Either way, remove it and stage.
+    let workdir = git_repo.workdir().unwrap();
+    let abs_path = workdir.join(conflict_path);
+    if abs_path.exists() {
+        std::fs::remove_file(&abs_path).unwrap();
+    }
+
+    // This is the call under test. It must succeed and clear all conflict
+    // entries even though the file does not exist on disk.
+    git_repo
+        .stage_file(conflict_path)
+        .expect("stage_file should succeed for a deleted file");
+
+    let remaining = git_repo.read_conflicting_files();
+    assert!(
+        remaining.is_empty(),
+        "no conflicts should remain after staging a deletion: {remaining:?}"
+    );
+}

@@ -5,7 +5,6 @@ Guidelines:
 - Priorities: P0 (urgent) → P3 (low).
 - Categories: bug | feat | fix | idea | human.
 - Flags (optional): CLARIFICATION, HUMAN INPUT, HUMAN TASK, DUPLICATE.
-- Version flags (optional): V1, V2 etc. (used to group versions/releases).
 - Mark completion by [ ] → [X]. Keep changes atomic (one commit per task).
 - Mark won't-do tasks by [ ] → [-] and add `WONT DO` to Flags.
 - Completed tasks are archived in TASKS-COMPLETED.md.
@@ -13,15 +12,65 @@ Guidelines:
 
 ## UNCATEGORIZED
 
-## Interactivity — Fragmap View (V5)
-- [ ] T108 P1 fix - Fix fragmap relations not following file renames: when a
+## Bug Fixes — Squash & Fixup
+- [X] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
+  editor: when a fixup operation causes a conflict in the squash tree itself and
+  the user resolves it, `RebaseContinue` in `main.rs` always opens the editor
+  for the commit message (via `squash_finalize`) regardless of whether the
+  operation was a squash or a fixup; the `SquashContext` needs an `is_fixup`
+  field (or equivalent) so that the editor is skipped and the target message is
+  used as-is when finalizing a fixup, mirroring the non-conflict path in
+  `PrepareSquash`
+- [X] T132 P1 bug - Fixup conflict falsely reported as still unresolved: after
+  the user resolves a conflict during a fixup (either manually or via mergetool)
+  and presses Enter to continue, `rebase_continue` in `git2_impl.rs` re-reads
+  the index with `index.read(true)` and calls `index.has_conflicts()`, which
+  returns true even though the working-tree file has been correctly resolved and
+  staged; investigate whether libgit2's in-memory index is not being refreshed
+  from disk before the `has_conflicts()` check, or whether deleted-file
+  conflicts leave behind phantom stage entries, and fix so that a genuinely
+  resolved index is not incorrectly treated as unresolved
+- [X] T133 P1 bug - Aborting a fixup after a conflict leaves dirty working tree:
+  `rebase_abort` in `git2_impl.rs` resets the branch ref and calls
+  `checkout_head()`, but this does not clean up untracked files or staged
+  deletions that were left behind by the failed cherry-pick (e.g. a file that
+  was deleted in the conflict appears as a staged deletion and also as an
+  untracked file after the abort); the abort should additionally clean untracked
+  files and reset the index so the working tree matches HEAD, similar to what
+  `git checkout -f HEAD` followed by `git clean -fd` would do (fixed by T130:
+  libgit2's `checkout_head(force)` already resets both the index and workdir to
+  HEAD, including files absent from HEAD's tree; the dirty-workdir symptom was a
+  consequence of T130's `stage_file` bug leaving the index in a corrupt state;
+  integration test added to confirm)
+- [X] T134 P1 bug - External editor conflict resolution not detected during
+  squash/fixup: when a conflict occurs during squash or fixup and the user
+  resolves it by editing the conflicted file in an external editor (e.g. VS
+  Code) and saving, git-tailor does not detect the resolution; opening the
+  built-in mergetool afterward still shows the original conflict markers as if
+  the external edits were ignored; resolving via the built-in mergetool works
+  correctly; the likely cause is that git-tailor reads the file content from
+  git2's in-memory state or a cached copy rather than re-reading from the
+  working tree on disk when checking conflict status or launching the mergetool
+
+## Interactivity — Conflict Resolution
+- [X] T135 P2 feat - Add option to open the configured editor when resolving a
+  conflict: the conflict view currently offers a key binding to launch the
+  mergetool (`core.mergetool` / `merge.tool`); add a second key binding (e.g.
+  `e`) that instead opens the conflicted file in the user's configured editor
+  (`core.editor`, falling back to `$VISUAL`, then `$EDITOR`, then a sensible
+  default such as `vi`); after the editor exits, re-check the file for conflict
+  markers and update the conflict view state accordingly, the same way the
+  mergetool path does
+
+## Interactivity — Fragmap View
+- [X] T108 P1 fix - Fix fragmap relations not following file renames: when a
   file is renamed across commits, spans should cluster together if they overlap
   the same logical content, but currently they are treated as separate files and
   don't form clusters. Investigate the original fragmap Python implementation
   (https://github.com/amollberg/fragmap) to see how rename detection is handled
   in span clustering, and adapt the SPG logic in `src/fragmap/spg.rs` to
   properly track renamed files so that overlapping spans across renames are
-  correctly clustered together (Flags: V5)
+  correctly clustered together
 - [ ] T106 P2 feat - Refactor fragmap cell rendering into a `FragmapTheme` trait
   with methods like `touched_symbol()`, `connector_symbol()`, `touched_style()`,
   `connector_style()` that accept context (relation type, whether the cluster is
@@ -30,7 +79,7 @@ Guidelines:
   constant lookups in `fragmap_cell_content`, `fragmap_connector_content`, and
   `build_fragmap_cell` with calls through the trait so that adding new rendering
   modes (T105) doesn't require scattering conditionals throughout the rendering
-  functions (Flags: V5)
+  functions
 - [ ] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
   clusters related to the focus commit (selected commit in CommitList, source
   commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
@@ -40,64 +89,26 @@ Guidelines:
   This makes it immediately scannable which hunk groups the focus commit
   participates in without introducing new colors. "Related" means the cluster
   column contains a touch from the focus commit. Implement as a `FocusTheme`
-  behind the `FragmapTheme` trait from T106. (Flags: V5)
+  behind the `FragmapTheme` trait from T106.
 - [ ] T107 P3 feat - Add CLI flag `--no-focus-glyphs` (or similar) to disable
   the glyph-weight focus highlighting from T105 and fall back to the uniform
   heavy-glyph rendering (DefaultTheme from T106); store the choice in `AppState`
-  and select the appropriate `FragmapTheme` implementation at startup (Flags:
-  V5)
+  and select the appropriate `FragmapTheme` implementation at startup
 
-## CLI Output & Compatibility (V5)
-- [x] T128 P2 feat - Adapt title column width to terminal width in `--static`
-  output: the original fragmap tool sets the title column width dynamically so
-  that the SHA + title + hunk-group matrix fills the available terminal width;
-  investigate the original Python implementation
-  (https://github.com/amollberg/fragmap) to understand the exact layout
-  algorithm (how many columns it reserves for SHA, separators, and the matrix,
-  and how it clamps the title width), then implement the same or equivalent
-  logic in `static_views::fragmap::render` — the title currently uses a fixed
-  26-character truncation; instead, detect the terminal width (via
-  `crossterm::terminal::size()` or a passed-in width, falling back to 80),
-  compute `title_width = terminal_width − sha_width − separators − matrix_width`
-  clamped to a sensible minimum, and truncate/pad the title to that width
-  (Flags: V5)
-- [X] T126 P2 feat - Add `--squashable-scope <commit|group>` CLI argument
-  controlling what the squashable connector color/symbol means: `group` (default
-  in TUI) — a connector in a column is squashable when *that hunk-group pair
-  alone* has no intervening touches (current per-group behavior); `commit`
-  (default in `--static`) — a connector is squashable only when the *entire
-  lower commit* is fully squashable into the same single upper commit (i.e.
-  `fragmap.is_fully_squashable()` is true and `squash_target()` points to that
-  upper commit), matching the original fragmap tool's stricter rule; the
-  argument must be valid in both TUI and `--static` modes; store the choice in
-  `AppState` and thread it through the fragmap connector rendering logic in both
-  `static_views::fragmap::render` and the TUI fragmap widget (Flags: V5)
-- [X] T127 P2 fix - Respect the `-r` / `--reverse` flag when `--static` is used:
-  currently `--static` always outputs commits in the order returned by
-  `list_commits` (newest-first); when `--reverse` is also passed the rows should
-  be printed oldest-first, matching the interactive TUI behavior (Flags: V5)
-- [x] T111 P3 feat - Replace the current example application in `examples/` with
-  a compatibility tool that takes a commit-ish as its argument, uses it to find
-  the merge-base (same as `--static`), then builds a `Fragmap` object in the
-  normal way and also runs the original `fragmap` binary (if installed) on the
-  same repository/ref; the tool renders git-tailor's result through the static
-  view and compares the two outputs column-by-column (columns may be in any
-  order); if the same commit-cluster relationships are present in both it prints
-  "OK"; otherwise it prints the `fragmap` output, then git-tailor's static
-  output, plus a short summary explaining what differs (Flags: V5)
+## CLI Output & Compatibility
 
-## Build & CI (V5)
-- [ ] T112 P3 feat - Set up cargo-deny with configuration to check dependency
+## Build & CI
+- [X] T112 P3 feat - Set up cargo-deny with configuration to check dependency
   licenses are compatible with Apache 2.0: install cargo-deny, create
   `deny.toml` config allowing Apache-compatible licenses (Apache-2.0, MIT,
   BSD-2-Clause, BSD-3-Clause, ISC, etc.), deny copyleft licenses (GPL, LGPL,
   AGPL), and add `cargo deny check` command to verify no license violations in
-  the dependency tree (Flags: V5)
-- [ ] T113 P3 feat - Add cargo-deny to GitHub Actions CI: create or update
+  the dependency tree
+- [X] T113 P3 feat - Add cargo-deny to GitHub Actions CI: create or update
   `.github/workflows/ci.yml` to run `cargo deny check licenses` alongside
   existing format/clippy/test checks, failing the build if any dependency
   license conflicts are detected; ensure this runs on pull requests and main
-  branch pushes (Flags: V5)
+  branch pushes
 - [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
   `.github/workflows/release.yml` that triggers on version tags (`v*`), builds
   the `gt` binary for `x86_64-unknown-linux-musl` (fully static, covers WSL2 and
@@ -106,44 +117,15 @@ Guidelines:
   `taiki-e/upload-rust-binary-action` to strip, archive, and attach binaries to
   the GitHub Release automatically; the musl target should produce a zero
   shared-library binary (add `RUSTFLAGS=-C target-feature=+crt-static` if
-  needed) so no system libs beyond the kernel are required (Flags: V5)
-- [X] T114 P2 feat - Write comprehensive README.md documentation: describe what
-  the tool does (interactive git commit browser with fragmap visualization and
-  rebase operations), installation instructions, basic usage guide with key
-  bindings, attribution to original fragmap tool (reference NOTICE file), note
-  that the entire tool is AI-generated, and include a prominent data safety
-  disclaimer warning users to push their changes before using the tool since any
-  bugs may cause permanent data loss — author takes no responsibility for data
-  loss under any circumstances, see Apache 2.0 license text (Flags: V5)
-- [X] T115 P2 feat - Add CHANGELOG.md following keepachangelog.com format:
-  create initial changelog with sections for Unreleased, version entries (Added,
-  Changed, Deprecated, Removed, Fixed, Security), and update AGENTS.md to
-  instruct AI agents to ask users whether changes should be noted in the
-  changelog when completing tasks that add user-visible features or fix bugs
-  (Flags: V5)
+  needed) so no system libs beyond the kernel are required
 
-## Refactoring — TUI Architecture (V5)
+## Refactoring — TUI Architecture
 - [ ] T116 P3 feat - Review codebase for refactoring opportunities: audit
   existing code for duplication, overly complex functions, inconsistent
   patterns, and areas where abstractions could simplify implementation; identify
   specific refactoring targets like extracting common dialog patterns,
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
-  improvements (Flags: V5)
-
-## Bug Fixes (V5)
-- [X] T129 P1 bug - Fix move/drop/fixup/squash/split losing working-tree and
-  index changes: currently these rebase operations discard any uncommitted
-  changes (both staged and unstaged) that exist in the working tree when the
-  operation is applied; `reword` already preserves them correctly, so audit how
-  `reword` saves and restores the working-tree and index state and apply the
-  same stash-and-restore (or equivalent) pattern to `move_commit`,
-  `drop_commit`, `squash_commit`, `fixup_commit`, and `split_commit` in the
-  rebase engine; add integration tests in the `tests/` directory covering all
-  five operations with both staged changes (files added to the index but not
-  committed) and unstaged changes (modified tracked files not yet staged),
-  asserting that after the operation completes the working tree and index
-  reflect the same content that was present before the operation started (Flags:
-  V5)
+  improvements
 
 ## Notes
