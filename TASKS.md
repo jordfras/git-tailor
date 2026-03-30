@@ -13,6 +13,20 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Bug Fixes — Windows Compatibility
+- [ ] T137 P2 bug - First commit always excluded when browsing complete history:
+  when the user passes the very first (root) commit of the repository as the
+  positional `base` argument, that commit is never shown in the commit list;
+  the root cause is that `main.rs` always filters out the reference-point
+  commit (`filter(|c| c.oid != reference_oid)`) because in the normal
+  branch-workflow the merge-base is shared history that should not be editable;
+  for complete-repository history this invariant does not hold and the root
+  commit must be included; the fix should detect the root-commit / no-parent
+  case (or add an `--all` flag) to skip the exclusion filter so that all
+  commits from HEAD down to and including the first commit are shown and can be
+  reordered, squashed, or split; the rebase engine's `reference_oid` concept
+  (the "parent" onto which cherry-picks land) also needs to handle the case
+  where there is no parent commit — likely by cherry-picking onto an empty tree
+  for the first commit in the new sequence
 - [ ] T136 P1 bug - Error messages disappear instantly on Windows: on Windows,
   crossterm fires both a key-down and a key-release event for a single keystroke;
   error messages shown after an invalid operation (e.g. attempting a move or
