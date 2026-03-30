@@ -120,6 +120,26 @@ Guidelines:
   heavy-glyph rendering (DefaultTheme from T106); store the choice in `AppState`
   and select the appropriate `FragmapTheme` implementation at startup
 
+## Interactivity — Commit Detail View
+- [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
+  use `syntect` (already a transitive dependency) to highlight the code portions
+  of diff hunks based on the file extension / language; convert syntect's
+  `(Style, &str)` token pairs to ratatui `Span`s with mapped foreground colors;
+  diff-specific styling (green/red for added/removed lines, hunk headers) should
+  remain and take precedence — syntax colors apply to the code content within
+  those lines; add a `syntect::parsing::SyntaxSet` and
+  `syntect::highlighting::ThemeSet` to the application state (loaded once at
+  startup) so highlighting is performed per-hunk on demand without re-loading
+  assets; consider caching highlighted output per commit to avoid re-highlighting
+  on every render
+- [ ] T139 P3 feat - Add text search in commit detail view: add an incremental
+  search mode activated by `/` (vim convention) that opens a search input bar at
+  the bottom of the commit detail view; as the user types, highlight all matches
+  in the visible diff content and scroll to the first match; support `n` / `N`
+  to jump to next / previous match; `Escape` dismisses the search bar; the
+  search should operate over the rendered diff text (file paths, hunk headers,
+  and diff lines) and wrap around at the end of the content
+
 ## CLI Output & Compatibility
 
 ## Build & CI
