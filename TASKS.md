@@ -12,6 +12,17 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Bug Fixes — Windows Compatibility
+- [ ] T136 P1 bug - Error messages disappear instantly on Windows: on Windows,
+  crossterm fires both a key-down and a key-release event for a single keystroke;
+  error messages shown after an invalid operation (e.g. attempting a move or
+  squash with unstaged changes) are dismissed immediately because the key-release
+  event is treated as the user acknowledgement key press, making the message
+  unreadable; filter out `KeyEventKind::Release` (and `KeyEventKind::Repeat` if
+  appropriate) events in the input handling layer so that only
+  `KeyEventKind::Press` events are acted upon, matching the Linux behavior where
+  only press events are emitted
+
 ## Bug Fixes — Squash & Fixup
 - [X] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
   editor: when a fixup operation causes a conflict in the squash tree itself and
