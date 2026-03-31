@@ -228,9 +228,8 @@ libgit2's opaque rebase state machine.
   one file's hunks. Uses `Diff::apply_to_tree` with filtered patches.
 - **Split per-hunk**: Same approach at hunk granularity.
 
-All mutations create new commits on a detached HEAD or temporary branch, then
-fast-forward the original branch ref only on user confirmation (preview before
-apply).
+All mutations build new commit chains and advance the branch ref immediately.
+Confirmation dialogs (drop, large split) are shown before the operation starts.
 
 ### Default scope
 
