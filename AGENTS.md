@@ -59,14 +59,16 @@ non-TUI frontends (CLI batch mode, CI tooling, etc.).
 
 ### Library Modules
 
-| Module       | Responsibility                                                |
-|--------------|---------------------------------------------------------------|
-| `repo`       | Open repository, find merge-base, list commits                |
-| `branch`     | Branch and merge-base utilities                               |
-| `commit`     | `CommitInfo` type — oid, summary, author, date, parent_oids   |
-| `diff`       | `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff` types            |
-| `fragmap`    | Span extraction, overlap clustering, matrix generation        |
-| `rebase`     | Cherry-pick-based reorder, squash, and split engine           |
+Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
+`DeltaStatus`, `DiffLineKind`) are defined directly in `lib.rs`.
+
+| Module         | Responsibility                                                |
+|----------------|---------------------------------------------------------------|
+| `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)     |
+| `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation |
+| `editor`       | External editor integration (commit message editing)          |
+| `mergetool`    | External merge tool integration (conflict resolution)         |
+| `static_views` | Non-interactive CLI output (fragmap rendering)                |
 
 ### TUI Modules
 
