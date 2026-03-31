@@ -98,10 +98,9 @@ Example:
 ```
 src/
   lib.rs
-  repo.rs              # declares: pub mod git2_impl; pub mod traits;
+  repo.rs              # declares: pub mod git2_impl;
   repo/
     git2_impl.rs
-    traits.rs
   views.rs             # declares sub-modules
   views/
     commit_list.rs
