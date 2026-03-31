@@ -10,7 +10,7 @@ combining features from **tig** (interactive commit browsing) and **fragmap**
 (chunk-cluster visualization showing how commits relate). It enables users to
 browse, analyze, reorder, squash, and split commits on a branch.
 
-- **License**: MIT
+- **License**: Apache-2.0
 - **Language**: Rust
 - **Key crates**: `ratatui`, `crossterm`, `git2`, `clap`, `anyhow`
 
