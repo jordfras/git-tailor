@@ -52,12 +52,24 @@ pub enum KeyCommand {
     None,
 }
 
-/// Read the next terminal event.
+/// Read the next terminal event, skipping key-release events.
 ///
-/// Blocks until an event is available. Returns the event wrapped in Result
-/// to handle potential I/O errors.
+/// On Windows, crossterm emits both a Press and a Release event for each
+/// keystroke. Skipping Release events here keeps behaviour consistent with
+/// Linux (which only emits Press) and prevents spurious state changes such as
+/// error messages being cleared the instant they appear.
 pub fn read_event() -> Result<Event> {
-    Ok(event::read()?)
+    loop {
+        let ev = event::read()?;
+        if let Event::Key(KeyEvent {
+            kind: event::KeyEventKind::Release,
+            ..
+        }) = ev
+        {
+            continue;
+        }
+        return Ok(ev);
+    }
 }
 
 /// Result of a view module's `handle_key` function.
@@ -321,6 +333,9 @@ pub struct AppState {
     pub status_is_error: bool,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
+    /// When true, the reference_oid commit is included in the commit list.
+    /// Set when the user passes `--all` to browse the complete repository history.
+    pub include_reference_oid: bool,
 }
 
 impl AppState {
@@ -346,6 +361,7 @@ impl AppState {
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
+            include_reference_oid: false,
         }
     }
 
@@ -372,6 +388,7 @@ impl AppState {
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
+            include_reference_oid: false,
         }
     }
 

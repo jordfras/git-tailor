@@ -75,6 +75,12 @@ struct Cli {
     /// Controls what the yellow squashable-connector indicator means.
     #[arg(long = "squashable-scope", value_enum)]
     squashable_scope: Option<SquashableScope>,
+
+    /// Show the complete repository history from HEAD down to the first commit.
+    ///
+    /// Cannot be combined with a BASE argument.
+    #[arg(long, conflicts_with = "base")]
+    all: bool,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -107,32 +113,37 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let git_repo = Git2Repo::open(std::env::current_dir()?)?;
-    let base = cli.base.unwrap_or_else(|| {
-        git_repo
-            .default_branch()
-            .unwrap_or_else(|| "main".to_string())
-    });
-    let reference_oid = git_repo.find_reference_point(&base)?;
     let head_oid = git_repo.head_oid()?;
 
-    let commits = git_repo.list_commits(&head_oid, &reference_oid)?;
-
-    // Exclude the merge-base commit - it's shared with the target branch
-    // and must not be modified (squashed, moved, or split)
-    let commits: Vec<CommitInfo> = commits
-        .into_iter()
-        .filter(|c| c.oid != reference_oid)
-        .collect();
-
-    // Handle edge case: HEAD is at merge-base (no commits on current branch)
-    if commits.is_empty() {
-        eprintln!(
-            "No commits to display: HEAD is at the merge-base with '{}'",
-            base
-        );
-        eprintln!("The current branch has no commits beyond the common ancestor.");
-        return Ok(());
-    }
+    let (commits, reference_oid, include_reference_oid) = if cli.all {
+        let root_oid = git_repo.root_commit_oid()?;
+        let all_commits = git_repo.list_commits(&head_oid, &root_oid)?;
+        if all_commits.is_empty() {
+            eprintln!("No commits to display.");
+            return Ok(());
+        }
+        (all_commits, root_oid, true)
+    } else {
+        let base = cli.base.unwrap_or_else(|| {
+            git_repo
+                .default_branch()
+                .unwrap_or_else(|| "main".to_string())
+        });
+        let reference_oid = git_repo.find_reference_point(&base)?;
+        let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
+        // Exclude the merge-base commit — it's shared with the target branch
+        // and must not be modified (squashed, moved, or split).
+        let commits: Vec<CommitInfo> = raw.into_iter().filter(|c| c.oid != reference_oid).collect();
+        if commits.is_empty() {
+            eprintln!(
+                "No commits to display: HEAD is at the merge-base with '{}'",
+                base
+            );
+            eprintln!("The current branch has no commits beyond the common ancestor.");
+            return Ok(());
+        }
+        (commits, reference_oid, false)
+    };
 
     if cli.static_output {
         let mut commit_diffs: Vec<CommitDiff> = commits
@@ -179,6 +190,7 @@ fn main() -> Result<()> {
     app.reverse = cli.reverse;
     app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
     app.reference_oid = reference_oid;
+    app.include_reference_oid = include_reference_oid;
 
     // Append staged/unstaged working-tree changes as synthetic rows at the
     // bottom of the commit list (newest position). Recompute fragmap with
@@ -684,7 +696,7 @@ fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
 
     let commits: Vec<CommitInfo> = commits
         .into_iter()
-        .filter(|c| c.oid != app.reference_oid)
+        .filter(|c| app.include_reference_oid || c.oid != app.reference_oid)
         .collect();
 
     // Append staged/unstaged as synthetic rows, same as at startup.

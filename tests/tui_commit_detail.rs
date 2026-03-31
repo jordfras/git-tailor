@@ -151,6 +151,10 @@ impl GitRepo for NoOpRepo {
     fn default_branch(&self) -> Option<String> {
         None
     }
+
+    fn root_commit_oid(&self) -> Result<String> {
+        unimplemented!()
+    }
 }
 
 /// GitRepo stub that returns a fixed CommitDiff for the selected commit OID.
@@ -274,6 +278,10 @@ impl GitRepo for FakeDiffRepo {
 
     fn default_branch(&self) -> Option<String> {
         None
+    }
+
+    fn root_commit_oid(&self) -> Result<String> {
+        unimplemented!()
     }
 }
 

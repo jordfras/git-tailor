@@ -10,7 +10,7 @@ combining features from **tig** (interactive commit browsing) and **fragmap**
 (chunk-cluster visualization showing how commits relate). It enables users to
 browse, analyze, reorder, squash, and split commits on a branch.
 
-- **License**: MIT
+- **License**: Apache-2.0
 - **Language**: Rust
 - **Key crates**: `ratatui`, `crossterm`, `git2`, `clap`, `anyhow`
 
@@ -22,20 +22,34 @@ browse, analyze, reorder, squash, and split commits on a branch.
 git-tailor/
 ├── Cargo.toml              # package manifest
 ├── src/
-│   ├── lib.rs              # Library root
-│   ├── main.rs             # Binary entry point
-│   ├── repo/               # Repository and git operations
-│   ├── branch/             # Branch utilities
-│   ├── commit/             # Commit types
-│   ├── diff/               # Diff types
-│   ├── fragmap/            # Chunk clustering
-│   ├── rebase/             # Rebase engine
-│   ├── app/                # TUI state machine
-│   ├── event/              # Input handling
-│   ├── views/              # TUI views
-│   └── widgets/            # Reusable TUI components
-└── tests/
-    └── fixtures/            # Script-generated test git repos
+│   ├── lib.rs              # Library root (domain types + module declarations)
+│   ├── main.rs             # Binary entry point (CLI, event loop, side effects)
+│   ├── app.rs              # TUI state machine (AppMode, AppState, key parsing)
+│   ├── editor.rs           # External editor integration (commit message editing)
+│   ├── mergetool.rs        # External merge tool integration
+│   ├── repo.rs             # GitRepo trait definition
+│   ├── repo/
+│   │   └── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
+│   ├── fragmap.rs          # Span extraction, clustering, matrix generation
+│   ├── fragmap/
+│   │   └── spg.rs          # Span Propagation Graph algorithm
+│   ├── views.rs            # View module declarations
+│   ├── views/
+│   │   ├── commit_list.rs  # Scrollable commit log with fragmap
+│   │   ├── commit_detail.rs # Commit metadata + scrollable colored diff
+│   │   ├── conflict.rs     # Rebase conflict resolution dialog
+│   │   ├── dialog.rs       # Shared dialog rendering helpers
+│   │   ├── drop.rs         # Drop commit confirmation
+│   │   ├── help.rs         # Help overlay
+│   │   ├── hunk_groups.rs  # Hunk group detail rendering
+│   │   ├── main_view.rs    # Shared layout (commit list + fragmap + detail)
+│   │   ├── move_select.rs  # Move commit target selection
+│   │   ├── split_select.rs # Split strategy selection dialog
+│   │   └── squash_select.rs # Squash/fixup target selection
+│   ├── static_views.rs     # Static (non-interactive) view module declarations
+│   └── static_views/
+│       └── fragmap.rs      # CLI fragmap output (non-TUI)
+└── tests/                   # Integration tests (TempDir repos + TUI snapshots)
 ```
 
 The project combines a **library** (src/lib.rs) containing all git logic, domain
@@ -45,30 +59,33 @@ non-TUI frontends (CLI batch mode, CI tooling, etc.).
 
 ### Library Modules
 
-| Module       | Responsibility                                                |
-|--------------|---------------------------------------------------------------|
-| `repo`       | Open repository, find merge-base, list commits                |
-| `branch`     | Branch and merge-base utilities                               |
-| `commit`     | `CommitInfo` type — oid, summary, author, date, parent_oids   |
-| `diff`       | `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff` types            |
-| `fragmap`    | Span extraction, overlap clustering, matrix generation        |
-| `rebase`     | Cherry-pick-based reorder, squash, and split engine           |
+Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
+`DeltaStatus`, `DiffLineKind`) are defined directly in `lib.rs`.
+
+| Module         | Responsibility                                                |
+|----------------|---------------------------------------------------------------|
+| `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)     |
+| `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation |
+| `editor`       | External editor integration (commit message editing)          |
+| `mergetool`    | External merge tool integration (conflict resolution)         |
+| `static_views` | Non-interactive CLI output (fragmap rendering)                |
 
 ### TUI Modules
 
-| Module                 | Responsibility                                   |
-|------------------------|--------------------------------------------------|
-| `app`                  | Application state machine (`AppMode` enum)       |
-| `event`                | Input event reading and dispatch                 |
-| `views::commit_list`   | Scrollable one-line-per-commit log               |
-| `views::commit_detail` | Commit metadata + scrollable colored diff        |
-| `views::fragmap`       | Chunk-cluster grid visualization                 |
-| `views::squash`        | Squash source → target picker with preview       |
-| `views::reorder`       | Grab-and-move commit reordering                  |
-| `views::split`         | Per-file / per-hunk commit splitting             |
-| `widgets::diff`        | Syntax-highlighted diff rendering widget         |
-| `widgets::grid`        | Fragmap grid rendering widget                    |
-| `widgets::scrollable`  | Generic scrollable list widget                   |
+| Module                    | Responsibility                                      |
+|---------------------------|-----------------------------------------------------|
+| `app`                     | Application state machine, key parsing, event reading |
+| `views::main_view`        | Shared layout (commit list + fragmap + detail pane) |
+| `views::commit_list`      | Scrollable one-line-per-commit log with fragmap     |
+| `views::commit_detail`    | Commit metadata + scrollable colored diff           |
+| `views::squash_select`    | Squash/fixup target picker                          |
+| `views::move_select`      | Move commit target selection                        |
+| `views::split_select`     | Split strategy selection dialog                     |
+| `views::drop`             | Drop commit confirmation dialog                     |
+| `views::conflict`         | Rebase conflict resolution dialog                   |
+| `views::help`             | Help overlay                                        |
+| `views::hunk_groups`      | Hunk group detail rendering                         |
+| `views::dialog`           | Shared dialog rendering helpers                     |
 
 ### Module Organization Convention
 
@@ -81,10 +98,9 @@ Example:
 ```
 src/
   lib.rs
-  repo.rs              # declares: pub mod git2_impl; pub mod traits;
+  repo.rs              # declares: pub mod git2_impl;
   repo/
     git2_impl.rs
-    traits.rs
   views.rs             # declares sub-modules
   views/
     commit_list.rs
@@ -161,8 +177,9 @@ generally do **not** need a changelog entry — confirm with the user if unsure.
 ### Commit & Diff Types
 
 ```
-CommitInfo   { oid, summary, author, date, parent_oids }
-FileDiff     { old_path, new_path, hunks: Vec<Hunk> }
+CommitInfo   { oid, summary, author, date, parent_oids, message,
+               author_email, author_date, committer, committer_email, commit_date }
+FileDiff     { old_path, new_path, status: DeltaStatus, hunks: Vec<Hunk> }
 Hunk         { old_start, old_lines, new_start, new_lines, lines: Vec<DiffLine> }
 CommitDiff   { commit: CommitInfo, files: Vec<FileDiff> }
 ```
@@ -194,8 +211,15 @@ TouchKind    ∈ { Added, Modified, Deleted, None }
 All git operations — both reads and mutations — use the `git2` crate (libgit2
 bindings). The tool does **not** shell out to the `git` CLI.
 
-For mutations (reorder, squash, split), the rebase engine works at the libgit2
-level:
+For mutations (reorder, squash, split), the rebase engine builds new commit
+chains using `Repository::cherrypick_commit` (the in-memory variant) rather than
+the `git2::Rebase` API. This cherry-pick chain approach was chosen because
+operations like split-per-hunk, split-per-hunk-group, and squash require custom
+tree surgery (`apply_to_tree`, `cherrypick_commit` for combining trees) that
+cannot be expressed through the rebase todo-list model. The cherry-pick loop is
+also simpler to reason about — all state lives in Rust structs rather than
+libgit2's opaque rebase state machine.
+
 - **Reorder**: Cherry-pick commits in new order onto merge-base using
   `Repository::cherrypick_commit` to produce new trees, then create new commits.
 - **Squash**: Cherry-pick squash-target on top of destination commit, combine
@@ -204,34 +228,49 @@ level:
   one file's hunks. Uses `Diff::apply_to_tree` with filtered patches.
 - **Split per-hunk**: Same approach at hunk granularity.
 
-All mutations create new commits on a detached HEAD or temporary branch, then
-fast-forward the original branch ref only on user confirmation (preview before
-apply).
+All mutations build new commit chains and advance the branch ref immediately.
+Confirmation dialogs (drop, large split) are shown before the operation starts.
 
 ### Default scope
 
 By default, the tool shows commits from `HEAD` back to the merge-base with
-`main`. The base branch is configurable via CLI argument.
+the upstream default branch. The base is auto-detected via `origin/HEAD`
+(e.g. `origin/main`), falling back to `main` when that ref is not set.
+The base branch can be overridden with a positional CLI argument, or `--all`
+can be passed to browse the complete repository history down to the root commit.
 
 ### TUI state machine
 
 The application uses a modal state machine (`AppMode` enum) with these modes:
 
-- `CommitList` — default view, scrollable commit log
-- `CommitDetail(Oid)` — diff + metadata for one commit
-- `FragMapView` — grid visualization
-- `Squash { source: Oid }` — pick squash target
-- `Reorder` — commit list with grab-and-move
-- `Split(Oid)` — per-file or per-hunk splitting
-- `Confirm(PendingAction)` — preview before applying mutation
+- `CommitList` — default view, scrollable commit log with fragmap
+- `CommitDetail` — diff + metadata for the selected commit
+- `SplitSelect { strategy_index }` — per-file / per-hunk / per-hunk-group picker
+- `SplitConfirm(PendingSplit)` — confirmation for large splits
+- `DropConfirm(PendingDrop)` — drop commit confirmation
+- `RebaseConflict(Box<ConflictState>)` — merge conflict resolution dialog
+- `SquashSelect { source_index, is_fixup }` — squash/fixup target picker
+- `MoveSelect { source_index, insert_before }` — move commit target selection
+- `Help(Box<AppMode>)` — help overlay (wraps previous mode)
 
 ### Standard ratatui event loop
 
 ```
 loop {
     terminal.draw(|f| render(&app, f))?;
-    match event::read()? {
-        key => app.handle_key(key),
+    let event = app::read_event()?;
+    let action = app.mode.parse_key(event);
+    app.clear_status_message();
+    let result = match app.mode {
+        CommitList => views::commit_list::handle_key(action, &mut app),
+        CommitDetail => views::commit_detail::handle_key(action, &mut app),
+        // ... other modes dispatch to their view module
+    };
+    match result {
+        AppAction::Handled => {}
+        AppAction::Quit => app.should_quit = true,
+        AppAction::ReloadCommits => reload_commits(&git_repo, &mut app),
+        // ... other side effects executed by main.rs
     }
     if app.should_quit { break; }
 }
@@ -241,27 +280,12 @@ loop {
 
 These are not yet resolved and should be decided during implementation:
 
-1. **Conflict handling during mutations**: When a cherry-pick produces
-   conflicts, should the tool offer in-TUI conflict resolution, or bail out and
-   leave the working tree conflicted for manual resolution?
-
-2. **Undo model**: Simplest approach is saving the original branch ref before
+1. **Undo model**: Simplest approach is saving the original branch ref before
    mutation and offering a single "undo". Alternative: full undo stack.
 
-3. **Performance for large repos**: The fragmap matrix can grow large. May need
+2. **Performance for large repos**: The fragmap matrix can grow large. May need
    lazy computation (only analyze visible commits) or a configurable depth
    limit.
-
-## Implementation Phases
-
-1. **Foundation** — Project scaffold, repo/branch/diff reading, CommitList and
-   CommitDetail views, integration tests with fixture repos.
-2. **Fragmap** — Span extraction, clustering, matrix generation, grid widget.
-3. **Mutations** — Cherry-pick-based reorder engine, squash, reorder and confirm
-   views.
-4. **Split** — Per-file and per-hunk tree manipulation, split view.
-5. **Polish** — Configurable base branch, undo support, commit message editing,
-   themes, help screen, crates.io packaging.
 
 ## Testing Strategy
 
@@ -297,12 +321,15 @@ Don't call `git2` directly from business logic. Define traits in the library:
 
 ```rust
 pub trait GitRepo {
-    fn merge_base(&self, head: Oid, upstream: Oid) -> Result<Oid>;
-    fn list_commits(&self, from: Oid, to: Oid) -> Result<Vec<CommitInfo>>;
-    fn commit_diff(&self, oid: Oid) -> Result<CommitDiff>;
-    fn cherry_pick(&self, commit: Oid, onto: Oid) -> Result<Oid>;
-    fn create_commit(&self, tree: TreeId, parents: &[Oid], message: &str) -> Result<Oid>;
-    fn update_branch(&self, name: &str, target: Oid) -> Result<()>;
+    fn head_oid(&self) -> Result<String>;
+    fn find_reference_point(&self, commit_ish: &str) -> Result<String>;
+    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>>;
+    fn commit_diff(&self, oid: &str) -> Result<CommitDiff>;
+    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn move_commit(&self, commit_oid: &str, insert_after_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn squash_commits(&self, source_oid: &str, target_oid: &str, message: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
+    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
     // ...
 }
 ```
@@ -318,12 +345,13 @@ For testing the real `Git2Repo` implementation and end-to-end flows, use
 
 ```rust
 pub struct TestRepo {
-    pub dir: TempDir,       // dropped = cleaned up
+    pub _temp_dir: TempDir,  // dropped = cleaned up
     pub repo: Repository,
 }
 
 impl TestRepo {
-    pub fn new() -> Self { /* init repo, create initial commit on main */ }
+    pub fn new() -> Self { /* init repo, configure user, create initial state */ }
+    pub fn git_repo(&self) -> Git2Repo { /* open a Git2Repo handle */ }
     pub fn commit_file(&self, path: &str, content: &str, message: &str) -> git2::Oid { ... }
     pub fn create_branch(&self, name: &str) { ... }
 }
@@ -333,17 +361,23 @@ Tests read like specifications:
 
 ```rust
 #[test]
-fn squash_combines_two_commits() {
+fn squash_adjacent_commits() {
     let test = TestRepo::new();
-    test.create_branch("feature");
-    let c1 = test.commit_file("a.txt", "hello", "first");
-    let c2 = test.commit_file("a.txt", "hello world", "second");
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target commit");
+    let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let engine = RebaseEngine::new(&test.repo);
-    let result = engine.squash(c2, c1).unwrap();
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .squash_commits(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed message",
+            &source.to_string(),
+        )
+        .unwrap();
 
-    assert_eq!(result.parent_count(), 1);
-    assert_file_content(&test.repo, result, "a.txt", "hello world");
+    assert!(matches!(result, RebaseOutcome::Complete));
 }
 ```
 
@@ -363,7 +397,5 @@ fn squash_combines_two_commits() {
 
 ```toml
 [dev-dependencies]
-tempfile = "3"           # TempDir for fixture repos
 insta = "1"              # Snapshot testing (TUI + diff output)
-pretty_assertions = "1"  # Better assertion diffs
 ```
