@@ -194,8 +194,15 @@ TouchKind    ∈ { Added, Modified, Deleted, None }
 All git operations — both reads and mutations — use the `git2` crate (libgit2
 bindings). The tool does **not** shell out to the `git` CLI.
 
-For mutations (reorder, squash, split), the rebase engine works at the libgit2
-level:
+For mutations (reorder, squash, split), the rebase engine builds new commit
+chains using `Repository::cherrypick_commit` (the in-memory variant) rather than
+the `git2::Rebase` API. This cherry-pick chain approach was chosen because
+operations like split-per-hunk, split-per-hunk-group, and squash require custom
+tree surgery (`apply_to_tree`, `cherrypick_commit` for combining trees) that
+cannot be expressed through the rebase todo-list model. The cherry-pick loop is
+also simpler to reason about — all state lives in Rust structs rather than
+libgit2's opaque rebase state machine.
+
 - **Reorder**: Cherry-pick commits in new order onto merge-base using
   `Repository::cherrypick_commit` to produce new trees, then create new commits.
 - **Squash**: Cherry-pick squash-target on top of destination commit, combine
