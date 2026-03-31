@@ -234,7 +234,10 @@ Confirmation dialogs (drop, large split) are shown before the operation starts.
 ### Default scope
 
 By default, the tool shows commits from `HEAD` back to the merge-base with
-`main`. The base branch is configurable via CLI argument.
+the upstream default branch. The base is auto-detected via `origin/HEAD`
+(e.g. `origin/main`), falling back to `main` when that ref is not set.
+The base branch can be overridden with a positional CLI argument, or `--all`
+can be passed to browse the complete repository history down to the root commit.
 
 ### TUI state machine
 
