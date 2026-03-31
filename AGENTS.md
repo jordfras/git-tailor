@@ -395,7 +395,5 @@ fn squash_combines_two_commits() {
 
 ```toml
 [dev-dependencies]
-tempfile = "3"           # TempDir for fixture repos
 insta = "1"              # Snapshot testing (TUI + diff output)
-pretty_assertions = "1"  # Better assertion diffs
 ```
