@@ -256,8 +256,19 @@ The application uses a modal state machine (`AppMode` enum) with these modes:
 ```
 loop {
     terminal.draw(|f| render(&app, f))?;
-    match event::read()? {
-        key => app.handle_key(key),
+    let event = app::read_event()?;
+    let action = app.mode.parse_key(event);
+    app.clear_status_message();
+    let result = match app.mode {
+        CommitList => views::commit_list::handle_key(action, &mut app),
+        CommitDetail => views::commit_detail::handle_key(action, &mut app),
+        // ... other modes dispatch to their view module
+    };
+    match result {
+        AppAction::Handled => {}
+        AppAction::Quit => app.should_quit = true,
+        AppAction::ReloadCommits => reload_commits(&git_repo, &mut app),
+        // ... other side effects executed by main.rs
     }
     if app.should_quit { break; }
 }
