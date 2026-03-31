@@ -22,20 +22,34 @@ browse, analyze, reorder, squash, and split commits on a branch.
 git-tailor/
 ├── Cargo.toml              # package manifest
 ├── src/
-│   ├── lib.rs              # Library root
-│   ├── main.rs             # Binary entry point
-│   ├── repo/               # Repository and git operations
-│   ├── branch/             # Branch utilities
-│   ├── commit/             # Commit types
-│   ├── diff/               # Diff types
-│   ├── fragmap/            # Chunk clustering
-│   ├── rebase/             # Rebase engine
-│   ├── app/                # TUI state machine
-│   ├── event/              # Input handling
-│   ├── views/              # TUI views
-│   └── widgets/            # Reusable TUI components
-└── tests/
-    └── fixtures/            # Script-generated test git repos
+│   ├── lib.rs              # Library root (domain types + module declarations)
+│   ├── main.rs             # Binary entry point (CLI, event loop, side effects)
+│   ├── app.rs              # TUI state machine (AppMode, AppState, key parsing)
+│   ├── editor.rs           # External editor integration (commit message editing)
+│   ├── mergetool.rs        # External merge tool integration
+│   ├── repo.rs             # GitRepo trait definition
+│   ├── repo/
+│   │   └── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
+│   ├── fragmap.rs          # Span extraction, clustering, matrix generation
+│   ├── fragmap/
+│   │   └── spg.rs          # Span Propagation Graph algorithm
+│   ├── views.rs            # View module declarations
+│   ├── views/
+│   │   ├── commit_list.rs  # Scrollable commit log with fragmap
+│   │   ├── commit_detail.rs # Commit metadata + scrollable colored diff
+│   │   ├── conflict.rs     # Rebase conflict resolution dialog
+│   │   ├── dialog.rs       # Shared dialog rendering helpers
+│   │   ├── drop.rs         # Drop commit confirmation
+│   │   ├── help.rs         # Help overlay
+│   │   ├── hunk_groups.rs  # Hunk group detail rendering
+│   │   ├── main_view.rs    # Shared layout (commit list + fragmap + detail)
+│   │   ├── move_select.rs  # Move commit target selection
+│   │   ├── split_select.rs # Split strategy selection dialog
+│   │   └── squash_select.rs # Squash/fixup target selection
+│   ├── static_views.rs     # Static (non-interactive) view module declarations
+│   └── static_views/
+│       └── fragmap.rs      # CLI fragmap output (non-TUI)
+└── tests/                   # Integration tests (TempDir repos + TUI snapshots)
 ```
 
 The project combines a **library** (src/lib.rs) containing all git logic, domain
