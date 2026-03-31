@@ -278,14 +278,10 @@ loop {
 
 These are not yet resolved and should be decided during implementation:
 
-1. **Conflict handling during mutations**: When a cherry-pick produces
-   conflicts, should the tool offer in-TUI conflict resolution, or bail out and
-   leave the working tree conflicted for manual resolution?
-
-2. **Undo model**: Simplest approach is saving the original branch ref before
+1. **Undo model**: Simplest approach is saving the original branch ref before
    mutation and offering a single "undo". Alternative: full undo stack.
 
-3. **Performance for large repos**: The fragmap matrix can grow large. May need
+2. **Performance for large repos**: The fragmap matrix can grow large. May need
    lazy computation (only analyze visible commits) or a configurable depth
    limit.
 
