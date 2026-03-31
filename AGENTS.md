@@ -72,19 +72,20 @@ Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
 
 ### TUI Modules
 
-| Module                 | Responsibility                                   |
-|------------------------|--------------------------------------------------|
-| `app`                  | Application state machine (`AppMode` enum)       |
-| `event`                | Input event reading and dispatch                 |
-| `views::commit_list`   | Scrollable one-line-per-commit log               |
-| `views::commit_detail` | Commit metadata + scrollable colored diff        |
-| `views::fragmap`       | Chunk-cluster grid visualization                 |
-| `views::squash`        | Squash source → target picker with preview       |
-| `views::reorder`       | Grab-and-move commit reordering                  |
-| `views::split`         | Per-file / per-hunk commit splitting             |
-| `widgets::diff`        | Syntax-highlighted diff rendering widget         |
-| `widgets::grid`        | Fragmap grid rendering widget                    |
-| `widgets::scrollable`  | Generic scrollable list widget                   |
+| Module                    | Responsibility                                      |
+|---------------------------|-----------------------------------------------------|
+| `app`                     | Application state machine, key parsing, event reading |
+| `views::main_view`        | Shared layout (commit list + fragmap + detail pane) |
+| `views::commit_list`      | Scrollable one-line-per-commit log with fragmap     |
+| `views::commit_detail`    | Commit metadata + scrollable colored diff           |
+| `views::squash_select`    | Squash/fixup target picker                          |
+| `views::move_select`      | Move commit target selection                        |
+| `views::split_select`     | Split strategy selection dialog                     |
+| `views::drop`             | Drop commit confirmation dialog                     |
+| `views::conflict`         | Rebase conflict resolution dialog                   |
+| `views::help`             | Help overlay                                        |
+| `views::hunk_groups`      | Hunk group detail rendering                         |
+| `views::dialog`           | Shared dialog rendering helpers                     |
 
 ### Module Organization Convention
 
