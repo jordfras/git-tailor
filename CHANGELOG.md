@@ -8,6 +8,13 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- `--all` flag: pass `gt --all` to browse and edit the complete repository
+  history from HEAD down to the first (root) commit. Mutually exclusive with
+  the positional `BASE` argument. Useful for projects with no upstream branch
+  or single-branch workflows.
+
 ### Fixed
 
 - Error messages (e.g. "Cannot move staged/unstaged changes") no longer

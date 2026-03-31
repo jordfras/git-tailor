@@ -147,6 +147,10 @@ impl GitRepo for NoOpRepo {
     fn default_branch(&self) -> Option<String> {
         None
     }
+
+    fn root_commit_oid(&self) -> Result<String> {
+        unimplemented!()
+    }
 }
 
 fn app_with_commits() -> AppState {

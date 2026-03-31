@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Bug Fixes — Windows Compatibility
-- [ ] T137 P2 bug - First commit always excluded when browsing complete history:
+- [X] T137 P2 bug - First commit always excluded when browsing complete history:
   when the user passes the very first (root) commit of the repository as the
   positional `base` argument, that commit is never shown in the commit list;
   the root cause is that `main.rs` always filters out the reference-point

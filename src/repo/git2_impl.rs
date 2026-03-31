@@ -1085,6 +1085,19 @@ impl GitRepo for Git2Repo {
         target.strip_prefix("refs/remotes/").map(str::to_string)
     }
 
+    fn root_commit_oid(&self) -> Result<String> {
+        let mut revwalk = self.inner.revwalk()?;
+        revwalk.push_head()?;
+        for oid_result in revwalk {
+            let oid = oid_result?;
+            let commit = self.inner.find_commit(oid)?;
+            if commit.parent_count() == 0 {
+                return Ok(oid.to_string());
+            }
+        }
+        anyhow::bail!("No root commit found reachable from HEAD")
+    }
+
     fn squash_try_combine(
         &self,
         source_oid: &str,

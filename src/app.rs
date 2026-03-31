@@ -333,6 +333,9 @@ pub struct AppState {
     pub status_is_error: bool,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
+    /// When true, the reference_oid commit is included in the commit list.
+    /// Set when the user passes `--all` to browse the complete repository history.
+    pub include_reference_oid: bool,
 }
 
 impl AppState {
@@ -358,6 +361,7 @@ impl AppState {
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
+            include_reference_oid: false,
         }
     }
 
@@ -384,6 +388,7 @@ impl AppState {
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
+            include_reference_oid: false,
         }
     }
 

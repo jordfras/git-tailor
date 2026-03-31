@@ -351,6 +351,12 @@ pub trait GitRepo {
     /// the actual resolution state.
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
 
+    /// Return the OID of the root (parentless) commit reachable from HEAD.
+    ///
+    /// Walks the ancestry of HEAD until it finds a commit with no parents.
+    /// For repositories with a single linear history this is the initial commit.
+    fn root_commit_oid(&self) -> Result<String>;
+
     /// Return the name of the repository's default upstream branch.
     ///
     /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
