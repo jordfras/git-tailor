@@ -287,17 +287,6 @@ These are not yet resolved and should be decided during implementation:
    lazy computation (only analyze visible commits) or a configurable depth
    limit.
 
-## Implementation Phases
-
-1. **Foundation** — Project scaffold, repo/branch/diff reading, CommitList and
-   CommitDetail views, integration tests with fixture repos.
-2. **Fragmap** — Span extraction, clustering, matrix generation, grid widget.
-3. **Mutations** — Cherry-pick-based reorder engine, squash, reorder and confirm
-   views.
-4. **Split** — Per-file and per-hunk tree manipulation, split view.
-5. **Polish** — Configurable base branch, undo support, commit message editing,
-   themes, help screen, crates.io packaging.
-
 ## Testing Strategy
 
 ### Principle: separate "what to do" from "how to do it in git"
