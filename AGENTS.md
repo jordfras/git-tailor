@@ -329,12 +329,15 @@ Don't call `git2` directly from business logic. Define traits in the library:
 
 ```rust
 pub trait GitRepo {
-    fn merge_base(&self, head: Oid, upstream: Oid) -> Result<Oid>;
-    fn list_commits(&self, from: Oid, to: Oid) -> Result<Vec<CommitInfo>>;
-    fn commit_diff(&self, oid: Oid) -> Result<CommitDiff>;
-    fn cherry_pick(&self, commit: Oid, onto: Oid) -> Result<Oid>;
-    fn create_commit(&self, tree: TreeId, parents: &[Oid], message: &str) -> Result<Oid>;
-    fn update_branch(&self, name: &str, target: Oid) -> Result<()>;
+    fn head_oid(&self) -> Result<String>;
+    fn find_reference_point(&self, commit_ish: &str) -> Result<String>;
+    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>>;
+    fn commit_diff(&self, oid: &str) -> Result<CommitDiff>;
+    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn move_commit(&self, commit_oid: &str, insert_after_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn squash_commits(&self, source_oid: &str, target_oid: &str, message: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
+    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
     // ...
 }
 ```
