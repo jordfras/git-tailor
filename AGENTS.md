@@ -353,12 +353,13 @@ For testing the real `Git2Repo` implementation and end-to-end flows, use
 
 ```rust
 pub struct TestRepo {
-    pub dir: TempDir,       // dropped = cleaned up
+    pub _temp_dir: TempDir,  // dropped = cleaned up
     pub repo: Repository,
 }
 
 impl TestRepo {
-    pub fn new() -> Self { /* init repo, create initial commit on main */ }
+    pub fn new() -> Self { /* init repo, configure user, create initial state */ }
+    pub fn git_repo(&self) -> Git2Repo { /* open a Git2Repo handle */ }
     pub fn commit_file(&self, path: &str, content: &str, message: &str) -> git2::Oid { ... }
     pub fn create_branch(&self, name: &str) { ... }
 }
@@ -368,17 +369,23 @@ Tests read like specifications:
 
 ```rust
 #[test]
-fn squash_combines_two_commits() {
+fn squash_adjacent_commits() {
     let test = TestRepo::new();
-    test.create_branch("feature");
-    let c1 = test.commit_file("a.txt", "hello", "first");
-    let c2 = test.commit_file("a.txt", "hello world", "second");
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target commit");
+    let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let engine = RebaseEngine::new(&test.repo);
-    let result = engine.squash(c2, c1).unwrap();
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .squash_commits(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed message",
+            &source.to_string(),
+        )
+        .unwrap();
 
-    assert_eq!(result.parent_count(), 1);
-    assert_file_content(&test.repo, result, "a.txt", "hello world");
+    assert!(matches!(result, RebaseOutcome::Complete));
 }
 ```
 
