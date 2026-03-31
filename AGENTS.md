@@ -241,13 +241,15 @@ By default, the tool shows commits from `HEAD` back to the merge-base with
 
 The application uses a modal state machine (`AppMode` enum) with these modes:
 
-- `CommitList` — default view, scrollable commit log
-- `CommitDetail(Oid)` — diff + metadata for one commit
-- `FragMapView` — grid visualization
-- `Squash { source: Oid }` — pick squash target
-- `Reorder` — commit list with grab-and-move
-- `Split(Oid)` — per-file or per-hunk splitting
-- `Confirm(PendingAction)` — preview before applying mutation
+- `CommitList` — default view, scrollable commit log with fragmap
+- `CommitDetail` — diff + metadata for the selected commit
+- `SplitSelect { strategy_index }` — per-file / per-hunk / per-hunk-group picker
+- `SplitConfirm(PendingSplit)` — confirmation for large splits
+- `DropConfirm(PendingDrop)` — drop commit confirmation
+- `RebaseConflict(Box<ConflictState>)` — merge conflict resolution dialog
+- `SquashSelect { source_index, is_fixup }` — squash/fixup target picker
+- `MoveSelect { source_index, insert_before }` — move commit target selection
+- `Help(Box<AppMode>)` — help overlay (wraps previous mode)
 
 ### Standard ratatui event loop
 
