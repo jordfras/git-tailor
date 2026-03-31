@@ -177,8 +177,9 @@ generally do **not** need a changelog entry — confirm with the user if unsure.
 ### Commit & Diff Types
 
 ```
-CommitInfo   { oid, summary, author, date, parent_oids }
-FileDiff     { old_path, new_path, hunks: Vec<Hunk> }
+CommitInfo   { oid, summary, author, date, parent_oids, message,
+               author_email, author_date, committer, committer_email, commit_date }
+FileDiff     { old_path, new_path, status: DeltaStatus, hunks: Vec<Hunk> }
 Hunk         { old_start, old_lines, new_start, new_lines, lines: Vec<DiffLine> }
 CommitDiff   { commit: CommitInfo, files: Vec<FileDiff> }
 ```
