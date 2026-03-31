@@ -27,7 +27,7 @@ Guidelines:
   (the "parent" onto which cherry-picks land) also needs to handle the case
   where there is no parent commit — likely by cherry-picking onto an empty tree
   for the first commit in the new sequence
-- [ ] T136 P1 bug - Error messages disappear instantly on Windows: on Windows,
+- [X] T136 P1 bug - Error messages disappear instantly on Windows: on Windows,
   crossterm fires both a key-down and a key-release event for a single keystroke;
   error messages shown after an invalid operation (e.g. attempting a move or
   squash with unstaged changes) are dismissed immediately because the key-release

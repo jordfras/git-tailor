@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Fixed
+
+- Error messages (e.g. "Cannot move staged/unstaged changes") no longer
+  disappear instantly on Windows. Crossterm emits both a key-press and a
+  key-release event per keystroke on Windows; the release event was clearing
+  the message before it could be read. Release events are now discarded.
+
+
 ## [0.2.0] - 2026-03-21
 
 ### Added
