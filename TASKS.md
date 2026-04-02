@@ -139,6 +139,18 @@ Guidelines:
   to jump to next / previous match; `Escape` dismisses the search bar; the
   search should operate over the rendered diff text (file paths, hunk headers,
   and diff lines) and wrap around at the end of the content
+- [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
+  `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
+  scroll approximately half the visible content area at a time; the scroll
+  amount should be derived from the current panel height so it stays
+  proportional regardless of terminal size
+- [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
+  view: bind `Home` to scroll to the very first line and `End` to scroll to the
+  very last line of the diff content
+- [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
+  detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
+  `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
+  (rightmost position) respectively
 
 ## Interactivity — Terminal Integration
 - [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
