@@ -793,7 +793,22 @@ impl GitRepo for Git2Repo {
             .context("Invalid original branch OID in conflict state")?;
         let label = state.operation_label.to_lowercase();
         self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
-        self.checkout_head()?;
+
+        // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
+        // clears the index and repopulates it from the cherry-pick result (rooted in
+        // the target commit's tree), so checkout_head alone cannot restore files that
+        // exist in HEAD but were absent from that tree.
+        let head_commit = self.inner.find_commit(original_oid)?;
+        let mut index = self.inner.index()?;
+        index.read_tree(&head_commit.tree()?)?;
+        index.write()?;
+
+        // Force-checkout HEAD and remove files that were written to the workdir
+        // by the conflict checkout but are not tracked by the original HEAD.
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        checkout.remove_untracked(true);
+        self.inner.checkout_head(Some(&mut checkout))?;
         Ok(())
     }
 
