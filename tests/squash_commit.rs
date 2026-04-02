@@ -900,3 +900,79 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         "resolved content should be in HEAD"
     );
 }
+
+/// Regression test: after resolving a squash-time conflict, the squash commit's
+/// tree must not contain files that only exist in later (post-source) commits.
+///
+/// write_conflicts_to_workdir copies the cherry-pick merge index into the repo
+/// index. If it doesn't clear stale entries first, files from HEAD leak into
+/// the index. When squash_finalize reads that index to create the squash tree,
+/// those leaked files produce wrong trees, which then cause spurious conflicts
+/// (with empty merge bases) when cherry-picking descendants.
+#[test]
+fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
+    use git_tailor::repo::SquashContext;
+
+    let test = common::TestRepo::new();
+
+    // Chain: base -> target -> mid -> source -> desc (HEAD)
+    //   target, mid, source all modify a.txt (three-way squash conflict)
+    //   desc adds b.txt (only present in HEAD, NOT in the squash trees)
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target version\n", "target");
+    let _mid = test.commit_file("a.txt", "mid version\n", "mid");
+    let source = test.commit_file("a.txt", "source version\n", "source");
+    let _desc = test.commit_file("b.txt", "new file\n", "desc adds b.txt");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    // Step 1: squash_try_combine detects the conflict
+    let state = git_repo
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "squashed",
+            false,
+            &head,
+        )
+        .unwrap()
+        .expect("should conflict on a.txt");
+
+    // Step 2: simulate resolving the conflict
+    let workdir = git_repo.workdir().unwrap();
+    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+    git_repo.stage_file("a.txt").unwrap();
+
+    // Step 3: finalize with an empty descendant list to isolate the squash
+    //         commit's tree from any descendant cherry-pick effects.
+    let ctx = SquashContext {
+        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        source_oid: source.to_string(),
+        target_oid: target.to_string(),
+        combined_message: "squashed".to_string(),
+        descendant_oids: vec![],
+        is_fixup: false,
+    };
+
+    let result = git_repo
+        .squash_finalize(&ctx, "squashed", &state.original_branch_oid)
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "should complete: {result:?}"
+    );
+
+    // The squash commit's tree must NOT contain b.txt — a file that only
+    // exists in the desc commit (post-source). If it does, stale entries
+    // from HEAD's index leaked through write_conflicts_to_workdir.
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+    let squash_tree = test.repo.find_commit(head_oid).unwrap().tree().unwrap();
+    assert!(
+        squash_tree
+            .get_path(std::path::Path::new("b.txt"))
+            .is_err(),
+        "squash tree should NOT contain b.txt (leaked from HEAD's index)"
+    );
+}
