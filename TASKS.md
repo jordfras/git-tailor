@@ -151,6 +151,13 @@ Guidelines:
   detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
   `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
   (rightmost position) respectively
+- [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
+  `h`) in the commit detail view should show only the keybindings relevant to
+  that view (scrolling, search, navigation back), while pressing it in the
+  commit list shows only commit-list bindings; the current single monolithic
+  help window is becoming too long as new keybindings are added; implement by
+  passing the current `AppMode` to the help renderer and selecting the
+  appropriate subset of bindings to display
 
 ## Interactivity — Terminal Integration
 - [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
