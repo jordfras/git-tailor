@@ -123,7 +123,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         KeyCommand::Mergetool
         | KeyCommand::OpenEditor
         | KeyCommand::None
-        | KeyCommand::ForceQuit => AppAction::Handled,
+        | KeyCommand::ForceQuit
+        | KeyCommand::Search
+        | KeyCommand::SearchNext
+        | KeyCommand::SearchPrev => AppAction::Handled,
         KeyCommand::SeparatorLeft => {
             app.separator_offset = app.separator_offset.saturating_sub(4);
             AppAction::Handled

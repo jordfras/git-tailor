@@ -10,6 +10,8 @@ The format is based on
 
 ### Added
 
+- Press `/` in the commit detail view to search the diff with a regex pattern.
+  `n` / `N` jump to the next / previous match, `Esc` dismisses the search.
 - `--all` flag: pass `gt --all` to browse and edit the complete repository
   history from HEAD down to the first (root) commit. Mutually exclusive with
   the positional `BASE` argument. Useful for projects with no upstream branch

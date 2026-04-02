@@ -116,6 +116,30 @@ pub fn render(frame: &mut Frame) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
+            " Search (commit detail)",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("   /         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Search (regex)"),
+        ]),
+        Line::from(vec![
+            Span::styled("   n         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Next search match"),
+        ]),
+        Line::from(vec![
+            Span::styled("   N         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Previous search match"),
+        ]),
+        Line::from(vec![
+            Span::styled("   Esc       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Dismiss search"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
             " Other",
             Style::default()
                 .fg(Color::Yellow)

@@ -217,6 +217,24 @@ fn main() -> Result<()> {
         })?;
 
         let event = app::read_event()?;
+
+        // When the search-input bar is active in CommitDetail, forward raw
+        // key events to the search handler instead of routing through parse_key.
+        if matches!(app.mode, AppMode::CommitDetail) && app.search_input_active {
+            if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
+                break;
+            }
+            app.clear_status_message();
+            let result = views::commit_detail::handle_search_event(event, &mut app);
+            if matches!(result, AppAction::Quit) {
+                app.should_quit = true;
+            }
+            if app.should_quit {
+                break;
+            }
+            continue;
+        }
+
         let action = app.mode.parse_key(event);
 
         app.clear_status_message();

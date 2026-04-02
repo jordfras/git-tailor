@@ -43,6 +43,9 @@ pub enum KeyCommand {
     Mergetool,
     OpenEditor,
     Update,
+    Search,
+    SearchNext,
+    SearchPrev,
     Quit,
     Confirm,
     /// Ctrl+C: quit immediately, aborting any in-progress rebase first.
@@ -267,6 +270,18 @@ impl AppMode {
                     _ => KeyCommand::None,
                 },
                 KeyCode::Char('u') => KeyCommand::Update,
+                KeyCode::Char('/') => match self {
+                    AppMode::CommitDetail => KeyCommand::Search,
+                    _ => KeyCommand::None,
+                },
+                KeyCode::Char('n') => match self {
+                    AppMode::CommitDetail => KeyCommand::SearchNext,
+                    _ => KeyCommand::None,
+                },
+                KeyCode::Char('N') => match self {
+                    AppMode::CommitDetail => KeyCommand::SearchPrev,
+                    _ => KeyCommand::None,
+                },
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };
@@ -336,6 +351,16 @@ pub struct AppState {
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
+    /// Current search query string (regex pattern).
+    pub search_query: String,
+    /// Whether the user is actively typing in the search bar.
+    pub search_input_active: bool,
+    /// Whether search results (highlights, match navigation) are active.
+    pub search_active: bool,
+    /// Line indices in the detail content that match the search regex.
+    pub search_matches: Vec<usize>,
+    /// Index into `search_matches` for the current match.
+    pub search_match_index: Option<usize>,
 }
 
 impl AppState {
@@ -362,6 +387,11 @@ impl AppState {
             status_is_error: false,
             separator_offset: 0,
             include_reference_oid: false,
+            search_query: String::new(),
+            search_input_active: false,
+            search_active: false,
+            search_matches: Vec::new(),
+            search_match_index: None,
         }
     }
 
@@ -389,6 +419,11 @@ impl AppState {
             status_is_error: false,
             separator_offset: 0,
             include_reference_oid: false,
+            search_query: String::new(),
+            search_input_active: false,
+            search_active: false,
+            search_matches: Vec::new(),
+            search_match_index: None,
         }
     }
 
@@ -668,7 +703,10 @@ impl AppState {
     pub fn toggle_detail_view(&mut self) {
         let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
-            AppMode::CommitDetail => AppMode::CommitList,
+            AppMode::CommitDetail => {
+                self.clear_search();
+                AppMode::CommitList
+            }
             AppMode::Help(_)
             | AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)
@@ -697,6 +735,24 @@ impl AppState {
                 self.mode = *prev_mode;
             }
         }
+    }
+
+    /// Clear all search state.
+    pub fn clear_search(&mut self) {
+        self.search_query.clear();
+        self.search_input_active = false;
+        self.search_active = false;
+        self.search_matches.clear();
+        self.search_match_index = None;
+    }
+
+    /// Activate search mode: clear query and show search bar.
+    pub fn activate_search(&mut self) {
+        self.search_query.clear();
+        self.search_input_active = true;
+        self.search_active = true;
+        self.search_matches.clear();
+        self.search_match_index = None;
     }
 
     /// Toggle help dialog on/off.
