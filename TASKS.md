@@ -140,6 +140,22 @@ Guidelines:
   search should operate over the rendered diff text (file paths, hunk headers,
   and diff lines) and wrap around at the end of the content
 
+## Shell Completion
+- [ ] T140 P3 feat - Add dynamic shell completion for CLI options: use
+  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
+  binary itself emits completions when invoked by the shell's completion
+  machinery — no separate script generation or installation step required; all
+  flags and value_enum variants (e.g. `--squashable-scope`) should be covered
+  automatically from clap's derived schema
+- [ ] T141 P3 feat - Add dynamic branch/tag completion for the BASE argument:
+  extend the completion mechanism from T140 so that the positional `base`
+  argument offers branch and tag candidates; implement this via
+  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
+  running binary queries `git2` for local branches, remote-tracking refs, and
+  tags at completion time — no pre-generated shell scripts required; the
+  dynamic path should degrade gracefully if the current directory is not inside
+  a git repository
+
 ## CLI Output & Compatibility
 
 ## Build & CI
