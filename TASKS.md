@@ -140,7 +140,20 @@ Guidelines:
   search should operate over the rendered diff text (file paths, hunk headers,
   and diff lines) and wrap around at the end of the content
 
-## Shell Completion
+## Interactivity — Terminal Integration
+- [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
+  (Unix only): in raw mode the kernel line discipline no longer converts Ctrl-Z
+  into SIGTSTP automatically, so the keystroke arrives as a key event; handle
+  `KeyCode::Char('z') + CONTROL` in the event loop by tearing down the TUI
+  (disable raw mode, leave alternate screen — the same cleanup already done for
+  the external editor/mergetool), then calling `libc::raise(libc::SIGTSTP)` to
+  suspend the process; when the user runs `fg` the process receives SIGCONT,
+  resumes after `raise` returns, and re-initialises raw mode and redraws; gate
+  the entire feature on `#[cfg(unix)]` — on Windows the key event is silently
+  ignored; the teardown/restore logic should be extracted into a shared helper
+  to avoid duplication with editor.rs and mergetool.rs
+
+## CLI — Shell Completion
 - [ ] T140 P3 feat - Add dynamic shell completion for CLI options: use
   `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
   binary itself emits completions when invoked by the shell's completion
