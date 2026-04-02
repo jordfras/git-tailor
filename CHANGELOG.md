@@ -21,6 +21,9 @@ The format is based on
   disappear instantly on Windows. Crossterm emits both a key-press and a
   key-release event per keystroke on Windows; the release event was clearing
   the message before it could be read. Release events are now discarded.
+- Squash/fixup with a conflict no longer corrupts the resulting tree. Stale
+  index entries from HEAD leaked into the squash commit, causing spurious
+  conflicts (with empty merge bases) in later commits during the rebase.
 
 
 ## [0.2.0] - 2026-03-21

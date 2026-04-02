@@ -1775,9 +1775,12 @@ impl Git2Repo {
         // Write the conflicted index entries (including conflict markers) into
         // the repo's index so `git status` and the user's editor see them.
         let mut repo_index = repo.index()?;
+        // Clear stale entries before populating the index with the cherry-pick
+        // result.  Without this, leftover files from the previous index state
+        // (typically HEAD) leak into the written index and end up in trees
+        // created by rebase_continue / squash_finalize.
+        repo_index.clear()?;
         for entry in cherry_index.iter() {
-            // Stage 0 = normal, stages 1-3 = conflict (base/ours/theirs).
-            // We need to preserve all stages so the user's tools can resolve.
             repo_index.add(&entry)?;
         }
         repo_index.write()?;

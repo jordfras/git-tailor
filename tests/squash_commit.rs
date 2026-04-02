@@ -970,9 +970,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     let head_oid = test.repo.head().unwrap().target().unwrap();
     let squash_tree = test.repo.find_commit(head_oid).unwrap().tree().unwrap();
     assert!(
-        squash_tree
-            .get_path(std::path::Path::new("b.txt"))
-            .is_err(),
+        squash_tree.get_path(std::path::Path::new("b.txt")).is_err(),
         "squash tree should NOT contain b.txt (leaked from HEAD's index)"
     );
 }
