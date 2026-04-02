@@ -974,3 +974,70 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         "squash tree should NOT contain b.txt (leaked from HEAD's index)"
     );
 }
+
+/// Regression test: aborting a conflicted squash/fixup must leave no staged
+/// changes. After `write_conflicts_to_workdir` clears the index and populates
+/// it from the cherry-pick result only (rooted in target's tree, not HEAD's),
+/// `rebase_abort` must fully reset the index back to HEAD's tree. If it
+/// doesn't, the leftover entries appear as staged changes.
+#[test]
+fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
+    let test = common::TestRepo::new();
+
+    // base -> target -> mid -> source -> extra(HEAD)
+    // target/mid/source conflict on a.txt; extra adds b.txt (only in HEAD)
+    let _base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target version\n", "target");
+    let _mid = test.commit_file("a.txt", "mid version\n", "mid");
+    let source = test.commit_file("a.txt", "source version\n", "source");
+    let _extra = test.commit_file("b.txt", "extra file\n", "extra adds b.txt");
+
+    let git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    let original_head = head.clone();
+
+    // Trigger the conflict
+    let state = git_repo
+        .squash_try_combine(
+            &source.to_string(),
+            &target.to_string(),
+            "combined",
+            true, // fixup
+            &head,
+        )
+        .unwrap()
+        .expect("should conflict on a.txt");
+
+    // Abort the operation
+    let conflict_state = git_tailor::repo::ConflictState {
+        operation_label: state.operation_label,
+        original_branch_oid: state.original_branch_oid,
+        new_tip_oid: state.new_tip_oid,
+        conflicting_commit_oid: state.conflicting_commit_oid,
+        remaining_oids: state.remaining_oids,
+        conflicting_files: state.conflicting_files,
+        still_unresolved: state.still_unresolved,
+        moved_commit_oid: state.moved_commit_oid,
+        squash_context: state.squash_context,
+    };
+    git_repo.rebase_abort(&conflict_state).unwrap();
+
+    // HEAD must be restored
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        original_head,
+        "HEAD should be restored to original"
+    );
+
+    // No staged changes must remain
+    assert!(
+        git_repo.staged_diff().is_none(),
+        "no staged changes should remain after abort"
+    );
+
+    // No unstaged changes must remain either
+    assert!(
+        git_repo.unstaged_diff().is_none(),
+        "no unstaged changes should remain after abort"
+    );
+}
