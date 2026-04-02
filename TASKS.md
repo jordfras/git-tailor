@@ -15,27 +15,27 @@ Guidelines:
 ## Bug Fixes — Windows Compatibility
 - [X] T137 P2 bug - First commit always excluded when browsing complete history:
   when the user passes the very first (root) commit of the repository as the
-  positional `base` argument, that commit is never shown in the commit list;
-  the root cause is that `main.rs` always filters out the reference-point
-  commit (`filter(|c| c.oid != reference_oid)`) because in the normal
-  branch-workflow the merge-base is shared history that should not be editable;
-  for complete-repository history this invariant does not hold and the root
-  commit must be included; the fix should detect the root-commit / no-parent
-  case (or add an `--all` flag) to skip the exclusion filter so that all
-  commits from HEAD down to and including the first commit are shown and can be
-  reordered, squashed, or split; the rebase engine's `reference_oid` concept
-  (the "parent" onto which cherry-picks land) also needs to handle the case
-  where there is no parent commit — likely by cherry-picking onto an empty tree
-  for the first commit in the new sequence
+  positional `base` argument, that commit is never shown in the commit list; the
+  root cause is that `main.rs` always filters out the reference-point commit
+  (`filter(|c| c.oid != reference_oid)`) because in the normal branch-workflow
+  the merge-base is shared history that should not be editable; for
+  complete-repository history this invariant does not hold and the root commit
+  must be included; the fix should detect the root-commit / no-parent case (or
+  add an `--all` flag) to skip the exclusion filter so that all commits from
+  HEAD down to and including the first commit are shown and can be reordered,
+  squashed, or split; the rebase engine's `reference_oid` concept (the "parent"
+  onto which cherry-picks land) also needs to handle the case where there is no
+  parent commit — likely by cherry-picking onto an empty tree for the first
+  commit in the new sequence
 - [X] T136 P1 bug - Error messages disappear instantly on Windows: on Windows,
-  crossterm fires both a key-down and a key-release event for a single keystroke;
-  error messages shown after an invalid operation (e.g. attempting a move or
-  squash with unstaged changes) are dismissed immediately because the key-release
-  event is treated as the user acknowledgement key press, making the message
-  unreadable; filter out `KeyEventKind::Release` (and `KeyEventKind::Repeat` if
-  appropriate) events in the input handling layer so that only
-  `KeyEventKind::Press` events are acted upon, matching the Linux behavior where
-  only press events are emitted
+  crossterm fires both a key-down and a key-release event for a single
+  keystroke; error messages shown after an invalid operation (e.g. attempting a
+  move or squash with unstaged changes) are dismissed immediately because the
+  key-release event is treated as the user acknowledgement key press, making the
+  message unreadable; filter out `KeyEventKind::Release` (and
+  `KeyEventKind::Repeat` if appropriate) events in the input handling layer so
+  that only `KeyEventKind::Press` events are acted upon, matching the Linux
+  behavior where only press events are emitted
 
 ## Bug Fixes — Squash & Fixup
 - [X] T131 P1 bug - Fixup conflict resolution incorrectly opens commit message
@@ -130,15 +130,63 @@ Guidelines:
   those lines; add a `syntect::parsing::SyntaxSet` and
   `syntect::highlighting::ThemeSet` to the application state (loaded once at
   startup) so highlighting is performed per-hunk on demand without re-loading
-  assets; consider caching highlighted output per commit to avoid re-highlighting
-  on every render
-- [ ] T139 P3 feat - Add text search in commit detail view: add an incremental
+  assets; consider caching highlighted output per commit to avoid
+  re-highlighting on every render
+- [X] T139 P3 feat - Add text search in commit detail view: add an incremental
   search mode activated by `/` (vim convention) that opens a search input bar at
   the bottom of the commit detail view; as the user types, highlight all matches
   in the visible diff content and scroll to the first match; support `n` / `N`
   to jump to next / previous match; `Escape` dismisses the search bar; the
   search should operate over the rendered diff text (file paths, hunk headers,
   and diff lines) and wrap around at the end of the content
+- [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
+  `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
+  scroll approximately half the visible content area at a time; the scroll
+  amount should be derived from the current panel height so it stays
+  proportional regardless of terminal size
+- [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
+  view: bind `Home` to scroll to the very first line and `End` to scroll to the
+  very last line of the diff content
+- [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
+  detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
+  `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
+  (rightmost position) respectively
+- [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
+  `h`) in the commit detail view should show only the keybindings relevant to
+  that view (scrolling, search, navigation back), while pressing it in the
+  commit list shows only commit-list bindings; the current single monolithic
+  help window is becoming too long as new keybindings are added; implement by
+  passing the current `AppMode` to the help renderer and selecting the
+  appropriate subset of bindings to display
+
+## Interactivity — Terminal Integration
+- [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
+  (Unix only): in raw mode the kernel line discipline no longer converts Ctrl-Z
+  into SIGTSTP automatically, so the keystroke arrives as a key event; handle
+  `KeyCode::Char('z') + CONTROL` in the event loop by tearing down the TUI
+  (disable raw mode, leave alternate screen — the same cleanup already done for
+  the external editor/mergetool), then calling `libc::raise(libc::SIGTSTP)` to
+  suspend the process; when the user runs `fg` the process receives SIGCONT,
+  resumes after `raise` returns, and re-initialises raw mode and redraws; gate
+  the entire feature on `#[cfg(unix)]` — on Windows the key event is silently
+  ignored; the teardown/restore logic should be extracted into a shared helper
+  to avoid duplication with editor.rs and mergetool.rs
+
+## CLI — Shell Completion
+- [ ] T140 P3 feat - Add dynamic shell completion for CLI options: use
+  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
+  binary itself emits completions when invoked by the shell's completion
+  machinery — no separate script generation or installation step required; all
+  flags and value_enum variants (e.g. `--squashable-scope`) should be covered
+  automatically from clap's derived schema
+- [ ] T141 P3 feat - Add dynamic branch/tag completion for the BASE argument:
+  extend the completion mechanism from T140 so that the positional `base`
+  argument offers branch and tag candidates; implement this via
+  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
+  running binary queries `git2` for local branches, remote-tracking refs, and
+  tags at completion time — no pre-generated shell scripts required; the
+  dynamic path should degrade gracefully if the current directory is not inside
+  a git repository
 
 ## CLI Output & Compatibility
 

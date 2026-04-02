@@ -14,6 +14,7 @@
 
 // Commit detail view — metadata and diff
 
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -21,12 +22,20 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
+use regex::RegexBuilder;
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
 use crate::app::{AppAction, AppState, KeyCommand};
 use crate::repo::GitRepo;
+
+/// Transient info about the search bar, computed during render.
+enum SearchBarInfo {
+    NoMatches,
+    InvalidPattern,
+    Matches { current: usize, total: usize },
+}
 
 /// File status indicator for changed files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +81,25 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.toggle_help();
             AppAction::Handled
         }
+        KeyCommand::Search => {
+            app.activate_search();
+            AppAction::Handled
+        }
+        KeyCommand::SearchNext => {
+            advance_search_match(app, true);
+            AppAction::Handled
+        }
+        KeyCommand::SearchPrev => {
+            advance_search_match(app, false);
+            AppAction::Handled
+        }
         KeyCommand::Update => AppAction::ReloadCommits,
         KeyCommand::Quit => {
-            app.toggle_detail_view();
+            if app.search_active {
+                app.clear_search();
+            } else {
+                app.toggle_detail_view();
+            }
             AppAction::Handled
         }
         KeyCommand::SeparatorLeft => {
@@ -89,14 +114,255 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
+/// Handle raw keyboard events while the search input bar is active.
+///
+/// Called from main.rs before `parse_key` so that character keys are
+/// captured as search-query input rather than dispatched as commands.
+pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
+    if let Event::Key(KeyEvent {
+        code,
+        kind,
+        modifiers,
+        ..
+    }) = event
+        && kind == event::KeyEventKind::Press
+    {
+        if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+            return AppAction::Quit;
+        }
+        match code {
+            KeyCode::Esc => {
+                app.clear_search();
+            }
+            KeyCode::Enter => {
+                app.search_input_active = false;
+            }
+            KeyCode::Backspace => {
+                app.search_query.pop();
+            }
+            KeyCode::Char(c) => {
+                app.search_query.push(c);
+            }
+            _ => {}
+        }
+    }
+    AppAction::Handled
+}
+
+/// Advance to the next or previous search match, wrapping around.
+fn advance_search_match(app: &mut AppState, forward: bool) {
+    if !app.search_active || app.search_matches.is_empty() {
+        return;
+    }
+    let len = app.search_matches.len();
+    app.search_match_index = Some(match app.search_match_index {
+        Some(idx) if forward => (idx + 1) % len,
+        Some(0) if !forward => len - 1,
+        Some(idx) if !forward => idx - 1,
+        _ if forward => 0,
+        _ => len - 1,
+    });
+    scroll_to_current_match(app);
+}
+
+/// Scroll the detail view so the current search match line is visible.
+fn scroll_to_current_match(app: &mut AppState) {
+    if let Some(match_idx) = app.search_match_index
+        && let Some(&target_line) = app.search_matches.get(match_idx)
+    {
+        let vh = app.detail_visible_height;
+        if vh == 0 {
+            return;
+        }
+        if target_line < app.detail_scroll_offset || target_line >= app.detail_scroll_offset + vh {
+            let centered = target_line.saturating_sub(vh / 2);
+            app.detail_scroll_offset = centered.min(app.max_detail_scroll);
+        }
+    }
+}
+
+/// Highlight regex matches within a single styled Span, returning one or more
+/// replacement Spans.
+fn highlight_span_matches(
+    span: &Span<'_>,
+    regex: &regex::Regex,
+    highlight_style: Style,
+) -> Vec<Span<'static>> {
+    let text = span.content.as_ref();
+    let style = span.style;
+    let mut result = Vec::new();
+    let mut last_end = 0;
+
+    for m in regex.find_iter(text) {
+        if m.start() > last_end {
+            result.push(Span::styled(text[last_end..m.start()].to_string(), style));
+        }
+        result.push(Span::styled(
+            text[m.start()..m.end()].to_string(),
+            highlight_style,
+        ));
+        last_end = m.end();
+    }
+    if last_end < text.len() {
+        result.push(Span::styled(text[last_end..].to_string(), style));
+    }
+    if result.is_empty() {
+        result.push(Span::styled(text.to_string(), style));
+    }
+    result
+}
+
+/// Apply search-match highlighting to an entire Line.
+fn highlight_line_matches(
+    line: Line<'_>,
+    regex: &regex::Regex,
+    is_current_match: bool,
+) -> Line<'static> {
+    let highlight_style = if is_current_match {
+        Style::default().fg(Color::Black).bg(Color::LightCyan)
+    } else {
+        Style::default().fg(Color::Black).bg(Color::Yellow)
+    };
+    let new_spans: Vec<Span<'static>> = line
+        .spans
+        .iter()
+        .flat_map(|span| highlight_span_matches(span, regex, highlight_style))
+        .collect();
+    Line::from(new_spans)
+}
+
+/// Return the plain-text content of a Line (all spans concatenated).
+fn line_text(line: &Line<'_>) -> String {
+    line.spans.iter().map(|s| s.content.as_ref()).collect()
+}
+
+/// Find all content lines matching `regex`, update `app.search_matches` and
+/// `app.search_match_index`, and return the corresponding `SearchBarInfo` plus
+/// the previous match index (so callers can detect whether it changed).
+fn compute_search_matches(
+    app: &mut AppState,
+    content: &[Line<'_>],
+    regex: &regex::Regex,
+) -> (Option<SearchBarInfo>, Option<usize>) {
+    let prev_match_index = app.search_match_index;
+
+    app.search_matches = content
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| regex.is_match(&line_text(line)))
+        .map(|(i, _)| i)
+        .collect();
+
+    if app.search_matches.is_empty() {
+        app.search_match_index = None;
+        (Some(SearchBarInfo::NoMatches), prev_match_index)
+    } else {
+        match app.search_match_index {
+            None => app.search_match_index = Some(0),
+            Some(idx) if idx >= app.search_matches.len() => {
+                app.search_match_index = Some(app.search_matches.len() - 1);
+            }
+            _ => {}
+        }
+        (
+            Some(SearchBarInfo::Matches {
+                current: app.search_match_index.unwrap(),
+                total: app.search_matches.len(),
+            }),
+            prev_match_index,
+        )
+    }
+}
+
+/// Scroll the detail view so the current match is visible, but only when the
+/// match index actually changed (first match found or index clamped). This
+/// avoids overriding manual arrow/PageUp/PageDown scrolling on every render.
+fn auto_scroll_to_new_match(
+    app: &mut AppState,
+    prev_match_index: Option<usize>,
+    visible_height: usize,
+    max_scroll: usize,
+) {
+    if app.search_match_index != prev_match_index
+        && let Some(mi) = app.search_match_index
+    {
+        let target_line = app.search_matches[mi];
+        if visible_height > 0
+            && (target_line < app.detail_scroll_offset
+                || target_line >= app.detail_scroll_offset + visible_height)
+        {
+            let centered = target_line.saturating_sub(visible_height / 2);
+            app.detail_scroll_offset = centered.min(max_scroll);
+        }
+    }
+}
+
+/// Apply search-match highlighting to all content lines.
+fn apply_search_highlighting(
+    content: Vec<Line<'_>>,
+    app: &AppState,
+    regex: &regex::Regex,
+) -> Vec<Line<'static>> {
+    let current_match_line = app.search_match_index.map(|i| app.search_matches[i]);
+    content
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let is_current = current_match_line == Some(i);
+            highlight_line_matches(line, regex, is_current)
+        })
+        .collect()
+}
+
+/// Render the search bar widget into the given area.
+fn render_search_bar(
+    frame: &mut Frame,
+    app: &AppState,
+    search_info: Option<SearchBarInfo>,
+    area: Rect,
+) {
+    let mut bar_spans = vec![
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled(app.search_query.clone(), Style::default().fg(Color::White)),
+    ];
+    if app.search_input_active {
+        bar_spans.push(Span::styled("█", Style::default().fg(Color::DarkGray)));
+    }
+    match search_info {
+        Some(SearchBarInfo::NoMatches) => {
+            bar_spans.push(Span::styled(
+                "  [no matches]",
+                Style::default().fg(Color::Red),
+            ));
+        }
+        Some(SearchBarInfo::InvalidPattern) => {
+            bar_spans.push(Span::styled(
+                "  [invalid pattern]",
+                Style::default().fg(Color::Red),
+            ));
+        }
+        Some(SearchBarInfo::Matches { current, total }) => {
+            bar_spans.push(Span::styled(
+                format!("  [{}/{}]", current + 1, total),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        None => {}
+    }
+    frame.render_widget(Paragraph::new(Line::from(bar_spans)), area);
+}
+
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
 pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: Rect) {
-    // Split area into header, content, and footer
-    let [header_area, content_area, footer_area] = Layout::vertical([
+    // Split area into header, content, optional search bar, and footer.
+    // When search is active the search bar occupies one row above the footer.
+    let search_bar_height: u16 = if app.search_active { 1 } else { 0 };
+    let [header_area, content_area, search_bar_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
+        Constraint::Length(search_bar_height),
         Constraint::Length(1),
     ])
     .areas(area);
@@ -107,32 +373,44 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
     frame.render_widget(header, header_area);
 
     // Render content
+    let mut search_info: Option<SearchBarInfo> = None;
     if app.commits.is_empty() {
         let placeholder = Paragraph::new("No commits").style(Style::default().fg(Color::DarkGray));
         frame.render_widget(placeholder, content_area);
     } else {
         let selected = &app.commits[app.selection_index];
 
+        // Clone the fields we need so `content` doesn't borrow `app`,
+        // allowing us to pass `&mut app` to search helpers later.
+        let oid = selected.oid.clone();
+        let message = selected.message.clone();
+        let author = selected.author.clone();
+        let author_email = selected.author_email.clone();
+        let author_date = selected.author_date;
+        let committer = selected.committer.clone();
+        let committer_email = selected.committer_email.clone();
+        let commit_date = selected.commit_date;
+
         // Build metadata lines
         let mut content = vec![
             Line::from(""),
             Line::from(vec![
                 Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
-                Span::raw(&selected.oid),
+                Span::raw(oid.clone()),
             ]),
             Line::from(""),
         ];
 
         // Add full message (split into lines)
-        for line in selected.message.lines() {
+        for line in message.lines() {
             content.push(Line::from(Span::styled(
-                line,
+                line.to_string(),
                 Style::default().fg(Color::White),
             )));
         }
 
         content.push(Line::from(""));
-        if let (Some(author), Some(author_email)) = (&selected.author, &selected.author_email) {
+        if let (Some(author), Some(author_email)) = (&author, &author_email) {
             content.push(Line::from(vec![
                 Span::styled("Author: ", Style::default().fg(Color::Yellow)),
                 Span::raw(format!("{} <{}>", author, author_email)),
@@ -143,7 +421,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                 "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
             ).unwrap();
 
-            if let Some(author_date) = &selected.author_date {
+            if let Some(author_date) = &author_date {
                 let formatted = author_date
                     .format(&fmt)
                     .unwrap_or_else(|_| String::from("Invalid date"));
@@ -153,9 +431,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                 ]));
             }
 
-            if let (Some(committer), Some(committer_email)) =
-                (&selected.committer, &selected.committer_email)
-            {
+            if let (Some(committer), Some(committer_email)) = (&committer, &committer_email) {
                 content.push(Line::from(""));
                 content.push(Line::from(vec![
                     Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
@@ -163,7 +439,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                 ]));
             }
 
-            if let Some(commit_date) = &selected.commit_date {
+            if let Some(commit_date) = &commit_date {
                 let formatted = commit_date
                     .format(&fmt)
                     .unwrap_or_else(|_| String::from("Invalid date"));
@@ -175,7 +451,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         }
 
         // Add file list with status indicators
-        let diff_opt = match selected.oid.as_str() {
+        let diff_opt = match oid.as_str() {
             "staged" => repo.staged_diff(),
             "unstaged" => repo.unstaged_diff(),
             oid => repo.commit_diff(oid).ok(),
@@ -290,6 +566,28 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         app.detail_visible_height = visible_height;
         app.max_detail_h_scroll = max_h_scroll;
 
+        // --- Search: compute matches, auto-scroll, apply highlighting ---
+        if app.search_active && !app.search_query.is_empty() {
+            match RegexBuilder::new(&app.search_query).build() {
+                Ok(regex) => {
+                    let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
+                    search_info = info;
+                    if !app.search_matches.is_empty() {
+                        auto_scroll_to_new_match(app, prev_match_index, visible_height, max_scroll);
+                        content = apply_search_highlighting(content, app, &regex);
+                    }
+                }
+                Err(_) => {
+                    app.search_matches.clear();
+                    app.search_match_index = None;
+                    search_info = Some(SearchBarInfo::InvalidPattern);
+                }
+            }
+        } else if !app.search_active {
+            app.search_matches.clear();
+            app.search_match_index = None;
+        }
+
         // Clamp scroll offsets to valid range
         let scroll_offset = app.detail_scroll_offset.min(max_scroll);
         let h_scroll = app.detail_h_scroll_offset.min(max_h_scroll);
@@ -336,6 +634,11 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                 text_area_width,
             );
         }
+    }
+
+    // Render search bar (row above footer, only when search is active)
+    if app.search_active {
+        render_search_bar(frame, app, search_info, search_bar_area);
     }
 
     // Render footer

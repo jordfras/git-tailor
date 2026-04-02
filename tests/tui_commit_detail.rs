@@ -451,3 +451,330 @@ fn test_scroll_detail_left_clamps_at_zero() {
     app.scroll_detail_left();
     assert_eq!(app.detail_h_scroll_offset, 0);
 }
+
+// --- Search feature tests ---
+
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use git_tailor::app::{AppAction, AppMode, KeyCommand};
+
+fn make_key_event(code: KeyCode) -> Event {
+    Event::Key(KeyEvent {
+        code,
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    })
+}
+
+/// Snapshot: search bar appears in footer when search is activated.
+#[test]
+fn test_commit_detail_search_bar_visible() {
+    let diff = CommitDiff {
+        commit: common::create_test_commit("abc123", "Add feature"),
+        files: vec![FileDiff {
+            old_path: Some("hello.txt".to_string()),
+            new_path: Some("hello.txt".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![
+                    DiffLine {
+                        kind: DiffLineKind::Deletion,
+                        content: "old line\n".to_string(),
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Addition,
+                        content: "new line\n".to_string(),
+                    },
+                ],
+            }],
+        }],
+    };
+    let repo = FakeDiffRepo(diff);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitDetail;
+
+    // Activate search and type a query
+    app.activate_search();
+    app.search_query = "old".to_string();
+
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(&repo, frame, &mut app, area);
+        })
+        .unwrap();
+
+    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+}
+
+/// Snapshot: search highlights matching text in diff lines.
+#[test]
+fn test_commit_detail_search_highlight_matches() {
+    let diff = CommitDiff {
+        commit: common::create_test_commit("abc123", "Add feature"),
+        files: vec![FileDiff {
+            old_path: Some("hello.txt".to_string()),
+            new_path: Some("hello.txt".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 2,
+                new_start: 1,
+                new_lines: 2,
+                lines: vec![
+                    DiffLine {
+                        kind: DiffLineKind::Context,
+                        content: "context line\n".to_string(),
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Deletion,
+                        content: "hello world\n".to_string(),
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Addition,
+                        content: "hello universe\n".to_string(),
+                    },
+                ],
+            }],
+        }],
+    };
+    let repo = FakeDiffRepo(diff);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitDetail;
+
+    // Search for "hello" — should match 2 diff lines + file path
+    app.activate_search();
+    app.search_query = "hello".to_string();
+    app.search_input_active = false; // Confirmed search
+
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(&repo, frame, &mut app, area);
+        })
+        .unwrap();
+
+    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+}
+
+/// handle_search_event appends characters to the query.
+#[test]
+fn test_search_event_char_input() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('f')), &mut app);
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
+
+    assert_eq!(app.search_query, "foo");
+    assert!(app.search_input_active);
+    assert!(app.search_active);
+}
+
+/// Backspace removes the last character from the search query.
+#[test]
+fn test_search_event_backspace() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Backspace), &mut app);
+
+    assert_eq!(app.search_query, "fo");
+}
+
+/// Enter confirms the search (keeps active, stops input).
+#[test]
+fn test_search_event_enter_confirms() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
+
+    assert!(!app.search_input_active);
+    assert!(app.search_active);
+    assert_eq!(app.search_query, "foo");
+}
+
+/// Escape dismisses the search entirely.
+#[test]
+fn test_search_event_escape_dismisses() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Esc), &mut app);
+
+    assert!(!app.search_input_active);
+    assert!(!app.search_active);
+    assert!(app.search_query.is_empty());
+}
+
+/// Quit (Esc) in confirmed-search mode clears search instead of leaving detail.
+#[test]
+fn test_quit_clears_search_before_leaving_detail() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.search_active = true;
+    app.search_query = "foo".to_string();
+
+    let result = views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
+
+    assert!(matches!(result, AppAction::Handled));
+    assert!(!app.search_active);
+    // Still in CommitDetail — didn't leave
+    assert!(matches!(app.mode, AppMode::CommitDetail));
+}
+
+/// n/N cycle through search matches, wrapping around.
+#[test]
+fn test_search_next_prev_wraps() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.search_active = true;
+    app.search_matches = vec![5, 10, 20];
+    app.search_match_index = Some(0);
+    app.detail_visible_height = 100; // large enough to avoid scrolling
+
+    // Forward
+    views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.search_match_index, Some(1));
+
+    views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.search_match_index, Some(2));
+
+    // Wrap forward
+    views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.search_match_index, Some(0));
+
+    // Wrap backward
+    views::commit_detail::handle_key(KeyCommand::SearchPrev, &mut app);
+    assert_eq!(app.search_match_index, Some(2));
+}
+
+/// Regex search is case-sensitive: "FOO" must not match "foo".
+#[test]
+fn test_search_case_sensitive() {
+    let diff = CommitDiff {
+        commit: common::create_test_commit("abc123", "Add FOO feature"),
+        files: vec![FileDiff {
+            old_path: Some("foo.txt".to_string()),
+            new_path: Some("foo.txt".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 2,
+                lines: vec![
+                    DiffLine {
+                        kind: DiffLineKind::Addition,
+                        content: "FOO bar\n".to_string(),
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Addition,
+                        content: "foo baz\n".to_string(),
+                    },
+                ],
+            }],
+        }],
+    };
+    let repo = FakeDiffRepo(diff);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
+    app.selection_index = 0;
+    app.mode = AppMode::CommitDetail;
+
+    // "FOO" must only match uppercase occurrences, not "foo"
+    app.activate_search();
+    app.search_query = "FOO".to_string();
+    app.search_input_active = false;
+
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(&repo, frame, &mut app, area);
+        })
+        .unwrap();
+
+    // "FOO" appears in the commit message and "+FOO bar" diff line.
+    // "foo" in file path and "+foo baz" must NOT match.
+    assert_eq!(app.search_matches.len(), 2);
+
+    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+}
+
+/// parse_key maps / to Search, n to SearchNext, N to SearchPrev in CommitDetail.
+#[test]
+fn test_parse_key_search_bindings() {
+    let mode = AppMode::CommitDetail;
+
+    let slash_event = Event::Key(KeyEvent {
+        code: KeyCode::Char('/'),
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    assert_eq!(mode.parse_key(slash_event), KeyCommand::Search);
+
+    let n_event = Event::Key(KeyEvent {
+        code: KeyCode::Char('n'),
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    assert_eq!(mode.parse_key(n_event), KeyCommand::SearchNext);
+
+    let shift_n_event = Event::Key(KeyEvent {
+        code: KeyCode::Char('N'),
+        modifiers: KeyModifiers::SHIFT,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    assert_eq!(mode.parse_key(shift_n_event), KeyCommand::SearchPrev);
+}
+
+/// / n N should NOT produce search commands in CommitList mode.
+#[test]
+fn test_parse_key_search_only_in_detail() {
+    let mode = AppMode::CommitList;
+
+    let slash = Event::Key(KeyEvent {
+        code: KeyCode::Char('/'),
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    assert_eq!(mode.parse_key(slash), KeyCommand::None);
+
+    let n = Event::Key(KeyEvent {
+        code: KeyCode::Char('n'),
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    });
+    assert_eq!(mode.parse_key(n), KeyCommand::None);
+}

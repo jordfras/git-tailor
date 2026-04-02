@@ -10,6 +10,8 @@ The format is based on
 
 ### Added
 
+- Press `/` in the commit detail view to search the diff with a regex pattern.
+  `n` / `N` jump to the next / previous match, `Esc` dismisses the search.
 - `--all` flag: pass `gt --all` to browse and edit the complete repository
   history from HEAD down to the first (root) commit. Mutually exclusive with
   the positional `BASE` argument. Useful for projects with no upstream branch
@@ -21,6 +23,9 @@ The format is based on
   disappear instantly on Windows. Crossterm emits both a key-press and a
   key-release event per keystroke on Windows; the release event was clearing
   the message before it could be read. Release events are now discarded.
+- Squash/fixup with a conflict no longer corrupts the resulting tree. Stale
+  index entries from HEAD leaked into the squash commit, causing spurious
+  conflicts (with empty merge bases) in later commits during the rebase.
 
 
 ## [0.2.0] - 2026-03-21

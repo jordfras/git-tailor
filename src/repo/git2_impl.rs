@@ -793,7 +793,22 @@ impl GitRepo for Git2Repo {
             .context("Invalid original branch OID in conflict state")?;
         let label = state.operation_label.to_lowercase();
         self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
-        self.checkout_head()?;
+
+        // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
+        // clears the index and repopulates it from the cherry-pick result (rooted in
+        // the target commit's tree), so checkout_head alone cannot restore files that
+        // exist in HEAD but were absent from that tree.
+        let head_commit = self.inner.find_commit(original_oid)?;
+        let mut index = self.inner.index()?;
+        index.read_tree(&head_commit.tree()?)?;
+        index.write()?;
+
+        // Force-checkout HEAD and remove files that were written to the workdir
+        // by the conflict checkout but are not tracked by the original HEAD.
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        checkout.remove_untracked(true);
+        self.inner.checkout_head(Some(&mut checkout))?;
         Ok(())
     }
 
@@ -1775,9 +1790,12 @@ impl Git2Repo {
         // Write the conflicted index entries (including conflict markers) into
         // the repo's index so `git status` and the user's editor see them.
         let mut repo_index = repo.index()?;
+        // Clear stale entries before populating the index with the cherry-pick
+        // result.  Without this, leftover files from the previous index state
+        // (typically HEAD) leak into the written index and end up in trees
+        // created by rebase_continue / squash_finalize.
+        repo_index.clear()?;
         for entry in cherry_index.iter() {
-            // Stage 0 = normal, stages 1-3 = conflict (base/ours/theirs).
-            // We need to preserve all stages so the user's tools can resolve.
             repo_index.add(&entry)?;
         }
         repo_index.write()?;

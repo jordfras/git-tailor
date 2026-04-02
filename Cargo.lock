@@ -516,6 +516,7 @@ dependencies = [
  "git2",
  "insta",
  "ratatui",
+ "regex",
  "tempfile",
  "time",
 ]
