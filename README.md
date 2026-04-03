@@ -145,3 +145,7 @@ See [NOTICE](NOTICE) for full details.
 ## License
 
 Apache License, Version 2.0 — see [LICENSE](LICENSE).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
