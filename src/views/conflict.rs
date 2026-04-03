@@ -217,5 +217,5 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
     lines.push(Line::from(""));
 
     let title = format!(" {label} Conflict ");
-    render_centered_dialog(frame, &title, Color::Red, PREFERRED_WIDTH, lines);
+    render_centered_dialog(frame, &title, Color::Red, PREFERRED_WIDTH, lines, 0);
 }

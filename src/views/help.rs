@@ -30,12 +30,28 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
             app.toggle_help();
             AppAction::Handled
         }
+        KeyCommand::MoveUp => {
+            app.scroll_dialog_up();
+            AppAction::Handled
+        }
+        KeyCommand::MoveDown => {
+            app.scroll_dialog_down();
+            AppAction::Handled
+        }
+        KeyCommand::PageUp => {
+            app.scroll_dialog_page_up();
+            AppAction::Handled
+        }
+        KeyCommand::PageDown => {
+            app.scroll_dialog_page_down();
+            AppAction::Handled
+        }
         _ => AppAction::Handled,
     }
 }
 
 /// Render the help dialog as a centered overlay.
-pub fn render(frame: &mut Frame) {
+pub fn render(app: &mut crate::app::AppState, frame: &mut Frame) {
     // Build help content first to calculate required size
     let help_lines = vec![
         Line::from(""),
@@ -45,7 +61,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
             Span::raw("Move selection up/down"),
@@ -69,7 +84,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   p         ", Style::default().fg(Color::Cyan)),
             Span::raw("Split commit (choose strategy)"),
@@ -101,7 +115,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
             Span::raw("Toggle commit detail view"),
@@ -121,7 +134,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   /         ", Style::default().fg(Color::Cyan)),
             Span::raw("Search (regex)"),
@@ -145,7 +157,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   Esc, q    ", Style::default().fg(Color::Cyan)),
             Span::raw("Close dialog / Quit application"),
@@ -153,5 +164,14 @@ pub fn render(frame: &mut Frame) {
         Line::from(""),
     ];
 
-    render_centered_dialog(frame, " Help - Keybindings ", Color::White, 48, help_lines);
+    let (max_scroll, visible_height) = render_centered_dialog(
+        frame,
+        " Help - Keybindings ",
+        Color::White,
+        48,
+        help_lines,
+        app.dialog_scroll_offset,
+    );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }

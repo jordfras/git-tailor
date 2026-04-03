@@ -105,5 +105,6 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
         Color::Yellow,
         PREFERRED_WIDTH,
         lines,
+        0,
     );
 }
