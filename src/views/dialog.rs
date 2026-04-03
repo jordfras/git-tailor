@@ -18,24 +18,35 @@ use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Color, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-/// Render a centered dialog overlay.
+/// Render a centered dialog overlay with optional vertical scrolling.
 ///
 /// Computes a centered rectangle from `preferred_width` and the number of
-/// `lines`, clears the background, and draws a bordered paragraph.
+/// `lines` (clamped to the terminal height), renders a bordered paragraph
+/// scrolled to `scroll_offset`, and draws a scrollbar when the content is
+/// taller than the visible area.
+///
+/// Returns `(max_scroll, visible_height)` so the caller can clamp the stored
+/// scroll offset and compute page sizes.
 pub fn render_centered_dialog(
     frame: &mut Frame,
     title: &str,
     border_color: Color,
     preferred_width: u16,
     lines: Vec<Line>,
-) {
+    scroll_offset: usize,
+) -> (usize, usize) {
     let area = frame.area();
+    let content_height = lines.len();
     let dialog_width = preferred_width.min(area.width.saturating_sub(4));
-    let dialog_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let dialog_height = (content_height as u16 + 2).min(area.height.saturating_sub(2));
+    let inner_height = dialog_height.saturating_sub(2) as usize;
+    let max_scroll = content_height.saturating_sub(inner_height);
+    let scroll_offset = scroll_offset.min(max_scroll);
+
     let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
     let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
     let dialog_area = Rect {
@@ -56,9 +67,67 @@ pub fn render_centered_dialog(
                     .style(Style::default().bg(Color::Black)),
             )
             .alignment(Alignment::Left)
-            .wrap(Wrap { trim: false }),
+            .wrap(Wrap { trim: false })
+            .scroll((scroll_offset as u16, 0)),
         dialog_area,
     );
+
+    if max_scroll > 0 && dialog_height > 2 {
+        let scrollbar_area = Rect {
+            x: dialog_area.x + dialog_area.width.saturating_sub(1),
+            y: dialog_area.y + 1,
+            width: 1,
+            height: dialog_area.height.saturating_sub(2),
+        };
+        render_dialog_scrollbar(
+            frame,
+            scrollbar_area,
+            scroll_offset,
+            content_height,
+            inner_height,
+        );
+    }
+
+    (max_scroll, inner_height)
+}
+
+/// Draw a vertical scrollbar track+thumb inside a 1-column-wide area.
+///
+/// The thumb is sized proportionally to the visible fraction of content and
+/// positioned to reflect `scroll_offset` within the scrollable range.
+fn render_dialog_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll_offset: usize,
+    total_lines: usize,
+    visible_height: usize,
+) {
+    if area.height == 0 || total_lines == 0 {
+        return;
+    }
+    let track_height = area.height as usize;
+    let thumb_size = ((visible_height as f64 / total_lines as f64) * track_height as f64)
+        .ceil()
+        .max(1.0) as usize;
+    let thumb_size = thumb_size.min(track_height);
+    let scrollable_track = track_height.saturating_sub(thumb_size);
+    let thumb_top = if total_lines > visible_height && scrollable_track > 0 {
+        ((scroll_offset as f64 / (total_lines - visible_height) as f64) * scrollable_track as f64)
+            .round() as usize
+    } else {
+        0
+    };
+    let bar_lines: Vec<Line> = (0..track_height)
+        .map(|i| {
+            let ch = if i >= thumb_top && i < thumb_top + thumb_size {
+                "█"
+            } else {
+                "│"
+            };
+            Line::from(Span::styled(ch, Style::default().fg(Color::DarkGray)))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(bar_lines), area);
 }
 
 /// Compute the usable inner width for content inside a dialog.

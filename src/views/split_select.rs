@@ -165,7 +165,14 @@ pub fn render(app: &AppState, frame: &mut Frame) {
 
     let content_width = 50;
 
-    render_centered_dialog(frame, " Split Commit ", Color::Cyan, content_width, lines);
+    render_centered_dialog(
+        frame,
+        " Split Commit ",
+        Color::Cyan,
+        content_width,
+        lines,
+        0,
+    );
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
@@ -204,5 +211,5 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
         Line::from(""),
     ];
 
-    render_centered_dialog(frame, " Confirm Split ", Color::Yellow, 52, lines);
+    render_centered_dialog(frame, " Confirm Split ", Color::Yellow, 52, lines, 0);
 }

@@ -766,6 +766,6 @@ fn render_mode(
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
         AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
         AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
-        AppMode::Help(_) => views::help::render(frame),
+        AppMode::Help(_) => views::help::render(app, frame),
     }
 }

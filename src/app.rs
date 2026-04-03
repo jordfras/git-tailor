@@ -348,6 +348,12 @@ pub struct AppState {
     pub status_is_error: bool,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
+    /// Scroll offset for the current dialog (e.g. help). Reset when a dialog opens.
+    pub dialog_scroll_offset: usize,
+    /// Maximum allowed dialog scroll offset (updated during render).
+    pub max_dialog_scroll: usize,
+    /// Visible content height of the current dialog (updated during render, used for paging).
+    pub dialog_visible_height: usize,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -383,6 +389,9 @@ impl AppState {
             max_detail_h_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
+            dialog_scroll_offset: 0,
+            max_dialog_scroll: 0,
+            dialog_visible_height: 0,
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
@@ -415,6 +424,9 @@ impl AppState {
             max_detail_h_scroll: 0,
             commit_list_visible_height: 0,
             detail_visible_height: 0,
+            dialog_scroll_offset: 0,
+            max_dialog_scroll: 0,
+            dialog_visible_height: 0,
             status_message: None,
             status_is_error: false,
             separator_offset: 0,
@@ -724,7 +736,33 @@ impl AppState {
         if !matches!(self.mode, AppMode::Help(_)) {
             let current = std::mem::replace(&mut self.mode, AppMode::CommitList);
             self.mode = AppMode::Help(Box::new(current));
+            self.dialog_scroll_offset = 0;
         }
+    }
+
+    /// Scroll the current dialog up by one line.
+    pub fn scroll_dialog_up(&mut self) {
+        self.dialog_scroll_offset = self.dialog_scroll_offset.saturating_sub(1);
+    }
+
+    /// Scroll the current dialog down by one line.
+    pub fn scroll_dialog_down(&mut self) {
+        if self.dialog_scroll_offset < self.max_dialog_scroll {
+            self.dialog_scroll_offset += 1;
+        }
+    }
+
+    /// Scroll the current dialog up by one page.
+    pub fn scroll_dialog_page_up(&mut self) {
+        let page = self.dialog_visible_height.saturating_sub(1).max(1);
+        self.dialog_scroll_offset = self.dialog_scroll_offset.saturating_sub(page);
+    }
+
+    /// Scroll the current dialog down by one page.
+    pub fn scroll_dialog_page_down(&mut self) {
+        let page = self.dialog_visible_height.saturating_sub(1).max(1);
+        let new = self.dialog_scroll_offset.saturating_add(page);
+        self.dialog_scroll_offset = new.min(self.max_dialog_scroll);
     }
 
     /// Close help dialog and return to previous mode.
