@@ -57,6 +57,7 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 |----------------------|------------------------------------------------------------------------------------|
 | `--reverse` / `-r`   | Show oldest commit at the top                                                      |
 | `--full` / `-f`      | Show every raw hunk group column without deduplication                             |
+| `--all`              | Browse the complete repository history from HEAD down to the root commit           |
 | `--static` / `-s`    | Print the hunk group matrix to stdout and exit (no TUI)                            |
 | `--no-color`         | Disable colors in `--static` output                                                |
 | `--squashable-scope` | controls whether yellow connectors mean per-hunk-group or per-commit squashability |
@@ -128,6 +129,15 @@ When you select a commit, the other commits are colored relative to it:
 | `h`           | Show help dialog                 |
 | `u`           | Refresh commit list from HEAD    |
 | `Esc` / `q`   | Close dialog / quit              |
+
+### Search (commit detail view)
+
+| Key   | Action                              |
+|-------|-------------------------------------|
+| `/`   | Open search bar (regex)             |
+| `n`   | Jump to next match                  |
+| `N`   | Jump to previous match              |
+| `Esc` | Dismiss search                      |
 
 
 ## Attribution
