@@ -45,7 +45,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
             Span::raw("Move selection up/down"),
@@ -69,7 +68,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   p         ", Style::default().fg(Color::Cyan)),
             Span::raw("Split commit (choose strategy)"),
@@ -101,7 +99,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
             Span::raw("Toggle commit detail view"),
@@ -121,7 +118,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   /         ", Style::default().fg(Color::Cyan)),
             Span::raw("Search (regex)"),
@@ -145,7 +141,6 @@ pub fn render(frame: &mut Frame) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(""),
         Line::from(vec![
             Span::styled("   Esc, q    ", Style::default().fg(Color::Cyan)),
             Span::raw("Close dialog / Quit application"),
