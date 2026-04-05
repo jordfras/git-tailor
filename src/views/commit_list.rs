@@ -461,6 +461,21 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         _ => None,
     };
 
+    // Focus commit index in the fragmap matrix, accounting for reverse display.
+    // Used by themes (e.g. HighlightTheme) to classify cluster columns as
+    // focus-related or unrelated.
+    let focus_source = squash_source_idx
+        .or_else(|| move_info.map(|(si, _)| si))
+        .unwrap_or(app.selection_index);
+    let focus_idx_in_fragmap = if app.reverse {
+        app.commits
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(focus_source)
+    } else {
+        focus_source
+    };
+
     let mut rows: Vec<Row<'a>> = Vec::new();
 
     for (visible_index, commit) in visible_commits.iter().enumerate() {
@@ -566,6 +581,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             cells.push(hunk_groups::build_fragmap_cell(
                 fragmap,
                 commit_idx_in_fragmap,
+                focus_idx_in_fragmap,
                 &layout.display_clusters,
                 is_selected,
                 app.squashable_scope,

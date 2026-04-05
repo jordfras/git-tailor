@@ -164,12 +164,17 @@ pub fn commit_text_style(
 
 /// Build a single fragmap cell from the visible cluster columns.
 ///
+/// `focus_idx` is the index of the focus commit (selected commit or action
+/// source) used to compute `SquareRole` and `ConnectorRole` per cluster for
+/// themes that distinguish focus-related columns from unrelated ones.
+///
 /// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
 /// background of every span so the row is visually highlighted without
 /// inverting the foreground colors of the symbols.
 pub fn build_fragmap_cell<'a>(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
+    focus_idx: usize,
     display_clusters: &[usize],
     is_selected: bool,
     scope: SquashableScope,
@@ -178,26 +183,35 @@ pub fn build_fragmap_cell<'a>(
     let spans: Vec<Span> = display_clusters
         .iter()
         .map(|&cluster_idx| {
+            let focus_touches = fragmap.matrix[focus_idx][cluster_idx] != TouchKind::None;
+            let square_role = if commit_idx == focus_idx {
+                SquareRole::Current
+            } else if focus_touches {
+                SquareRole::Related
+            } else {
+                SquareRole::Unrelated
+            };
+            let connector_role = if focus_touches {
+                ConnectorRole::Related
+            } else {
+                ConnectorRole::Unrelated
+            };
+
             let base_style = if is_selected {
                 Style::new().bg(COLOR_SELECTED_FRAGMAP_BG)
             } else {
                 Style::new()
             };
-            if let Some((symbol, style)) = fragmap_cell_content(
-                fragmap,
-                commit_idx,
-                cluster_idx,
-                scope,
-                SquareRole::Unrelated,
-                theme,
-            ) {
+            if let Some((symbol, style)) =
+                fragmap_cell_content(fragmap, commit_idx, cluster_idx, scope, square_role, theme)
+            {
                 Span::styled(symbol, base_style.patch(style))
             } else if let Some((symbol, style)) = fragmap_connector_content(
                 fragmap,
                 commit_idx,
                 cluster_idx,
                 scope,
-                ConnectorRole::Unrelated,
+                connector_role,
                 theme,
             ) {
                 Span::styled(symbol, base_style.patch(style))

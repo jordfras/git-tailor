@@ -112,7 +112,7 @@ Guidelines:
   `build_fragmap_cell` with calls through the trait so that adding new themes
   (T105, T107) doesn't require scattering conditionals throughout the rendering
   functions
-- [ ] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
+- [X] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
   clusters related to the focus commit (selected commit in CommitList, source
   commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
   and `┃` for connectors — while unrelated clusters use light glyphs — `▪` for

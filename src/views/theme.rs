@@ -108,7 +108,53 @@ impl FragmapTheme for PlainTheme {
     }
 }
 
-/// Classic fragmap appearance matching the `--static` colored output.
+/// Glyph-weight focus highlighting theme.
+///
+/// Focus-cluster columns (those the focus commit touches) use full squares:
+/// `█` for squares and `┃` for connectors. Non-focus columns use medium squares:
+/// `◼` for squares and `│` for connectors. Colors are identical to `PlainTheme`.
+pub struct HighlightTheme;
+
+impl FragmapTheme for HighlightTheme {
+    fn square_symbol(&self, role: SquareRole, _rel: RelationType) -> &str {
+        match role {
+            SquareRole::Current | SquareRole::Related => "█",
+            SquareRole::Unrelated => "◼",
+        }
+    }
+
+    fn square_style(&self, _role: SquareRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::DarkGray),
+            RelationType::Conflict => Style::new().fg(Color::White),
+        }
+    }
+
+    fn connector_symbol(&self, role: ConnectorRole, _rel: RelationType) -> &str {
+        match role {
+            ConnectorRole::Related => "┃",
+            ConnectorRole::Unrelated => "│",
+        }
+    }
+
+    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::Yellow),
+            RelationType::Conflict => Style::new().fg(Color::Red),
+        }
+    }
+
+    fn commit_row_style(&self, role: CommitRowRole) -> Style {
+        match role {
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::Conflict => Style::new().fg(Color::Red),
+            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Traditional fragmap appearance matching the `--static` colored output.
 ///
 /// Touched squares are rendered as a space with a white background; connectors
 /// use yellow (squashable) or red (conflict) backgrounds — identical to the
@@ -151,6 +197,8 @@ pub enum Theme {
     /// Uniform heavy-glyph rendering with no focus distinction (default).
     #[default]
     Plain,
+    /// Glyph-weight focus highlighting: heavy glyphs for focus-related clusters, light for others.
+    Highlight,
     /// Traditional fragmap appearance: background-colored space cells matching `--static`.
     Classic,
 }
@@ -159,6 +207,7 @@ impl Theme {
     pub fn as_theme(&self) -> &dyn FragmapTheme {
         match self {
             Theme::Plain => &PlainTheme,
+            Theme::Highlight => &HighlightTheme,
             Theme::Classic => &ClassicTheme,
         }
     }
