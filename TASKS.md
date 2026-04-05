@@ -96,7 +96,7 @@ Guidelines:
   in span clustering, and adapt the SPG logic in `src/fragmap/spg.rs` to
   properly track renamed files so that overlapping spans across renames are
   correctly clustered together
-- [ ] T106 P2 feat - Refactor fragmap cell rendering into a `FragmapTheme` trait
+- [X] T106 P2 feat - Refactor fragmap cell rendering into a `FragmapTheme` trait
   with four methods keyed by two enums: `SquareRole` (`Current` = the focus
   commit's own square, `Related` = another commit's square in a focus-cluster
   column, `Unrelated` = any square in a non-focus-cluster column),
