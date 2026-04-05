@@ -14,6 +14,7 @@
 
 // Fragmap rendering theme trait and built-in theme implementations.
 
+use clap::ValueEnum;
 use ratatui::style::{Color, Style};
 
 /// Role of a square (commit-row × cluster-column intersection) relative to the focus commit.
@@ -103,6 +104,62 @@ impl FragmapTheme for PlainTheme {
             CommitRowRole::Conflict => Style::new().fg(Color::Red),
             CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
             CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Classic fragmap appearance matching the `--static` colored output.
+///
+/// Touched squares are rendered as a space with a white background; connectors
+/// use yellow (squashable) or red (conflict) backgrounds — identical to the
+/// ANSI color output produced by `git-tailor --static`.
+pub struct ClassicTheme;
+
+impl FragmapTheme for ClassicTheme {
+    fn square_symbol(&self, _role: SquareRole, _rel: RelationType) -> &str {
+        " "
+    }
+
+    fn square_style(&self, _role: SquareRole, _rel: RelationType) -> Style {
+        Style::new().bg(Color::White)
+    }
+
+    fn connector_symbol(&self, _role: ConnectorRole, _rel: RelationType) -> &str {
+        " "
+    }
+
+    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().bg(Color::Yellow),
+            RelationType::Conflict => Style::new().bg(Color::Red),
+        }
+    }
+
+    fn commit_row_style(&self, role: CommitRowRole) -> Style {
+        match role {
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::Conflict => Style::new().fg(Color::Red),
+            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Selects which `FragmapTheme` implementation is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum Theme {
+    /// Uniform heavy-glyph rendering with no focus distinction (default).
+    #[default]
+    Plain,
+    /// Traditional fragmap appearance: background-colored space cells matching `--static`.
+    Classic,
+}
+
+impl Theme {
+    pub fn as_theme(&self) -> &dyn FragmapTheme {
+        match self {
+            Theme::Plain => &PlainTheme,
+            Theme::Classic => &ClassicTheme,
         }
     }
 }

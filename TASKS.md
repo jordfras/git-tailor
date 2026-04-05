@@ -122,7 +122,7 @@ Guidelines:
   participates in without introducing new colors. "Related" means the cluster
   column contains a touch from the focus commit. Implement as a `FocusTheme`
   behind the `FragmapTheme` trait from T106.
-- [ ] T107 P3 feat - Add `--theme <THEME>` CLI option to select the fragmap
+- [X] T107 P3 feat - Add `--theme <THEME>` CLI option to select the fragmap
   rendering theme; three themes are supported: `plain` (the current uniform
   heavy-glyph rendering with no focus-related highlighting, equivalent to
   DefaultTheme from T106), `highlight` (glyph-weight focus highlighting from
