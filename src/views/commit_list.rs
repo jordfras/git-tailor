@@ -17,6 +17,7 @@
 use super::hunk_groups;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use crate::fragmap::TouchKind;
+use crate::views::theme::PlainTheme;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -501,7 +502,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap, &PlainTheme)
             } else {
                 Style::default()
             }
@@ -511,7 +512,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap, &PlainTheme)
             } else {
                 Style::default()
             }
@@ -520,7 +521,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(
+                    fm,
+                    app.selection_index,
+                    commit_idx_in_fragmap,
+                    &PlainTheme,
+                )
             } else {
                 Style::default()
             }
@@ -554,6 +560,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 &layout.display_clusters,
                 is_selected,
                 app.squashable_scope,
+                &PlainTheme,
             ));
         }
 
