@@ -28,6 +28,7 @@ use git_tailor::{
     editor, fragmap,
     fragmap::SquashableScope,
     mergetool, views,
+    views::theme::Theme,
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
@@ -81,6 +82,10 @@ struct Cli {
     /// Cannot be combined with a BASE argument.
     #[arg(long, conflicts_with = "base")]
     all: bool,
+
+    /// Hunk group matrix rendering theme.
+    #[arg(long = "theme", value_enum)]
+    theme: Option<Theme>,
 }
 
 /// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
@@ -189,6 +194,7 @@ fn main() -> Result<()> {
     let mut app = AppState::with_commits(commits);
     app.reverse = cli.reverse;
     app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
+    app.theme = cli.theme.unwrap_or(Theme::Plain);
     app.reference_oid = reference_oid;
     app.include_reference_oid = include_reference_oid;
 
