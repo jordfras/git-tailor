@@ -194,12 +194,12 @@ impl FragmapTheme for ClassicTheme {
 /// Selects which `FragmapTheme` implementation is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum Theme {
-    /// Uniform heavy-glyph rendering with no focus distinction (default).
+    /// No focus highlighting (default).
     #[default]
     Plain,
-    /// Glyph-weight focus highlighting: heavy glyphs for focus-related clusters, light for others.
+    /// Highlight clusters related to the selected commit.
     Highlight,
-    /// Traditional fragmap appearance: background-colored space cells matching `--static`.
+    /// Background-color style, matching the `--static` output.
     Classic,
 }
 
