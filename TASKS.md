@@ -97,13 +97,20 @@ Guidelines:
   properly track renamed files so that overlapping spans across renames are
   correctly clustered together
 - [ ] T106 P2 feat - Refactor fragmap cell rendering into a `FragmapTheme` trait
-  with methods like `touched_symbol()`, `connector_symbol()`, `touched_style()`,
-  `connector_style()` that accept context (relation type, whether the cluster is
-  focus-related, whether the row is selected) and return the glyph and `Style`;
-  implement `DefaultTheme` reproducing the current behavior; replace the inline
-  constant lookups in `fragmap_cell_content`, `fragmap_connector_content`, and
-  `build_fragmap_cell` with calls through the trait so that adding new rendering
-  modes (T105) doesn't require scattering conditionals throughout the rendering
+  with four methods keyed by two enums: `SquareRole` (`Current` = the focus
+  commit's own square, `Related` = another commit's square in a focus-cluster
+  column, `Unrelated` = any square in a non-focus-cluster column),
+  `ConnectorRole` (`Related` = the column is a focus cluster, `Unrelated` =
+  otherwise), and `RelationType` (`Conflict` | `Squashable`); the trait methods
+  are `square_symbol(SquareRole, RelationType) -> char`,
+  `square_style(SquareRole, RelationType) -> Style`,
+  `connector_symbol(ConnectorRole, RelationType) -> char`, and
+  `connector_style(ConnectorRole, RelationType) -> Style`; implement
+  `PlainTheme` reproducing the current uniform heavy-glyph behavior (no
+  focus distinction); replace the inline constant lookups in
+  `fragmap_cell_content`, `fragmap_connector_content`, and
+  `build_fragmap_cell` with calls through the trait so that adding new themes
+  (T105, T107) doesn't require scattering conditionals throughout the rendering
   functions
 - [ ] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
   clusters related to the focus commit (selected commit in CommitList, source
@@ -115,10 +122,15 @@ Guidelines:
   participates in without introducing new colors. "Related" means the cluster
   column contains a touch from the focus commit. Implement as a `FocusTheme`
   behind the `FragmapTheme` trait from T106.
-- [ ] T107 P3 feat - Add CLI flag `--no-focus-glyphs` (or similar) to disable
-  the glyph-weight focus highlighting from T105 and fall back to the uniform
-  heavy-glyph rendering (DefaultTheme from T106); store the choice in `AppState`
-  and select the appropriate `FragmapTheme` implementation at startup
+- [ ] T107 P3 feat - Add `--theme <THEME>` CLI option to select the fragmap
+  rendering theme; three themes are supported: `plain` (the current uniform
+  heavy-glyph rendering with no focus-related highlighting, equivalent to
+  DefaultTheme from T106), `highlight` (glyph-weight focus highlighting from
+  T105 where clusters related to the selected commit use heavy glyphs and
+  unrelated clusters use light glyphs), and `classic` (identical rendering to
+  `--static`, reproducing the traditional fragmap tool appearance); store the
+  selected theme in `AppState` and select the appropriate `FragmapTheme`
+  implementation at startup; `plain` should be the default
 
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
