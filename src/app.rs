@@ -21,6 +21,7 @@ use crate::{
     CommitInfo,
     fragmap::{FragMap, SquashableScope},
     repo::ConflictState,
+    views::theme::Theme,
 };
 
 /// Semantic commands derived from keyboard input.
@@ -320,6 +321,8 @@ pub struct AppState {
     pub full_fragmap: bool,
     /// Controls what the squashable connector symbol means in the fragmap.
     pub squashable_scope: SquashableScope,
+    /// Active fragmap rendering theme.
+    pub theme: Theme,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.
     pub reference_oid: String,
@@ -379,6 +382,7 @@ impl AppState {
             reverse: false,
             full_fragmap: false,
             squashable_scope: SquashableScope::Group,
+            theme: Theme::Plain,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,
@@ -414,6 +418,7 @@ impl AppState {
             reverse: false,
             full_fragmap: false,
             squashable_scope: SquashableScope::Group,
+            theme: Theme::Plain,
             reference_oid: String::new(),
             fragmap: None,
             fragmap_scroll_offset: 0,

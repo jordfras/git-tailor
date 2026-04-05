@@ -461,6 +461,21 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         _ => None,
     };
 
+    // Focus commit index in the fragmap matrix, accounting for reverse display.
+    // Used by themes (e.g. HighlightTheme) to classify cluster columns as
+    // focus-related or unrelated.
+    let focus_source = squash_source_idx
+        .or_else(|| move_info.map(|(si, _)| si))
+        .unwrap_or(app.selection_index);
+    let focus_idx_in_fragmap = if app.reverse {
+        app.commits
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(focus_source)
+    } else {
+        focus_source
+    };
+
     let mut rows: Vec<Row<'a>> = Vec::new();
 
     for (visible_index, commit) in visible_commits.iter().enumerate() {
@@ -501,7 +516,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(
+                    fm,
+                    source_idx,
+                    commit_idx_in_fragmap,
+                    app.theme.as_theme(),
+                )
             } else {
                 Style::default()
             }
@@ -511,7 +531,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             } else if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, source_idx, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(
+                    fm,
+                    source_idx,
+                    commit_idx_in_fragmap,
+                    app.theme.as_theme(),
+                )
             } else {
                 Style::default()
             }
@@ -520,7 +545,12 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             if is_synthetic {
                 Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(fm, app.selection_index, commit_idx_in_fragmap)
+                hunk_groups::commit_text_style(
+                    fm,
+                    app.selection_index,
+                    commit_idx_in_fragmap,
+                    app.theme.as_theme(),
+                )
             } else {
                 Style::default()
             }
@@ -551,9 +581,11 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             cells.push(hunk_groups::build_fragmap_cell(
                 fragmap,
                 commit_idx_in_fragmap,
+                focus_idx_in_fragmap,
                 &layout.display_clusters,
                 is_selected,
                 app.squashable_scope,
+                app.theme.as_theme(),
             ));
         }
 

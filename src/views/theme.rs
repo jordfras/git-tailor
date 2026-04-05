@@ -1,0 +1,214 @@
+// Copyright 2026 Thomas Johannesson
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Fragmap rendering theme trait and built-in theme implementations.
+
+use clap::ValueEnum;
+use ratatui::style::{Color, Style};
+
+/// Role of a square (commit-row × cluster-column intersection) relative to the focus commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SquareRole {
+    /// The focus commit's own square (always in a focus-cluster column).
+    Current,
+    /// Another commit's square in a focus-cluster column.
+    Related,
+    /// Any square in a non-focus-cluster column.
+    Unrelated,
+}
+
+/// Role of a connector column relative to the focus commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectorRole {
+    /// The column belongs to a cluster that the focus commit touches.
+    Related,
+    /// The column belongs to a cluster the focus commit does not touch.
+    Unrelated,
+}
+
+/// Whether a cluster column represents a conflict or an easily squashable relationship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationType {
+    Conflict,
+    Squashable,
+}
+
+/// Role of a commit row's SHA + title text relative to the focus commit.
+///
+/// The focus commit itself is never passed to `commit_row_style`; its styling
+/// is handled separately by the caller before this function is reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitRowRole {
+    /// Directly squashable into, or from, the focus commit.
+    SquashPartner,
+    /// Shares a hunk-group cluster with the focus commit (but not squashable).
+    Conflict,
+    /// Fully squashable into some other commit (intrinsic property, focus-independent).
+    Squashable,
+    /// No relationship to the focus commit.
+    Unrelated,
+}
+
+/// Controls how fragmap squares, connectors, and commit list rows are rendered.
+pub trait FragmapTheme {
+    fn square_symbol(&self, role: SquareRole, rel: RelationType) -> &str;
+    fn square_style(&self, role: SquareRole, rel: RelationType) -> Style;
+    fn connector_symbol(&self, role: ConnectorRole, rel: RelationType) -> &str;
+    fn connector_style(&self, role: ConnectorRole, rel: RelationType) -> Style;
+    fn commit_row_style(&self, role: CommitRowRole) -> Style;
+}
+
+/// Uniform heavy-glyph rendering — no focus distinction.
+///
+/// This is the default theme, matching the original git-tailor rendering:
+/// all squares use `█`, all connectors use `│`, colored only by relation type.
+pub struct PlainTheme;
+
+impl FragmapTheme for PlainTheme {
+    fn square_symbol(&self, _role: SquareRole, _rel: RelationType) -> &str {
+        "█"
+    }
+
+    fn square_style(&self, _role: SquareRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::DarkGray),
+            RelationType::Conflict => Style::new().fg(Color::White),
+        }
+    }
+
+    fn connector_symbol(&self, _role: ConnectorRole, _rel: RelationType) -> &str {
+        "│"
+    }
+
+    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::Yellow),
+            RelationType::Conflict => Style::new().fg(Color::Red),
+        }
+    }
+
+    fn commit_row_style(&self, role: CommitRowRole) -> Style {
+        match role {
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::Conflict => Style::new().fg(Color::Red),
+            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Glyph-weight focus highlighting theme.
+///
+/// Focus-cluster columns (those the focus commit touches) use full squares:
+/// `█` for squares and `┃` for connectors. Non-focus columns use medium squares:
+/// `◼` for squares and `│` for connectors. Colors are identical to `PlainTheme`.
+pub struct HighlightTheme;
+
+impl FragmapTheme for HighlightTheme {
+    fn square_symbol(&self, role: SquareRole, _rel: RelationType) -> &str {
+        match role {
+            SquareRole::Current | SquareRole::Related => "█",
+            SquareRole::Unrelated => "◼",
+        }
+    }
+
+    fn square_style(&self, _role: SquareRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::DarkGray),
+            RelationType::Conflict => Style::new().fg(Color::White),
+        }
+    }
+
+    fn connector_symbol(&self, role: ConnectorRole, _rel: RelationType) -> &str {
+        match role {
+            ConnectorRole::Related => "┃",
+            ConnectorRole::Unrelated => "│",
+        }
+    }
+
+    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().fg(Color::Yellow),
+            RelationType::Conflict => Style::new().fg(Color::Red),
+        }
+    }
+
+    fn commit_row_style(&self, role: CommitRowRole) -> Style {
+        match role {
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::Conflict => Style::new().fg(Color::Red),
+            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Traditional fragmap appearance matching the `--static` colored output.
+///
+/// Touched squares are rendered as a space with a white background; connectors
+/// use yellow (squashable) or red (conflict) backgrounds — identical to the
+/// ANSI color output produced by `git-tailor --static`.
+pub struct ClassicTheme;
+
+impl FragmapTheme for ClassicTheme {
+    fn square_symbol(&self, _role: SquareRole, _rel: RelationType) -> &str {
+        " "
+    }
+
+    fn square_style(&self, _role: SquareRole, _rel: RelationType) -> Style {
+        Style::new().bg(Color::White)
+    }
+
+    fn connector_symbol(&self, _role: ConnectorRole, _rel: RelationType) -> &str {
+        " "
+    }
+
+    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+        match rel {
+            RelationType::Squashable => Style::new().bg(Color::Yellow),
+            RelationType::Conflict => Style::new().bg(Color::Red),
+        }
+    }
+
+    fn commit_row_style(&self, role: CommitRowRole) -> Style {
+        match role {
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::Conflict => Style::new().fg(Color::Red),
+            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Unrelated => Style::default(),
+        }
+    }
+}
+
+/// Selects which `FragmapTheme` implementation is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum Theme {
+    /// No focus highlighting (default).
+    #[default]
+    Plain,
+    /// Highlight clusters related to the selected commit.
+    Highlight,
+    /// Background-color style, matching the `--static` output.
+    Classic,
+}
+
+impl Theme {
+    pub fn as_theme(&self) -> &dyn FragmapTheme {
+        match self {
+            Theme::Plain => &PlainTheme,
+            Theme::Highlight => &HighlightTheme,
+            Theme::Classic => &ClassicTheme,
+        }
+    }
+}

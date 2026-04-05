@@ -18,6 +18,7 @@
 // cluster-matrix visualization — plus its horizontal scrollbar.
 
 use crate::fragmap::{self, SquashableScope, TouchKind};
+use crate::views::theme::{CommitRowRole, ConnectorRole, FragmapTheme, RelationType, SquareRole};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -25,20 +26,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Cell, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
-
-// Fragmap visualization symbols
-const CLUSTER_TOUCHED_CONFLICTING: &str = "█";
-const CLUSTER_TOUCHED_SQUASHABLE: &str = "█";
-const CLUSTER_CONNECTOR_CONFLICTING: &str = "│";
-const CLUSTER_CONNECTOR_SQUASHABLE: &str = "│";
-
-// Connector colors
-pub const COLOR_CONFLICTING: Color = Color::Red;
-pub const COLOR_SQUASHABLE: Color = Color::Yellow;
-
-// Cell colors
-const COLOR_TOUCHED_CONFLICTING: Color = Color::White;
-const COLOR_TOUCHED_SQUASHABLE: Color = Color::DarkGray;
 
 // Background applied to the fragmap matrix columns of the selected row.
 const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
@@ -73,7 +60,9 @@ fn fragmap_cell_content(
     commit_idx: usize,
     cluster_idx: usize,
     scope: SquashableScope,
-) -> Option<(&'static str, Style)> {
+    role: SquareRole,
+    theme: &dyn FragmapTheme,
+) -> Option<(String, Style)> {
     if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
         return None;
     }
@@ -88,17 +77,15 @@ fn fragmap_cell_content(
         SquashableScope::Commit => fragmap.is_fully_squashable(commit_idx),
     };
 
-    if is_squashable {
-        Some((
-            CLUSTER_TOUCHED_SQUASHABLE,
-            Style::new().fg(COLOR_TOUCHED_SQUASHABLE),
-        ))
+    let rel = if is_squashable {
+        RelationType::Squashable
     } else {
-        Some((
-            CLUSTER_TOUCHED_CONFLICTING,
-            Style::new().fg(COLOR_TOUCHED_CONFLICTING),
-        ))
-    }
+        RelationType::Conflict
+    };
+    Some((
+        theme.square_symbol(role, rel).to_owned(),
+        theme.square_style(role, rel),
+    ))
 }
 
 /// Determine connector content for a cell where the commit does NOT touch the cluster.
@@ -111,7 +98,9 @@ fn fragmap_connector_content(
     commit_idx: usize,
     cluster_idx: usize,
     scope: SquashableScope,
-) -> Option<(&'static str, Style)> {
+    role: ConnectorRole,
+    theme: &dyn FragmapTheme,
+) -> Option<(String, Style)> {
     let has_above = (0..commit_idx)
         .rev()
         .any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
@@ -123,12 +112,16 @@ fn fragmap_connector_content(
         (true, Some(below_idx)) => {
             match fragmap.connector_squashable(below_idx, cluster_idx, scope) {
                 Some(true) => Some((
-                    CLUSTER_CONNECTOR_SQUASHABLE,
-                    Style::new().fg(COLOR_SQUASHABLE),
+                    theme
+                        .connector_symbol(role, RelationType::Squashable)
+                        .to_owned(),
+                    theme.connector_style(role, RelationType::Squashable),
                 )),
                 Some(false) => Some((
-                    CLUSTER_CONNECTOR_CONFLICTING,
-                    Style::new().fg(COLOR_CONFLICTING),
+                    theme
+                        .connector_symbol(role, RelationType::Conflict)
+                        .to_owned(),
+                    theme.connector_style(role, RelationType::Conflict),
                 )),
                 None => None,
             }
@@ -148,6 +141,7 @@ pub fn commit_text_style(
     fragmap: &fragmap::FragMap,
     selection_idx: usize,
     commit_idx: usize,
+    theme: &dyn FragmapTheme,
 ) -> Style {
     let is_squash_partner = fragmap
         .squash_target(selection_idx)
@@ -156,18 +150,23 @@ pub fn commit_text_style(
             .squash_target(commit_idx)
             .is_some_and(|t| t == selection_idx);
 
-    if is_squash_partner {
-        Style::new().fg(COLOR_SQUASHABLE)
+    let role = if is_squash_partner {
+        CommitRowRole::SquashPartner
     } else if fragmap.shares_cluster_with(selection_idx, commit_idx) {
-        Style::new().fg(COLOR_CONFLICTING)
+        CommitRowRole::Conflict
     } else if fragmap.is_fully_squashable(commit_idx) {
-        Style::new().fg(COLOR_TOUCHED_SQUASHABLE)
+        CommitRowRole::Squashable
     } else {
-        Style::default()
-    }
+        CommitRowRole::Unrelated
+    };
+    theme.commit_row_style(role)
 }
 
 /// Build a single fragmap cell from the visible cluster columns.
+///
+/// `focus_idx` is the index of the focus commit (selected commit or action
+/// source) used to compute `SquareRole` and `ConnectorRole` per cluster for
+/// themes that distinguish focus-related columns from unrelated ones.
 ///
 /// When `is_selected` is true, adds `COLOR_SELECTED_FRAGMAP_BG` as the
 /// background of every span so the row is visually highlighted without
@@ -175,25 +174,46 @@ pub fn commit_text_style(
 pub fn build_fragmap_cell<'a>(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
+    focus_idx: usize,
     display_clusters: &[usize],
     is_selected: bool,
     scope: SquashableScope,
+    theme: &dyn FragmapTheme,
 ) -> Cell<'a> {
     let spans: Vec<Span> = display_clusters
         .iter()
         .map(|&cluster_idx| {
+            let focus_touches = fragmap.matrix[focus_idx][cluster_idx] != TouchKind::None;
+            let square_role = if commit_idx == focus_idx {
+                SquareRole::Current
+            } else if focus_touches {
+                SquareRole::Related
+            } else {
+                SquareRole::Unrelated
+            };
+            let connector_role = if focus_touches {
+                ConnectorRole::Related
+            } else {
+                ConnectorRole::Unrelated
+            };
+
             let base_style = if is_selected {
                 Style::new().bg(COLOR_SELECTED_FRAGMAP_BG)
             } else {
                 Style::new()
             };
             if let Some((symbol, style)) =
-                fragmap_cell_content(fragmap, commit_idx, cluster_idx, scope)
+                fragmap_cell_content(fragmap, commit_idx, cluster_idx, scope, square_role, theme)
             {
                 Span::styled(symbol, base_style.patch(style))
-            } else if let Some((symbol, style)) =
-                fragmap_connector_content(fragmap, commit_idx, cluster_idx, scope)
-            {
+            } else if let Some((symbol, style)) = fragmap_connector_content(
+                fragmap,
+                commit_idx,
+                cluster_idx,
+                scope,
+                connector_role,
+                theme,
+            ) {
                 Span::styled(symbol, base_style.patch(style))
             } else {
                 Span::styled(" ", base_style)
