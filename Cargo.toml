@@ -27,6 +27,7 @@ clap = { version = "4", default-features = false, features = ["std", "derive", "
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
 tempfile = "3"
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
+shell-words = "1"
 
 [dev-dependencies]
 insta = "1"
