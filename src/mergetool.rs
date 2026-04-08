@@ -22,7 +22,8 @@
 //   - git runs the cmd through a shell and waits for it to exit
 //
 // We follow the same contract: suspend the TUI, write the three index stages
-// to temp files, run the tool via `sh -c`, wait for exit, then restore.
+// to temp files, substitute the variables in Rust and launch the tool directly,
+// wait for exit, then restore.
 
 use crate::repo::GitRepo;
 use anyhow::{Context, Result};
@@ -181,16 +182,27 @@ fn run_tool_for_file(
 
     let merged_path = workdir.join(file_path);
 
-    // Run via shell so $LOCAL / $BASE / $REMOTE / $MERGED expand from the env vars.
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .env("BASE", base_tmp.path())
-        .env("LOCAL", local_tmp.path())
-        .env("REMOTE", remote_tmp.path())
-        .env("MERGED", &merged_path)
+    // Split the command template into program + args, then substitute the
+    // well-known variables so the tool can be launched directly without a shell.
+    // This works on all platforms and handles paths with spaces correctly.
+    let mut parts = shell_words::split(cmd)
+        .with_context(|| format!("failed to parse merge tool command `{cmd}`"))?;
+    if parts.is_empty() {
+        anyhow::bail!("merge tool command is empty");
+    }
+    let substitute = |s: String| -> String {
+        s.replace("$BASE", &base_tmp.path().to_string_lossy())
+            .replace("$LOCAL", &local_tmp.path().to_string_lossy())
+            .replace("$REMOTE", &remote_tmp.path().to_string_lossy())
+            .replace("$MERGED", &merged_path.to_string_lossy())
+    };
+    let prog = substitute(parts.remove(0));
+    let args: Vec<String> = parts.into_iter().map(substitute).collect();
+
+    let status = std::process::Command::new(&prog)
+        .args(&args)
         .status()
-        .context("failed to launch merge tool")?;
+        .with_context(|| format!("failed to launch merge tool `{prog}`"))?;
 
     // Temp files are kept alive (not dropped) until here, ensuring the child
     // can read them for the full duration of its execution.

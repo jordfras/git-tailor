@@ -14,6 +14,10 @@ The format is based on
   --no-splash`) are now parsed correctly as shell words. Previously, naive
   whitespace splitting broke the executable path, silently preventing the editor
   from launching on Windows.
+- Merge tool commands are now launched directly without a shell, with
+  `$LOCAL`/`$BASE`/`$REMOTE`/`$MERGED` substituted in Rust. This fixes launch
+  failures on Windows (no `sh`) and correctly handles tool paths that contain
+  spaces.
 
 
 ## [0.3.0] - 2026-04-03
