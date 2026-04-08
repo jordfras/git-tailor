@@ -94,6 +94,33 @@ struct Cli {
 /// changes) whose diff cannot be fetched by OID. They are appended at the end
 /// of the regular commit diffs so the fragmap matrix rows match the ordering in
 /// `AppState::commits`.
+/// Suspend the TUI, run `f`, then restore the TUI unconditionally.
+///
+/// Undoes the full setup done in `main` before calling `f` (leaves alternate
+/// screen, disables raw mode, pops keyboard-enhancement flags), then mirrors
+/// each step in reverse so the TUI is always left in a working state.
+/// Re-pushing `DISAMBIGUATE_ESCAPE_CODES` is critical on Windows: without it
+/// keys like Enter, Esc, and arrows stop working after the external process exits.
+fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
+    if kb_enhanced {
+        let _ = execute!(io::stderr(), PopKeyboardEnhancementFlags);
+    }
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stderr(), LeaveAlternateScreen);
+
+    let result = f();
+
+    let _ = execute!(io::stderr(), EnterAlternateScreen);
+    let _ = enable_raw_mode();
+    if kb_enhanced {
+        let _ = execute!(
+            io::stderr(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+    }
+    result
+}
+
 fn compute_fragmap(
     git_repo: &impl GitRepo,
     regular_commits: &[CommitInfo],
@@ -371,7 +398,9 @@ fn main() -> Result<()> {
                         ctx.combined_message.clone()
                     } else {
                         let combined = ctx.combined_message.clone();
-                        let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                        let editor_result = with_external_process(kb_enhanced, || {
+                            editor::edit_message_in_editor(&git_repo, &combined)
+                        });
                         terminal.clear()?;
                         match editor_result {
                             Err(e) => {
@@ -446,7 +475,9 @@ fn main() -> Result<()> {
                 files,
                 conflict_state,
             } => {
-                let result = mergetool::run_mergetool(&git_repo, &files);
+                let result = with_external_process(kb_enhanced, || {
+                    mergetool::run_mergetool(&git_repo, &files)
+                });
                 terminal.clear()?;
                 match result {
                     Ok(true) => {
@@ -476,14 +507,14 @@ fn main() -> Result<()> {
                 conflict_state,
             } => {
                 let workdir = git_repo.workdir();
-                let result: anyhow::Result<()> = (|| {
+                let result: anyhow::Result<()> = with_external_process(kb_enhanced, || {
                     let workdir = workdir
                         .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
                     for file_path in &files {
                         editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
                     }
                     Ok(())
-                })();
+                });
                 terminal.clear()?;
                 match result {
                     Ok(()) => {
@@ -514,7 +545,9 @@ fn main() -> Result<()> {
                         continue;
                     }
                 };
-                let editor_result = editor::edit_message_in_editor(&git_repo, &current_message);
+                let editor_result = with_external_process(kb_enhanced, || {
+                    editor::edit_message_in_editor(&git_repo, &current_message)
+                });
                 terminal.clear()?;
                 match editor_result {
                     Err(e) => app.set_error_message(format!("Editor error: {e}")),
@@ -582,7 +615,9 @@ fn main() -> Result<()> {
                 let final_message = if is_fixup {
                     Some(target_message)
                 } else {
-                    let editor_result = editor::edit_message_in_editor(&git_repo, &combined);
+                    let editor_result = with_external_process(kb_enhanced, || {
+                        editor::edit_message_in_editor(&git_repo, &combined)
+                    });
                     terminal.clear()?;
                     match editor_result {
                         Err(e) => {
