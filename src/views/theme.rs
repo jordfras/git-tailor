@@ -37,11 +37,25 @@ pub enum ConnectorRole {
     Unrelated,
 }
 
-/// Whether a cluster column represents a conflict or an easily squashable relationship.
+/// Relationship of a square (commit-row × cluster-column intersection) to earlier
+/// commits in the same cluster column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelationType {
-    Conflict,
+pub enum SquareRelation {
+    /// Can be squashed with an earlier commit in this cluster.
     Squashable,
+    /// Cannot be squashed — intervening commits exist in this cluster.
+    Conflict,
+    /// Topmost square in the column: no earlier commit touches this cluster.
+    Origin,
+}
+
+/// Relationship of a connector between two squares in a cluster column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectorRelation {
+    /// The lower square is squashable with the earlier one.
+    Squashable,
+    /// The lower square conflicts with the earlier one.
+    Conflict,
 }
 
 /// Role of a commit row's SHA + title text relative to the focus commit.
@@ -62,10 +76,10 @@ pub enum CommitRowRole {
 
 /// Controls how fragmap squares, connectors, and commit list rows are rendered.
 pub trait FragmapTheme {
-    fn square_symbol(&self, role: SquareRole, rel: RelationType) -> &str;
-    fn square_style(&self, role: SquareRole, rel: RelationType) -> Style;
-    fn connector_symbol(&self, role: ConnectorRole, rel: RelationType) -> &str;
-    fn connector_style(&self, role: ConnectorRole, rel: RelationType) -> Style;
+    fn square_symbol(&self, role: SquareRole, rel: SquareRelation) -> &str;
+    fn square_style(&self, role: SquareRole, rel: SquareRelation) -> Style;
+    fn connector_symbol(&self, role: ConnectorRole, rel: ConnectorRelation) -> &str;
+    fn connector_style(&self, role: ConnectorRole, rel: ConnectorRelation) -> Style;
     fn commit_row_style(&self, role: CommitRowRole) -> Style;
 }
 
@@ -76,25 +90,26 @@ pub trait FragmapTheme {
 pub struct PlainTheme;
 
 impl FragmapTheme for PlainTheme {
-    fn square_symbol(&self, _role: SquareRole, _rel: RelationType) -> &str {
+    fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {
         "█"
     }
 
-    fn square_style(&self, _role: SquareRole, rel: RelationType) -> Style {
+    fn square_style(&self, _role: SquareRole, rel: SquareRelation) -> Style {
         match rel {
-            RelationType::Squashable => Style::new().fg(Color::DarkGray),
-            RelationType::Conflict => Style::new().fg(Color::White),
+            SquareRelation::Squashable => Style::new().fg(Color::DarkGray),
+            SquareRelation::Conflict => Style::new().fg(Color::White),
+            SquareRelation::Origin => Style::new().fg(Color::White),
         }
     }
 
-    fn connector_symbol(&self, _role: ConnectorRole, _rel: RelationType) -> &str {
+    fn connector_symbol(&self, _role: ConnectorRole, _rel: ConnectorRelation) -> &str {
         "│"
     }
 
-    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+    fn connector_style(&self, _role: ConnectorRole, rel: ConnectorRelation) -> Style {
         match rel {
-            RelationType::Squashable => Style::new().fg(Color::Yellow),
-            RelationType::Conflict => Style::new().fg(Color::Red),
+            ConnectorRelation::Squashable => Style::new().fg(Color::Yellow),
+            ConnectorRelation::Conflict => Style::new().fg(Color::Red),
         }
     }
 
@@ -108,47 +123,60 @@ impl FragmapTheme for PlainTheme {
     }
 }
 
-/// Glyph-weight focus highlighting theme.
+/// Focus highlighting theme.
 ///
-/// Focus-cluster columns (those the focus commit touches) use full squares:
-/// `█` for squares and `┃` for connectors. Non-focus columns use medium squares:
-/// `◼` for squares and `│` for connectors. Colors are identical to `PlainTheme`.
+/// Dims unrelated columns (those the focus commit does not touch) to emphasize
+/// the selected commit's clusters. Related connectors use heavy `┃`, unrelated
+/// use light `│`. Squashable relations are green, conflicts are red/white.
 pub struct HighlightTheme;
 
 impl FragmapTheme for HighlightTheme {
-    fn square_symbol(&self, role: SquareRole, _rel: RelationType) -> &str {
+    fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {
+        "█"
+    }
+
+    fn square_style(&self, role: SquareRole, rel: SquareRelation) -> Style {
+        let style = match rel {
+            SquareRelation::Squashable => Style::new().fg(Color::Green),
+            SquareRelation::Conflict => Style::new().fg(if role == SquareRole::Current {
+                Color::LightRed
+            } else {
+                Color::White
+            }),
+            SquareRelation::Origin => Style::new().fg(Color::White),
+        };
         match role {
-            SquareRole::Current | SquareRole::Related => "█",
-            SquareRole::Unrelated => "◼",
+            SquareRole::Current => style,
+            SquareRole::Related => style,
+            SquareRole::Unrelated => style.add_modifier(ratatui::style::Modifier::DIM),
         }
     }
 
-    fn square_style(&self, _role: SquareRole, rel: RelationType) -> Style {
-        match rel {
-            RelationType::Squashable => Style::new().fg(Color::DarkGray),
-            RelationType::Conflict => Style::new().fg(Color::White),
-        }
-    }
-
-    fn connector_symbol(&self, role: ConnectorRole, _rel: RelationType) -> &str {
+    fn connector_symbol(&self, role: ConnectorRole, _rel: ConnectorRelation) -> &str {
         match role {
             ConnectorRole::Related => "┃",
             ConnectorRole::Unrelated => "│",
         }
     }
 
-    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
-        match rel {
-            RelationType::Squashable => Style::new().fg(Color::Yellow),
-            RelationType::Conflict => Style::new().fg(Color::Red),
+    fn connector_style(&self, role: ConnectorRole, rel: ConnectorRelation) -> Style {
+        let style = match rel {
+            ConnectorRelation::Squashable => Style::new().fg(Color::Green),
+            ConnectorRelation::Conflict => Style::new().fg(Color::Red),
+        };
+        match role {
+            ConnectorRole::Related => style.add_modifier(ratatui::style::Modifier::BOLD),
+            ConnectorRole::Unrelated => style.add_modifier(ratatui::style::Modifier::DIM),
         }
     }
 
     fn commit_row_style(&self, role: CommitRowRole) -> Style {
         match role {
-            CommitRowRole::SquashPartner => Style::new().fg(Color::Yellow),
+            CommitRowRole::SquashPartner => Style::new().fg(Color::Green),
             CommitRowRole::Conflict => Style::new().fg(Color::Red),
-            CommitRowRole::Squashable => Style::new().fg(Color::DarkGray),
+            CommitRowRole::Squashable => Style::new()
+                .fg(Color::Green)
+                .add_modifier(ratatui::style::Modifier::DIM),
             CommitRowRole::Unrelated => Style::default(),
         }
     }
@@ -162,22 +190,22 @@ impl FragmapTheme for HighlightTheme {
 pub struct ClassicTheme;
 
 impl FragmapTheme for ClassicTheme {
-    fn square_symbol(&self, _role: SquareRole, _rel: RelationType) -> &str {
+    fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {
         " "
     }
 
-    fn square_style(&self, _role: SquareRole, _rel: RelationType) -> Style {
+    fn square_style(&self, _role: SquareRole, _rel: SquareRelation) -> Style {
         Style::new().bg(Color::White)
     }
 
-    fn connector_symbol(&self, _role: ConnectorRole, _rel: RelationType) -> &str {
+    fn connector_symbol(&self, _role: ConnectorRole, _rel: ConnectorRelation) -> &str {
         " "
     }
 
-    fn connector_style(&self, _role: ConnectorRole, rel: RelationType) -> Style {
+    fn connector_style(&self, _role: ConnectorRole, rel: ConnectorRelation) -> Style {
         match rel {
-            RelationType::Squashable => Style::new().bg(Color::Yellow),
-            RelationType::Conflict => Style::new().bg(Color::Red),
+            ConnectorRelation::Squashable => Style::new().bg(Color::Yellow),
+            ConnectorRelation::Conflict => Style::new().bg(Color::Red),
         }
     }
 
