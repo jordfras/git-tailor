@@ -15,7 +15,6 @@
 use crate::repo::GitRepo;
 
 use anyhow::Context as _;
-use crossterm::{execute, terminal};
 
 /// Resolve the editor command to use for editing commit messages.
 ///
@@ -60,21 +59,11 @@ fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<
     let prog = parts.remove(0);
     let args = parts;
 
-    // Suspend TUI before handing the terminal to the editor.
-    terminal::disable_raw_mode().context("failed to disable raw mode")?;
-    execute!(std::io::stdout(), terminal::LeaveAlternateScreen)
-        .context("failed to leave alternate screen")?;
-
     let status = std::process::Command::new(&prog)
         .args(&args)
         .arg(path)
-        .status();
-
-    // Restore TUI unconditionally so the app is never left in a broken state.
-    let _ = terminal::enable_raw_mode();
-    let _ = execute!(std::io::stdout(), terminal::EnterAlternateScreen);
-
-    let status = status.with_context(|| format!("failed to launch editor `{prog}`"))?;
+        .status()
+        .with_context(|| format!("failed to launch editor `{prog}`"))?;
     if !status.success() {
         anyhow::bail!("editor exited with {status}");
     }

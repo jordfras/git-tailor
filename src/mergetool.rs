@@ -21,13 +21,12 @@
 //     $BASE (ancestor), and $MERGED (the working-tree file to save the result)
 //   - git runs the cmd through a shell and waits for it to exit
 //
-// We follow the same contract: suspend the TUI, write the three index stages
-// to temp files, substitute the variables in Rust and launch the tool directly,
-// wait for exit, then restore.
+// We follow the same contract: write the three index stages to temp files,
+// substitute the variables in Rust and launch the tool directly, then stage
+// the resolved file. TUI suspend/restore is handled by the caller (main.rs).
 
 use crate::repo::GitRepo;
 use anyhow::{Context, Result};
-use crossterm::{execute, terminal};
 use std::io::Write as _;
 use std::path::Path;
 
@@ -90,17 +89,7 @@ pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Resul
         .workdir()
         .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
 
-    // Suspend the TUI before handing the terminal to the merge tool.
-    terminal::disable_raw_mode().context("failed to disable raw mode")?;
-    let _ = execute!(std::io::stdout(), terminal::LeaveAlternateScreen);
-
-    let result = run_for_all_files(&cmd, &workdir, repo, conflicting_files);
-
-    // Restore the TUI unconditionally so the app is never left in a broken state.
-    let _ = terminal::enable_raw_mode();
-    let _ = execute!(std::io::stdout(), terminal::EnterAlternateScreen);
-
-    result?;
+    run_for_all_files(&cmd, &workdir, repo, conflicting_files)?;
     Ok(true)
 }
 

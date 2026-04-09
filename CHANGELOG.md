@@ -18,6 +18,10 @@ The format is based on
   `$LOCAL`/`$BASE`/`$REMOTE`/`$MERGED` substituted in Rust. This fixes launch
   failures on Windows (no `sh`) and correctly handles tool paths that contain
   spaces.
+- After returning from an external editor or merge tool, Enter, Esc, and arrow
+  keys no longer stop working. The TUI suspend/restore now correctly re-pushes
+  keyboard-enhancement flags and uses the right terminal handle on all
+  platforms.
 
 
 ## [0.3.0] - 2026-04-03
