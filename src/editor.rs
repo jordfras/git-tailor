@@ -52,18 +52,20 @@ fn resolve_editor(repo: &impl GitRepo) -> String {
 /// never left in a broken state.
 fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
     let editor_cmd = resolve_editor(repo);
-    let mut parts = editor_cmd.split_whitespace();
-    let prog = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("editor command is empty"))?;
-    let args: Vec<&str> = parts.collect();
+    let mut parts = shell_words::split(&editor_cmd)
+        .with_context(|| format!("failed to parse editor command `{editor_cmd}`"))?;
+    if parts.is_empty() {
+        anyhow::bail!("editor command is empty");
+    }
+    let prog = parts.remove(0);
+    let args = parts;
 
     // Suspend TUI before handing the terminal to the editor.
     terminal::disable_raw_mode().context("failed to disable raw mode")?;
     execute!(std::io::stdout(), terminal::LeaveAlternateScreen)
         .context("failed to leave alternate screen")?;
 
-    let status = std::process::Command::new(prog)
+    let status = std::process::Command::new(&prog)
         .args(&args)
         .arg(path)
         .status();

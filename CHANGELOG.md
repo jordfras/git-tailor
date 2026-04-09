@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Fixed
+
+- Editor commands with spaces in the path (e.g. `'C:/Program Files/…/emacs.exe'
+  --no-splash`) are now parsed correctly as shell words. Previously, naive
+  whitespace splitting broke the executable path, silently preventing the editor
+  from launching on Windows.
+
+
 ## [0.3.0] - 2026-04-03
 
 ### Added
