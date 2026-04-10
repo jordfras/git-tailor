@@ -101,6 +101,11 @@ struct Cli {
 /// each step in reverse so the TUI is always left in a working state.
 /// Re-pushing `DISAMBIGUATE_ESCAPE_CODES` is critical on Windows: without it
 /// keys like Enter, Esc, and arrows stop working after the external process exits.
+///
+/// After restoring, drains any stale input events that accumulated while the
+/// external process had the terminal. Terminal editors like vim leave buffered
+/// bytes (e.g. partial escape sequences) that confuse crossterm's parser and
+/// cause subsequent key reads to misfire.
 fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
     if kb_enhanced {
         let _ = execute!(io::stderr(), PopKeyboardEnhancementFlags);
@@ -118,6 +123,13 @@ fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         );
     }
+
+    // Drain stale events left by the external process before handing control
+    // back to the TUI event loop.
+    while crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false) {
+        let _ = crossterm::event::read();
+    }
+
     result
 }
 
