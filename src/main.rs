@@ -49,7 +49,7 @@ struct Cli {
     base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).
-    #[arg(short, long)]
+    #[arg(short, long, env = "GT_REVERSE")]
     reverse: bool,
 
     /// Show all hunk group columns without deduplication.
@@ -57,7 +57,7 @@ struct Cli {
     /// By default the hunk group matrix merges columns whose set of touching
     /// commits is identical, producing a compact view. With this flag every
     /// raw hunk group gets its own column.
-    #[arg(short = 'f', long)]
+    #[arg(short = 'f', long, env = "GT_FULL")]
     full: bool,
 
     /// Print the hunk group matrix to stdout and exit without launching the TUI.
@@ -74,7 +74,7 @@ struct Cli {
     no_color: bool,
 
     /// Controls what the yellow squashable-connector indicator means.
-    #[arg(long = "squashable-scope", value_enum)]
+    #[arg(long = "squashable-scope", value_enum, env = "GT_SQUASHABLE_SCOPE")]
     squashable_scope: Option<SquashableScope>,
 
     /// Show the complete repository history from HEAD down to the first commit.
@@ -84,7 +84,7 @@ struct Cli {
     all: bool,
 
     /// Hunk group matrix rendering theme.
-    #[arg(long = "theme", value_enum)]
+    #[arg(long = "theme", value_enum, env = "GT_THEME")]
     theme: Option<Theme>,
 }
 

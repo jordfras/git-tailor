@@ -8,6 +8,12 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Environment variable defaults for CLI flags: `GT_THEME`, `GT_REVERSE`,
+  `GT_FULL`, and `GT_SQUASHABLE_SCOPE`. Set these in your shell profile to
+  avoid repeating flags on every invocation. CLI flags take precedence.
+
 ### Fixed
 
 - Editor commands with spaces in the path (e.g. `'C:/Program Files/…/emacs.exe'
