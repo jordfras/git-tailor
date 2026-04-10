@@ -44,7 +44,10 @@ pub fn resolve_merge_tool_cmd(repo: &impl GitRepo) -> Option<String> {
     let name = name.trim().to_string();
 
     if let Some(cmd) = repo.get_config_string(&format!("mergetool.{name}.cmd")) {
-        return Some(cmd.trim().to_string());
+        let cmd = cmd.trim().to_string();
+        if !cmd.is_empty() {
+            return Some(cmd);
+        }
     }
 
     builtin_cmd(&name)
