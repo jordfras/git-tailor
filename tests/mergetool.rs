@@ -38,6 +38,7 @@ fn resolve_merge_tool_cmd_returns_none_when_no_config() {
 fn resolve_merge_tool_cmd_returns_builtin_for_vimdiff() {
     let test = common::TestRepo::new();
     test.set_config("merge.tool", "vimdiff");
+    test.set_config("mergetool.vimdiff.cmd", "");
     let git_repo = test.git_repo();
     let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
     assert!(
@@ -55,6 +56,7 @@ fn resolve_merge_tool_cmd_returns_builtin_for_vimdiff() {
 fn resolve_merge_tool_cmd_returns_builtin_for_kdiff3() {
     let test = common::TestRepo::new();
     test.set_config("merge.tool", "kdiff3");
+    test.set_config("mergetool.kdiff3.cmd", "");
     let git_repo = test.git_repo();
     let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
     assert!(
@@ -71,6 +73,7 @@ fn resolve_merge_tool_cmd_returns_builtin_for_kdiff3() {
 fn resolve_merge_tool_cmd_returns_builtin_for_meld() {
     let test = common::TestRepo::new();
     test.set_config("merge.tool", "meld");
+    test.set_config("mergetool.meld.cmd", "");
     let git_repo = test.git_repo();
     let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
     assert_eq!(cmd, "meld $LOCAL $MERGED $REMOTE");
