@@ -23,7 +23,7 @@ git2 = { version = "0.20", default-features = false }
 anyhow = "1.0"
 ratatui = "0.30"
 crossterm = "0.29"
-clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions"] }
+clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions", "env"] }
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
 tempfile = "3"
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
