@@ -10,6 +10,10 @@ The format is based on
 
 ### Added
 
+- Theming support for the hunk group matrix via `--theme`. Three built-in
+  themes: `plain` (default), `highlight` (dims unrelated columns to emphasize
+  the selected commit's clusters), and `classic` (background-color style
+  matching `--static` output).
 - Environment variable defaults for CLI flags: `GT_THEME`, `GT_REVERSE`,
   `GT_FULL`, and `GT_SQUASHABLE_SCOPE`. Set these in your shell profile to
   avoid repeating flags on every invocation. CLI flags take precedence.
