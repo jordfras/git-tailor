@@ -31,7 +31,7 @@ fn test_merge_base_with_branch_name() {
         .repo
         .merge_base(
             test.repo.refname_to_id("refs/heads/feature").unwrap(),
-            test.repo.refname_to_id("refs/heads/master").unwrap(),
+            test.repo.refname_to_id("refs/heads/main").unwrap(),
         )
         .unwrap();
 
@@ -117,7 +117,7 @@ fn test_merge_base_with_diverged_branches() {
     let _a1 = test.commit_file("a.txt", "a1", "A1");
     let _a2 = test.commit_file("a.txt", "a2", "A2");
 
-    test.checkout("refs/heads/master");
+    test.checkout("refs/heads/main");
     test.create_branch("branch-b", base);
     test.checkout("refs/heads/branch-b");
     let _b1 = test.commit_file("b.txt", "b1", "B1");
