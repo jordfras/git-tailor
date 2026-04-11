@@ -60,7 +60,8 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 | `--all`              | Browse the complete repository history from HEAD down to the root commit           |
 | `--static` / `-s`    | Print the hunk group matrix to stdout and exit (no TUI)                            |
 | `--no-color`         | Disable colors in `--static` output                                                |
-| `--squashable-scope` | controls whether yellow connectors mean per-hunk-group or per-commit squashability |
+| `--squashable-scope` | Controls whether yellow connectors mean per-hunk-group or per-commit squashability |
+| `--theme <THEME>`    | Hunk group matrix rendering theme: `plain` (default), `highlight`, or `classic`    |
 
 
 ## The interface
@@ -73,7 +74,7 @@ square `█` in a column means that commit modifies lines in that hunk group. A
 vertical line `│` between two squares is a **connector** — it means the two
 commits touch the same hunk group but are separated by other commits.
 
-### Color legend — hunk group matrix
+### Color legend — hunk group matrix (plain theme)
 
 | Color            | Meaning                                                                                                                |
 |------------------|------------------------------------------------------------------------------------------------------------------------|
@@ -86,7 +87,7 @@ Note that even though the colors indicate cleanly squashable, git may consider
 the squash causing conflict since git-tailor considers no extra lines of context
 while git does.
 
-### Color legend — commit list
+### Color legend — commit list (plain theme)
 
 When you select a commit, the other commits are colored relative to it:
 
