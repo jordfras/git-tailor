@@ -520,6 +520,7 @@ dependencies = [
  "shell-words",
  "tempfile",
  "time",
+ "winapi",
 ]
 
 [[package]]
