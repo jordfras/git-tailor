@@ -157,6 +157,21 @@ Guidelines:
   selected theme in `AppState` and select the appropriate `FragmapTheme`
   implementation at startup; `plain` should be the default
 
+## Bug Fixes — Move Commit
+- [ ] T149 P2 bug - Moving a commit to the earliest position places it second
+  instead of first: when using `gt --all` (or any case where the oldest visible
+  commit is also the root commit), selecting a commit and choosing to move it
+  before the first commit in the list results in the commit being placed
+  immediately after the root commit rather than before it; the status message
+  reports success; the root cause is likely that `move_commit` in
+  `git2_impl.rs` resolves the "insert before first commit" target as
+  "insert after merge-base / root", but for `--all` the root commit is included
+  in the editable list which makes this the wrong reference point; the fix
+  should ensure that when the target position is before the first commit,
+  the entire cherry-pick chain is rebuilt with the root commit cherry-picked
+  onto an empty tree first, the same way T137 handled the no-parent case for
+  the initial rebase
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
