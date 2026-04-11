@@ -322,6 +322,61 @@ fn move_commit_blocked_with_unstaged_changes() {
     let _ = a;
 }
 
+/// In `--all` mode the root commit is part of the visible list. When the user
+/// moves a commit to position 0 (before the root), `move_select` emits `""`
+/// as the `insert_after_oid` sentinel. The moved commit should become the new
+/// orphan root and the old root is cherry-picked on top of it.
+#[test]
+fn move_commit_to_root_position() {
+    let test = common::TestRepo::new();
+
+    // History: root(a.txt) → A(x.txt) → B(y.txt) → C(z.txt)
+    // Move C to before root → new root = C', then root, A, B on top.
+    let _root = test.commit_file("a.txt", "root_content\n", "root");
+    let _a = test.commit_file("x.txt", "x\n", "A");
+    let _b = test.commit_file("y.txt", "y\n", "B");
+    let c = test.commit_file("z.txt", "z\n", "C");
+
+    let git_repo = test.git_repo();
+    // "" is the sentinel for "make this commit the new root"
+    let result = git_repo
+        .move_commit(&c.to_string(), "", &c.to_string())
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "expected Complete, got {result:?}"
+    );
+
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+
+    // Collect all commits oldest-first by exhausting revwalk.
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(head_oid).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse();
+
+    assert_eq!(all_oids.len(), 4, "should still have 4 commits");
+
+    // New root must be C and must have no parent.
+    let new_root = test.repo.find_commit(all_oids[0]).unwrap();
+    assert_eq!(new_root.parent_count(), 0, "new root should be an orphan");
+    assert_eq!(new_root.summary().unwrap_or(""), "C");
+
+    // Remaining order: root, A, B.
+    let messages: Vec<String> = all_oids
+        .iter()
+        .map(|&oid| commit_message(&test.repo, oid))
+        .collect();
+    assert_eq!(messages, vec!["C", "root", "A", "B"]);
+
+    // All files must be present at HEAD.
+    assert_eq!(file_content_at(&test.repo, head_oid, "a.txt"), "root_content\n");
+    assert_eq!(file_content_at(&test.repo, head_oid, "x.txt"), "x\n");
+    assert_eq!(file_content_at(&test.repo, head_oid, "y.txt"), "y\n");
+    assert_eq!(file_content_at(&test.repo, head_oid, "z.txt"), "z\n");
+}
+
 #[test]
 fn move_commit_allowed_with_staged_submodule() {
     let test = common::TestRepo::new();
