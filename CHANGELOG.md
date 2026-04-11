@@ -85,9 +85,9 @@ The format is based on
   pressing Enter to continue: the app auto-stages working-tree files whose
   conflict markers have been removed, so the index reflects the actual
   resolution state. Previously only the built-in mergetool path worked.
-- Fragmap now tracks file renames across commits: when a file is renamed,
-  overlapping spans in the old and new paths are correctly clustered together
-  instead of being treated as unrelated files.
+- Hunk group matrix now tracks file renames across commits: when a file is
+  renamed, overlapping spans in the old and new paths are correctly clustered
+  together instead of being treated as unrelated files.
 - Added possibility to perform drop, move and squash operations when there are
   unstaged/staged changes in a submodule.
 
