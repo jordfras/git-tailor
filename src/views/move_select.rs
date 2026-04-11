@@ -109,7 +109,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             // The source should be placed *after* the commit at insert_before - 1,
             // or after the reference point if insert_before == 0.
             let insert_after_oid = if insert_before == 0 {
-                app.reference_oid.clone()
+                // In --all mode the reference commit (root) is itself a visible
+                // entry. Moving before position 0 means "make this the new root";
+                // signal that with an empty string sentinel to move_commit.
+                if app.include_reference_oid {
+                    String::new()
+                } else {
+                    app.reference_oid.clone()
+                }
             } else {
                 let idx = (insert_before - 1).min(app.commits.len().saturating_sub(1));
                 app.commits[idx].oid.clone()

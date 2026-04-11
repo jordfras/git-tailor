@@ -371,10 +371,81 @@ fn move_commit_to_root_position() {
     assert_eq!(messages, vec!["C", "root", "A", "B"]);
 
     // All files must be present at HEAD.
-    assert_eq!(file_content_at(&test.repo, head_oid, "a.txt"), "root_content\n");
+    assert_eq!(
+        file_content_at(&test.repo, head_oid, "a.txt"),
+        "root_content\n"
+    );
     assert_eq!(file_content_at(&test.repo, head_oid, "x.txt"), "x\n");
     assert_eq!(file_content_at(&test.repo, head_oid, "y.txt"), "y\n");
     assert_eq!(file_content_at(&test.repo, head_oid, "z.txt"), "z\n");
+
+    // Working tree must be clean — no staged deletions or untracked files.
+    let statuses = test.repo.statuses(None).unwrap();
+    assert!(
+        statuses.is_empty(),
+        "working tree should be clean after move; got: {:?}",
+        statuses
+            .iter()
+            .map(|s| (s.path().unwrap_or("").to_string(), s.status()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// The root commit can be moved to a later position in `--all` mode.
+/// History: root(root.txt) → A(a.txt) → B(b.txt)
+/// Move root to after B → new-root = A, then B, then root.
+#[test]
+fn move_root_commit_to_later_position() {
+    let test = common::TestRepo::new();
+
+    let _root = test.commit_file("root.txt", "root\n", "root");
+    let _a = test.commit_file("a.txt", "a\n", "A");
+    let b = test.commit_file("b.txt", "b\n", "B");
+
+    let git_repo = test.git_repo();
+    let root_oid = git_repo.root_commit_oid().unwrap();
+
+    let result = git_repo
+        .move_commit(&root_oid, &b.to_string(), &b.to_string())
+        .unwrap();
+
+    assert!(
+        matches!(result, RebaseOutcome::Complete),
+        "expected Complete, got {result:?}"
+    );
+
+    let head_oid = test.repo.head().unwrap().target().unwrap();
+
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(head_oid).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse();
+
+    assert_eq!(all_oids.len(), 3);
+
+    let new_root = test.repo.find_commit(all_oids[0]).unwrap();
+    assert_eq!(new_root.parent_count(), 0, "new root should be orphan");
+
+    let messages: Vec<String> = all_oids
+        .iter()
+        .map(|&oid| commit_message(&test.repo, oid))
+        .collect();
+    assert_eq!(messages, vec!["A", "B", "root"]);
+
+    assert_eq!(file_content_at(&test.repo, head_oid, "root.txt"), "root\n");
+    assert_eq!(file_content_at(&test.repo, head_oid, "a.txt"), "a\n");
+    assert_eq!(file_content_at(&test.repo, head_oid, "b.txt"), "b\n");
+
+    // Working tree must be clean — no staged deletions or untracked files.
+    let statuses = test.repo.statuses(None).unwrap();
+    assert!(
+        statuses.is_empty(),
+        "working tree should be clean after move; got: {:?}",
+        statuses
+            .iter()
+            .map(|s| (s.path().unwrap_or("").to_string(), s.status()))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

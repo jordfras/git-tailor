@@ -37,6 +37,9 @@ The format is based on
   keys no longer stop working. The TUI suspend/restore now correctly re-pushes
   keyboard-enhancement flags and uses the right terminal handle on all
   platforms.
+- Moving a commit to the first position in `--all` mode now correctly makes it
+  the new root commit. Previously the commit landed second because the original
+  root was used as the fixed rebase anchor.
 
 
 ## [0.3.0] - 2026-04-03

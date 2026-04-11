@@ -158,7 +158,7 @@ Guidelines:
   implementation at startup; `plain` should be the default
 
 ## Bug Fixes — Move Commit
-- [ ] T149 P2 bug - Moving a commit to the earliest position places it second
+- [X] T149 P2 bug - Moving a commit to the earliest position places it second
   instead of first: when using `gt --all` (or any case where the oldest visible
   commit is also the root commit), selecting a commit and choosing to move it
   before the first commit in the list results in the commit being placed
