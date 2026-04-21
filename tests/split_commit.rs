@@ -202,6 +202,87 @@ fn split_per_file_refuses_dirty_overlap() {
     );
 }
 
+#[test]
+fn split_per_file_handles_submodule_delta() {
+    // A commit that changes a regular file AND bumps a gitlink (submodule
+    // pointer) must not crash.  apply_to_tree cannot handle gitlink entries
+    // (mode 0o160000) because libgit2 tries to patch them as blobs; the fix
+    // routes gitlink deltas through TreeUpdateBuilder instead.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "alpha\n", "base");
+
+    let head_commit = test.repo.find_commit(base).unwrap();
+    let base_tree = head_commit.tree().unwrap();
+
+    let new_blob_oid = test.repo.blob(b"alpha2\n").unwrap();
+    // Any valid OID can act as the fake submodule commit pointer.
+    let fake_sub_oid = base;
+
+    let combined_tree_oid = git2::build::TreeUpdateBuilder::new()
+        .upsert("a.txt", new_blob_oid, git2::FileMode::Blob)
+        .upsert("sub", fake_sub_oid, git2::FileMode::Commit)
+        .create_updated(&test.repo, &base_tree)
+        .unwrap();
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let combined_tree = test.repo.find_tree(combined_tree_oid).unwrap();
+    let to_split = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "change file and bump submodule",
+            &combined_tree,
+            &[&head_commit],
+        )
+        .unwrap();
+
+    // HEAD now has {a.txt="alpha2\n", sub=gitlink} but the index/workdir still
+    // reflect the old state.  A Mixed reset syncs the index with HEAD so
+    // check_dirty_overlap does not false-positive on a.txt and sub.
+    let obj = test.repo.find_object(to_split, None).unwrap();
+    test.repo
+        .reset(&obj, git2::ResetType::Mixed, None)
+        .unwrap();
+    // Update the workdir file so diff_index_to_workdir has nothing to report.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::write(workdir.join("a.txt"), b"alpha2\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
+
+    let tip_oid = *commits_above_base.last().unwrap();
+    let tip_tree = test.repo.find_commit(tip_oid).unwrap().tree().unwrap();
+
+    assert!(
+        tip_tree.get_path(std::path::Path::new("a.txt")).is_ok(),
+        "a.txt should be present in final split commit"
+    );
+
+    let sub_entry = tip_tree
+        .get_path(std::path::Path::new("sub"))
+        .expect("submodule entry should be present in final split commit");
+    assert_eq!(
+        sub_entry.filemode(),
+        0o160000,
+        "sub should have gitlink mode"
+    );
+    assert_eq!(
+        sub_entry.id(),
+        fake_sub_oid,
+        "sub should point at expected OID"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Per-hunk split tests
 // ---------------------------------------------------------------------------

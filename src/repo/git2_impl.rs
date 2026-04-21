@@ -225,9 +225,16 @@ impl GitRepo for Git2Repo {
             anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
         }
 
-        // Collect the file paths touched by this commit
+        // Collect non-gitlink file paths for the dirty-overlap check.  Gitlink
+        // (submodule pointer) deltas are excluded because the split applies them
+        // via tree manipulation without touching the working tree, so a dirty
+        // submodule state cannot interfere with the operation.
         let commit_paths: HashSet<String> = full_diff
             .deltas()
+            .filter(|d| {
+                d.new_file().mode() != git2::FileMode::Commit
+                    && d.old_file().mode() != git2::FileMode::Commit
+            })
             .filter_map(|d| {
                 d.new_file()
                     .path()
@@ -250,20 +257,31 @@ impl GitRepo for Git2Repo {
                 .to_string_lossy()
                 .into_owned();
 
-            // Diff from parent→commit scoped to this specific file
-            let mut opts = git2::DiffOptions::new();
-            opts.pathspec(&path);
-            let file_diff =
-                repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut opts))?;
-
             let base_commit = repo.find_commit(current_base_oid)?;
             let base_tree = base_commit.tree()?;
 
-            let mut new_index = repo.apply_to_tree(&base_tree, &file_diff, None)?;
-            if new_index.has_conflicts() {
-                anyhow::bail!("Conflict applying changes for file: {}", path);
-            }
-            let new_tree_oid = new_index.write_tree_to(repo)?;
+            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
+                || delta.old_file().mode() == git2::FileMode::Commit;
+
+            let new_tree_oid = if is_gitlink {
+                // apply_to_tree cannot process gitlink (submodule pointer) entries
+                // because libgit2 tries to patch them as blobs, causing a crash.
+                apply_gitlink_delta_to_tree(repo, &base_tree, &delta)?
+            } else {
+                // Diff from parent→commit scoped to this specific file
+                let mut opts = git2::DiffOptions::new();
+                opts.pathspec(&path);
+                let file_diff = repo.diff_tree_to_tree(
+                    Some(&parent_tree),
+                    Some(&commit_tree),
+                    Some(&mut opts),
+                )?;
+                let mut new_index = repo.apply_to_tree(&base_tree, &file_diff, None)?;
+                if new_index.has_conflicts() {
+                    anyhow::bail!("Conflict applying changes for file: {}", path);
+                }
+                new_index.write_tree_to(repo)?
+            };
             let new_tree = repo.find_tree(new_tree_oid)?;
 
             let author = commit.author();
@@ -1280,6 +1298,34 @@ fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
 // ---------------------------------------------------------------------------
 // Private helpers for split operations (not part of the GitRepo trait)
 // ---------------------------------------------------------------------------
+
+/// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
+/// updated tree OID.
+///
+/// `apply_to_tree` cannot handle gitlink entries because libgit2 treats them
+/// as blobs, causing a crash.  `TreeUpdateBuilder` supports the `0o160000`
+/// commit-mode entry directly and is used here instead.
+fn apply_gitlink_delta_to_tree(
+    repo: &git2::Repository,
+    base_tree: &git2::Tree<'_>,
+    delta: &git2::DiffDelta<'_>,
+) -> Result<git2::Oid> {
+    let path = delta
+        .new_file()
+        .path()
+        .or_else(|| delta.old_file().path())
+        .context("gitlink delta has no path")?
+        .to_owned();
+    let path_str = path.to_str().context("submodule path is not valid UTF-8")?;
+
+    let mut builder = git2::build::TreeUpdateBuilder::new();
+    if delta.status() == git2::Delta::Deleted {
+        builder.remove(path_str);
+    } else {
+        builder.upsert(path_str, delta.new_file().id(), git2::FileMode::Commit);
+    }
+    builder.create_updated(repo, base_tree).map_err(Into::into)
+}
 
 /// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
 /// and return the resulting tree OID.

@@ -78,7 +78,7 @@ Guidelines:
   working tree on disk when checking conflict status or launching the mergetool
 
 ## Bug Fixes — Split
-- [ ] T147 P1 bug - Segfault when splitting a submodule-change commit per file:
+- [X] T147 P1 bug - Segfault when splitting a submodule-change commit per file:
   calling "split per file" on a commit that updates a submodule revision causes
   a segfault; the split-per-file path in `git2_impl.rs` iterates over the
   commit's diff entries and builds per-file patches using `Diff::apply_to_tree`,
