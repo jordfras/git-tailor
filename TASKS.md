@@ -78,6 +78,16 @@ Guidelines:
   working tree on disk when checking conflict status or launching the mergetool
 
 ## Bug Fixes — Split
+- [ ] T148 P2 bug - Split commits lose the original commit message body: all
+  three split strategies (per-file, per-hunk, per-hunk-group) construct the
+  message for each new commit using only `commit.summary()` (the first line),
+  appending a `(n/total)` counter; a commit whose message has a multi-line body
+  or a detailed description will have that body silently discarded; the fix
+  should use `commit.message()` instead, replacing just the first line with the
+  summary + counter so the full body is retained in all split commits (or at
+  least in the last one, mirroring what `git commit --amend` and `git rebase` do
+  by default); all three `format!` message expressions in `git2_impl.rs` need
+  updating
 - [X] T147 P1 bug - Segfault when splitting a submodule-change commit per file:
   calling "split per file" on a commit that updates a submodule revision causes
   a segfault; the split-per-file path in `git2_impl.rs` iterates over the
