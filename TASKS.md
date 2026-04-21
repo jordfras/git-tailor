@@ -77,6 +77,22 @@ Guidelines:
   git2's in-memory state or a cached copy rather than re-reading from the
   working tree on disk when checking conflict status or launching the mergetool
 
+## Bug Fixes — Split
+- [ ] T147 P1 bug - Segfault when splitting a submodule-change commit per file:
+  calling "split per file" on a commit that updates a submodule revision causes
+  a segfault; the split-per-file path in `git2_impl.rs` iterates over the
+  commit's diff entries and builds per-file patches using `Diff::apply_to_tree`,
+  but a submodule change produces a delta whose old/new objects are commit OIDs
+  rather than blob OIDs; attempting to treat a submodule entry as a regular blob
+  (e.g. passing it to `Blob::lookup` or building a patch from it) likely
+  triggers a null dereference or invalid memory access inside libgit2; the fix
+  should detect submodule deltas (delta kind `GIT_DELTA_*` where the object mode
+  is `GIT_FILEMODE_COMMIT`, i.e. `0o160000`) and handle them explicitly — either
+  by applying the submodule pointer update as a tree-level operation instead of
+  a blob diff, or by grouping all submodule deltas into a single synthesised
+  commit so the split result is well-formed; add an integration test using a
+  `TempDir` repo with a real submodule to reproduce the crash and verify the fix
+
 ## Interactivity — Conflict Resolution
 - [X] T135 P2 feat - Add option to open the configured editor when resolving a
   conflict: the conflict view currently offers a key binding to launch the
@@ -106,12 +122,11 @@ Guidelines:
   `square_style(SquareRole, RelationType) -> Style`,
   `connector_symbol(ConnectorRole, RelationType) -> char`, and
   `connector_style(ConnectorRole, RelationType) -> Style`; implement
-  `PlainTheme` reproducing the current uniform heavy-glyph behavior (no
-  focus distinction); replace the inline constant lookups in
-  `fragmap_cell_content`, `fragmap_connector_content`, and
-  `build_fragmap_cell` with calls through the trait so that adding new themes
-  (T105, T107) doesn't require scattering conditionals throughout the rendering
-  functions
+  `PlainTheme` reproducing the current uniform heavy-glyph behavior (no focus
+  distinction); replace the inline constant lookups in `fragmap_cell_content`,
+  `fragmap_connector_content`, and `build_fragmap_cell` with calls through the
+  trait so that adding new themes (T105, T107) doesn't require scattering
+  conditionals throughout the rendering functions
 - [X] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
   clusters related to the focus commit (selected commit in CommitList, source
   commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
@@ -196,9 +211,9 @@ Guidelines:
   argument offers branch and tag candidates; implement this via
   `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
   running binary queries `git2` for local branches, remote-tracking refs, and
-  tags at completion time — no pre-generated shell scripts required; the
-  dynamic path should degrade gracefully if the current directory is not inside
-  a git repository
+  tags at completion time — no pre-generated shell scripts required; the dynamic
+  path should degrade gracefully if the current directory is not inside a git
+  repository
 
 ## CLI Output & Compatibility
 
