@@ -22,6 +22,9 @@ The format is based on
 
 - "Split per file" no longer crashes (segfault) when the commit being split
   contains a submodule pointer update.
+- All three split strategies (per-file, per-hunk, per-hunk-group) now preserve
+  the full commit message body in every split commit. Previously only the first
+  line (summary) was kept; the body was silently discarded.
 - Editor commands with spaces in the path (e.g. `'C:/Program Files/…/emacs.exe'
   --no-splash`) are now parsed correctly as shell words. Previously, naive
   whitespace splitting broke the executable path, silently preventing the editor

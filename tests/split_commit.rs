@@ -243,9 +243,7 @@ fn split_per_file_handles_submodule_delta() {
     // reflect the old state.  A Mixed reset syncs the index with HEAD so
     // check_dirty_overlap does not false-positive on a.txt and sub.
     let obj = test.repo.find_object(to_split, None).unwrap();
-    test.repo
-        .reset(&obj, git2::ResetType::Mixed, None)
-        .unwrap();
+    test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
     // Update the workdir file so diff_index_to_workdir has nothing to report.
     let workdir = test.repo.workdir().unwrap().to_path_buf();
     std::fs::write(workdir.join("a.txt"), b"alpha2\n").unwrap();
@@ -281,6 +279,47 @@ fn split_per_file_handles_submodule_delta() {
         fake_sub_oid,
         "sub should point at expected OID"
     );
+}
+
+#[test]
+fn split_per_file_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "base");
+    let to_split = test.commit_files(
+        &[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")],
+        "big change\n\nThis is the body.\nIt has multiple lines.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let base_oid = test
+        .repo
+        .find_commit(to_split)
+        .unwrap()
+        .parent_id(0)
+        .unwrap();
+    let commits_above_base = commits_from_head(&test.repo, base_oid);
+    assert_eq!(commits_above_base.len(), 2);
+
+    for oid in &commits_above_base {
+        let commit = test.repo.find_commit(*oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This is the body."),
+            "expected body in commit message, got: {:?}",
+            msg
+        );
+        assert!(
+            msg.contains("big change"),
+            "expected summary in commit message, got: {:?}",
+            msg
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +435,44 @@ fn split_per_hunk_refuses_single_hunk_commit() {
 // ---------------------------------------------------------------------------
 // Per-hunk-group split tests (fragmap SPG + dedup based)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_hunk_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file(
+        "a.txt",
+        "line1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nline7\nline8\n",
+        "base",
+    );
+    let to_split = test.commit_file(
+        "a.txt",
+        "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n",
+        "two changes\n\nThis body should be kept.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let stop = test
+        .repo
+        .find_commit(to_split)
+        .unwrap()
+        .parent_id(0)
+        .unwrap();
+    for oid in commits_from_head(&test.repo, stop) {
+        let commit = test.repo.find_commit(oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This body should be kept."),
+            "expected body in split commit, got: {:?}",
+            msg
+        );
+    }
+}
 
 #[test]
 fn split_per_hunk_group_two_groups_shared_context() {
@@ -890,4 +967,35 @@ fn split_per_hunk_preserves_unstaged_changes() {
         "unstaged work\n",
         "unstaged content should be unchanged after split"
     );
+}
+
+#[test]
+fn split_per_hunk_group_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    test.commit_file("a.txt", "A2\n", "commit A");
+    let to_split = test.commit_files(
+        &[("a.txt", "A3\n"), ("b.txt", "B2\n")],
+        "commit K\n\nThis body should survive the split.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    // commit A + 2 split parts
+    assert_eq!(commits_above_base.len(), 3);
+    for oid in &commits_above_base[1..] {
+        let commit = test.repo.find_commit(*oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This body should survive the split."),
+            "expected body in split commit, got: {:?}",
+            msg
+        );
+    }
 }

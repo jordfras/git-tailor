@@ -286,11 +286,10 @@ impl GitRepo for Git2Repo {
 
             let author = commit.author();
             let committer = commit.committer();
-            let message = format!(
-                "{} ({}/{})",
-                commit.summary().unwrap_or("split"),
+            let message = split_message(
+                commit.message().unwrap_or("split"),
                 delta_idx + 1,
-                file_count
+                file_count,
             );
 
             let new_oid = repo.commit(
@@ -395,11 +394,10 @@ impl GitRepo for Git2Repo {
 
             let author = commit.author();
             let committer = commit.committer();
-            let message = format!(
-                "{} ({}/{})",
-                commit.summary().unwrap_or("split"),
+            let message = split_message(
+                commit.message().unwrap_or("split"),
                 target_k + 1,
-                hunk_count
+                hunk_count,
             );
 
             let new_oid = repo.commit(
@@ -539,11 +537,10 @@ impl GitRepo for Git2Repo {
 
             let author = commit.author();
             let committer = commit.committer();
-            let message = format!(
-                "{} ({}/{})",
-                commit.summary().unwrap_or("split"),
+            let message = split_message(
+                commit.message().unwrap_or("split"),
                 out_pos + 1,
-                split_count
+                split_count,
             );
             let new_oid = repo.commit(
                 None,
@@ -1299,6 +1296,22 @@ fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
 // Private helpers for split operations (not part of the GitRepo trait)
 // ---------------------------------------------------------------------------
 
+/// Build the commit message for the n-th commit in a split sequence.
+///
+/// The first line of the original message is kept and suffixed with "(n/total)".
+/// If the original message has a body (text after the first line), it is
+/// appended unchanged so no information is lost.
+fn split_message(original: &str, n: usize, total: usize) -> String {
+    let mut lines = original.splitn(2, '\n');
+    let first = lines.next().unwrap_or("split").trim_end();
+    let rest = lines.next().unwrap_or("");
+    if rest.trim().is_empty() {
+        format!("{} ({}/{})", first, n, total)
+    } else {
+        format!("{} ({}/{})\n{}", first, n, total, rest)
+    }
+}
+
 /// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
 /// updated tree OID.
 ///
@@ -2000,7 +2013,7 @@ fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::git_time_to_offset_datetime;
+    use super::{git_time_to_offset_datetime, split_message};
 
     #[test]
     fn utc_epoch_stays_at_zero() {
@@ -2030,5 +2043,31 @@ mod tests {
         let expected_offset = time::UtcOffset::from_whole_seconds(-18000).unwrap();
         assert_eq!(dt.offset(), expected_offset);
         assert_eq!(dt.hour(), 19);
+    }
+
+    #[test]
+    fn split_message_summary_only() {
+        assert_eq!(split_message("my fix", 1, 3), "my fix (1/3)");
+    }
+
+    #[test]
+    fn split_message_preserves_body() {
+        let original = "my fix\n\nBody line 1.\nBody line 2.";
+        let result = split_message(original, 2, 3);
+        assert_eq!(result, "my fix (2/3)\n\nBody line 1.\nBody line 2.");
+    }
+
+    #[test]
+    fn split_message_body_whitespace_only_treated_as_no_body() {
+        let original = "my fix\n\n  \n";
+        let result = split_message(original, 1, 2);
+        assert_eq!(result, "my fix (1/2)");
+    }
+
+    #[test]
+    fn split_message_trailing_newline_on_summary() {
+        // git commit messages often end with a newline
+        let result = split_message("my fix\n", 1, 1);
+        assert_eq!(result, "my fix (1/1)");
     }
 }

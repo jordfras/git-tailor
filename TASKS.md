@@ -78,7 +78,7 @@ Guidelines:
   working tree on disk when checking conflict status or launching the mergetool
 
 ## Bug Fixes — Split
-- [ ] T148 P2 bug - Split commits lose the original commit message body: all
+- [X] T148 P2 bug - Split commits lose the original commit message body: all
   three split strategies (per-file, per-hunk, per-hunk-group) construct the
   message for each new commit using only `commit.summary()` (the first line),
   appending a `(n/total)` counter; a commit whose message has a multi-line body
