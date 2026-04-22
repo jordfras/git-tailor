@@ -40,6 +40,9 @@ The format is based on
 - Moving a commit to the first position in `--all` mode now correctly makes it
   the new root commit. Previously the commit landed second because the original
   root was used as the fixed rebase anchor.
+- All three split strategies (per-file, per-hunk, per-hunk-group) now work on
+  the root commit in `--all` mode. Previously they failed with "Can only split a
+  commit with exactly one parent".
 
 
 ## [0.3.0] - 2026-04-03
