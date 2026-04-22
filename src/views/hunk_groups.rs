@@ -18,7 +18,9 @@
 // cluster-matrix visualization — plus its horizontal scrollbar.
 
 use crate::fragmap::{self, SquashableScope, TouchKind};
-use crate::views::theme::{CommitRowRole, ConnectorRole, FragmapTheme, RelationType, SquareRole};
+use crate::views::theme::{
+    CommitRowRole, ConnectorRelation, ConnectorRole, FragmapTheme, SquareRelation, SquareRole,
+};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -67,20 +69,24 @@ fn fragmap_cell_content(
         return None;
     }
 
-    let is_squashable = match scope {
-        SquashableScope::Group => {
-            matches!(
-                cluster_relation(fragmap, commit_idx, cluster_idx),
-                Some(fragmap::SquashRelation::Squashable)
-            )
-        }
-        SquashableScope::Commit => fragmap.is_fully_squashable(commit_idx),
-    };
+    let has_earlier = (0..commit_idx).any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
 
-    let rel = if is_squashable {
-        RelationType::Squashable
+    let rel = if !has_earlier {
+        SquareRelation::Origin
     } else {
-        RelationType::Conflict
+        match scope {
+            SquashableScope::Group => match cluster_relation(fragmap, commit_idx, cluster_idx) {
+                Some(fragmap::SquashRelation::Squashable) => SquareRelation::Squashable,
+                _ => SquareRelation::Conflict,
+            },
+            SquashableScope::Commit => {
+                if fragmap.is_fully_squashable(commit_idx) {
+                    SquareRelation::Squashable
+                } else {
+                    SquareRelation::Conflict
+                }
+            }
+        }
     };
     Some((
         theme.square_symbol(role, rel).to_owned(),
@@ -113,15 +119,15 @@ fn fragmap_connector_content(
             match fragmap.connector_squashable(below_idx, cluster_idx, scope) {
                 Some(true) => Some((
                     theme
-                        .connector_symbol(role, RelationType::Squashable)
+                        .connector_symbol(role, ConnectorRelation::Squashable)
                         .to_owned(),
-                    theme.connector_style(role, RelationType::Squashable),
+                    theme.connector_style(role, ConnectorRelation::Squashable),
                 )),
                 Some(false) => Some((
                     theme
-                        .connector_symbol(role, RelationType::Conflict)
+                        .connector_symbol(role, ConnectorRelation::Conflict)
                         .to_owned(),
-                    theme.connector_style(role, RelationType::Conflict),
+                    theme.connector_style(role, ConnectorRelation::Conflict),
                 )),
                 None => None,
             }

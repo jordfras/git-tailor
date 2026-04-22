@@ -202,6 +202,126 @@ fn split_per_file_refuses_dirty_overlap() {
     );
 }
 
+#[test]
+fn split_per_file_handles_submodule_delta() {
+    // A commit that changes a regular file AND bumps a gitlink (submodule
+    // pointer) must not crash.  apply_to_tree cannot handle gitlink entries
+    // (mode 0o160000) because libgit2 tries to patch them as blobs; the fix
+    // routes gitlink deltas through TreeUpdateBuilder instead.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "alpha\n", "base");
+
+    let head_commit = test.repo.find_commit(base).unwrap();
+    let base_tree = head_commit.tree().unwrap();
+
+    let new_blob_oid = test.repo.blob(b"alpha2\n").unwrap();
+    // Any valid OID can act as the fake submodule commit pointer.
+    let fake_sub_oid = base;
+
+    let combined_tree_oid = git2::build::TreeUpdateBuilder::new()
+        .upsert("a.txt", new_blob_oid, git2::FileMode::Blob)
+        .upsert("sub", fake_sub_oid, git2::FileMode::Commit)
+        .create_updated(&test.repo, &base_tree)
+        .unwrap();
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let combined_tree = test.repo.find_tree(combined_tree_oid).unwrap();
+    let to_split = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "change file and bump submodule",
+            &combined_tree,
+            &[&head_commit],
+        )
+        .unwrap();
+
+    // HEAD now has {a.txt="alpha2\n", sub=gitlink} but the index/workdir still
+    // reflect the old state.  A Mixed reset syncs the index with HEAD so
+    // check_dirty_overlap does not false-positive on a.txt and sub.
+    let obj = test.repo.find_object(to_split, None).unwrap();
+    test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
+    // Update the workdir file so diff_index_to_workdir has nothing to report.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::write(workdir.join("a.txt"), b"alpha2\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
+
+    let tip_oid = *commits_above_base.last().unwrap();
+    let tip_tree = test.repo.find_commit(tip_oid).unwrap().tree().unwrap();
+
+    assert!(
+        tip_tree.get_path(std::path::Path::new("a.txt")).is_ok(),
+        "a.txt should be present in final split commit"
+    );
+
+    let sub_entry = tip_tree
+        .get_path(std::path::Path::new("sub"))
+        .expect("submodule entry should be present in final split commit");
+    assert_eq!(
+        sub_entry.filemode(),
+        0o160000,
+        "sub should have gitlink mode"
+    );
+    assert_eq!(
+        sub_entry.id(),
+        fake_sub_oid,
+        "sub should point at expected OID"
+    );
+}
+
+#[test]
+fn split_per_file_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "base");
+    let to_split = test.commit_files(
+        &[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")],
+        "big change\n\nThis is the body.\nIt has multiple lines.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let base_oid = test
+        .repo
+        .find_commit(to_split)
+        .unwrap()
+        .parent_id(0)
+        .unwrap();
+    let commits_above_base = commits_from_head(&test.repo, base_oid);
+    assert_eq!(commits_above_base.len(), 2);
+
+    for oid in &commits_above_base {
+        let commit = test.repo.find_commit(*oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This is the body."),
+            "expected body in commit message, got: {:?}",
+            msg
+        );
+        assert!(
+            msg.contains("big change"),
+            "expected summary in commit message, got: {:?}",
+            msg
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-hunk split tests
 // ---------------------------------------------------------------------------
@@ -315,6 +435,44 @@ fn split_per_hunk_refuses_single_hunk_commit() {
 // ---------------------------------------------------------------------------
 // Per-hunk-group split tests (fragmap SPG + dedup based)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn split_per_hunk_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file(
+        "a.txt",
+        "line1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nline7\nline8\n",
+        "base",
+    );
+    let to_split = test.commit_file(
+        "a.txt",
+        "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n",
+        "two changes\n\nThis body should be kept.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .unwrap();
+
+    let stop = test
+        .repo
+        .find_commit(to_split)
+        .unwrap()
+        .parent_id(0)
+        .unwrap();
+    for oid in commits_from_head(&test.repo, stop) {
+        let commit = test.repo.find_commit(oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This body should be kept."),
+            "expected body in split commit, got: {:?}",
+            msg
+        );
+    }
+}
 
 #[test]
 fn split_per_hunk_group_two_groups_shared_context() {
@@ -809,4 +967,211 @@ fn split_per_hunk_preserves_unstaged_changes() {
         "unstaged work\n",
         "unstaged content should be unchanged after split"
     );
+}
+
+#[test]
+fn split_per_hunk_group_preserves_commit_message_body() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    test.commit_file("a.txt", "A2\n", "commit A");
+    let to_split = test.commit_files(
+        &[("a.txt", "A3\n"), ("b.txt", "B2\n")],
+        "commit K\n\nThis body should survive the split.",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .unwrap();
+
+    let commits_above_base = commits_from_head(&test.repo, base);
+    // commit A + 2 split parts
+    assert_eq!(commits_above_base.len(), 3);
+    for oid in &commits_above_base[1..] {
+        let commit = test.repo.find_commit(*oid).unwrap();
+        let msg = commit.message().unwrap_or("");
+        assert!(
+            msg.contains("This body should survive the split."),
+            "expected body in split commit, got: {:?}",
+            msg
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Root commit splits (T150) — --all mode makes the root commit editable
+// ---------------------------------------------------------------------------
+
+/// Split the root commit (no parent) per file. The first split piece must
+/// become a new orphan root and subsequent pieces must stack on top of it.
+#[test]
+fn split_root_commit_per_file() {
+    let test = common::TestRepo::new();
+
+    let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
+
+    let git_repo = test.git_repo();
+    // head_oid == root since there's only one commit
+    let head_oid = git_repo.head_oid().unwrap();
+    assert_eq!(head_oid, root.to_string());
+
+    git_repo
+        .split_commit_per_file(&root.to_string(), &head_oid)
+        .unwrap();
+
+    let new_head = test.repo.head().unwrap().target().unwrap();
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(new_head).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse(); // oldest first
+
+    assert_eq!(all_oids.len(), 2, "expected 2 split commits");
+
+    let split1 = test.repo.find_commit(all_oids[0]).unwrap();
+    let split2 = test.repo.find_commit(all_oids[1]).unwrap();
+
+    assert_eq!(
+        split1.parent_count(),
+        0,
+        "first split commit must be an orphan root"
+    );
+    assert_eq!(split2.parent_count(), 1);
+    assert_eq!(split2.parent_id(0).unwrap(), all_oids[0]);
+
+    assert!(
+        split1.summary().unwrap_or("").contains("(1/2)"),
+        "got: {}",
+        split1.summary().unwrap_or("")
+    );
+    assert!(
+        split2.summary().unwrap_or("").contains("(2/2)"),
+        "got: {}",
+        split2.summary().unwrap_or("")
+    );
+
+    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
+    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
+}
+
+/// Same as above but with a descendant commit that must be rebased on top of
+/// the split result.
+#[test]
+fn split_root_commit_per_file_with_descendants() {
+    let test = common::TestRepo::new();
+
+    let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
+    test.commit_file("c.txt", "gamma\n", "descendant");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_file(&root.to_string(), &head_oid)
+        .unwrap();
+
+    let new_head = test.repo.head().unwrap().target().unwrap();
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(new_head).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse();
+
+    // root_part1 + root_part2 + rebased descendant
+    assert_eq!(all_oids.len(), 3, "expected 3 commits");
+
+    let first = test.repo.find_commit(all_oids[0]).unwrap();
+    assert_eq!(
+        first.parent_count(),
+        0,
+        "first split commit must be orphan root"
+    );
+
+    // All files present at final HEAD
+    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
+    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
+    assert_eq!(file_content_at(&test.repo, new_head, "c.txt"), "gamma\n");
+}
+
+/// Split the root commit per hunk. Two file introductions = 2 hunks.
+/// The first split piece becomes the orphan root.
+#[test]
+fn split_root_commit_per_hunk() {
+    let test = common::TestRepo::new();
+
+    // The root commit introduces two files; each file introduction is one hunk.
+    let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_hunk(&root.to_string(), &head_oid)
+        .unwrap();
+
+    let new_head = test.repo.head().unwrap().target().unwrap();
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(new_head).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse();
+
+    assert_eq!(all_oids.len(), 2, "expected 2 split commits");
+
+    let split1 = test.repo.find_commit(all_oids[0]).unwrap();
+    assert_eq!(
+        split1.parent_count(),
+        0,
+        "first split commit must be an orphan root"
+    );
+
+    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
+    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
+}
+
+/// Split the root commit per hunk group. The root touches 2 files and a
+/// subsequent commit touches one of them, placing them in different fragmap
+/// clusters — so there are 2 hunk groups and the split produces 2 pieces.
+/// In `--all` mode reference_oid == root_oid.
+#[test]
+fn split_root_commit_per_hunk_group() {
+    let test = common::TestRepo::new();
+
+    // root introduces a.txt and b.txt
+    let root = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "root commit");
+    // commit A touches a.txt, placing root's a.txt hunk in a different cluster
+    // than root's b.txt hunk
+    test.commit_file("a.txt", "A2\n", "commit A");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    // In --all mode reference_oid is the root commit OID
+    let reference_oid = root.to_string();
+
+    git_repo
+        .split_commit_per_hunk_group(&root.to_string(), &head_oid, &reference_oid)
+        .unwrap();
+
+    let new_head = test.repo.head().unwrap().target().unwrap();
+    let mut revwalk = test.repo.revwalk().unwrap();
+    revwalk.push(new_head).unwrap();
+    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
+    all_oids.reverse();
+
+    // root_part1 (orphan) + root_part2 + A' (rebased)
+    assert_eq!(
+        all_oids.len(),
+        3,
+        "expected 3 commits: root_part1, root_part2, A'"
+    );
+
+    let first = test.repo.find_commit(all_oids[0]).unwrap();
+    assert_eq!(
+        first.parent_count(),
+        0,
+        "first split commit must be an orphan root"
+    );
+
+    // Final HEAD has both original files (with A's change to a.txt on top)
+    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "A2\n");
+    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "B\n");
 }

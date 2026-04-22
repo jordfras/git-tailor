@@ -77,6 +77,39 @@ Guidelines:
   git2's in-memory state or a cached copy rather than re-reading from the
   working tree on disk when checking conflict status or launching the mergetool
 
+## Bug Fixes — Split
+- [X] T148 P2 bug - Split commits lose the original commit message body: all
+  three split strategies (per-file, per-hunk, per-hunk-group) construct the
+  message for each new commit using only `commit.summary()` (the first line),
+  appending a `(n/total)` counter; a commit whose message has a multi-line body
+  or a detailed description will have that body silently discarded; the fix
+  should use `commit.message()` instead, replacing just the first line with the
+  summary + counter so the full body is retained in all split commits (or at
+  least in the last one, mirroring what `git commit --amend` and `git rebase` do
+  by default); all three `format!` message expressions in `git2_impl.rs` need
+  updating
+- [X] T147 P1 bug - Segfault when splitting a submodule-change commit per file:
+  calling "split per file" on a commit that updates a submodule revision causes
+  a segfault; the split-per-file path in `git2_impl.rs` iterates over the
+  commit's diff entries and builds per-file patches using `Diff::apply_to_tree`,
+  but a submodule change produces a delta whose old/new objects are commit OIDs
+  rather than blob OIDs; attempting to treat a submodule entry as a regular blob
+  (e.g. passing it to `Blob::lookup` or building a patch from it) likely
+  triggers a null dereference or invalid memory access inside libgit2; the fix
+  should detect submodule deltas (delta kind `GIT_DELTA_*` where the object mode
+  is `GIT_FILEMODE_COMMIT`, i.e. `0o160000`) and handle them explicitly — either
+  by applying the submodule pointer update as a tree-level operation instead of
+  a blob diff, or by grouping all submodule deltas into a single synthesised
+  commit so the split result is well-formed; add an integration test using a
+  `TempDir` repo with a real submodule to reproduce the crash and verify the fix
+- [X] T150 P2 bug - Splitting the root commit in `--all` mode fails with "Can
+  only split a commit with exactly one parent": `split_commit_per_file`,
+  `split_commit_per_hunk`, and `split_commit_per_hunk_group` in `git2_impl.rs`
+  all reject commits with `parent_count != 1`; the fix should apply the same
+  pattern used for `move_commit` — build the first split-piece commit as a new
+  orphan root (applying its diff onto an empty tree with no parents), then
+  cherry-pick the remaining split pieces and any later commits on top
+
 ## Interactivity — Conflict Resolution
 - [X] T135 P2 feat - Add option to open the configured editor when resolving a
   conflict: the conflict view currently offers a key binding to launch the
@@ -106,12 +139,11 @@ Guidelines:
   `square_style(SquareRole, RelationType) -> Style`,
   `connector_symbol(ConnectorRole, RelationType) -> char`, and
   `connector_style(ConnectorRole, RelationType) -> Style`; implement
-  `PlainTheme` reproducing the current uniform heavy-glyph behavior (no
-  focus distinction); replace the inline constant lookups in
-  `fragmap_cell_content`, `fragmap_connector_content`, and
-  `build_fragmap_cell` with calls through the trait so that adding new themes
-  (T105, T107) doesn't require scattering conditionals throughout the rendering
-  functions
+  `PlainTheme` reproducing the current uniform heavy-glyph behavior (no focus
+  distinction); replace the inline constant lookups in `fragmap_cell_content`,
+  `fragmap_connector_content`, and `build_fragmap_cell` with calls through the
+  trait so that adding new themes (T105, T107) doesn't require scattering
+  conditionals throughout the rendering functions
 - [X] T105 P2 feat - Add glyph-weight focus highlighting to the fragmap matrix:
   clusters related to the focus commit (selected commit in CommitList, source
   commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
@@ -131,6 +163,21 @@ Guidelines:
   `--static`, reproducing the traditional fragmap tool appearance); store the
   selected theme in `AppState` and select the appropriate `FragmapTheme`
   implementation at startup; `plain` should be the default
+
+## Bug Fixes — Move Commit
+- [X] T149 P2 bug - Moving a commit to the earliest position places it second
+  instead of first: when using `gt --all` (or any case where the oldest visible
+  commit is also the root commit), selecting a commit and choosing to move it
+  before the first commit in the list results in the commit being placed
+  immediately after the root commit rather than before it; the status message
+  reports success; the root cause is likely that `move_commit` in
+  `git2_impl.rs` resolves the "insert before first commit" target as
+  "insert after merge-base / root", but for `--all` the root commit is included
+  in the editable list which makes this the wrong reference point; the fix
+  should ensure that when the target position is before the first commit,
+  the entire cherry-pick chain is rebuilt with the root commit cherry-picked
+  onto an empty tree first, the same way T137 handled the no-parent case for
+  the initial rebase
 
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
@@ -196,9 +243,9 @@ Guidelines:
   argument offers branch and tag candidates; implement this via
   `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
   running binary queries `git2` for local branches, remote-tracking refs, and
-  tags at completion time — no pre-generated shell scripts required; the
-  dynamic path should degrade gracefully if the current directory is not inside
-  a git repository
+  tags at completion time — no pre-generated shell scripts required; the dynamic
+  path should degrade gracefully if the current directory is not inside a git
+  repository
 
 ## CLI Output & Compatibility
 

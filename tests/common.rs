@@ -39,7 +39,9 @@ impl Default for TestRepo {
 impl TestRepo {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().unwrap();
-        let repo = Repository::init(temp_dir.path()).unwrap();
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head("main");
+        let repo = Repository::init_opts(temp_dir.path(), &opts).unwrap();
 
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Test User").unwrap();

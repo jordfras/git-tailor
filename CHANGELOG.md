@@ -8,8 +8,23 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Theming support for the hunk group matrix via `--theme`. Three built-in
+  themes: `plain` (default), `highlight` (dims unrelated columns to emphasize
+  the selected commit's clusters), and `classic` (background-color style
+  matching `--static` output).
+- Environment variable defaults for CLI flags: `GT_THEME`, `GT_REVERSE`,
+  `GT_FULL`, and `GT_SQUASHABLE_SCOPE`. Set these in your shell profile to avoid
+  repeating flags on every invocation. CLI flags take precedence.
+
 ### Fixed
 
+- "Split per file" no longer crashes (segfault) when the commit being split
+  contains a submodule pointer update.
+- All three split strategies (per-file, per-hunk, per-hunk-group) now preserve
+  the full commit message body in every split commit. Previously only the first
+  line (summary) was kept; the body was silently discarded.
 - Editor commands with spaces in the path (e.g. `'C:/Program Files/…/emacs.exe'
   --no-splash`) are now parsed correctly as shell words. Previously, naive
   whitespace splitting broke the executable path, silently preventing the editor
@@ -22,6 +37,9 @@ The format is based on
   keys no longer stop working. The TUI suspend/restore now correctly re-pushes
   keyboard-enhancement flags and uses the right terminal handle on all
   platforms.
+- Moving a commit to the first position in `--all` mode now correctly makes it
+  the new root commit. Previously the commit landed second because the original
+  root was used as the fixed rebase anchor.
 
 
 ## [0.3.0] - 2026-04-03
@@ -31,16 +49,16 @@ The format is based on
 - Press `/` in the commit detail view to search the diff with a regex pattern.
   `n` / `N` jump to the next / previous match, `Esc` dismisses the search.
 - `--all` flag: pass `gt --all` to browse and edit the complete repository
-  history from HEAD down to the first (root) commit. Mutually exclusive with
-  the positional `BASE` argument. Useful for projects with no upstream branch
-  or single-branch workflows.
+  history from HEAD down to the first (root) commit. Mutually exclusive with the
+  positional `BASE` argument. Useful for projects with no upstream branch or
+  single-branch workflows.
 
 ### Fixed
 
 - Error messages (e.g. "Cannot move staged/unstaged changes") no longer
   disappear instantly on Windows. Crossterm emits both a key-press and a
-  key-release event per keystroke on Windows; the release event was clearing
-  the message before it could be read. Release events are now discarded.
+  key-release event per keystroke on Windows; the release event was clearing the
+  message before it could be read. Release events are now discarded.
 - Squash/fixup with a conflict no longer corrupts the resulting tree. Stale
   index entries from HEAD leaked into the squash commit, causing spurious
   conflicts (with empty merge bases) in later commits during the rebase.
@@ -75,9 +93,9 @@ The format is based on
   pressing Enter to continue: the app auto-stages working-tree files whose
   conflict markers have been removed, so the index reflects the actual
   resolution state. Previously only the built-in mergetool path worked.
-- Fragmap now tracks file renames across commits: when a file is renamed,
-  overlapping spans in the old and new paths are correctly clustered together
-  instead of being treated as unrelated files.
+- Hunk group matrix now tracks file renames across commits: when a file is
+  renamed, overlapping spans in the old and new paths are correctly clustered
+  together instead of being treated as unrelated files.
 - Added possibility to perform drop, move and squash operations when there are
   unstaged/staged changes in a submodule.
 

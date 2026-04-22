@@ -49,7 +49,7 @@ struct Cli {
     base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).
-    #[arg(short, long)]
+    #[arg(short, long, env = "GT_REVERSE")]
     reverse: bool,
 
     /// Show all hunk group columns without deduplication.
@@ -57,7 +57,7 @@ struct Cli {
     /// By default the hunk group matrix merges columns whose set of touching
     /// commits is identical, producing a compact view. With this flag every
     /// raw hunk group gets its own column.
-    #[arg(short = 'f', long)]
+    #[arg(short = 'f', long, env = "GT_FULL")]
     full: bool,
 
     /// Print the hunk group matrix to stdout and exit without launching the TUI.
@@ -74,7 +74,7 @@ struct Cli {
     no_color: bool,
 
     /// Controls what the yellow squashable-connector indicator means.
-    #[arg(long = "squashable-scope", value_enum)]
+    #[arg(long = "squashable-scope", value_enum, env = "GT_SQUASHABLE_SCOPE")]
     squashable_scope: Option<SquashableScope>,
 
     /// Show the complete repository history from HEAD down to the first commit.
@@ -84,7 +84,7 @@ struct Cli {
     all: bool,
 
     /// Hunk group matrix rendering theme.
-    #[arg(long = "theme", value_enum)]
+    #[arg(long = "theme", value_enum, env = "GT_THEME")]
     theme: Option<Theme>,
 }
 
@@ -99,9 +99,17 @@ struct Cli {
 /// Undoes the full setup done in `main` before calling `f` (leaves alternate
 /// screen, disables raw mode, pops keyboard-enhancement flags), then mirrors
 /// each step in reverse so the TUI is always left in a working state.
-/// Re-pushing `DISAMBIGUATE_ESCAPE_CODES` is critical on Windows: without it
-/// keys like Enter, Esc, and arrows stop working after the external process exits.
+///
+/// On Windows the console input mode is saved and restored explicitly because
+/// crossterm's `enable_raw_mode()` reads the *current* mode and only clears
+/// three bits. If the editor process changes the mode (e.g. sets
+/// `ENABLE_VIRTUAL_TERMINAL_INPUT`), that change would persist and break arrow
+/// key handling — arrow keys would arrive as escape-sequence characters
+/// instead of virtual-key-code events.
 fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
+    #[cfg(windows)]
+    let saved_mode = save_console_input_mode();
+
     if kb_enhanced {
         let _ = execute!(io::stderr(), PopKeyboardEnhancementFlags);
     }
@@ -111,7 +119,24 @@ fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
     let result = f();
 
     let _ = execute!(io::stderr(), EnterAlternateScreen);
-    let _ = enable_raw_mode();
+
+    // On Windows, restore the exact console input mode we saved rather than
+    // relying on enable_raw_mode() which would preserve any mode changes
+    // the editor made. On other platforms enable_raw_mode() uses saved
+    // termios state and restores correctly.
+    #[cfg(windows)]
+    {
+        if let Some(mode) = saved_mode {
+            restore_console_input_mode(mode);
+        } else {
+            let _ = enable_raw_mode();
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = enable_raw_mode();
+    }
+
     if kb_enhanced {
         let _ = execute!(
             io::stderr(),
@@ -119,6 +144,42 @@ fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
         );
     }
     result
+}
+
+/// Save the current Windows console input mode so it can be restored exactly
+/// after an external process. Returns `None` if the console handle cannot be
+/// obtained (e.g. when stdin is not a console).
+#[cfg(windows)]
+fn save_console_input_mode() -> Option<u32> {
+    use winapi::um::{
+        consoleapi::GetConsoleMode, processenv::GetStdHandle, winbase::STD_INPUT_HANDLE,
+    };
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        if handle.is_null() || handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut mode: u32 = 0;
+        if GetConsoleMode(handle, &mut mode) != 0 {
+            Some(mode)
+        } else {
+            None
+        }
+    }
+}
+
+/// Restore a previously saved Windows console input mode.
+#[cfg(windows)]
+fn restore_console_input_mode(mode: u32) {
+    use winapi::um::{
+        consoleapi::SetConsoleMode, processenv::GetStdHandle, winbase::STD_INPUT_HANDLE,
+    };
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        if !handle.is_null() && handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            let _ = SetConsoleMode(handle, mode);
+        }
+    }
 }
 
 fn compute_fragmap(
