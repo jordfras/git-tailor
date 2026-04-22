@@ -208,13 +208,15 @@ impl GitRepo for Git2Repo {
             git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
         let commit = repo.find_commit(commit_git_oid)?;
 
-        if commit.parent_count() != 1 {
-            anyhow::bail!(
-                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
-            );
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot split a merge commit");
         }
-        let parent_commit = commit.parent(0)?;
-        let parent_tree = parent_commit.tree()?;
+        let parent_tree = if commit.parent_count() == 0 {
+            let empty_oid = repo.treebuilder(None)?.write()?;
+            repo.find_tree(empty_oid)?
+        } else {
+            commit.parent(0)?.tree()?
+        };
         let commit_tree = commit.tree()?;
 
         // Compute full diff to enumerate files and for the overlap check
@@ -245,8 +247,15 @@ impl GitRepo for Git2Repo {
 
         self.check_dirty_overlap(&commit_paths)?;
 
-        // Create one commit per file, each building on the previous
-        let mut current_base_oid = parent_commit.id();
+        // Create one commit per file, each building on the previous.
+        // For root commits current_base is None; the first split piece becomes
+        // the new orphan root and subsequent ones are stacked on top.
+        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
+            None
+        } else {
+            Some(commit.parent_id(0)?)
+        };
+        let mut current_tree_oid = parent_tree.id();
         for delta_idx in 0..file_count {
             let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
             let path = delta
@@ -257,8 +266,7 @@ impl GitRepo for Git2Repo {
                 .to_string_lossy()
                 .into_owned();
 
-            let base_commit = repo.find_commit(current_base_oid)?;
-            let base_tree = base_commit.tree()?;
+            let base_tree = repo.find_tree(current_tree_oid)?;
 
             let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
                 || delta.old_file().mode() == git2::FileMode::Commit;
@@ -292,21 +300,21 @@ impl GitRepo for Git2Repo {
                 file_count,
             );
 
-            let new_oid = repo.commit(
-                None,
-                &author,
-                &committer,
-                &message,
-                &new_tree,
-                &[&base_commit],
-            )?;
-            current_base_oid = new_oid;
+            let parents: Vec<git2::Commit> = match current_base {
+                Some(oid) => vec![repo.find_commit(oid)?],
+                None => vec![],
+            };
+            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+            let new_oid =
+                repo.commit(None, &author, &committer, &message, &new_tree, &parent_refs)?;
+            current_base = Some(new_oid);
+            current_tree_oid = new_tree_oid;
         }
 
+        let final_tip = current_base.expect("loop produced at least two commits");
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        current_base_oid =
-            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
-        self.advance_branch_ref(current_base_oid, "git-tailor: split per-file")?;
+        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
+        self.advance_branch_ref(rebased_tip, "git-tailor: split per-file")?;
 
         Ok(())
     }
@@ -318,13 +326,15 @@ impl GitRepo for Git2Repo {
             git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
         let commit = repo.find_commit(commit_git_oid)?;
 
-        if commit.parent_count() != 1 {
-            anyhow::bail!(
-                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
-            );
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot split a merge commit");
         }
-        let parent_commit = commit.parent(0)?;
-        let parent_tree = parent_commit.tree()?;
+        let parent_tree = if commit.parent_count() == 0 {
+            let empty_oid = repo.treebuilder(None)?.write()?;
+            repo.find_tree(empty_oid)?
+        } else {
+            commit.parent(0)?.tree()?
+        };
         let commit_tree = commit.tree()?;
 
         // Compute diff with 0 context lines so adjacent hunks stay separate
@@ -370,7 +380,13 @@ impl GitRepo for Git2Repo {
         // apply_to_tree entirely to avoid libgit2 validating rejected hunks against
         // the modified output buffer (which shifts line positions and causes
         // "hunk did not apply").
-        let mut current_base_oid = parent_commit.id();
+        // For root commits current_base is None; the first split piece becomes
+        // the new orphan root and subsequent ones are stacked on top.
+        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
+            None
+        } else {
+            Some(commit.parent_id(0)?)
+        };
         let mut current_tree_oid = parent_tree.id();
         for target_k in 0..hunk_count {
             let next_tree_oid = if target_k == hunk_count - 1 {
@@ -390,8 +406,6 @@ impl GitRepo for Git2Repo {
             };
 
             let next_tree = repo.find_tree(next_tree_oid)?;
-            let base_commit = repo.find_commit(current_base_oid)?;
-
             let author = commit.author();
             let committer = commit.committer();
             let message = split_message(
@@ -400,22 +414,27 @@ impl GitRepo for Git2Repo {
                 hunk_count,
             );
 
+            let parents: Vec<git2::Commit> = match current_base {
+                Some(oid) => vec![repo.find_commit(oid)?],
+                None => vec![],
+            };
+            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
             let new_oid = repo.commit(
                 None,
                 &author,
                 &committer,
                 &message,
                 &next_tree,
-                &[&base_commit],
+                &parent_refs,
             )?;
-            current_base_oid = new_oid;
+            current_base = Some(new_oid);
             current_tree_oid = next_tree_oid;
         }
 
+        let final_tip = current_base.expect("loop produced at least two commits");
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        current_base_oid =
-            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
-        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk")?;
+        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
+        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk")?;
 
         Ok(())
     }
@@ -432,13 +451,15 @@ impl GitRepo for Git2Repo {
             git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
         let commit = repo.find_commit(commit_git_oid)?;
 
-        if commit.parent_count() != 1 {
-            anyhow::bail!(
-                "Can only split a commit with exactly one parent (merge commits and root commits are not supported)"
-            );
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot split a merge commit");
         }
-        let parent_commit = commit.parent(0)?;
-        let parent_tree = parent_commit.tree()?;
+        let parent_tree = if commit.parent_count() == 0 {
+            let empty_oid = repo.treebuilder(None)?.write()?;
+            repo.find_tree(empty_oid)?
+        } else {
+            commit.parent(0)?.tree()?
+        };
         let commit_tree = commit.tree()?;
 
         // Build the fragmap over all branch commits so hunk grouping reflects
@@ -446,7 +467,11 @@ impl GitRepo for Git2Repo {
         let branch_commits = self.list_commits(head_oid, reference_oid)?;
         let branch_diffs: Vec<crate::CommitDiff> = branch_commits
             .iter()
-            .filter(|c| c.oid != reference_oid && !c.oid.starts_with("synthetic:"))
+            // Exclude the reference point unless it is the commit being split
+            // (in --all mode the root commit IS the reference point).
+            .filter(|c| {
+                (c.oid != reference_oid || c.oid == commit_oid) && !c.oid.starts_with("synthetic:")
+            })
             .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
             .collect();
 
@@ -510,7 +535,13 @@ impl GitRepo for Git2Repo {
         // For each touched group gk (in order), build the intermediate tree by
         // applying all of K's hunks whose group index ≤ gk to parent_tree in one
         // sweep (positions relative to the original, no cumulative offset issues).
-        let mut current_base_oid = parent_commit.id();
+        // For root commits current_base is None; the first split piece becomes
+        // the new orphan root and subsequent ones are stacked on top.
+        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
+            None
+        } else {
+            Some(commit.parent_id(0)?)
+        };
         let mut current_tree_oid = parent_tree.id();
         for (out_pos, &gk) in k_groups.iter().enumerate() {
             let next_tree_oid = if out_pos == split_count - 1 {
@@ -533,8 +564,6 @@ impl GitRepo for Git2Repo {
             };
 
             let next_tree = repo.find_tree(next_tree_oid)?;
-            let base_commit = repo.find_commit(current_base_oid)?;
-
             let author = commit.author();
             let committer = commit.committer();
             let message = split_message(
@@ -542,22 +571,27 @@ impl GitRepo for Git2Repo {
                 out_pos + 1,
                 split_count,
             );
+            let parents: Vec<git2::Commit> = match current_base {
+                Some(oid) => vec![repo.find_commit(oid)?],
+                None => vec![],
+            };
+            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
             let new_oid = repo.commit(
                 None,
                 &author,
                 &committer,
                 &message,
                 &next_tree,
-                &[&base_commit],
+                &parent_refs,
             )?;
-            current_base_oid = new_oid;
+            current_base = Some(new_oid);
             current_tree_oid = next_tree_oid;
         }
 
+        let final_tip = current_base.expect("loop produced at least two commits");
         let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        current_base_oid =
-            self.rebase_descendants(commit_git_oid, head_git_oid, current_base_oid)?;
-        self.advance_branch_ref(current_base_oid, "git-tailor: split per-hunk-group")?;
+        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
+        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk-group")?;
 
         let _ = current_tree_oid; // suppress unused warning
         Ok(())
@@ -567,10 +601,15 @@ impl GitRepo for Git2Repo {
         let repo = &self.inner;
         let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
         let commit = repo.find_commit(oid)?;
-        if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent");
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot split a merge commit");
         }
-        let parent_tree = commit.parent(0)?.tree()?;
+        let parent_tree = if commit.parent_count() == 0 {
+            let empty_oid = repo.treebuilder(None)?.write()?;
+            repo.find_tree(empty_oid)?
+        } else {
+            commit.parent(0)?.tree()?
+        };
         let commit_tree = commit.tree()?;
         let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
         Ok(diff.deltas().len())
@@ -580,10 +619,15 @@ impl GitRepo for Git2Repo {
         let repo = &self.inner;
         let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
         let commit = repo.find_commit(oid)?;
-        if commit.parent_count() != 1 {
-            anyhow::bail!("Can only split a commit with exactly one parent");
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot split a merge commit");
         }
-        let parent_tree = commit.parent(0)?.tree()?;
+        let parent_tree = if commit.parent_count() == 0 {
+            let empty_oid = repo.treebuilder(None)?.write()?;
+            repo.find_tree(empty_oid)?
+        } else {
+            commit.parent(0)?.tree()?
+        };
         let commit_tree = commit.tree()?;
         let mut diff_opts = git2::DiffOptions::new();
         diff_opts.context_lines(0);

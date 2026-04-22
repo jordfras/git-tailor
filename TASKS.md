@@ -102,7 +102,7 @@ Guidelines:
   a blob diff, or by grouping all submodule deltas into a single synthesised
   commit so the split result is well-formed; add an integration test using a
   `TempDir` repo with a real submodule to reproduce the crash and verify the fix
-- [ ] T150 P2 bug - Splitting the root commit in `--all` mode fails with "Can
+- [X] T150 P2 bug - Splitting the root commit in `--all` mode fails with "Can
   only split a commit with exactly one parent": `split_commit_per_file`,
   `split_commit_per_hunk`, and `split_commit_per_hunk_group` in `git2_impl.rs`
   all reject commits with `parent_count != 1`; the fix should apply the same
