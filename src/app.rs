@@ -372,9 +372,8 @@ pub struct AppState {
     pub search_match_index: Option<usize>,
 }
 
-impl AppState {
-    /// Create a new AppState with default values.
-    pub fn new() -> Self {
+impl Default for AppState {
+    fn default() -> Self {
         Self {
             should_quit: false,
             commits: Vec::new(),
@@ -407,40 +406,21 @@ impl AppState {
             search_match_index: None,
         }
     }
+}
+
+impl AppState {
+    /// Create a new AppState with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Create a new AppState with the given commits, selecting the last one (HEAD).
     pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
         let selection_index = commits.len().saturating_sub(1);
         Self {
-            should_quit: false,
             commits,
             selection_index,
-            reverse: false,
-            full_fragmap: false,
-            squashable_scope: SquashableScope::Group,
-            theme: Theme::Plain,
-            reference_oid: String::new(),
-            fragmap: None,
-            fragmap_scroll_offset: 0,
-            mode: AppMode::CommitList,
-            detail_scroll_offset: 0,
-            max_detail_scroll: 0,
-            detail_h_scroll_offset: 0,
-            max_detail_h_scroll: 0,
-            commit_list_visible_height: 0,
-            detail_visible_height: 0,
-            dialog_scroll_offset: 0,
-            max_dialog_scroll: 0,
-            dialog_visible_height: 0,
-            status_message: None,
-            status_is_error: false,
-            separator_offset: 0,
-            include_reference_oid: false,
-            search_query: String::new(),
-            search_input_active: false,
-            search_active: false,
-            search_matches: Vec::new(),
-            search_match_index: None,
+            ..Self::default()
         }
     }
 
@@ -805,12 +785,6 @@ impl AppState {
         } else {
             self.show_help();
         }
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

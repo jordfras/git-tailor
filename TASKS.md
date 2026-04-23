@@ -279,7 +279,7 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements
-- [ ] T151 P3 fix - Eliminate duplication between `AppState::new()` and
+- [X] T151 P3 fix - Eliminate duplication between `AppState::new()` and
   `AppState::with_commits()`: both functions repeat the same ~30 field
   initializations verbatim; implement `Default` for `AppState` containing all
   the zero-values, then have `with_commits` construct via `AppState { commits,
