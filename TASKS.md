@@ -285,7 +285,7 @@ Guidelines:
   the zero-values, then have `with_commits` construct via `AppState { commits,
   selection_index, ..Default::default() }` and `new` delegate to `Default`;
   remove the duplicate field lists entirely
-- [ ] T152 P3 fix - Extract repeated `head_oid` fetch pattern in `main.rs`:
+- [X] T152 P3 fix - Extract repeated `head_oid` fetch pattern in `main.rs`:
   the block `match git_repo.head_oid() { Ok(oid) => oid, Err(e) => {
   app.set_error_message(...); continue; } }` appears five times in the
   `AppAction` dispatch arms (PrepareSplit, PrepareDropConfirm, PrepareReword,

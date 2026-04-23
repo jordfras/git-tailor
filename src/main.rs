@@ -33,6 +33,22 @@ use git_tailor::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
+/// Fetch HEAD OID from the repo, setting an error message and continuing the
+/// event loop if the call fails.
+///
+/// Only valid inside the `loop { … }` in `main`.
+macro_rules! get_head_oid_or_continue {
+    ($git_repo:expr, $app:expr) => {
+        match $git_repo.head_oid() {
+            Ok(oid) => oid,
+            Err(e) => {
+                $app.set_error_message(format!("Failed to get HEAD: {e}"));
+                continue;
+            }
+        }
+    };
+}
+
 /// An interactive terminal tool for tidying up Git commits on a branch.
 #[derive(Parser)]
 #[command(
@@ -364,13 +380,7 @@ fn main() -> Result<()> {
                 strategy,
                 commit_oid,
             } => {
-                let head_oid = match git_repo.head_oid() {
-                    Ok(oid) => oid,
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to get HEAD: {e}"));
-                        continue;
-                    }
-                };
+                let head_oid = get_head_oid_or_continue!(git_repo, app);
                 let count_result = match strategy {
                     SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
                     SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
@@ -401,13 +411,7 @@ fn main() -> Result<()> {
                 commit_oid,
                 commit_summary,
             } => {
-                let head_oid = match git_repo.head_oid() {
-                    Ok(oid) => oid,
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to get HEAD: {e}"));
-                        continue;
-                    }
-                };
+                let head_oid = get_head_oid_or_continue!(git_repo, app);
                 app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
             }
             AppAction::ExecuteDrop {
@@ -599,13 +603,7 @@ fn main() -> Result<()> {
                 commit_oid,
                 current_message,
             } => {
-                let head_oid = match git_repo.head_oid() {
-                    Ok(oid) => oid,
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to get HEAD: {e}"));
-                        continue;
-                    }
-                };
+                let head_oid = get_head_oid_or_continue!(git_repo, app);
                 let editor_result = with_external_process(kb_enhanced, || {
                     editor::edit_message_in_editor(&git_repo, &current_message)
                 });
@@ -633,13 +631,7 @@ fn main() -> Result<()> {
                 target_message,
                 is_fixup,
             } => {
-                let head_oid = match git_repo.head_oid() {
-                    Ok(oid) => oid,
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to get HEAD: {e}"));
-                        continue;
-                    }
-                };
+                let head_oid = get_head_oid_or_continue!(git_repo, app);
 
                 let label = if is_fixup { "Fixup" } else { "Squash" };
                 // For fixup, use only the target message; for squash use the
@@ -720,13 +712,7 @@ fn main() -> Result<()> {
                 source_oid,
                 insert_after_oid,
             } => {
-                let head_oid = match git_repo.head_oid() {
-                    Ok(oid) => oid,
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to get HEAD: {e}"));
-                        continue;
-                    }
-                };
+                let head_oid = get_head_oid_or_continue!(git_repo, app);
                 let saved_index = app.selection_index;
                 match git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid) {
                     Ok(RebaseOutcome::Complete) => {
