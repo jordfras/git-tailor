@@ -279,5 +279,43 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements
+- [ ] T151 P3 fix - Eliminate duplication between `AppState::new()` and
+  `AppState::with_commits()`: both functions repeat the same ~30 field
+  initializations verbatim; implement `Default` for `AppState` containing all
+  the zero-values, then have `with_commits` construct via `AppState { commits,
+  selection_index, ..Default::default() }` and `new` delegate to `Default`;
+  remove the duplicate field lists entirely
+- [ ] T152 P3 fix - Extract repeated `head_oid` fetch pattern in `main.rs`:
+  the block `match git_repo.head_oid() { Ok(oid) => oid, Err(e) => {
+  app.set_error_message(...); continue; } }` appears five times in the
+  `AppAction` dispatch arms (PrepareSplit, PrepareDropConfirm, PrepareReword,
+  PrepareSquash, ExecuteMove); extract a local macro or inline helper
+  `get_head_oid!(git_repo, app)` that encapsulates the error path so each call
+  site is a single expression
+- [ ] T153 P3 fix - Add `CommitInfo::is_synthetic()` helper to replace scattered
+  inline checks: the expression `commit.oid == "staged" || commit.oid ==
+  "unstaged"` is repeated in five or more places across `app.rs` and
+  `commit_list.rs`; add a `pub fn is_synthetic(&self) -> bool` method to
+  `CommitInfo` in `lib.rs` and replace every inline occurrence with a call to it
+- [ ] T154 P3 fix - Deduplicate `short_oid` truncation logic: the snippet `if
+  oid.len() >= 10 { &oid[..10] } else { &oid }` (or near-identical variants)
+  appears independently in `conflict.rs`, `drop.rs`, `split_select.rs`, and
+  `commit_list.rs`; add a free function `short_oid(oid: &str) -> &str` in a
+  shared location (e.g. `views/dialog.rs` or a new `views/utils.rs`) and
+  replace all call sites
+- [ ] T155 P3 fix - Extract common split-commit preamble into a shared helper:
+  `split_commit_per_file`, `split_commit_per_hunk`, and
+  `split_commit_per_hunk_group` in `git2_impl.rs` each begin with ~20 identical
+  lines (parse OID, find commit, bail on merge commit, compute `parent_tree`
+  handling the root-commit case, get `commit_tree`); extract a private helper
+  `fn load_split_commit(repo, oid) -> Result<SplitCommitParts>` returning the
+  shared values, and apply the same extraction to the three `count_split_*`
+  methods which duplicate the same setup
+- [ ] T156 P3 fix - Remove redundant `visible_clusters` double-iteration in
+  `compute_layout`: `commit_list.rs::compute_layout` iterates the fragmap
+  matrix twice with identical predicate logic — once to compute
+  `visible_cluster_count` for the scrollbar decision, then again to build
+  `visible_clusters: Vec<usize>`; compute the `Vec` first and derive the count
+  from `visible_clusters.len()` to eliminate the duplicate pass
 
 ## Notes
