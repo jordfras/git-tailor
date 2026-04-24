@@ -303,7 +303,7 @@ Guidelines:
   = saved_index.min(app.commits.len().saturating_sub(1));` in `main.rs`
   (drop, move, squash, squash_finalize, rebase_continue); each call site
   becomes a single line
-- [ ] T160 P2 fix - Extract a `handle_rebase_outcome` helper (free fn or
+- [X] T160 P2 fix - Extract a `handle_rebase_outcome` helper (free fn or
   AppState method) in `main.rs` to consolidate the repeated `match outcome
   { Ok(RebaseOutcome::Complete) => { reload + preserve_selection +
   set_success_message }, Ok(RebaseOutcome::Conflict(state)) =>

@@ -418,20 +418,8 @@ fn main() -> Result<()> {
                 commit_oid,
                 head_oid,
             } => {
-                let saved_index = app.selection_index;
-                match git_repo.drop_commit(&commit_oid, &head_oid) {
-                    Ok(RebaseOutcome::Complete) => {
-                        reload_commits(&git_repo, &mut app);
-                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
-                        app.set_success_message("Commit dropped");
-                    }
-                    Ok(RebaseOutcome::Conflict(state)) => {
-                        app.enter_rebase_conflict(*state);
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("Drop failed: {e}"));
-                    }
-                }
+                let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
+                handle_rebase_outcome(&git_repo, &mut app, outcome, "Drop", "Commit dropped");
             }
             AppAction::RebaseContinue(state) => {
                 // Auto-stage files the user resolved in an external editor
@@ -487,44 +475,20 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    let saved_index = app.selection_index;
-                    match git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid) {
-                        Ok(RebaseOutcome::Complete) => {
-                            reload_commits(&git_repo, &mut app);
-                            app.selection_index =
-                                saved_index.min(app.commits.len().saturating_sub(1));
-                            let success_msg = if ctx_clone.is_fixup {
-                                "Commit fixed up"
-                            } else {
-                                "Commits squashed"
-                            };
-                            app.set_success_message(success_msg);
-                        }
-                        Ok(RebaseOutcome::Conflict(new_state)) => {
-                            app.enter_rebase_conflict(*new_state);
-                        }
-                        Err(e) => {
-                            app.set_error_message(format!("Squash failed: {e}"));
-                        }
-                    }
+                    let success_msg = if ctx_clone.is_fixup {
+                        "Commit fixed up"
+                    } else {
+                        "Commits squashed"
+                    };
+                    let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
+                    handle_rebase_outcome(&git_repo, &mut app, outcome, "Squash", success_msg);
                     continue;
                 }
 
-                let saved_index = app.selection_index;
-                match git_repo.rebase_continue(&state) {
-                    Ok(RebaseOutcome::Complete) => {
-                        reload_commits(&git_repo, &mut app);
-                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
-                        let label = state.operation_label.to_lowercase();
-                        app.set_success_message(format!("Commit {label} complete"));
-                    }
-                    Ok(RebaseOutcome::Conflict(new_state)) => {
-                        app.enter_rebase_conflict(*new_state);
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("Continue failed: {e}"));
-                    }
-                }
+                let success_msg =
+                    format!("Commit {} complete", state.operation_label.to_lowercase());
+                let outcome = git_repo.rebase_continue(&state);
+                handle_rebase_outcome(&git_repo, &mut app, outcome, "Continue", &success_msg);
             }
             AppAction::RebaseAbort(state) => match git_repo.rebase_abort(&state) {
                 Ok(()) => {
@@ -686,26 +650,14 @@ fn main() -> Result<()> {
                 };
 
                 if let Some(msg) = final_message {
-                    let saved_index = app.selection_index;
-                    match git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid) {
-                        Ok(RebaseOutcome::Complete) => {
-                            reload_commits(&git_repo, &mut app);
-                            app.selection_index =
-                                saved_index.min(app.commits.len().saturating_sub(1));
-                            let success_msg = if is_fixup {
-                                "Commit fixed up"
-                            } else {
-                                "Commits squashed"
-                            };
-                            app.set_success_message(success_msg);
-                        }
-                        Ok(RebaseOutcome::Conflict(state)) => {
-                            app.enter_rebase_conflict(*state);
-                        }
-                        Err(e) => {
-                            app.set_error_message(format!("{label} failed: {e}"));
-                        }
-                    }
+                    let success_msg = if is_fixup {
+                        "Commit fixed up"
+                    } else {
+                        "Commits squashed"
+                    };
+                    let outcome =
+                        git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
+                    handle_rebase_outcome(&git_repo, &mut app, outcome, label, success_msg);
                 }
             }
             AppAction::ExecuteMove {
@@ -713,20 +665,8 @@ fn main() -> Result<()> {
                 insert_after_oid,
             } => {
                 let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let saved_index = app.selection_index;
-                match git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid) {
-                    Ok(RebaseOutcome::Complete) => {
-                        reload_commits(&git_repo, &mut app);
-                        app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
-                        app.set_success_message("Commit moved");
-                    }
-                    Ok(RebaseOutcome::Conflict(state)) => {
-                        app.enter_rebase_conflict(*state);
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("Move failed: {e}"));
-                    }
-                }
+                let outcome = git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid);
+                handle_rebase_outcome(&git_repo, &mut app, outcome, "Move", "Commit moved");
             }
         }
 
@@ -746,6 +686,32 @@ fn main() -> Result<()> {
 
 /// Number of output commits above which a split requires explicit confirmation.
 const SPLIT_CONFIRM_THRESHOLD: usize = 5;
+
+/// Reduce a rebase result to its UI side effect: reload + success message,
+/// enter conflict mode, or display an error. The selection index is preserved
+/// across the reload so the user stays focused on the same row.
+fn handle_rebase_outcome(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    outcome: anyhow::Result<RebaseOutcome>,
+    op_label: &str,
+    success_msg: &str,
+) {
+    let saved_index = app.selection_index;
+    match outcome {
+        Ok(RebaseOutcome::Complete) => {
+            reload_commits(git_repo, app);
+            app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+            app.set_success_message(success_msg.to_string());
+        }
+        Ok(RebaseOutcome::Conflict(state)) => {
+            app.enter_rebase_conflict(*state);
+        }
+        Err(e) => {
+            app.set_error_message(format!("{op_label} failed: {e}"));
+        }
+    }
+}
 
 /// Execute a split operation and reload commits on success.
 fn execute_split(
