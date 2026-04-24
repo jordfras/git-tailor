@@ -162,6 +162,18 @@ fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
     result
 }
 
+/// Run a function that takes over the terminal (editor, mergetool), then
+/// clear the terminal so the next TUI draw starts from a clean buffer.
+fn run_external_tool<T>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stderr>>,
+    kb_enhanced: bool,
+    f: impl FnOnce() -> T,
+) -> io::Result<T> {
+    let result = with_external_process(kb_enhanced, f);
+    terminal.clear()?;
+    Ok(result)
+}
+
 /// Save the current Windows console input mode so it can be restored exactly
 /// after an external process. Returns `None` if the console handle cannot be
 /// obtained (e.g. when stdin is not a console).
@@ -451,10 +463,9 @@ fn main() -> Result<()> {
                         ctx.combined_message.clone()
                     } else {
                         let combined = ctx.combined_message.clone();
-                        let editor_result = with_external_process(kb_enhanced, || {
+                        let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
                             editor::edit_message_in_editor(&git_repo, &combined)
-                        });
-                        terminal.clear()?;
+                        })?;
                         match editor_result {
                             Err(e) => {
                                 let _ = git_repo.rebase_abort(&state);
@@ -504,10 +515,9 @@ fn main() -> Result<()> {
                 files,
                 conflict_state,
             } => {
-                let result = with_external_process(kb_enhanced, || {
+                let result = run_external_tool(&mut terminal, kb_enhanced, || {
                     mergetool::run_mergetool(&git_repo, &files)
-                });
-                terminal.clear()?;
+                })?;
                 match result {
                     Ok(true) => {
                         let new_files = git_repo.read_conflicting_files();
@@ -536,15 +546,16 @@ fn main() -> Result<()> {
                 conflict_state,
             } => {
                 let workdir = git_repo.workdir();
-                let result: anyhow::Result<()> = with_external_process(kb_enhanced, || {
-                    let workdir = workdir
-                        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-                    for file_path in &files {
-                        editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
-                    }
-                    Ok(())
-                });
-                terminal.clear()?;
+                let result: anyhow::Result<()> =
+                    run_external_tool(&mut terminal, kb_enhanced, || {
+                        let workdir = workdir.ok_or_else(|| {
+                            anyhow::anyhow!("repository has no working directory")
+                        })?;
+                        for file_path in &files {
+                            editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
+                        }
+                        Ok(())
+                    })?;
                 match result {
                     Ok(()) => {
                         let new_files = git_repo.read_conflicting_files();
@@ -568,10 +579,9 @@ fn main() -> Result<()> {
                 current_message,
             } => {
                 let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let editor_result = with_external_process(kb_enhanced, || {
+                let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
                     editor::edit_message_in_editor(&git_repo, &current_message)
-                });
-                terminal.clear()?;
+                })?;
                 match editor_result {
                     Err(e) => app.set_error_message(format!("Editor error: {e}")),
                     Ok(new_message) if new_message == current_message => {}
@@ -627,10 +637,9 @@ fn main() -> Result<()> {
                 let final_message = if is_fixup {
                     Some(target_message)
                 } else {
-                    let editor_result = with_external_process(kb_enhanced, || {
+                    let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
                         editor::edit_message_in_editor(&git_repo, &combined)
-                    });
-                    terminal.clear()?;
+                    })?;
                     match editor_result {
                         Err(e) => {
                             app.set_error_message(format!("Editor error: {e}"));

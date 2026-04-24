@@ -310,7 +310,7 @@ Guidelines:
   ("{label} failed: {e}")) }` block; called by ExecuteDrop, ExecuteMove,
   PrepareSquash, RebaseContinue, and the squash finalize path; reduces ~80
   lines of boilerplate
-- [ ] T161 P3 fix - Extract a `run_external_tool<T>(terminal, kb_enhanced, f)`
+- [X] T161 P3 fix - Extract a `run_external_tool<T>(terminal, kb_enhanced, f)`
   helper in `main.rs` that wraps the `with_external_process(kb_enhanced, f) +
   terminal.clear()?` pattern; used by editor invocations (PrepareReword,
   squash-message editor, conflict-finalize editor) and the mergetool/editor
