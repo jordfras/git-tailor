@@ -20,8 +20,11 @@ use crate::{CommitDiff, CommitInfo, fragmap};
 use super::GitRepo;
 
 mod conflict;
+mod drop_op;
 mod hunks;
+mod move_op;
 mod reads;
+mod reword_op;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
@@ -578,30 +581,7 @@ impl GitRepo for Git2Repo {
     }
 
     fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for reword")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for reword")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        let parents: Vec<git2::Commit> = (0..commit.parent_count())
-            .map(|i| commit.parent(i))
-            .collect::<std::result::Result<_, _>>()?;
-        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-
-        let new_oid = repo.commit(
-            None,
-            &commit.author(),
-            &commit.committer(),
-            new_message,
-            &commit.tree()?,
-            &parent_refs,
-        )?;
-
-        let tip = self.rebase_descendants(commit_git_oid, head_git_oid, new_oid)?;
-        self.advance_branch_ref(tip, "reword: update branch ref")?;
-        Ok(())
+        reword_op::reword_commit(self, commit_oid, new_message, head_oid)
     }
 
     fn get_config_string(&self, key: &str) -> Option<String> {
@@ -609,59 +589,7 @@ impl GitRepo for Git2Repo {
     }
 
     fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<super::RebaseOutcome> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for drop")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for drop")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() != 1 {
-            anyhow::bail!("Cannot drop a merge or root commit");
-        }
-        let parent_oid = commit.parent_id(0)?;
-
-        let original_branch_oid = head_oid.to_string();
-
-        // Collect descendants: commits strictly between commit_oid and head_oid.
-        let descendants = self.collect_descendants(commit_git_oid, head_git_oid)?;
-
-        // Cherry-pick each descendant onto the new chain, starting from the
-        // dropped commit's parent.
-        let result = self.cherry_pick_chain(parent_oid, &descendants)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: drop commit")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = descendants[conflicting_idx];
-                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Drop".to_string(),
-                        original_branch_oid,
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: conflict::collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: None,
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
+        drop_op::drop_commit(self, commit_oid, head_oid)
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
@@ -690,170 +618,7 @@ impl GitRepo for Git2Repo {
         insert_after_oid: &str,
         head_oid: &str,
     ) -> Result<super::RebaseOutcome> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for move")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for move")?;
-
-        let commit = repo.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot move a merge commit");
-        }
-
-        let original_branch_oid = head_oid.to_string();
-
-        // Determine the chain base and the ordered commit list to replay.
-        //
-        // Empty `insert_after_oid` is a sentinel meaning "make the source the
-        // new root commit" (used by --all mode when the user moves a commit
-        // before the first visible entry).  In that case the source commit's
-        // diff is applied to an empty tree to create the new orphan root, and
-        // all other commits are cherry-picked on top in their original order.
-        let (chain_base, reordered) = if insert_after_oid.is_empty() {
-            // Collect every commit from root to HEAD oldest-first.
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-position move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            // Build the new root commit from the source commit's own diff
-            // applied to an empty tree.
-            let parent_tree = commit.parent(0)?.tree()?;
-            let commit_tree = commit.tree()?;
-            let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-
-            let empty_tree_oid = repo.treebuilder(None)?.write()?;
-            let empty_tree = repo.find_tree(empty_tree_oid)?;
-
-            let mut new_idx = repo.apply_to_tree(&empty_tree, &diff, None)?;
-            if new_idx.has_conflicts() {
-                anyhow::bail!("Unexpected conflict creating new root from moved commit");
-            }
-            let new_tree_oid = new_idx.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let new_root_oid = repo.commit(
-                None,
-                &commit.author(),
-                &commit.committer(),
-                commit.message().unwrap_or(""),
-                &new_tree,
-                &[], // no parents — this becomes the new root
-            )?;
-
-            let remaining: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            (new_root_oid, remaining)
-        } else if commit.parent_count() == 0 {
-            // Source IS the root commit; move it to a later position.
-            // The new first commit in the reordered list becomes the orphan
-            // root (its full tree is used as-is), then the rest (including
-            // the original root) are cherry-picked on top.
-            let insert_after_git_oid = git2::Oid::from_str(insert_after_oid)
-                .context("Invalid insert-after OID for move")?;
-
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            let mut reordered: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            let insert_pos = reordered
-                .iter()
-                .position(|&oid| oid == insert_after_git_oid)
-                .context("insert_after_oid not found among branch commits")?
-                + 1;
-            reordered.insert(insert_pos, commit_git_oid);
-
-            // Commit the new first entry as an orphan root using its tree.
-            let first_commit = repo.find_commit(reordered[0])?;
-            let new_root_oid = repo.commit(
-                None,
-                &first_commit.author(),
-                &first_commit.committer(),
-                first_commit.message().unwrap_or(""),
-                &first_commit.tree()?,
-                &[],
-            )?;
-
-            (new_root_oid, reordered[1..].to_vec())
-        } else {
-            let insert_after_git_oid = git2::Oid::from_str(insert_after_oid)
-                .context("Invalid insert-after OID for move")?;
-            let source_parent_oid = commit.parent_id(0)?;
-
-            // The rebase base is the earlier of insert_after and source's parent.
-            let base_oid = repo.merge_base(insert_after_git_oid, source_parent_oid)?;
-
-            // Collect all commits between base (exclusive) and HEAD (inclusive).
-            let all_descendants = self.collect_descendants(base_oid, head_git_oid)?;
-
-            let mut reordered: Vec<git2::Oid> = all_descendants
-                .iter()
-                .filter(|&&oid| oid != commit_git_oid)
-                .copied()
-                .collect();
-
-            let insert_pos = if insert_after_git_oid == base_oid {
-                0
-            } else {
-                reordered
-                    .iter()
-                    .position(|&oid| oid == insert_after_git_oid)
-                    .context("insert_after_oid not found among branch commits")?
-                    + 1
-            };
-            reordered.insert(insert_pos, commit_git_oid);
-
-            (base_oid, reordered)
-        };
-
-        let result = self.cherry_pick_chain(chain_base, &reordered)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: move commit")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = reordered[conflicting_idx];
-                let remaining: Vec<String> = reordered[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Move".to_string(),
-                        original_branch_oid,
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: conflict::collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: Some(commit_oid.to_string()),
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
+        move_op::move_commit(self, commit_oid, insert_after_oid, head_oid)
     }
 
     fn squash_commits(
