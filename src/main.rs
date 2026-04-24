@@ -34,17 +34,25 @@ use crate::cli::Cli;
 use crate::external_tool::run_external_tool;
 use crate::terminal_guard::setup_terminal;
 
-/// Fetch HEAD OID from the repo, setting an error message and continuing the
-/// event loop if the call fails.
+/// Loop-control signal returned by [`dispatch_action`].
+enum LoopAction {
+    /// Skip the rest of this iteration (equivalent to `continue` in the loop).
+    Continue,
+    /// Fall through to the post-dispatch checks (e.g. `should_quit`).
+    Proceed,
+}
+
+/// Fetch HEAD OID from the repo, setting an error message and returning
+/// `LoopAction::Continue` from the enclosing function if the call fails.
 ///
-/// Only valid inside the `loop { … }` in `main`.
+/// Only valid inside [`dispatch_action`].
 macro_rules! get_head_oid_or_continue {
     ($git_repo:expr, $app:expr) => {
         match $git_repo.head_oid() {
             Ok(oid) => oid,
             Err(e) => {
                 $app.set_error_message(format!("Failed to get HEAD: {e}"));
-                continue;
+                return Ok(LoopAction::Continue);
             }
         }
     };
@@ -196,298 +204,15 @@ fn main() -> Result<()> {
             AppMode::Help(_) => views::help::handle_key(action, &mut app),
         };
 
-        // Handle side effects that require git operations or terminal access.
-        match result {
-            AppAction::Handled => {}
-            AppAction::Quit => app.should_quit = true,
-            AppAction::ReloadCommits => reload_commits(&git_repo, &mut app),
-            AppAction::PrepareSplit {
-                strategy,
-                commit_oid,
-            } => {
-                let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let count_result = match strategy {
-                    SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
-                    SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
-                    SplitStrategy::PerHunkGroup => git_repo.count_split_per_hunk_group(
-                        &commit_oid,
-                        &head_oid,
-                        &app.reference_oid,
-                    ),
-                };
-                match count_result {
-                    Err(e) => app.set_error_message(e.to_string()),
-                    Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
-                        app.enter_split_confirm(strategy, commit_oid, head_oid, count);
-                    }
-                    Ok(_) => {
-                        execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
-                    }
-                }
-            }
-            AppAction::ExecuteSplit {
-                strategy,
-                commit_oid,
-                head_oid,
-            } => {
-                execute_split(&git_repo, &mut app, strategy, &commit_oid, &head_oid);
-            }
-            AppAction::PrepareDropConfirm {
-                commit_oid,
-                commit_summary,
-            } => {
-                let head_oid = get_head_oid_or_continue!(git_repo, app);
-                app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
-            }
-            AppAction::ExecuteDrop {
-                commit_oid,
-                head_oid,
-            } => {
-                let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
-                handle_rebase_outcome(&git_repo, &mut app, outcome, "Drop", "Commit dropped");
-            }
-            AppAction::RebaseContinue(state) => {
-                // Auto-stage files the user resolved in an external editor
-                // so that the index reflects the working-tree state.
-                let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
-
-                // Squash-time tree conflict: the user has resolved the
-                // combined tree. For squash, open the editor; for fixup,
-                // use the stored target message directly.
-                if let Some(ref ctx) = state.squash_context {
-                    let original_oid = state.original_branch_oid.clone();
-                    let ctx_clone = ctx.clone();
-
-                    // Check that the index is actually resolved before
-                    // launching the editor.
-                    let conflict_files = git_repo.read_conflicting_files();
-                    if !conflict_files.is_empty() {
-                        app.enter_rebase_conflict(git_tailor::repo::ConflictState {
-                            conflicting_files: conflict_files,
-                            still_unresolved: true,
-                            ..state
-                        });
-                        continue;
-                    }
-
-                    // Fixup: skip the editor and use the stored target message.
-                    // Squash: open the editor with the combined message.
-                    let final_msg = if ctx.is_fixup {
-                        ctx.combined_message.clone()
-                    } else {
-                        let combined = ctx.combined_message.clone();
-                        let editor_result =
-                            run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                                editor::edit_message_in_editor(&git_repo, &combined)
-                            })?;
-                        match editor_result {
-                            Err(e) => {
-                                let _ = git_repo.rebase_abort(&state);
-                                reload_commits(&git_repo, &mut app);
-                                app.set_error_message(format!("Editor error: {e}"));
-                                continue;
-                            }
-                            Ok(msg) if msg.trim().is_empty() => {
-                                let _ = git_repo.rebase_abort(&state);
-                                reload_commits(&git_repo, &mut app);
-                                let label = &state.operation_label;
-                                app.set_error_message(format!(
-                                    "{label} aborted: empty commit message"
-                                ));
-                                continue;
-                            }
-                            Ok(msg) => msg,
-                        }
-                    };
-
-                    let success_msg = if ctx_clone.is_fixup {
-                        "Commit fixed up"
-                    } else {
-                        "Commits squashed"
-                    };
-                    let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
-                    handle_rebase_outcome(&git_repo, &mut app, outcome, "Squash", success_msg);
-                    continue;
-                }
-
-                let success_msg =
-                    format!("Commit {} complete", state.operation_label.to_lowercase());
-                let outcome = git_repo.rebase_continue(&state);
-                handle_rebase_outcome(&git_repo, &mut app, outcome, "Continue", &success_msg);
-            }
-            AppAction::RebaseAbort(state) => match git_repo.rebase_abort(&state) {
-                Ok(()) => {
-                    reload_commits(&git_repo, &mut app);
-                    let label = state.operation_label.to_lowercase();
-                    app.set_success_message(format!("{} aborted", label.trim()));
-                }
-                Err(e) => {
-                    app.set_error_message(format!("Abort failed: {e}"));
-                }
-            },
-            AppAction::RunMergetool {
-                files,
-                conflict_state,
-            } => {
-                let result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                    mergetool::run_mergetool(&git_repo, &files)
-                })?;
-                match result {
-                    Ok(true) => {
-                        let new_files = git_repo.read_conflicting_files();
-                        app.mode =
-                            AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
-                                conflicting_files: new_files,
-                                still_unresolved: false,
-                                ..conflict_state
-                            }));
-                        app.set_success_message(
-                            "Merge tool finished — press Enter when done or Esc to abort",
-                        );
-                    }
-                    Ok(false) => {
-                        app.set_error_message(
-                            "No merge tool configured (set merge.tool in git config)",
-                        );
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("Merge tool failed: {e}"));
-                    }
-                }
-            }
-            AppAction::RunEditor {
-                files,
-                conflict_state,
-            } => {
-                let workdir = git_repo.workdir();
-                let result: anyhow::Result<()> =
-                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                        let workdir = workdir.ok_or_else(|| {
-                            anyhow::anyhow!("repository has no working directory")
-                        })?;
-                        for file_path in &files {
-                            editor::open_file_in_editor(&git_repo, &workdir.join(file_path))?;
-                        }
-                        Ok(())
-                    })?;
-                match result {
-                    Ok(()) => {
-                        let new_files = git_repo.read_conflicting_files();
-                        app.mode =
-                            AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
-                                conflicting_files: new_files,
-                                still_unresolved: false,
-                                ..conflict_state
-                            }));
-                        app.set_success_message(
-                            "Editor finished — press Enter when done or Esc to abort",
-                        );
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("Editor failed: {e}"));
-                    }
-                }
-            }
-            AppAction::PrepareReword {
-                commit_oid,
-                current_message,
-            } => {
-                let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let editor_result =
-                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                        editor::edit_message_in_editor(&git_repo, &current_message)
-                    })?;
-                match editor_result {
-                    Err(e) => app.set_error_message(format!("Editor error: {e}")),
-                    Ok(new_message) if new_message == current_message => {}
-                    Ok(new_message) => {
-                        match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
-                            Ok(()) => reload_preserving_selection(&git_repo, &mut app),
-                            Err(e) => app.set_error_message(format!("Reword failed: {e}")),
-                        }
-                    }
-                }
-            }
-            AppAction::PrepareSquash {
-                source_oid,
-                target_oid,
-                source_message,
-                target_message,
-                is_fixup,
-            } => {
-                let head_oid = get_head_oid_or_continue!(git_repo, app);
-
-                let label = if is_fixup { "Fixup" } else { "Squash" };
-                // For fixup, use only the target message; for squash use the
-                // combined message so it is shown in the editor.
-                let message_for_context = if is_fixup {
-                    target_message.clone()
-                } else {
-                    format!("{target_message}\n\n{source_message}")
-                };
-                let combined = format!("{target_message}\n\n{source_message}");
-
-                // Try the tree combination first. If it conflicts, let the
-                // user resolve before opening the editor (T080).
-                match git_repo.squash_try_combine(
-                    &source_oid,
-                    &target_oid,
-                    &message_for_context,
-                    is_fixup,
-                    &head_oid,
-                ) {
-                    Ok(Some(conflict_state)) => {
-                        app.enter_rebase_conflict(conflict_state);
-                        continue;
-                    }
-                    Err(e) => {
-                        app.set_error_message(format!("{label} failed: {e}"));
-                        continue;
-                    }
-                    Ok(None) => {}
-                }
-
-                // Determine the final commit message: fixup keeps target's
-                // message as-is; squash opens the editor.
-                let final_message = if is_fixup {
-                    Some(target_message)
-                } else {
-                    let editor_result =
-                        run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                            editor::edit_message_in_editor(&git_repo, &combined)
-                        })?;
-                    match editor_result {
-                        Err(e) => {
-                            app.set_error_message(format!("Editor error: {e}"));
-                            continue;
-                        }
-                        Ok(msg) if msg.trim().is_empty() => {
-                            app.set_error_message(format!("{label} aborted: empty commit message"));
-                            continue;
-                        }
-                        Ok(msg) => Some(msg),
-                    }
-                };
-
-                if let Some(msg) = final_message {
-                    let success_msg = if is_fixup {
-                        "Commit fixed up"
-                    } else {
-                        "Commits squashed"
-                    };
-                    let outcome =
-                        git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
-                    handle_rebase_outcome(&git_repo, &mut app, outcome, label, success_msg);
-                }
-            }
-            AppAction::ExecuteMove {
-                source_oid,
-                insert_after_oid,
-            } => {
-                let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let outcome = git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid);
-                handle_rebase_outcome(&git_repo, &mut app, outcome, "Move", "Commit moved");
-            }
+        match dispatch_action(
+            result,
+            &mut app,
+            &git_repo,
+            &mut terminal_guard,
+            kb_enhanced,
+        )? {
+            LoopAction::Continue => continue,
+            LoopAction::Proceed => {}
         }
 
         if app.should_quit {
@@ -497,6 +222,301 @@ fn main() -> Result<()> {
 
     terminal_guard.shutdown()?;
     Ok(())
+}
+
+/// Handle the side effects requested by a view-module action. Returns whether
+/// the caller should `continue` the event loop or fall through to the
+/// post-dispatch checks.
+fn dispatch_action(
+    result: AppAction,
+    app: &mut AppState,
+    git_repo: &impl GitRepo,
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+) -> Result<LoopAction> {
+    match result {
+        AppAction::Handled => {}
+        AppAction::Quit => app.should_quit = true,
+        AppAction::ReloadCommits => reload_commits(git_repo, app),
+        AppAction::PrepareSplit {
+            strategy,
+            commit_oid,
+        } => {
+            let head_oid = get_head_oid_or_continue!(git_repo, app);
+            let count_result = match strategy {
+                SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
+                SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
+                SplitStrategy::PerHunkGroup => {
+                    git_repo.count_split_per_hunk_group(&commit_oid, &head_oid, &app.reference_oid)
+                }
+            };
+            match count_result {
+                Err(e) => app.set_error_message(e.to_string()),
+                Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
+                    app.enter_split_confirm(strategy, commit_oid, head_oid, count);
+                }
+                Ok(_) => {
+                    execute_split(git_repo, app, strategy, &commit_oid, &head_oid);
+                }
+            }
+        }
+        AppAction::ExecuteSplit {
+            strategy,
+            commit_oid,
+            head_oid,
+        } => {
+            execute_split(git_repo, app, strategy, &commit_oid, &head_oid);
+        }
+        AppAction::PrepareDropConfirm {
+            commit_oid,
+            commit_summary,
+        } => {
+            let head_oid = get_head_oid_or_continue!(git_repo, app);
+            app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
+        }
+        AppAction::ExecuteDrop {
+            commit_oid,
+            head_oid,
+        } => {
+            let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
+            handle_rebase_outcome(git_repo, app, outcome, "Drop", "Commit dropped");
+        }
+        AppAction::RebaseContinue(state) => {
+            // Auto-stage files the user resolved in an external editor
+            // so that the index reflects the working-tree state.
+            let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
+
+            // Squash-time tree conflict: the user has resolved the
+            // combined tree. For squash, open the editor; for fixup,
+            // use the stored target message directly.
+            if let Some(ref ctx) = state.squash_context {
+                let original_oid = state.original_branch_oid.clone();
+                let ctx_clone = ctx.clone();
+
+                // Check that the index is actually resolved before
+                // launching the editor.
+                let conflict_files = git_repo.read_conflicting_files();
+                if !conflict_files.is_empty() {
+                    app.enter_rebase_conflict(git_tailor::repo::ConflictState {
+                        conflicting_files: conflict_files,
+                        still_unresolved: true,
+                        ..state
+                    });
+                    return Ok(LoopAction::Continue);
+                }
+
+                // Fixup: skip the editor and use the stored target message.
+                // Squash: open the editor with the combined message.
+                let final_msg = if ctx.is_fixup {
+                    ctx.combined_message.clone()
+                } else {
+                    let combined = ctx.combined_message.clone();
+                    let editor_result =
+                        run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                            editor::edit_message_in_editor(git_repo, &combined)
+                        })?;
+                    match editor_result {
+                        Err(e) => {
+                            let _ = git_repo.rebase_abort(&state);
+                            reload_commits(git_repo, app);
+                            app.set_error_message(format!("Editor error: {e}"));
+                            return Ok(LoopAction::Continue);
+                        }
+                        Ok(msg) if msg.trim().is_empty() => {
+                            let _ = git_repo.rebase_abort(&state);
+                            reload_commits(git_repo, app);
+                            let label = &state.operation_label;
+                            app.set_error_message(format!("{label} aborted: empty commit message"));
+                            return Ok(LoopAction::Continue);
+                        }
+                        Ok(msg) => msg,
+                    }
+                };
+
+                let success_msg = if ctx_clone.is_fixup {
+                    "Commit fixed up"
+                } else {
+                    "Commits squashed"
+                };
+                let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
+                handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
+                return Ok(LoopAction::Continue);
+            }
+
+            let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
+            let outcome = git_repo.rebase_continue(&state);
+            handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
+        }
+        AppAction::RebaseAbort(state) => match git_repo.rebase_abort(&state) {
+            Ok(()) => {
+                reload_commits(git_repo, app);
+                let label = state.operation_label.to_lowercase();
+                app.set_success_message(format!("{} aborted", label.trim()));
+            }
+            Err(e) => {
+                app.set_error_message(format!("Abort failed: {e}"));
+            }
+        },
+        AppAction::RunMergetool {
+            files,
+            conflict_state,
+        } => {
+            let result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                mergetool::run_mergetool(git_repo, &files)
+            })?;
+            match result {
+                Ok(true) => {
+                    let new_files = git_repo.read_conflicting_files();
+                    app.mode = AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+                        conflicting_files: new_files,
+                        still_unresolved: false,
+                        ..conflict_state
+                    }));
+                    app.set_success_message(
+                        "Merge tool finished — press Enter when done or Esc to abort",
+                    );
+                }
+                Ok(false) => {
+                    app.set_error_message(
+                        "No merge tool configured (set merge.tool in git config)",
+                    );
+                }
+                Err(e) => {
+                    app.set_error_message(format!("Merge tool failed: {e}"));
+                }
+            }
+        }
+        AppAction::RunEditor {
+            files,
+            conflict_state,
+        } => {
+            let workdir = git_repo.workdir();
+            let result: anyhow::Result<()> =
+                run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                    let workdir = workdir
+                        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+                    for file_path in &files {
+                        editor::open_file_in_editor(git_repo, &workdir.join(file_path))?;
+                    }
+                    Ok(())
+                })?;
+            match result {
+                Ok(()) => {
+                    let new_files = git_repo.read_conflicting_files();
+                    app.mode = AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+                        conflicting_files: new_files,
+                        still_unresolved: false,
+                        ..conflict_state
+                    }));
+                    app.set_success_message(
+                        "Editor finished — press Enter when done or Esc to abort",
+                    );
+                }
+                Err(e) => {
+                    app.set_error_message(format!("Editor failed: {e}"));
+                }
+            }
+        }
+        AppAction::PrepareReword {
+            commit_oid,
+            current_message,
+        } => {
+            let head_oid = get_head_oid_or_continue!(git_repo, app);
+            let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                editor::edit_message_in_editor(git_repo, &current_message)
+            })?;
+            match editor_result {
+                Err(e) => app.set_error_message(format!("Editor error: {e}")),
+                Ok(new_message) if new_message == current_message => {}
+                Ok(new_message) => {
+                    match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
+                        Ok(()) => reload_preserving_selection(git_repo, app),
+                        Err(e) => app.set_error_message(format!("Reword failed: {e}")),
+                    }
+                }
+            }
+        }
+        AppAction::PrepareSquash {
+            source_oid,
+            target_oid,
+            source_message,
+            target_message,
+            is_fixup,
+        } => {
+            let head_oid = get_head_oid_or_continue!(git_repo, app);
+
+            let label = if is_fixup { "Fixup" } else { "Squash" };
+            // For fixup, use only the target message; for squash use the
+            // combined message so it is shown in the editor.
+            let message_for_context = if is_fixup {
+                target_message.clone()
+            } else {
+                format!("{target_message}\n\n{source_message}")
+            };
+            let combined = format!("{target_message}\n\n{source_message}");
+
+            // Try the tree combination first. If it conflicts, let the
+            // user resolve before opening the editor (T080).
+            match git_repo.squash_try_combine(
+                &source_oid,
+                &target_oid,
+                &message_for_context,
+                is_fixup,
+                &head_oid,
+            ) {
+                Ok(Some(conflict_state)) => {
+                    app.enter_rebase_conflict(conflict_state);
+                    return Ok(LoopAction::Continue);
+                }
+                Err(e) => {
+                    app.set_error_message(format!("{label} failed: {e}"));
+                    return Ok(LoopAction::Continue);
+                }
+                Ok(None) => {}
+            }
+
+            // Determine the final commit message: fixup keeps target's
+            // message as-is; squash opens the editor.
+            let final_message = if is_fixup {
+                Some(target_message)
+            } else {
+                let editor_result =
+                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                        editor::edit_message_in_editor(git_repo, &combined)
+                    })?;
+                match editor_result {
+                    Err(e) => {
+                        app.set_error_message(format!("Editor error: {e}"));
+                        return Ok(LoopAction::Continue);
+                    }
+                    Ok(msg) if msg.trim().is_empty() => {
+                        app.set_error_message(format!("{label} aborted: empty commit message"));
+                        return Ok(LoopAction::Continue);
+                    }
+                    Ok(msg) => Some(msg),
+                }
+            };
+
+            if let Some(msg) = final_message {
+                let success_msg = if is_fixup {
+                    "Commit fixed up"
+                } else {
+                    "Commits squashed"
+                };
+                let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
+                handle_rebase_outcome(git_repo, app, outcome, label, success_msg);
+            }
+        }
+        AppAction::ExecuteMove {
+            source_oid,
+            insert_after_oid,
+        } => {
+            let head_oid = get_head_oid_or_continue!(git_repo, app);
+            let outcome = git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid);
+            handle_rebase_outcome(git_repo, app, outcome, "Move", "Commit moved");
+        }
+    }
+    Ok(LoopAction::Proceed)
 }
 
 /// Render the fragmap to stdout in static (non-TUI) mode and return.

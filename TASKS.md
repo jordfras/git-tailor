@@ -316,7 +316,7 @@ Guidelines:
   squash-message editor, conflict-finalize editor) and the mergetool/editor
   conflict-resolution paths; the four current call sites collapse from 4 lines
   each to 1
-- [ ] T162 P2 fix - Decompose `main.rs::main()` (~530 lines) into focused
+- [X] T162 P2 fix - Decompose `main.rs::main()` (~530 lines) into focused
   helpers: `load_initial_commits(&git_repo, &cli)` returning `(Vec<CommitInfo>,
   String, bool)` (extracts lines 222–254), `setup_terminal()` returning a RAII
   `TerminalGuard` that owns raw mode + alternate screen + keyboard enhancement
