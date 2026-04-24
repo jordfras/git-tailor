@@ -170,14 +170,13 @@ Guidelines:
   commit is also the root commit), selecting a commit and choosing to move it
   before the first commit in the list results in the commit being placed
   immediately after the root commit rather than before it; the status message
-  reports success; the root cause is likely that `move_commit` in
-  `git2_impl.rs` resolves the "insert before first commit" target as
-  "insert after merge-base / root", but for `--all` the root commit is included
-  in the editable list which makes this the wrong reference point; the fix
-  should ensure that when the target position is before the first commit,
-  the entire cherry-pick chain is rebuilt with the root commit cherry-picked
-  onto an empty tree first, the same way T137 handled the no-parent case for
-  the initial rebase
+  reports success; the root cause is likely that `move_commit` in `git2_impl.rs`
+  resolves the "insert before first commit" target as "insert after merge-base /
+  root", but for `--all` the root commit is included in the editable list which
+  makes this the wrong reference point; the fix should ensure that when the
+  target position is before the first commit, the entire cherry-pick chain is
+  rebuilt with the root commit cherry-picked onto an empty tree first, the same
+  way T137 handled the no-parent case for the initial rebase
 
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
@@ -295,14 +294,14 @@ Guidelines:
   `impl GitRepo for Git2Repo` block; preserves the existing public API
 - [ ] T158 P3 fix - Move the inline `#[cfg(test)] mod tests` block (~1600 lines)
   out of `src/fragmap.rs` (2387 lines) into a separate `src/fragmap/tests.rs`
-  file gated by `#[cfg(test)] mod tests;` in `fragmap.rs`; production code
-  drops to ~700 lines and the file becomes navigable; no behavioural change
-- [ ] T159 P2 fix - Extract `AppState::reload_preserving_selection(&impl
+  file gated by `#[cfg(test)] mod tests;` in `fragmap.rs`; production code drops
+  to ~700 lines and the file becomes navigable; no behavioural change
+- [X] T159 P2 fix - Extract `AppState::reload_preserving_selection(&impl
   GitRepo)` to replace the five-times-repeated pattern `let saved_index =
   app.selection_index; reload_commits(&git_repo, &mut app); app.selection_index
-  = saved_index.min(app.commits.len().saturating_sub(1));` in `main.rs`
-  (drop, move, squash, squash_finalize, rebase_continue); each call site
-  becomes a single line
+  = saved_index.min(app.commits.len().saturating_sub(1));` in `main.rs` (drop,
+  move, squash, squash_finalize, rebase_continue); each call site becomes a
+  single line
 - [X] T160 P2 fix - Extract a `handle_rebase_outcome` helper (free fn or
   AppState method) in `main.rs` to consolidate the repeated `match outcome
   { Ok(RebaseOutcome::Complete) => { reload + preserve_selection +
@@ -312,26 +311,26 @@ Guidelines:
   PrepareSquash, RebaseContinue, and the squash finalize path; reduces ~80
   lines of boilerplate
 - [ ] T161 P3 fix - Extract a `run_external_tool<T>(terminal, kb_enhanced, f)`
-  helper in `main.rs` that wraps the `with_external_process(kb_enhanced, f)
-  + terminal.clear()?` pattern; used by editor invocations (PrepareReword,
+  helper in `main.rs` that wraps the `with_external_process(kb_enhanced, f) +
+  terminal.clear()?` pattern; used by editor invocations (PrepareReword,
   squash-message editor, conflict-finalize editor) and the mergetool/editor
   conflict-resolution paths; the four current call sites collapse from 4 lines
   each to 1
 - [ ] T162 P2 fix - Decompose `main.rs::main()` (~530 lines) into focused
   helpers: `load_initial_commits(&git_repo, &cli)` returning `(Vec<CommitInfo>,
   String, bool)` (extracts lines 222–254), `setup_terminal()` returning a RAII
-  `TerminalGuard` that owns raw mode + alternate screen + keyboard
-  enhancement and restores them on Drop (extracts lines 285–303 and 743–748),
-  `init_app_state(commits, &cli, &git_repo)` returning the configured
-  `AppState` with synthetic rows (extracts lines 305–320), and split the giant
-  `AppAction` dispatch `match` into `dispatch_action(action, &mut app,
-  &git_repo, terminal, kb_enhanced) -> Result<()>` so `main` reads as a clear
-  setup → loop → teardown flow under 50 lines
-- [ ] T163 P3 fix - Decompose `views/commit_detail.rs::render` (~290 lines)
-  into focused helpers: `build_metadata_lines(commit) -> Vec<Line>` (oid,
-  message, author, dates), `build_file_list_lines(diff) -> Vec<Line>` (the
-  "Changed Files:" section with status indicators), `build_diff_lines(diff)
-  -> Vec<Line>` (file headers + hunk headers + colored +/- lines), and
+  `TerminalGuard` that owns raw mode + alternate screen + keyboard enhancement
+  and restores them on Drop (extracts lines 285–303 and 743–748),
+  `init_app_state(commits, &cli, &git_repo)` returning the configured `AppState`
+  with synthetic rows (extracts lines 305–320), and split the giant `AppAction`
+  dispatch `match` into `dispatch_action(action, &mut app, &git_repo, terminal,
+  kb_enhanced) -> Result<()>` so `main` reads as a clear setup → loop → teardown
+  flow under 50 lines
+- [ ] T163 P3 fix - Decompose `views/commit_detail.rs::render` (~290 lines) into
+  focused helpers: `build_metadata_lines(commit) -> Vec<Line>` (oid, message,
+  author, dates), `build_file_list_lines(diff) -> Vec<Line>` (the "Changed
+  Files:" section with status indicators), `build_diff_lines(diff) -> Vec<Line>`
+  (file headers + hunk headers + colored +/- lines), and
   `compute_scroll_layout(content_area, content) -> ScrollLayout` (returns
   text_area, scrollbar areas, max_scroll, max_h_scroll); render becomes a
   composition of these helpers + the search-highlight pass + widget calls
@@ -350,8 +349,8 @@ Guidelines:
   the zero-values, then have `with_commits` construct via `AppState { commits,
   selection_index, ..Default::default() }` and `new` delegate to `Default`;
   remove the duplicate field lists entirely
-- [X] T152 P3 fix - Extract repeated `head_oid` fetch pattern in `main.rs`:
-  the block `match git_repo.head_oid() { Ok(oid) => oid, Err(e) => {
+- [X] T152 P3 fix - Extract repeated `head_oid` fetch pattern in `main.rs`: the
+  block `match git_repo.head_oid() { Ok(oid) => oid, Err(e) => {
   app.set_error_message(...); continue; } }` appears five times in the
   `AppAction` dispatch arms (PrepareSplit, PrepareDropConfirm, PrepareReword,
   PrepareSquash, ExecuteMove); extract a local macro or inline helper
@@ -377,9 +376,9 @@ Guidelines:
   shared values, and apply the same extraction to the three `count_split_*`
   methods which duplicate the same setup
 - [ ] T156 P3 fix - Remove redundant `visible_clusters` double-iteration in
-  `compute_layout`: `commit_list.rs::compute_layout` iterates the fragmap
-  matrix twice with identical predicate logic — once to compute
-  `visible_cluster_count` for the scrollbar decision, then again to build
+  `compute_layout`: `commit_list.rs::compute_layout` iterates the fragmap matrix
+  twice with identical predicate logic — once to compute `visible_cluster_count`
+  for the scrollbar decision, then again to build
   `visible_clusters: Vec<usize>`; compute the `Vec` first and derive the count
   from `visible_clusters.len()` to eliminate the duplicate pass
 

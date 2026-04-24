@@ -576,13 +576,8 @@ fn main() -> Result<()> {
                     Err(e) => app.set_error_message(format!("Editor error: {e}")),
                     Ok(new_message) if new_message == current_message => {}
                     Ok(new_message) => {
-                        let saved_index = app.selection_index;
                         match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
-                            Ok(()) => {
-                                reload_commits(&git_repo, &mut app);
-                                app.selection_index =
-                                    saved_index.min(app.commits.len().saturating_sub(1));
-                            }
+                            Ok(()) => reload_preserving_selection(&git_repo, &mut app),
                             Err(e) => app.set_error_message(format!("Reword failed: {e}")),
                         }
                     }
@@ -697,11 +692,9 @@ fn handle_rebase_outcome(
     op_label: &str,
     success_msg: &str,
 ) {
-    let saved_index = app.selection_index;
     match outcome {
         Ok(RebaseOutcome::Complete) => {
-            reload_commits(git_repo, app);
-            app.selection_index = saved_index.min(app.commits.len().saturating_sub(1));
+            reload_preserving_selection(git_repo, app);
             app.set_success_message(success_msg.to_string());
         }
         Ok(RebaseOutcome::Conflict(state)) => {
@@ -711,6 +704,14 @@ fn handle_rebase_outcome(
             app.set_error_message(format!("{op_label} failed: {e}"));
         }
     }
+}
+
+/// Reload commits from the repository, then restore the previous selection
+/// index clamped to the new list bounds.
+fn reload_preserving_selection(git_repo: &impl GitRepo, app: &mut AppState) {
+    let saved = app.selection_index;
+    reload_commits(git_repo, app);
+    app.selection_index = saved.min(app.commits.len().saturating_sub(1));
 }
 
 /// Execute a split operation and reload commits on success.
