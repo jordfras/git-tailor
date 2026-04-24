@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use crate::{CommitDiff, CommitInfo, fragmap};
+use crate::{CommitDiff, CommitInfo};
 
 use super::GitRepo;
 
@@ -25,6 +25,7 @@ mod hunks;
 mod move_op;
 mod reads;
 mod reword_op;
+mod split_op;
 mod squash_op;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
@@ -112,241 +113,11 @@ impl GitRepo for Git2Repo {
     }
 
     fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Compute full diff to enumerate files and for the overlap check
-        let full_diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-        let file_count = full_diff.deltas().len();
-
-        if file_count < 2 {
-            anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
-        }
-
-        // Collect non-gitlink file paths for the dirty-overlap check.  Gitlink
-        // (submodule pointer) deltas are excluded because the split applies them
-        // via tree manipulation without touching the working tree, so a dirty
-        // submodule state cannot interfere with the operation.
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter(|d| {
-                d.new_file().mode() != git2::FileMode::Commit
-                    && d.old_file().mode() != git2::FileMode::Commit
-            })
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Create one commit per file, each building on the previous.
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for delta_idx in 0..file_count {
-            let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .expect("delta has a path")
-                .to_string_lossy()
-                .into_owned();
-
-            let base_tree = repo.find_tree(current_tree_oid)?;
-
-            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
-                || delta.old_file().mode() == git2::FileMode::Commit;
-
-            let new_tree_oid = if is_gitlink {
-                // apply_to_tree cannot process gitlink (submodule pointer) entries
-                // because libgit2 tries to patch them as blobs, causing a crash.
-                hunks::apply_gitlink_delta_to_tree(repo, &base_tree, &delta)?
-            } else {
-                // Diff from parent→commit scoped to this specific file
-                let mut opts = git2::DiffOptions::new();
-                opts.pathspec(&path);
-                let file_diff = repo.diff_tree_to_tree(
-                    Some(&parent_tree),
-                    Some(&commit_tree),
-                    Some(&mut opts),
-                )?;
-                let mut new_index = repo.apply_to_tree(&base_tree, &file_diff, None)?;
-                if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path);
-                }
-                new_index.write_tree_to(repo)?
-            };
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = hunks::split_message(
-                commit.message().unwrap_or("split"),
-                delta_idx + 1,
-                file_count,
-            );
-
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid =
-                repo.commit(None, &author, &committer, &message, &new_tree, &parent_refs)?;
-            current_base = Some(new_oid);
-            current_tree_oid = new_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-file")?;
-
-        Ok(())
+        split_op::split_commit_per_file(self, commit_oid, head_oid)
     }
 
     fn split_commit_per_hunk(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Compute diff with 0 context lines so adjacent hunks stay separate
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let full_diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-
-        // Count total hunks across all files
-        let mut hunk_count = 0usize;
-        full_diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |_, _| {
-                hunk_count += 1;
-                true
-            }),
-            None,
-        )?;
-
-        if hunk_count < 2 {
-            anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
-        }
-
-        // Collect the file paths touched by this commit for the dirty overlap check
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Build one commit per hunk using incremental blob manipulation.
-        //
-        // At each step, recompute diff(current_tree → commit_tree) with 0 context
-        // and apply exactly its first hunk directly to the blob — bypassing
-        // apply_to_tree entirely to avoid libgit2 validating rejected hunks against
-        // the modified output buffer (which shifts line positions and causes
-        // "hunk did not apply").
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for target_k in 0..hunk_count {
-            let next_tree_oid = if target_k == hunk_count - 1 {
-                commit_tree.id()
-            } else {
-                let current_tree = repo.find_tree(current_tree_oid)?;
-                let mut diff_opts = git2::DiffOptions::new();
-                diff_opts.context_lines(0);
-                diff_opts.interhunk_lines(0);
-                let incremental_diff = repo.diff_tree_to_tree(
-                    Some(&current_tree),
-                    Some(&commit_tree),
-                    Some(&mut diff_opts),
-                )?;
-                hunks::apply_single_hunk_to_tree(repo, &current_tree, &incremental_diff)
-                    .with_context(|| format!("applying hunk {}", target_k + 1))?
-            };
-
-            let next_tree = repo.find_tree(next_tree_oid)?;
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = hunks::split_message(
-                commit.message().unwrap_or("split"),
-                target_k + 1,
-                hunk_count,
-            );
-
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid = repo.commit(
-                None,
-                &author,
-                &committer,
-                &message,
-                &next_tree,
-                &parent_refs,
-            )?;
-            current_base = Some(new_oid);
-            current_tree_oid = next_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk")?;
-
-        Ok(())
+        split_op::split_commit_per_hunk(self, commit_oid, head_oid)
     }
 
     fn split_commit_per_hunk_group(
@@ -355,206 +126,15 @@ impl GitRepo for Git2Repo {
         head_oid: &str,
         reference_oid: &str,
     ) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Build the fragmap over all branch commits so hunk grouping reflects
-        // how this commit interacts with its neighbours in the branch.
-        let branch_commits = self.list_commits(head_oid, reference_oid)?;
-        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
-            .iter()
-            // Exclude the reference point unless it is the commit being split
-            // (in --all mode the root commit IS the reference point).
-            .filter(|c| {
-                (c.oid != reference_oid || c.oid == commit_oid) && !c.oid.starts_with("synthetic:")
-            })
-            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
-            .collect();
-
-        let (_, assignment) =
-            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
-                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
-            })?;
-
-        // Build a 0-context full diff (parent_tree → commit_tree) for tree
-        // manipulation; hunk indices here correspond to those in `assignment`.
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let full_diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Build delta_hunk_groups: for each (delta_idx, hunk_idx), its group index.
-        let mut delta_hunk_groups: Vec<Vec<usize>> = Vec::new();
-        let num_deltas = full_diff.deltas().len();
-        for delta_idx in 0..num_deltas {
-            let delta = full_diff.get_delta(delta_idx).context("delta index")?;
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
-            let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
-            let file_groups = assignment.get(&path);
-            let groups_for_delta: Vec<usize> = (0..num_hunks)
-                .map(|h| file_groups.and_then(|fg| fg.get(h).copied()).unwrap_or(0))
-                .collect();
-            delta_hunk_groups.push(groups_for_delta);
-        }
-
-        // Determine which group indices K's hunks actually touch (sorted).
-        // Only these produce output commits — not every column the full fragmap has.
-        let mut touched: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-        for groups in &delta_hunk_groups {
-            touched.extend(groups);
-        }
-        let k_groups: Vec<usize> = touched.into_iter().collect();
-        let split_count = k_groups.len();
-
-        if split_count < 2 {
-            anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
-        }
-
-        // For each touched group gk (in order), build the intermediate tree by
-        // applying all of K's hunks whose group index ≤ gk to parent_tree in one
-        // sweep (positions relative to the original, no cumulative offset issues).
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for (out_pos, &gk) in k_groups.iter().enumerate() {
-            let next_tree_oid = if out_pos == split_count - 1 {
-                commit_tree.id()
-            } else {
-                // Collect (delta_idx → hunk_indices) for hunks in groups 0..=gk.
-                let mut selected: HashMap<usize, Vec<usize>> = HashMap::new();
-                for (delta_idx, hunk_groups) in delta_hunk_groups.iter().enumerate() {
-                    let chosen: Vec<usize> = hunk_groups
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(h, &g)| if g <= gk { Some(h) } else { None })
-                        .collect();
-                    if !chosen.is_empty() {
-                        selected.insert(delta_idx, chosen);
-                    }
-                }
-                hunks::apply_selected_hunks_to_tree(repo, &parent_tree, &full_diff, &selected)
-                    .with_context(|| format!("building tree for hunk group {}", out_pos + 1))?
-            };
-
-            let next_tree = repo.find_tree(next_tree_oid)?;
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = hunks::split_message(
-                commit.message().unwrap_or("split"),
-                out_pos + 1,
-                split_count,
-            );
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid = repo.commit(
-                None,
-                &author,
-                &committer,
-                &message,
-                &next_tree,
-                &parent_refs,
-            )?;
-            current_base = Some(new_oid);
-            current_tree_oid = next_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk-group")?;
-
-        let _ = current_tree_oid; // suppress unused warning
-        Ok(())
+        split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
     fn count_split_per_file(&self, commit_oid: &str) -> Result<usize> {
-        let repo = &self.inner;
-        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
-        let commit = repo.find_commit(oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-        let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-        Ok(diff.deltas().len())
+        split_op::count_split_per_file(self, commit_oid)
     }
 
     fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize> {
-        let repo = &self.inner;
-        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
-        let commit = repo.find_commit(oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-        let mut count = 0usize;
-        diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |_, _| {
-                count += 1;
-                true
-            }),
-            None,
-        )?;
-        Ok(count)
+        split_op::count_split_per_hunk(self, commit_oid)
     }
 
     fn count_split_per_hunk_group(
@@ -563,22 +143,7 @@ impl GitRepo for Git2Repo {
         head_oid: &str,
         reference_oid: &str,
     ) -> Result<usize> {
-        let branch_commits = self.list_commits(head_oid, reference_oid)?;
-        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
-            .iter()
-            .filter(|c| c.oid != reference_oid && !c.oid.starts_with("synthetic:"))
-            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
-            .collect();
-
-        let (_, assignment) =
-            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
-                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
-            })?;
-
-        // Count only the group indices that K's own hunks touch.
-        let touched: std::collections::HashSet<usize> =
-            assignment.values().flatten().copied().collect();
-        Ok(touched.len())
+        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
     fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
