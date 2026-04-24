@@ -131,31 +131,7 @@ fn main() -> Result<()> {
     };
 
     if cli.static_output {
-        let mut commit_diffs: Vec<CommitDiff> = commits
-            .iter()
-            .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
-            .collect();
-        if commit_diffs.len() != commits.len() {
-            anyhow::bail!("Failed to load diffs for all commits");
-        }
-        if let Some(d) = git_repo.staged_diff() {
-            commit_diffs.push(d);
-        }
-        if let Some(d) = git_repo.unstaged_diff() {
-            commit_diffs.push(d);
-        }
-        print!(
-            "{}",
-            git_tailor::static_views::fragmap::render(
-                &commit_diffs,
-                cli.full,
-                !cli.no_color,
-                cli.reverse,
-                cli.squashable_scope.unwrap_or(SquashableScope::Commit),
-                crossterm::terminal::size().ok().map(|(w, _)| w),
-            )
-        );
-        return Ok(());
+        return run_static_output(&git_repo, &commits, &cli);
     }
 
     let mut terminal_guard = setup_terminal()?;
@@ -300,9 +276,10 @@ fn main() -> Result<()> {
                         ctx.combined_message.clone()
                     } else {
                         let combined = ctx.combined_message.clone();
-                        let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                            editor::edit_message_in_editor(&git_repo, &combined)
-                        })?;
+                        let editor_result =
+                            run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                                editor::edit_message_in_editor(&git_repo, &combined)
+                            })?;
                         match editor_result {
                             Err(e) => {
                                 let _ = git_repo.rebase_abort(&state);
@@ -416,9 +393,10 @@ fn main() -> Result<()> {
                 current_message,
             } => {
                 let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                    editor::edit_message_in_editor(&git_repo, &current_message)
-                })?;
+                let editor_result =
+                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                        editor::edit_message_in_editor(&git_repo, &current_message)
+                    })?;
                 match editor_result {
                     Err(e) => app.set_error_message(format!("Editor error: {e}")),
                     Ok(new_message) if new_message == current_message => {}
@@ -474,9 +452,10 @@ fn main() -> Result<()> {
                 let final_message = if is_fixup {
                     Some(target_message)
                 } else {
-                    let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
-                        editor::edit_message_in_editor(&git_repo, &combined)
-                    })?;
+                    let editor_result =
+                        run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                            editor::edit_message_in_editor(&git_repo, &combined)
+                        })?;
                     match editor_result {
                         Err(e) => {
                             app.set_error_message(format!("Editor error: {e}"));
@@ -517,6 +496,35 @@ fn main() -> Result<()> {
     }
 
     terminal_guard.shutdown()?;
+    Ok(())
+}
+
+/// Render the fragmap to stdout in static (non-TUI) mode and return.
+fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli) -> Result<()> {
+    let mut commit_diffs: Vec<CommitDiff> = commits
+        .iter()
+        .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
+        .collect();
+    if commit_diffs.len() != commits.len() {
+        anyhow::bail!("Failed to load diffs for all commits");
+    }
+    if let Some(d) = git_repo.staged_diff() {
+        commit_diffs.push(d);
+    }
+    if let Some(d) = git_repo.unstaged_diff() {
+        commit_diffs.push(d);
+    }
+    print!(
+        "{}",
+        git_tailor::static_views::fragmap::render(
+            &commit_diffs,
+            cli.full,
+            !cli.no_color,
+            cli.reverse,
+            cli.squashable_scope.unwrap_or(SquashableScope::Commit),
+            crossterm::terminal::size().ok().map(|(w, _)| w),
+        )
+    );
     Ok(())
 }
 
