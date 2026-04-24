@@ -81,40 +81,58 @@ fn compute_fragmap(
     Some(fragmap::build_fragmap(&commit_diffs, !full))
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    let git_repo = Git2Repo::open(std::env::current_dir()?)?;
+/// Resolve the initial commit list, reference OID, and whether the reference
+/// commit itself is included (true for `--all`, false for branch mode).
+///
+/// Returns `Ok(None)` when there are no commits to display; the caller should
+/// exit cleanly. The user-facing explanation has already been printed in that
+/// case.
+fn load_initial_commits(
+    git_repo: &impl GitRepo,
+    cli: &Cli,
+) -> Result<Option<(Vec<CommitInfo>, String, bool)>> {
     let head_oid = git_repo.head_oid()?;
 
-    let (commits, reference_oid, include_reference_oid) = if cli.all {
+    if cli.all {
         let root_oid = git_repo.root_commit_oid()?;
         let all_commits = git_repo.list_commits(&head_oid, &root_oid)?;
         if all_commits.is_empty() {
             eprintln!("No commits to display.");
-            return Ok(());
+            return Ok(None);
         }
-        (all_commits, root_oid, true)
-    } else {
-        let base = cli.base.unwrap_or_else(|| {
-            git_repo
-                .default_branch()
-                .unwrap_or_else(|| "main".to_string())
-        });
-        let reference_oid = git_repo.find_reference_point(&base)?;
-        let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
-        // Exclude the merge-base commit — it's shared with the target branch
-        // and must not be modified (squashed, moved, or split).
-        let commits: Vec<CommitInfo> = raw.into_iter().filter(|c| c.oid != reference_oid).collect();
-        if commits.is_empty() {
-            eprintln!(
-                "No commits to display: HEAD is at the merge-base with '{}'",
-                base
-            );
-            eprintln!("The current branch has no commits beyond the common ancestor.");
-            return Ok(());
-        }
-        (commits, reference_oid, false)
+        return Ok(Some((all_commits, root_oid, true)));
+    }
+
+    let base = cli.base.clone().unwrap_or_else(|| {
+        git_repo
+            .default_branch()
+            .unwrap_or_else(|| "main".to_string())
+    });
+    let reference_oid = git_repo.find_reference_point(&base)?;
+    let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
+    // Exclude the merge-base commit — it's shared with the target branch
+    // and must not be modified (squashed, moved, or split).
+    let commits: Vec<CommitInfo> = raw.into_iter().filter(|c| c.oid != reference_oid).collect();
+    if commits.is_empty() {
+        eprintln!(
+            "No commits to display: HEAD is at the merge-base with '{}'",
+            base
+        );
+        eprintln!("The current branch has no commits beyond the common ancestor.");
+        return Ok(None);
+    }
+    Ok(Some((commits, reference_oid, false)))
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let git_repo = Git2Repo::open(std::env::current_dir()?)?;
+
+    let Some((commits, reference_oid, include_reference_oid)) =
+        load_initial_commits(&git_repo, &cli)?
+    else {
+        return Ok(());
     };
 
     if cli.static_output {
