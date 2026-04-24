@@ -16,14 +16,10 @@
 
 mod cli;
 mod external_tool;
+mod terminal_guard;
 
 use anyhow::Result;
 use clap::Parser;
-use crossterm::{
-    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo,
@@ -33,11 +29,10 @@ use git_tailor::{
     mergetool, views,
     views::theme::Theme,
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
 
 use crate::cli::Cli;
 use crate::external_tool::run_external_tool;
+use crate::terminal_guard::setup_terminal;
 
 /// Fetch HEAD OID from the repo, setting an error message and continuing the
 /// event loop if the call fails.
@@ -163,46 +158,19 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    enable_raw_mode()?;
-    let mut stderr = io::stderr();
-    execute!(stderr, EnterAlternateScreen)?;
-    let kb_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if kb_enhanced {
-        execute!(
-            stderr,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
-    }
-    let backend = CrosstermBackend::new(stderr);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal_guard = setup_terminal()?;
+    let kb_enhanced = terminal_guard.kb_enhanced();
 
-    let mut app = AppState::with_commits(commits);
-    app.reverse = cli.reverse;
-    app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
-    app.theme = cli.theme.unwrap_or(Theme::Plain);
-    app.reference_oid = reference_oid;
-    app.include_reference_oid = include_reference_oid;
-
-    // Append staged/unstaged working-tree changes as synthetic rows at the
-    // bottom of the commit list (newest position). Recompute fragmap with
-    // the extra diffs so their hunk overlap with commits is visible.
-    let mut extra_diffs: Vec<CommitDiff> = Vec::new();
-    if let Some(d) = git_repo.staged_diff() {
-        extra_diffs.push(d);
-    }
-    if let Some(d) = git_repo.unstaged_diff() {
-        extra_diffs.push(d);
-    }
-    let n_regular = app.commits.len();
-    for d in &extra_diffs {
-        app.commits.push(d.commit.clone());
-    }
-    app.full_fragmap = cli.full;
-    app.fragmap = compute_fragmap(&git_repo, &app.commits[..n_regular], &extra_diffs, cli.full);
-    app.selection_index = select_initial_index(&app.commits);
+    let mut app = init_app_state(
+        &git_repo,
+        &cli,
+        commits,
+        reference_oid,
+        include_reference_oid,
+    );
 
     loop {
-        terminal.draw(|frame| {
+        terminal_guard.terminal().draw(|frame| {
             let mode = app.mode.clone();
             render_mode(&mode, &git_repo, &mut app, frame);
         })?;
@@ -332,7 +300,7 @@ fn main() -> Result<()> {
                         ctx.combined_message.clone()
                     } else {
                         let combined = ctx.combined_message.clone();
-                        let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
+                        let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
                             editor::edit_message_in_editor(&git_repo, &combined)
                         })?;
                         match editor_result {
@@ -384,7 +352,7 @@ fn main() -> Result<()> {
                 files,
                 conflict_state,
             } => {
-                let result = run_external_tool(&mut terminal, kb_enhanced, || {
+                let result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
                     mergetool::run_mergetool(&git_repo, &files)
                 })?;
                 match result {
@@ -416,7 +384,7 @@ fn main() -> Result<()> {
             } => {
                 let workdir = git_repo.workdir();
                 let result: anyhow::Result<()> =
-                    run_external_tool(&mut terminal, kb_enhanced, || {
+                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
                         let workdir = workdir.ok_or_else(|| {
                             anyhow::anyhow!("repository has no working directory")
                         })?;
@@ -448,7 +416,7 @@ fn main() -> Result<()> {
                 current_message,
             } => {
                 let head_oid = get_head_oid_or_continue!(git_repo, app);
-                let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
+                let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
                     editor::edit_message_in_editor(&git_repo, &current_message)
                 })?;
                 match editor_result {
@@ -506,7 +474,7 @@ fn main() -> Result<()> {
                 let final_message = if is_fixup {
                     Some(target_message)
                 } else {
-                    let editor_result = run_external_tool(&mut terminal, kb_enhanced, || {
+                    let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
                         editor::edit_message_in_editor(&git_repo, &combined)
                     })?;
                     match editor_result {
@@ -548,13 +516,45 @@ fn main() -> Result<()> {
         }
     }
 
-    disable_raw_mode()?;
-    if kb_enhanced {
-        execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
-    }
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-
+    terminal_guard.shutdown()?;
     Ok(())
+}
+
+/// Build the initial `AppState`: apply CLI options, append staged/unstaged
+/// pseudo-commits as synthetic rows, compute the initial fragmap, and pick the
+/// initial selection.
+fn init_app_state(
+    git_repo: &impl GitRepo,
+    cli: &Cli,
+    commits: Vec<CommitInfo>,
+    reference_oid: String,
+    include_reference_oid: bool,
+) -> AppState {
+    let mut app = AppState::with_commits(commits);
+    app.reverse = cli.reverse;
+    app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
+    app.theme = cli.theme.unwrap_or(Theme::Plain);
+    app.reference_oid = reference_oid;
+    app.include_reference_oid = include_reference_oid;
+
+    // Append staged/unstaged working-tree changes as synthetic rows at the
+    // bottom of the commit list (newest position). Recompute fragmap with
+    // the extra diffs so their hunk overlap with commits is visible.
+    let mut extra_diffs: Vec<CommitDiff> = Vec::new();
+    if let Some(d) = git_repo.staged_diff() {
+        extra_diffs.push(d);
+    }
+    if let Some(d) = git_repo.unstaged_diff() {
+        extra_diffs.push(d);
+    }
+    let n_regular = app.commits.len();
+    for d in &extra_diffs {
+        app.commits.push(d.commit.clone());
+    }
+    app.full_fragmap = cli.full;
+    app.fragmap = compute_fragmap(git_repo, &app.commits[..n_regular], &extra_diffs, cli.full);
+    app.selection_index = select_initial_index(&app.commits);
+    app
 }
 
 /// Number of output commits above which a split requires explicit confirmation.
