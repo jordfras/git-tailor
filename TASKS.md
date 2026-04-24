@@ -279,6 +279,71 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements
+- [ ] T157 P3 fix - Split `src/repo/git2_impl.rs` (2238 lines) into focused
+  sub-modules under `src/repo/git2_impl/`: `reads.rs` (head_oid, list_commits,
+  commit_diff, staged/unstaged_diff, default_branch, root_commit_oid,
+  get_config_string), `split.rs` (the three split_commit_per_* methods +
+  count_split_per_* + the load_split_commit helper from T155), `squash.rs`
+  (squash_try_combine, squash_finalize, squash_commits), `move_drop.rs`
+  (move_commit, drop_commit, reword_commit), `conflict.rs` (rebase_continue,
+  rebase_abort, collect_conflict_files, write_conflicts_to_workdir,
+  auto_stage_resolved_conflicts, read_conflicting_files), and `hunks.rs` (the
+  pure free-function helpers: apply_single_hunk_to_tree, apply_hunk_to_content,
+  apply_multiple_hunks_to_content, apply_selected_hunks_to_tree,
+  apply_gitlink_delta_to_tree, split_lines_keep_eol); the `Git2Repo` struct
+  stays in `git2_impl.rs` and each sub-module adds its `impl Git2Repo` /
+  `impl GitRepo for Git2Repo` block; preserves the existing public API
+- [ ] T158 P3 fix - Move the inline `#[cfg(test)] mod tests` block (~1600 lines)
+  out of `src/fragmap.rs` (2387 lines) into a separate `src/fragmap/tests.rs`
+  file gated by `#[cfg(test)] mod tests;` in `fragmap.rs`; production code
+  drops to ~700 lines and the file becomes navigable; no behavioural change
+- [ ] T159 P2 fix - Extract `AppState::reload_preserving_selection(&impl
+  GitRepo)` to replace the five-times-repeated pattern `let saved_index =
+  app.selection_index; reload_commits(&git_repo, &mut app); app.selection_index
+  = saved_index.min(app.commits.len().saturating_sub(1));` in `main.rs`
+  (drop, move, squash, squash_finalize, rebase_continue); each call site
+  becomes a single line
+- [ ] T160 P2 fix - Extract a `handle_rebase_outcome` helper (free fn or
+  AppState method) in `main.rs` to consolidate the repeated `match outcome
+  { Ok(RebaseOutcome::Complete) => { reload + preserve_selection +
+  set_success_message }, Ok(RebaseOutcome::Conflict(state)) =>
+  app.enter_rebase_conflict(*state), Err(e) => app.set_error_message(format!
+  ("{label} failed: {e}")) }` block; called by ExecuteDrop, ExecuteMove,
+  PrepareSquash, RebaseContinue, and the squash finalize path; reduces ~80
+  lines of boilerplate
+- [ ] T161 P3 fix - Extract a `run_external_tool<T>(terminal, kb_enhanced, f)`
+  helper in `main.rs` that wraps the `with_external_process(kb_enhanced, f)
+  + terminal.clear()?` pattern; used by editor invocations (PrepareReword,
+  squash-message editor, conflict-finalize editor) and the mergetool/editor
+  conflict-resolution paths; the four current call sites collapse from 4 lines
+  each to 1
+- [ ] T162 P2 fix - Decompose `main.rs::main()` (~530 lines) into focused
+  helpers: `load_initial_commits(&git_repo, &cli)` returning `(Vec<CommitInfo>,
+  String, bool)` (extracts lines 222–254), `setup_terminal()` returning a RAII
+  `TerminalGuard` that owns raw mode + alternate screen + keyboard
+  enhancement and restores them on Drop (extracts lines 285–303 and 743–748),
+  `init_app_state(commits, &cli, &git_repo)` returning the configured
+  `AppState` with synthetic rows (extracts lines 305–320), and split the giant
+  `AppAction` dispatch `match` into `dispatch_action(action, &mut app,
+  &git_repo, terminal, kb_enhanced) -> Result<()>` so `main` reads as a clear
+  setup → loop → teardown flow under 50 lines
+- [ ] T163 P3 fix - Decompose `views/commit_detail.rs::render` (~290 lines)
+  into focused helpers: `build_metadata_lines(commit) -> Vec<Line>` (oid,
+  message, author, dates), `build_file_list_lines(diff) -> Vec<Line>` (the
+  "Changed Files:" section with status indicators), `build_diff_lines(diff)
+  -> Vec<Line>` (file headers + hunk headers + colored +/- lines), and
+  `compute_scroll_layout(content_area, content) -> ScrollLayout` (returns
+  text_area, scrollbar areas, max_scroll, max_h_scroll); render becomes a
+  composition of these helpers + the search-highlight pass + widget calls
+- [ ] T164 P3 fix - Decompose `views/commit_list.rs::build_rows` (~190 lines)
+  by extracting `fn row_text_style(app, focus_ctx: FocusContext, commit_idx,
+  is_selected, is_synthetic) -> Style` to replace the 60-line nested
+  if/else-if chain that picks the foreground style based on
+  squash/move/normal mode; introduce a small `FocusContext` enum (`Squash {
+  source_idx }`, `Move { source_idx }`, `Normal`) to make the dispatch
+  explicit; also add `AppState::fragmap_index(visual_idx) -> usize` to remove
+  the three repeated `if app.reverse { len-1-idx } else { idx }`
+  expressions in build_rows
 - [X] T151 P3 fix - Eliminate duplication between `AppState::new()` and
   `AppState::with_commits()`: both functions repeat the same ~30 field
   initializations verbatim; implement `Default` for `AppState` containing all
