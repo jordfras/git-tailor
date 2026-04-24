@@ -19,6 +19,7 @@ use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, frag
 
 use super::GitRepo;
 
+mod conflict;
 mod hunks;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
@@ -41,6 +42,38 @@ impl Git2Repo {
                 anyhow::bail!("Could not find git repository root");
             }
         }
+    }
+
+    pub(super) fn stage_file(&self, path: &str) -> Result<()> {
+        let mut index = self.inner.index().context("failed to read index")?;
+        index
+            .read(true)
+            .context("failed to refresh index from disk")?;
+
+        let workdir = self
+            .inner
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+
+        if workdir.join(path).exists() {
+            // File is present — add it to clear conflict stages and create a
+            // normal stage-0 entry.
+            index
+                .add_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to stage '{path}'"))?;
+        } else {
+            // File was deleted — remove all index entries for this path
+            // (stages 0, 1, 2, 3) so the deletion is staged and no phantom
+            // conflict entries remain.
+            index
+                .remove_path(std::path::Path::new(path))
+                .with_context(|| format!("failed to remove '{path}' from index"))?;
+        }
+
+        index
+            .write()
+            .context("failed to write index after staging")?;
+        Ok(())
     }
 }
 
@@ -750,7 +783,7 @@ impl GitRepo for Git2Repo {
                         new_tip_oid: tip.to_string(),
                         conflicting_commit_oid: conflicting_oid.to_string(),
                         remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
+                        conflicting_files: conflict::collect_conflict_files(repo),
                         still_unresolved: false,
                         moved_commit_oid: None,
                         squash_context: None,
@@ -761,116 +794,11 @@ impl GitRepo for Git2Repo {
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        let repo = &self.inner;
-
-        let tip_oid =
-            git2::Oid::from_str(&state.new_tip_oid).context("Invalid tip OID in conflict state")?;
-        let conflicting_oid = git2::Oid::from_str(&state.conflicting_commit_oid)
-            .context("Invalid conflicting OID in conflict state")?;
-        let conflicting_commit = repo.find_commit(conflicting_oid)?;
-        let onto_commit = repo.find_commit(tip_oid)?;
-
-        // Re-read index from disk — the user (or another process) resolved
-        // conflicts by editing the on-disk index.
-        let mut index = repo.index()?;
-        index.read(true)?;
-        if index.has_conflicts() {
-            // The user pressed Enter but some files still have conflict
-            // markers. Stay in RebaseConflict mode with a refreshed file
-            // list so the dialog keeps the user informed rather than bailing
-            // out and leaving the repo in a broken state.
-            return Ok(super::RebaseOutcome::Conflict(Box::new(
-                super::ConflictState {
-                    operation_label: state.operation_label.clone(),
-                    original_branch_oid: state.original_branch_oid.clone(),
-                    new_tip_oid: state.new_tip_oid.clone(),
-                    conflicting_commit_oid: state.conflicting_commit_oid.clone(),
-                    remaining_oids: state.remaining_oids.clone(),
-                    conflicting_files: collect_conflict_files(repo),
-                    still_unresolved: true,
-                    moved_commit_oid: state.moved_commit_oid.clone(),
-                    squash_context: state.squash_context.clone(),
-                },
-            )));
-        }
-
-        let new_tree_oid = index.write_tree()?;
-        let new_tree = repo.find_tree(new_tree_oid)?;
-
-        let new_tip = repo.commit(
-            None,
-            &conflicting_commit.author(),
-            &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
-            &new_tree,
-            &[&onto_commit],
-        )?;
-
-        // Continue cherry-picking remaining descendants.
-        let remaining: Vec<git2::Oid> = state
-            .remaining_oids
-            .iter()
-            .map(|s| git2::Oid::from_str(s))
-            .collect::<std::result::Result<_, _>>()
-            .context("Invalid OID in remaining list")?;
-
-        let result = self.cherry_pick_chain(new_tip, &remaining)?;
-        match result {
-            CherryPickResult::Complete(final_tip) => {
-                let label = state.operation_label.to_lowercase();
-                self.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = remaining[conflicting_idx];
-                let new_remaining: Vec<String> = remaining[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: state.operation_label.clone(),
-                        original_branch_oid: state.original_branch_oid.clone(),
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: new_remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: state.moved_commit_oid.clone(),
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
+        conflict::rebase_continue(self, state)
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
-        let original_oid = git2::Oid::from_str(&state.original_branch_oid)
-            .context("Invalid original branch OID in conflict state")?;
-        let label = state.operation_label.to_lowercase();
-        self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
-
-        // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
-        // clears the index and repopulates it from the cherry-pick result (rooted in
-        // the target commit's tree), so checkout_head alone cannot restore files that
-        // exist in HEAD but were absent from that tree.
-        let head_commit = self.inner.find_commit(original_oid)?;
-        let mut index = self.inner.index()?;
-        index.read_tree(&head_commit.tree()?)?;
-        index.write()?;
-
-        // Force-checkout HEAD and remove files that were written to the workdir
-        // by the conflict checkout but are not tracked by the original HEAD.
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        checkout.remove_untracked(true);
-        self.inner.checkout_head(Some(&mut checkout))?;
-        Ok(())
+        conflict::rebase_abort(self, state)
     }
 
     fn workdir(&self) -> Option<std::path::PathBuf> {
@@ -893,7 +821,7 @@ impl GitRepo for Git2Repo {
     }
 
     fn read_conflicting_files(&self) -> Vec<String> {
-        collect_conflict_files(&self.inner)
+        conflict::read_conflicting_files(self)
     }
 
     fn move_commit(
@@ -1058,7 +986,7 @@ impl GitRepo for Git2Repo {
                         new_tip_oid: tip.to_string(),
                         conflicting_commit_oid: conflicting_oid.to_string(),
                         remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
+                        conflicting_files: conflict::collect_conflict_files(repo),
                         still_unresolved: false,
                         moved_commit_oid: Some(commit_oid.to_string()),
                         squash_context: None,
@@ -1109,7 +1037,7 @@ impl GitRepo for Git2Repo {
 
             // Write the conflicted index to the working tree so the user can
             // resolve it with their editor or merge tool.
-            self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
+            conflict::write_conflicts_to_workdir(self, &cherry_index, &target_commit)?;
 
             return Ok(super::RebaseOutcome::Conflict(Box::new(
                 super::ConflictState {
@@ -1118,7 +1046,7 @@ impl GitRepo for Git2Repo {
                     new_tip_oid: target_git_oid.to_string(),
                     conflicting_commit_oid: source_git_oid.to_string(),
                     remaining_oids: vec![],
-                    conflicting_files: collect_conflict_files(repo),
+                    conflicting_files: conflict::collect_conflict_files(repo),
                     still_unresolved: false,
                     moved_commit_oid: None,
                     squash_context: Some(super::SquashContext {
@@ -1178,7 +1106,7 @@ impl GitRepo for Git2Repo {
                         new_tip_oid: tip.to_string(),
                         conflicting_commit_oid: conflicting_oid.to_string(),
                         remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
+                        conflicting_files: conflict::collect_conflict_files(repo),
                         still_unresolved: false,
                         moved_commit_oid: None,
                         squash_context: None,
@@ -1189,57 +1117,11 @@ impl GitRepo for Git2Repo {
     }
 
     fn stage_file(&self, path: &str) -> Result<()> {
-        let repo = &self.inner;
-        let mut index = repo.index().context("failed to read index")?;
-        index
-            .read(true)
-            .context("failed to refresh index from disk")?;
-
-        let workdir = repo
-            .workdir()
-            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-
-        if workdir.join(path).exists() {
-            // File is present — add it to clear conflict stages and create a
-            // normal stage-0 entry.
-            index
-                .add_path(std::path::Path::new(path))
-                .with_context(|| format!("failed to stage '{path}'"))?;
-        } else {
-            // File was deleted — remove all index entries for this path
-            // (stages 0, 1, 2, 3) so the deletion is staged and no phantom
-            // conflict entries remain.
-            index
-                .remove_path(std::path::Path::new(path))
-                .with_context(|| format!("failed to remove '{path}' from index"))?;
-        }
-
-        index
-            .write()
-            .context("failed to write index after staging")?;
-        Ok(())
+        self.stage_file(path)
     }
 
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
-        let workdir = self
-            .inner
-            .workdir()
-            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-
-        for path in files {
-            let full_path = workdir.join(path);
-            if !full_path.exists() {
-                // File was deleted — stage the deletion to clear conflict entries.
-                self.stage_file(path)?;
-                continue;
-            }
-            let content = std::fs::read(&full_path)
-                .with_context(|| format!("failed to read '{path}' from working tree"))?;
-            if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
-                self.stage_file(path)?;
-            }
-        }
-        Ok(())
+        conflict::auto_stage_resolved_conflicts(self, files)
     }
 
     fn default_branch(&self) -> Option<String> {
@@ -1303,7 +1185,7 @@ impl GitRepo for Git2Repo {
             .map(|oid| oid.to_string())
             .collect();
 
-        self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
+        conflict::write_conflicts_to_workdir(self, &cherry_index, &target_commit)?;
 
         let operation_label = if is_fixup { "Fixup" } else { "Squash" }.to_string();
 
@@ -1313,7 +1195,7 @@ impl GitRepo for Git2Repo {
             new_tip_oid: target_git_oid.to_string(),
             conflicting_commit_oid: source_git_oid.to_string(),
             remaining_oids: vec![],
-            conflicting_files: collect_conflict_files(repo),
+            conflicting_files: conflict::collect_conflict_files(repo),
             still_unresolved: false,
             moved_commit_oid: None,
             squash_context: Some(super::SquashContext {
@@ -1391,7 +1273,7 @@ impl GitRepo for Git2Repo {
                         new_tip_oid: tip.to_string(),
                         conflicting_commit_oid: conflicting_oid.to_string(),
                         remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
+                        conflicting_files: conflict::collect_conflict_files(repo),
                         still_unresolved: false,
                         moved_commit_oid: None,
                         squash_context: None,
@@ -1401,33 +1283,6 @@ impl GitRepo for Git2Repo {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Private helpers for drop/conflict operations
-// ---------------------------------------------------------------------------
-
-/// Collect paths of all files that have conflict entries (stage > 0) in the
-/// repository's current index.  Returns them sorted for a stable display order.
-fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
-    let mut index = match repo.index() {
-        Ok(i) => i,
-        Err(_) => return Vec::new(),
-    };
-    let _ = index.read(true);
-    let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for entry in index.iter() {
-        // stage is encoded in the high bits of flags
-        let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0
-            && let Ok(p) = std::str::from_utf8(&entry.path)
-        {
-            paths.insert(p.to_string());
-        }
-    }
-    paths.into_iter().collect()
-}
-
-// ---------------------------------------------------------------------------
 
 impl Git2Repo {
     /// Refuse if the working tree or index has any staged or unstaged changes,
@@ -1633,7 +1488,7 @@ impl Git2Repo {
                 repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?
             };
             if cherry_index.has_conflicts() {
-                self.write_conflicts_to_workdir(&cherry_index, &onto_commit)?;
+                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit)?;
                 return Ok(CherryPickResult::Conflict {
                     tip,
                     conflicting_idx: idx,
@@ -1654,42 +1509,6 @@ impl Git2Repo {
         }
 
         Ok(CherryPickResult::Complete(tip))
-    }
-
-    /// Write a conflicted merge index to the repo index and working tree so
-    /// the user can resolve conflicts manually.
-    fn write_conflicts_to_workdir(
-        &self,
-        cherry_index: &git2::Index,
-        onto_commit: &git2::Commit,
-    ) -> Result<()> {
-        let repo = &self.inner;
-
-        // Point the branch at the onto commit so HEAD matches the partially
-        // rebased chain.
-        self.advance_branch_ref(onto_commit.id(), "git-tailor: drop commit (conflict)")?;
-
-        // Write the conflicted index entries (including conflict markers) into
-        // the repo's index so `git status` and the user's editor see them.
-        let mut repo_index = repo.index()?;
-        // Clear stale entries before populating the index with the cherry-pick
-        // result.  Without this, leftover files from the previous index state
-        // (typically HEAD) leak into the written index and end up in trees
-        // created by rebase_continue / squash_finalize.
-        repo_index.clear()?;
-        for entry in cherry_index.iter() {
-            repo_index.add(&entry)?;
-        }
-        repo_index.write()?;
-
-        // Check out the index to the working tree. Force-checkout writes
-        // conflict markers into the working-tree files.
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        checkout.allow_conflicts(true);
-        repo.checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
-
-        Ok(())
     }
 
     /// Reset the working tree and index to match HEAD.
