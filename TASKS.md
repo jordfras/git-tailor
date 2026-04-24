@@ -278,7 +278,7 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements
-- [ ] T157 P3 fix - Split `src/repo/git2_impl.rs` (2238 lines) into focused
+- [X] T157 P3 fix - Split `src/repo/git2_impl.rs` (2238 lines) into focused
   sub-modules under `src/repo/git2_impl/`: `reads.rs` (head_oid, list_commits,
   commit_diff, staged/unstaged_diff, default_branch, root_commit_oid,
   get_config_string), `split.rs` (the three split_commit_per_* methods +
@@ -367,7 +367,7 @@ Guidelines:
   `commit_list.rs`; add a free function `short_oid(oid: &str) -> &str` in a
   shared location (e.g. `views/dialog.rs` or a new `views/utils.rs`) and
   replace all call sites
-- [ ] T155 P3 fix - Extract common split-commit preamble into a shared helper:
+- [X] T155 P3 fix - Extract common split-commit preamble into a shared helper:
   `split_commit_per_file`, `split_commit_per_hunk`, and
   `split_commit_per_hunk_group` in `git2_impl.rs` each begin with ~20 identical
   lines (parse OID, find commit, bail on merge commit, compute `parent_tree`
