@@ -104,12 +104,6 @@ struct Cli {
     theme: Option<Theme>,
 }
 
-/// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
-///
-/// Extra diffs are for synthetic pseudo-commits (staged/unstaged working-tree
-/// changes) whose diff cannot be fetched by OID. They are appended at the end
-/// of the regular commit diffs so the fragmap matrix rows match the ordering in
-/// `AppState::commits`.
 /// Suspend the TUI, run `f`, then restore the TUI unconditionally.
 ///
 /// Undoes the full setup done in `main` before calling `f` (leaves alternate
@@ -210,6 +204,12 @@ fn restore_console_input_mode(mode: u32) {
     }
 }
 
+/// Compute fragmap from a list of regular commits plus any pre-computed extra diffs.
+///
+/// Extra diffs are for synthetic pseudo-commits (staged/unstaged working-tree
+/// changes) whose diff cannot be fetched by OID. They are appended at the end
+/// of the regular commit diffs so the fragmap matrix rows match the ordering in
+/// `AppState::commits`.
 fn compute_fragmap(
     git_repo: &impl GitRepo,
     regular_commits: &[CommitInfo],
