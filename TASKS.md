@@ -326,7 +326,7 @@ Guidelines:
   dispatch `match` into `dispatch_action(action, &mut app, &git_repo, terminal,
   kb_enhanced) -> Result<()>` so `main` reads as a clear setup → loop → teardown
   flow under 50 lines
-- [ ] T163 P3 fix - Decompose `views/commit_detail.rs::render` (~290 lines) into
+- [X] T163 P3 fix - Decompose `views/commit_detail.rs::render` (~290 lines) into
   focused helpers: `build_metadata_lines(commit) -> Vec<Line>` (oid, message,
   author, dates), `build_file_list_lines(diff) -> Vec<Line>` (the "Changed
   Files:" section with status indicators), `build_diff_lines(diff) -> Vec<Line>`

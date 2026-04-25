@@ -380,192 +380,26 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         frame.render_widget(placeholder, content_area);
     } else {
         let selected = &app.commits[app.selection_index];
-
-        // Clone the fields we need so `content` doesn't borrow `app`,
-        // allowing us to pass `&mut app` to search helpers later.
         let oid = selected.oid.clone();
-        let message = selected.message.clone();
-        let author = selected.author.clone();
-        let author_email = selected.author_email.clone();
-        let author_date = selected.author_date;
-        let committer = selected.committer.clone();
-        let committer_email = selected.committer_email.clone();
-        let commit_date = selected.commit_date;
 
-        // Build metadata lines
-        let mut content = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
-                Span::raw(oid.long().to_string()),
-            ]),
-            Line::from(""),
-        ];
-
-        // Add full message (split into lines)
-        for line in message.lines() {
-            content.push(Line::from(Span::styled(
-                line.to_string(),
-                Style::default().fg(Color::White),
-            )));
-        }
-
-        content.push(Line::from(""));
-        if let (Some(author), Some(author_email)) = (&author, &author_email) {
-            content.push(Line::from(vec![
-                Span::styled("Author: ", Style::default().fg(Color::Yellow)),
-                Span::raw(format!("{} <{}>", author, author_email)),
-            ]));
-
-            // Format dates as "YYYY-MM-DD HH:MM:SS ±HHMM"
-            let fmt = time::format_description::parse(
-                "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
-            ).unwrap();
-
-            if let Some(author_date) = &author_date {
-                let formatted = author_date
-                    .format(&fmt)
-                    .unwrap_or_else(|_| String::from("Invalid date"));
-                content.push(Line::from(vec![
-                    Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
-                    Span::raw(formatted),
-                ]));
-            }
-
-            if let (Some(committer), Some(committer_email)) = (&committer, &committer_email) {
-                content.push(Line::from(""));
-                content.push(Line::from(vec![
-                    Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
-                    Span::raw(format!("{} <{}>", committer, committer_email)),
-                ]));
-            }
-
-            if let Some(commit_date) = &commit_date {
-                let formatted = commit_date
-                    .format(&fmt)
-                    .unwrap_or_else(|_| String::from("Invalid date"));
-                content.push(Line::from(vec![
-                    Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
-                    Span::raw(formatted),
-                ]));
-            }
-        }
-
-        // Add file list with status indicators
         let diff_opt = match oid {
             VirtualOid::Staged => repo.staged_diff(),
             VirtualOid::Unstaged => repo.unstaged_diff(),
             VirtualOid::Real(ref real_oid) => repo.commit_diff(real_oid).ok(),
         };
-        if let Some(diff) = diff_opt {
-            content.push(Line::from(""));
-            content.push(Line::from(Span::styled(
-                "Changed Files:",
-                Style::default().fg(Color::Yellow),
-            )));
-            content.push(Line::from(""));
 
-            for file in &diff.files {
-                let (status, path) = get_file_status_and_path(file);
-                let status_str = format_file_status(status);
-                let status_color = get_status_color(status);
-
-                content.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", status_str),
-                        Style::default().fg(status_color),
-                    ),
-                    Span::raw(path),
-                ]));
-            }
-
-            // Add complete diff rendering
-            content.push(Line::from(""));
-            content.push(Line::from(Span::styled(
-                "Diff:",
-                Style::default().fg(Color::Yellow),
-            )));
-            content.push(Line::from(""));
-
-            for file in &diff.files {
-                // File headers (unified diff format)
-                let old_path = file
-                    .old_path
-                    .as_ref()
-                    .map(|s| format!("a/{}", s))
-                    .unwrap_or_else(|| "/dev/null".to_string());
-                let new_path = file
-                    .new_path
-                    .as_ref()
-                    .map(|s| format!("b/{}", s))
-                    .unwrap_or_else(|| "/dev/null".to_string());
-
-                content.push(Line::from(Span::styled(
-                    format!("--- {}", old_path),
-                    Style::default().fg(Color::White),
-                )));
-                content.push(Line::from(Span::styled(
-                    format!("+++ {}", new_path),
-                    Style::default().fg(Color::White),
-                )));
-
-                // Render each hunk
-                for hunk in &file.hunks {
-                    // Hunk header
-                    let hunk_header = format!(
-                        "@@ -{},{} +{},{} @@",
-                        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
-                    );
-                    content.push(Line::from(Span::styled(
-                        hunk_header,
-                        Style::default().fg(Color::Cyan),
-                    )));
-
-                    // Render each line
-                    for line in &hunk.lines {
-                        use crate::DiffLineKind;
-
-                        let (prefix, style) = match line.kind {
-                            DiffLineKind::Addition => ("+", Style::default().fg(Color::Green)),
-                            DiffLineKind::Deletion => ("-", Style::default().fg(Color::Red)),
-                            DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
-                        };
-
-                        // Remove trailing newline (including Windows-style \r\n)
-                        let content_str = line.content.trim_end_matches(['\n', '\r']);
-                        content.push(Line::from(Span::styled(
-                            format!("{}{}", prefix, content_str),
-                            style,
-                        )));
-                    }
-                }
-
-                content.push(Line::from(""));
-            }
+        let mut content = build_metadata_lines(selected);
+        if let Some(ref diff) = diff_opt {
+            content.extend(build_file_list_lines(&diff.files));
+            content.extend(build_diff_lines(&diff.files));
         }
 
-        // Compute max line width for horizontal scrollbar (pass 1: tentative v-scrollbar width)
-        let max_line_width = content.iter().map(|l| l.width()).max().unwrap_or(0);
-        let total_lines = content.len();
-        let v_scrollbar_width_tentative: u16 = if total_lines > content_area.height as usize {
-            1
-        } else {
-            0
-        };
-        let text_area_width = content_area
-            .width
-            .saturating_sub(v_scrollbar_width_tentative) as usize;
-        let max_h_scroll = max_line_width.saturating_sub(text_area_width);
-        let h_scrollbar_height: u16 = if max_h_scroll > 0 { 1 } else { 0 };
-
-        // Final visible height (accounting for horizontal scrollbar row)
-        let visible_height = content_area.height.saturating_sub(h_scrollbar_height) as usize;
-        let max_scroll = total_lines.saturating_sub(visible_height);
+        let layout = compute_scroll_layout(content_area, &content);
 
         // Update scroll state in app for proper bounds and page scrolling
-        app.max_detail_scroll = max_scroll;
-        app.detail_visible_height = visible_height;
-        app.max_detail_h_scroll = max_h_scroll;
+        app.max_detail_scroll = layout.max_scroll;
+        app.detail_visible_height = layout.visible_height;
+        app.max_detail_h_scroll = layout.max_h_scroll;
 
         // --- Search: compute matches, auto-scroll, apply highlighting ---
         if app.search_active && !app.search_query.is_empty() {
@@ -574,7 +408,12 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                     let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
                     search_info = info;
                     if !app.search_matches.is_empty() {
-                        auto_scroll_to_new_match(app, prev_match_index, visible_height, max_scroll);
+                        auto_scroll_to_new_match(
+                            app,
+                            prev_match_index,
+                            layout.visible_height,
+                            layout.max_scroll,
+                        );
                         content = apply_search_highlighting(content, app, &regex);
                     }
                 }
@@ -590,49 +429,28 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         }
 
         // Clamp scroll offsets to valid range
-        let scroll_offset = app.detail_scroll_offset.min(max_scroll);
-        let h_scroll = app.detail_h_scroll_offset.min(max_h_scroll);
-
-        // Layout: v-scrollbar strip on the left, h-scrollbar strip at the bottom
-        let v_scrollbar_width: u16 = if max_scroll > 0 { 1 } else { 0 };
-        let v_scrollbar_area = Rect {
-            x: content_area.x,
-            y: content_area.y,
-            width: v_scrollbar_width,
-            height: content_area.height.saturating_sub(h_scrollbar_height),
-        };
-        let text_area = Rect {
-            x: content_area.x + v_scrollbar_width,
-            y: content_area.y,
-            width: content_area.width.saturating_sub(v_scrollbar_width),
-            height: content_area.height.saturating_sub(h_scrollbar_height),
-        };
-        let h_scrollbar_area = Rect {
-            x: content_area.x + v_scrollbar_width,
-            y: content_area.y + content_area.height.saturating_sub(h_scrollbar_height),
-            width: content_area.width.saturating_sub(v_scrollbar_width),
-            height: h_scrollbar_height,
-        };
+        let scroll_offset = app.detail_scroll_offset.min(layout.max_scroll);
+        let h_scroll = app.detail_h_scroll_offset.min(layout.max_h_scroll);
 
         let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, h_scroll as u16));
-        frame.render_widget(paragraph, text_area);
+        frame.render_widget(paragraph, layout.text_area);
 
-        if max_scroll > 0 && visible_height > 0 {
+        if layout.max_scroll > 0 && layout.visible_height > 0 {
             render_scrollbar(
                 frame,
-                v_scrollbar_area,
+                layout.v_scrollbar_area,
                 scroll_offset,
-                total_lines,
-                visible_height,
+                layout.total_lines,
+                layout.visible_height,
             );
         }
-        if max_h_scroll > 0 && text_area_width > 0 {
+        if layout.max_h_scroll > 0 && layout.text_area_width > 0 {
             render_h_scrollbar(
                 frame,
-                h_scrollbar_area,
+                layout.h_scrollbar_area,
                 h_scroll,
-                max_line_width,
-                text_area_width,
+                layout.max_line_width,
+                layout.text_area_width,
             );
         }
     }
@@ -645,6 +463,223 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
     // Render footer
     let footer = Paragraph::new("").style(FOOTER_STYLE);
     frame.render_widget(footer, footer_area);
+}
+
+/// Build the metadata section: OID, full message, author, dates, committer.
+fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
+            Span::raw(commit.oid.long().to_string()),
+        ]),
+        Line::from(""),
+    ];
+
+    for line in commit.message.lines() {
+        lines.push(Line::from(Span::styled(
+            line.to_string(),
+            Style::default().fg(Color::White),
+        )));
+    }
+
+    lines.push(Line::from(""));
+
+    if let (Some(author), Some(author_email)) = (&commit.author, &commit.author_email) {
+        lines.push(Line::from(vec![
+            Span::styled("Author: ", Style::default().fg(Color::Yellow)),
+            Span::raw(format!("{} <{}>", author, author_email)),
+        ]));
+
+        let fmt = time::format_description::parse(
+            "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
+        ).unwrap();
+
+        if let Some(author_date) = &commit.author_date {
+            let formatted = author_date
+                .format(&fmt)
+                .unwrap_or_else(|_| String::from("Invalid date"));
+            lines.push(Line::from(vec![
+                Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
+                Span::raw(formatted),
+            ]));
+        }
+
+        if let (Some(committer), Some(committer_email)) =
+            (&commit.committer, &commit.committer_email)
+        {
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{} <{}>", committer, committer_email)),
+            ]));
+        }
+
+        if let Some(commit_date) = &commit.commit_date {
+            let formatted = commit_date
+                .format(&fmt)
+                .unwrap_or_else(|_| String::from("Invalid date"));
+            lines.push(Line::from(vec![
+                Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
+                Span::raw(formatted),
+            ]));
+        }
+    }
+
+    lines
+}
+
+/// Build the "Changed Files:" section listing each file with a status indicator.
+fn build_file_list_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Changed Files:",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(""),
+    ];
+
+    for file in files {
+        let (status, path) = get_file_status_and_path(file);
+        let status_str = format_file_status(status);
+        let status_color = get_status_color(status);
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {} ", status_str),
+                Style::default().fg(status_color),
+            ),
+            Span::raw(path),
+        ]));
+    }
+
+    lines
+}
+
+/// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
+fn build_diff_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled("Diff:", Style::default().fg(Color::Yellow))),
+        Line::from(""),
+    ];
+
+    for file in files {
+        let old_path = file
+            .old_path
+            .as_ref()
+            .map(|s| format!("a/{}", s))
+            .unwrap_or_else(|| "/dev/null".to_string());
+        let new_path = file
+            .new_path
+            .as_ref()
+            .map(|s| format!("b/{}", s))
+            .unwrap_or_else(|| "/dev/null".to_string());
+
+        lines.push(Line::from(Span::styled(
+            format!("--- {}", old_path),
+            Style::default().fg(Color::White),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!("+++ {}", new_path),
+            Style::default().fg(Color::White),
+        )));
+
+        for hunk in &file.hunks {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "@@ -{},{} +{},{} @@",
+                    hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+                ),
+                Style::default().fg(Color::Cyan),
+            )));
+
+            for diff_line in &hunk.lines {
+                use crate::DiffLineKind;
+                let (prefix, style) = match diff_line.kind {
+                    DiffLineKind::Addition => ("+", Style::default().fg(Color::Green)),
+                    DiffLineKind::Deletion => ("-", Style::default().fg(Color::Red)),
+                    DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
+                };
+                let content_str = diff_line.content.trim_end_matches(['\n', '\r']);
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}", prefix, content_str),
+                    style,
+                )));
+            }
+        }
+
+        lines.push(Line::from(""));
+    }
+
+    lines
+}
+
+/// Geometry produced by [`compute_scroll_layout`].
+struct ScrollLayout {
+    text_area: Rect,
+    v_scrollbar_area: Rect,
+    h_scrollbar_area: Rect,
+    total_lines: usize,
+    max_line_width: usize,
+    text_area_width: usize,
+    visible_height: usize,
+    max_scroll: usize,
+    max_h_scroll: usize,
+}
+
+/// Compute scroll geometry for the content area given the current content lines.
+fn compute_scroll_layout(content_area: Rect, content: &[Line<'_>]) -> ScrollLayout {
+    let max_line_width = content.iter().map(|l| l.width()).max().unwrap_or(0);
+    let total_lines = content.len();
+
+    // Pass 1: tentative v-scrollbar width (before knowing h-scrollbar height)
+    let v_scrollbar_width_tentative: u16 = if total_lines > content_area.height as usize {
+        1
+    } else {
+        0
+    };
+    let text_area_width = content_area
+        .width
+        .saturating_sub(v_scrollbar_width_tentative) as usize;
+    let max_h_scroll = max_line_width.saturating_sub(text_area_width);
+    let h_scrollbar_height: u16 = if max_h_scroll > 0 { 1 } else { 0 };
+
+    let visible_height = content_area.height.saturating_sub(h_scrollbar_height) as usize;
+    let max_scroll = total_lines.saturating_sub(visible_height);
+
+    let v_scrollbar_width: u16 = if max_scroll > 0 { 1 } else { 0 };
+
+    let v_scrollbar_area = Rect {
+        x: content_area.x,
+        y: content_area.y,
+        width: v_scrollbar_width,
+        height: content_area.height.saturating_sub(h_scrollbar_height),
+    };
+    let text_area = Rect {
+        x: content_area.x + v_scrollbar_width,
+        y: content_area.y,
+        width: content_area.width.saturating_sub(v_scrollbar_width),
+        height: content_area.height.saturating_sub(h_scrollbar_height),
+    };
+    let h_scrollbar_area = Rect {
+        x: content_area.x + v_scrollbar_width,
+        y: content_area.y + content_area.height.saturating_sub(h_scrollbar_height),
+        width: content_area.width.saturating_sub(v_scrollbar_width),
+        height: h_scrollbar_height,
+    };
+
+    ScrollLayout {
+        text_area,
+        v_scrollbar_area,
+        h_scrollbar_area,
+        total_lines,
+        max_line_width,
+        text_area_width,
+        visible_height,
+        max_scroll,
+        max_h_scroll,
+    }
 }
 
 /// Determine file status and display path from a FileDiff.
