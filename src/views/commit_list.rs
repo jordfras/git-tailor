@@ -92,7 +92,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Drop => {
             let commit = &app.commits[app.selection_index];
-            if commit.oid == "staged" || commit.oid == "unstaged" {
+            if commit.is_synthetic() {
                 app.set_error_message("Cannot drop staged/unstaged changes");
                 AppAction::Handled
             } else {
@@ -104,7 +104,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Reword => {
             let commit = &app.commits[app.selection_index];
-            if commit.oid == "staged" || commit.oid == "unstaged" {
+            if commit.is_synthetic() {
                 app.set_error_message("Cannot reword staged/unstaged changes");
                 AppAction::Handled
             } else {
@@ -501,7 +501,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
 
         let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
 
-        let is_synthetic = commit.oid == "staged" || commit.oid == "unstaged";
+        let is_synthetic = commit.is_synthetic();
         let is_selected = visual_index == layout.visual_selection;
         let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
         let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);

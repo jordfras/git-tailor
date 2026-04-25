@@ -49,6 +49,14 @@ pub struct CommitInfo {
     pub commit_date: Option<time::OffsetDateTime>,
 }
 
+impl CommitInfo {
+    /// Returns `true` if this is a synthetic pseudo-commit (staged or unstaged
+    /// working-tree changes), rather than a real git commit.
+    pub fn is_synthetic(&self) -> bool {
+        self.oid == "staged" || self.oid == "unstaged"
+    }
+}
+
 /// The kind of change a diff line represents.
 ///
 /// When Git compares two versions of a file, each line in the output falls

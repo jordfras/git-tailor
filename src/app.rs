@@ -558,7 +558,7 @@ impl AppState {
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.is_synthetic()
         {
             self.set_error_message("Cannot split staged/unstaged changes");
             return;
@@ -580,16 +580,12 @@ impl AppState {
     fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
         let label = if is_fixup { "fixup" } else { "squash" };
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.is_synthetic()
         {
             self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
             return;
         }
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
-            .count();
+        let real_count = self.commits.iter().filter(|c| !c.is_synthetic()).count();
         if real_count < 2 {
             self.set_error_message(format!(
                 "Nothing to {label} — only one commit on the branch"
@@ -613,18 +609,14 @@ impl AppState {
     /// chronological order).
     pub fn enter_move_select(&mut self) {
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.is_synthetic()
         {
             self.set_error_message("Cannot move staged/unstaged changes");
             return;
         }
 
         // Count real (non-synthetic) commits; moving requires at least 2.
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
-            .count();
+        let real_count = self.commits.iter().filter(|c| !c.is_synthetic()).count();
         if real_count < 2 {
             self.set_error_message("Nothing to move — only one commit on the branch");
             return;

@@ -356,7 +356,7 @@ Guidelines:
   PrepareSquash, ExecuteMove); extract a local macro or inline helper
   `get_head_oid!(git_repo, app)` that encapsulates the error path so each call
   site is a single expression
-- [ ] T153 P3 fix - Add `CommitInfo::is_synthetic()` helper to replace scattered
+- [X] T153 P3 fix - Add `CommitInfo::is_synthetic()` helper to replace scattered
   inline checks: the expression `commit.oid == "staged" || commit.oid ==
   "unstaged"` is repeated in five or more places across `app.rs` and
   `commit_list.rs`; add a `pub fn is_synthetic(&self) -> bool` method to
