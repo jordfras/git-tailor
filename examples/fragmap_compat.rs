@@ -28,10 +28,10 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-use git_tailor::CommitInfo;
 use git_tailor::fragmap::{self, FragMap, SquashableScope};
 use git_tailor::repo::{Git2Repo, GitRepo};
 use git_tailor::static_views;
+use git_tailor::{CommitInfo, VirtualOid};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -50,11 +50,15 @@ fn main() {
         .expect("list commits");
     let commits: Vec<CommitInfo> = commits
         .into_iter()
-        .filter(|c| c.oid != reference_oid)
+        .filter(|c| c.oid != VirtualOid::Real(reference_oid.clone()))
         .collect();
     let mut commit_diffs: Vec<_> = commits
         .iter()
-        .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
+        .filter_map(|c| {
+            c.oid
+                .as_oid()
+                .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok())
+        })
         .collect();
     // Append staged/unstaged working-tree changes exactly as `gt --static` does,
     // so that the comparison is made against the same row set that fragmap shows.
@@ -78,7 +82,7 @@ fn main() {
     // Run original fragmap binary.
     // Pass `--no-color` so touched cells render as '#' (not ANSI-colored spaces).
     // Pass `-s <reference_oid>` so fragmap shows the same exclusive commit range.
-    let fm_raw = run_fragmap(&reference_oid);
+    let fm_raw = run_fragmap(reference_oid.long());
     // Strip any residual ANSI codes defensively.
     let fm_output = strip_ansi(&fm_raw);
 
@@ -255,7 +259,7 @@ fn gt_column_profiles(fmap: &FragMap) -> Vec<Profile> {
             fmap.clusters[ci]
                 .commit_oids
                 .iter()
-                .map(|oid| normalize_sha(oid))
+                .map(|oid| normalize_sha(oid.long()))
                 .collect()
         })
         .collect()
@@ -285,7 +289,12 @@ fn report_diff(
     // Build sha8 -> short summary lookup from our own commit diffs.
     let summaries: std::collections::HashMap<String, &str> = commit_diffs
         .iter()
-        .map(|d| (normalize_sha(&d.commit.oid), d.commit.summary.as_str()))
+        .map(|d| {
+            (
+                normalize_sha(d.commit.oid.long()),
+                d.commit.summary.as_str(),
+            )
+        })
         .collect();
 
     let label = |sha: &str| -> String {

@@ -36,7 +36,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Confirm => {
             let strategy = app.selected_split_strategy();
-            let commit_oid = app.commits[app.selection_index].oid.clone();
+            let commit_oid = app.commits[app.selection_index]
+                .oid
+                .as_oid()
+                .unwrap()
+                .clone();
             app.mode = AppMode::CommitList;
             AppAction::PrepareSplit {
                 strategy,
@@ -88,14 +92,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     let commit_summary = app
         .commits
         .get(app.selection_index)
-        .map(|c| {
-            let short_oid = if c.oid.len() > 10 {
-                &c.oid[..10]
-            } else {
-                &c.oid
-            };
-            format!("{} {}", short_oid, c.summary)
-        })
+        .map(|c| format!("{} {}", c.short_oid(), c.summary))
         .unwrap_or_default();
 
     // Truncate summary if too long for dialog

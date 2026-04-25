@@ -103,23 +103,21 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 return AppAction::Handled;
             }
 
-            let source_oid = source.oid.clone();
-
             // insert_before is the commit-list index where the separator sits.
             // The source should be placed *after* the commit at insert_before - 1,
-            // or after the reference point if insert_before == 0.
+            let source_oid = source.oid.as_oid().unwrap().clone();
             let insert_after_oid = if insert_before == 0 {
                 // In --all mode the reference commit (root) is itself a visible
                 // entry. Moving before position 0 means "make this the new root";
-                // signal that with an empty string sentinel to move_commit.
+                // signal that with None sentinel to move_commit.
                 if app.include_reference_oid {
-                    String::new()
+                    None
                 } else {
-                    app.reference_oid.clone()
+                    Some(app.reference_oid.clone())
                 }
             } else {
                 let idx = (insert_before - 1).min(app.commits.len().saturating_sub(1));
-                app.commits[idx].oid.clone()
+                app.commits[idx].oid.as_oid().cloned()
             };
 
             app.mode = AppMode::CommitList;

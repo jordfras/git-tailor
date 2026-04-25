@@ -14,7 +14,7 @@
 
 mod common;
 
-use git_tailor::repo::GitRepo;
+use git_tailor::{Oid, repo::GitRepo};
 
 // ---------------------------------------------------------------------------
 // Happy-path tests
@@ -29,11 +29,7 @@ fn reword_head_commit_changes_message() {
 
     let git_repo = test.git_repo();
     git_repo
-        .reword_commit(
-            &to_reword.to_string(),
-            "new message",
-            &to_reword.to_string(),
-        )
+        .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -52,7 +48,7 @@ fn reword_middle_commit_propagates_to_descendants() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&to_reword.to_string(), "new message", &head_oid)
+        .reword_commit(&Oid::from(to_reword), "new message", &head_oid)
         .unwrap();
 
     let new_head_oid = test.repo.head().unwrap().target().unwrap();
@@ -86,11 +82,7 @@ fn reword_preserves_staged_changes() {
 
     let git_repo = test.git_repo();
     git_repo
-        .reword_commit(
-            &to_reword.to_string(),
-            "new message",
-            &to_reword.to_string(),
-        )
+        .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
 
     // Staged file must still be present in the index
@@ -121,11 +113,7 @@ fn reword_preserves_unstaged_changes() {
 
     let git_repo = test.git_repo();
     git_repo
-        .reword_commit(
-            &to_reword.to_string(),
-            "new message",
-            &to_reword.to_string(),
-        )
+        .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
 
     assert_eq!(

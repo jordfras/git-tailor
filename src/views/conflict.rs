@@ -83,11 +83,7 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         _ => return,
     };
 
-    let short_oid = if state.conflicting_commit_oid.len() >= 10 {
-        &state.conflicting_commit_oid[..10]
-    } else {
-        &state.conflicting_commit_oid
-    };
+    let short_oid = state.conflicting_commit_oid.short();
 
     let label = &state.operation_label;
     let label_lower = label.to_lowercase();
@@ -97,7 +93,7 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
     let commit_summary = app
         .commits
         .iter()
-        .find(|c| c.oid == state.conflicting_commit_oid)
+        .find(|c| c.oid.as_oid() == Some(&state.conflicting_commit_oid))
         .map(|c| c.summary.as_str())
         .unwrap_or("");
 

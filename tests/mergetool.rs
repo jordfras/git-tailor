@@ -15,7 +15,7 @@
 mod common;
 
 use git_tailor::{
-    mergetool,
+    Oid, mergetool,
     repo::{GitRepo, RebaseOutcome},
 };
 
@@ -123,7 +123,7 @@ fn make_conflict(test: &common::TestRepo) -> git_tailor::repo::ConflictState {
 
     let git_repo = test.git_repo();
     match git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
     {
         RebaseOutcome::Conflict(state) => *state,
@@ -217,7 +217,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
 
     let git_repo = test.git_repo();
     let state = match git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
     {
         RebaseOutcome::Conflict(s) => s,
@@ -287,7 +287,7 @@ fn read_index_stage_returns_exact_content_for_each_stage() {
 
     let git_repo = test.git_repo();
     let state = match git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
     {
         RebaseOutcome::Conflict(s) => s,
@@ -371,7 +371,7 @@ fn read_conflicting_files_returns_multiple_paths() {
 
     let git_repo = test.git_repo();
     let state = match git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
     {
         RebaseOutcome::Conflict(s) => s,
@@ -404,7 +404,7 @@ fn read_conflicting_files_is_sorted() {
 
     let git_repo = test.git_repo();
     if let RebaseOutcome::Conflict(_) = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
     {
         let conflicts = git_repo.read_conflicting_files();
@@ -479,8 +479,8 @@ fn stage_file_clears_conflict_for_deleted_file() {
     // squash_try_combine should detect a conflict.
     let state = git_repo
         .squash_try_combine(
-            &_source.to_string(),
-            &target.to_string(),
+            &Oid::from(_source),
+            &Oid::from(target),
             "combined",
             false,
             &head,

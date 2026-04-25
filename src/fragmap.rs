@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use crate::CommitDiff;
+use crate::{CommitDiff, Oid, VirtualOid};
 
 mod spg;
 pub use spg::dump_per_file_spg_stats;
@@ -119,7 +119,7 @@ pub struct FileSpan {
 /// file, adjusting line numbers to account for insertions and deletions.
 /// The result: every span is expressed in the FINAL file version's coordinates,
 /// making overlap-based clustering correct across commits.
-pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(String, Vec<FileSpan>)> {
+pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(VirtualOid, Vec<FileSpan>)> {
     let rename_map = build_rename_map(commit_diffs);
     let file_commits = collect_file_commits(commit_diffs, &rename_map);
 
@@ -164,7 +164,7 @@ pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(String, Vec
     }
 
     // Group spans by commit OID to match the expected format
-    let mut result: Vec<(String, Vec<FileSpan>)> = commit_diffs
+    let mut result: Vec<(VirtualOid, Vec<FileSpan>)> = commit_diffs
         .iter()
         .map(|d| (d.commit.oid.clone(), Vec::new()))
         .collect();
@@ -303,7 +303,7 @@ pub struct SpanCluster {
     /// The merged spans in this cluster (typically one span per file touched).
     pub spans: Vec<FileSpan>,
     /// OIDs of commits that touch this cluster.
-    pub commit_oids: Vec<String>,
+    pub commit_oids: Vec<VirtualOid>,
 }
 
 /// The complete fragmap: commits, span clusters, and the matrix showing
@@ -314,7 +314,7 @@ pub struct SpanCluster {
 #[derive(Debug, Clone)]
 pub struct FragMap {
     /// The commits in order (oldest to newest).
-    pub commits: Vec<String>,
+    pub commits: Vec<VirtualOid>,
     /// The span clusters (code regions touched by commits).
     pub clusters: Vec<SpanCluster>,
     /// Matrix[commit_idx][cluster_idx] = TouchKind
@@ -352,7 +352,7 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
         deduplicate_clusters(&mut clusters);
     }
 
-    let commits: Vec<String> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
+    let commits: Vec<VirtualOid> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
     let matrix = build_matrix(&commits, &clusters, commit_diffs, &rename_map);
 
     FragMap {
@@ -377,11 +377,11 @@ pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap 
 /// Returns `None` if `commit_oid` is not found in `commit_diffs`.
 pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
-    commit_oid: &str,
+    commit_oid: &Oid,
 ) -> Option<(usize, HashMap<String, Vec<usize>>)> {
     let k_idx = commit_diffs
         .iter()
-        .position(|d| d.commit.oid == commit_oid)?;
+        .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?;
 
     let rename_map = build_rename_map(commit_diffs);
     let file_commits = collect_file_commits(commit_diffs, &rename_map);
@@ -433,7 +433,7 @@ pub fn assign_hunk_groups(
     for cluster in &mut pre_dedup_clusters {
         cluster.commit_oids.sort();
     }
-    let mut seen_patterns: Vec<Vec<String>> = Vec::new();
+    let mut seen_patterns: Vec<Vec<VirtualOid>> = Vec::new();
     let mut group_idx_for_prededup: Vec<usize> = Vec::with_capacity(pre_dedup_clusters.len());
     for cluster in &pre_dedup_clusters {
         if let Some(pos) = seen_patterns.iter().position(|p| p == &cluster.commit_oids) {
@@ -681,7 +681,7 @@ impl FragMap {
 /// For each (commit, cluster), determine if the commit touches the cluster
 /// and if so, classify the touch as Added/Modified/Deleted.
 fn build_matrix(
-    commits: &[String],
+    commits: &[VirtualOid],
     clusters: &[SpanCluster],
     commit_diffs: &[CommitDiff],
     rename_map: &HashMap<String, String>,

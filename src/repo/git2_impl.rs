@@ -15,9 +15,23 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 
-use crate::{CommitDiff, CommitInfo};
+use crate::{CommitDiff, CommitInfo, Oid};
 
 use super::GitRepo;
+
+/// Convert a libgit2 OID into our domain `Oid` type.
+impl From<git2::Oid> for Oid {
+    fn from(oid: git2::Oid) -> Self {
+        Oid::new(oid.to_string())
+    }
+}
+
+/// Convert our domain `Oid` back into a libgit2 OID.
+impl From<&Oid> for git2::Oid {
+    fn from(oid: &Oid) -> Self {
+        git2::Oid::from_str(oid.long()).expect("Oid always holds a valid git OID hex string")
+    }
+}
 
 mod conflict;
 mod drop_op;
@@ -84,23 +98,23 @@ impl Git2Repo {
 }
 
 impl GitRepo for Git2Repo {
-    fn head_oid(&self) -> Result<String> {
+    fn head_oid(&self) -> Result<Oid> {
         reads::head_oid(self)
     }
 
-    fn find_reference_point(&self, commit_ish: &str) -> Result<String> {
+    fn find_reference_point(&self, commit_ish: &str) -> Result<Oid> {
         reads::find_reference_point(self, commit_ish)
     }
 
-    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
+    fn list_commits(&self, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<CommitInfo>> {
         reads::list_commits(self, from_oid, to_oid)
     }
 
-    fn commit_diff(&self, oid: &str) -> Result<CommitDiff> {
+    fn commit_diff(&self, oid: &Oid) -> Result<CommitDiff> {
         reads::commit_diff(self, oid)
     }
 
-    fn commit_diff_for_fragmap(&self, oid: &str) -> Result<CommitDiff> {
+    fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff> {
         reads::commit_diff_for_fragmap(self, oid)
     }
 
@@ -112,41 +126,41 @@ impl GitRepo for Git2Repo {
         reads::unstaged_diff(self)
     }
 
-    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
+    fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         split_op::split_commit_per_file(self, commit_oid, head_oid)
     }
 
-    fn split_commit_per_hunk(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
+    fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         split_op::split_commit_per_hunk(self, commit_oid, head_oid)
     }
 
     fn split_commit_per_hunk_group(
         &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
     ) -> Result<()> {
         split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
-    fn count_split_per_file(&self, commit_oid: &str) -> Result<usize> {
+    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
         split_op::count_split_per_file(self, commit_oid)
     }
 
-    fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize> {
+    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize> {
         split_op::count_split_per_hunk(self, commit_oid)
     }
 
     fn count_split_per_hunk_group(
         &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
     ) -> Result<usize> {
         split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
-    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
+    fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
         reword_op::reword_commit(self, commit_oid, new_message, head_oid)
     }
 
@@ -154,7 +168,7 @@ impl GitRepo for Git2Repo {
         reads::get_config_string(self, key)
     }
 
-    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<super::RebaseOutcome> {
+    fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
         drop_op::drop_commit(self, commit_oid, head_oid)
     }
 
@@ -180,19 +194,19 @@ impl GitRepo for Git2Repo {
 
     fn move_commit(
         &self,
-        commit_oid: &str,
-        insert_after_oid: &str,
-        head_oid: &str,
+        commit_oid: &Oid,
+        insert_after_oid: Option<&Oid>,
+        head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         move_op::move_commit(self, commit_oid, insert_after_oid, head_oid)
     }
 
     fn squash_commits(
         &self,
-        source_oid: &str,
-        target_oid: &str,
+        source_oid: &Oid,
+        target_oid: &Oid,
         message: &str,
-        head_oid: &str,
+        head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         squash_op::squash_commits(self, source_oid, target_oid, message, head_oid)
     }
@@ -209,17 +223,17 @@ impl GitRepo for Git2Repo {
         reads::default_branch(self)
     }
 
-    fn root_commit_oid(&self) -> Result<String> {
+    fn root_commit_oid(&self) -> Result<Oid> {
         reads::root_commit_oid(self)
     }
 
     fn squash_try_combine(
         &self,
-        source_oid: &str,
-        target_oid: &str,
+        source_oid: &Oid,
+        target_oid: &Oid,
         combined_message: &str,
         is_fixup: bool,
-        head_oid: &str,
+        head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
         squash_op::squash_try_combine(
             self,
@@ -235,7 +249,7 @@ impl GitRepo for Git2Repo {
         &self,
         ctx: &super::SquashContext,
         message: &str,
-        original_branch_oid: &str,
+        original_branch_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         squash_op::squash_finalize(self, ctx, message, original_branch_oid)
     }

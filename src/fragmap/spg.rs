@@ -30,7 +30,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::CommitDiff;
+use crate::{CommitDiff, VirtualOid};
 
 use super::{FileSpan, HunkInfo, SpanCluster};
 
@@ -547,7 +547,7 @@ pub(super) fn deduplicate_clusters(clusters: &mut Vec<SpanCluster>) {
     for c in clusters.iter_mut() {
         c.commit_oids.sort();
     }
-    let mut seen: HashSet<Vec<String>> = HashSet::new();
+    let mut seen: HashSet<Vec<VirtualOid>> = HashSet::new();
     clusters.retain(|c| seen.insert(c.commit_oids.clone()));
 }
 
@@ -602,7 +602,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
     let mut hunk_to_clusters: Vec<Vec<usize>> = vec![vec![]; k_hunks.len()];
 
     for path_nodes in &paths {
-        let mut commit_oids: Vec<String> = Vec::new();
+        let mut commit_oids: Vec<VirtualOid> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
         let mut k_hunks_on_path: Vec<usize> = Vec::new();
 

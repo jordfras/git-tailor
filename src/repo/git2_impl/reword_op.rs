@@ -14,19 +14,19 @@
 
 //! Reword a commit's message by rewriting it and replaying its descendants.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use super::Git2Repo;
+use crate::Oid;
 
 pub(super) fn reword_commit(
     repo: &Git2Repo,
-    commit_oid: &str,
+    commit_oid: &Oid,
     new_message: &str,
-    head_oid: &str,
+    head_oid: &Oid,
 ) -> Result<()> {
-    let commit_git_oid =
-        git2::Oid::from_str(commit_oid).context("Invalid commit OID for reword")?;
-    let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for reword")?;
+    let commit_git_oid = git2::Oid::from(commit_oid);
+    let head_git_oid = git2::Oid::from(head_oid);
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
     let parents: Vec<git2::Commit> = (0..commit.parent_count())

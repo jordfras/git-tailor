@@ -89,8 +89,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             let source = &app.commits[source_index];
             let result = AppAction::PrepareSquash {
-                source_oid: source.oid.clone(),
-                target_oid: target.oid.clone(),
+                source_oid: source.oid.as_oid().unwrap().clone(),
+                target_oid: target.oid.as_oid().unwrap().clone(),
                 source_message: source.message.clone(),
                 target_message: target.message.clone(),
                 is_fixup,

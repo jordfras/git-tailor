@@ -27,6 +27,7 @@ use regex::RegexBuilder;
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
+use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
 use crate::repo::GitRepo;
 
@@ -396,7 +397,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
             Line::from(""),
             Line::from(vec![
                 Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
-                Span::raw(oid.clone()),
+                Span::raw(oid.long().to_string()),
             ]),
             Line::from(""),
         ];
@@ -451,10 +452,10 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         }
 
         // Add file list with status indicators
-        let diff_opt = match oid.as_str() {
-            "staged" => repo.staged_diff(),
-            "unstaged" => repo.unstaged_diff(),
-            oid => repo.commit_diff(oid).ok(),
+        let diff_opt = match oid {
+            VirtualOid::Staged => repo.staged_diff(),
+            VirtualOid::Unstaged => repo.unstaged_diff(),
+            VirtualOid::Real(ref real_oid) => repo.commit_diff(real_oid).ok(),
         };
         if let Some(diff) = diff_opt {
             content.push(Line::from(""));

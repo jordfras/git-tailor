@@ -21,12 +21,11 @@ use anyhow::{Context, Result};
 use super::super::{ConflictState, RebaseOutcome};
 use super::CherryPickResult;
 use super::Git2Repo;
+use crate::Oid;
 
 pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
-    let tip_oid =
-        git2::Oid::from_str(&state.new_tip_oid).context("Invalid tip OID in conflict state")?;
-    let conflicting_oid = git2::Oid::from_str(&state.conflicting_commit_oid)
-        .context("Invalid conflicting OID in conflict state")?;
+    let tip_oid = git2::Oid::from(&state.new_tip_oid);
+    let conflicting_oid = git2::Oid::from(&state.conflicting_commit_oid);
     let conflicting_commit = repo.inner.find_commit(conflicting_oid)?;
     let onto_commit = repo.inner.find_commit(tip_oid)?;
 
@@ -65,12 +64,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     )?;
 
     // Continue cherry-picking remaining descendants.
-    let remaining: Vec<git2::Oid> = state
-        .remaining_oids
-        .iter()
-        .map(|s| git2::Oid::from_str(s))
-        .collect::<std::result::Result<_, _>>()
-        .context("Invalid OID in remaining list")?;
+    let remaining: Vec<git2::Oid> = state.remaining_oids.iter().map(git2::Oid::from).collect();
 
     let result = repo.cherry_pick_chain(new_tip, &remaining)?;
     match result {
@@ -85,16 +79,16 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
             conflicting_idx,
         } => {
             let conflicting_oid = remaining[conflicting_idx];
-            let new_remaining: Vec<String> = remaining[conflicting_idx + 1..]
+            let new_remaining: Vec<Oid> = remaining[conflicting_idx + 1..]
                 .iter()
-                .map(|oid| oid.to_string())
+                .map(|&oid| Oid::from(oid))
                 .collect();
 
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: state.operation_label.clone(),
                 original_branch_oid: state.original_branch_oid.clone(),
-                new_tip_oid: tip.to_string(),
-                conflicting_commit_oid: conflicting_oid.to_string(),
+                new_tip_oid: Oid::from(tip),
+                conflicting_commit_oid: Oid::from(conflicting_oid),
                 remaining_oids: new_remaining,
                 conflicting_files: collect_conflict_files(&repo.inner),
                 still_unresolved: false,
@@ -106,8 +100,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
 }
 
 pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
-    let original_oid = git2::Oid::from_str(&state.original_branch_oid)
-        .context("Invalid original branch OID in conflict state")?;
+    let original_oid = git2::Oid::from(&state.original_branch_oid);
     let label = state.operation_label.to_lowercase();
     repo.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
 

@@ -20,7 +20,7 @@
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::fragmap;
+use crate::{Oid, fragmap};
 
 use super::Git2Repo;
 use super::hunks;
@@ -28,8 +28,8 @@ use super::reads;
 
 pub(super) fn split_commit_per_file(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
@@ -102,8 +102,8 @@ pub(super) fn split_commit_per_file(
 
 pub(super) fn split_commit_per_hunk(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
@@ -166,9 +166,9 @@ pub(super) fn split_commit_per_hunk(
 
 pub(super) fn split_commit_per_hunk_group(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
-    reference_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
+    reference_oid: &Oid,
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
@@ -270,7 +270,7 @@ pub(super) fn split_commit_per_hunk_group(
     )
 }
 
-pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &str) -> Result<usize> {
+pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
     let diff =
         repo.inner
@@ -278,7 +278,7 @@ pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &str) -> Result<
     Ok(diff.deltas().len())
 }
 
-pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &str) -> Result<usize> {
+pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
     let mut diff_opts = zero_context_diff_opts();
     let diff = repo.inner.diff_tree_to_tree(
@@ -291,9 +291,9 @@ pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &str) -> Result<
 
 pub(super) fn count_split_per_hunk_group(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
-    reference_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
+    reference_oid: &Oid,
 ) -> Result<usize> {
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, false)?;
@@ -313,8 +313,8 @@ struct SplitTarget<'r> {
 
 /// Parse `commit_oid`, look up the commit, validate it's not a merge, and
 /// load the parent and commit trees.
-fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &str) -> Result<SplitTarget<'r>> {
-    let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
+fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTarget<'r>> {
+    let oid = git2::Oid::from(commit_oid);
     let commit = repo.inner.find_commit(oid)?;
     if commit.parent_count() > 1 {
         anyhow::bail!("Cannot split a merge commit");
@@ -395,24 +395,29 @@ fn count_hunks(diff: &git2::Diff<'_>) -> Result<usize> {
 /// treat the root commit as a normal commit in --all mode).
 fn compute_hunk_group_assignment(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
-    reference_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
+    reference_oid: &Oid,
     keep_self_when_reference: bool,
 ) -> Result<HashMap<String, Vec<usize>>> {
     let branch_commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let branch_diffs: Vec<crate::CommitDiff> = branch_commits
         .iter()
         .filter(|c| {
-            let is_reference = c.oid == reference_oid;
+            let is_reference = c.oid.as_oid() == Some(reference_oid);
+            let is_split_commit = c.oid.as_oid() == Some(commit_oid);
             let keep = if keep_self_when_reference {
-                !is_reference || c.oid == commit_oid
+                !is_reference || is_split_commit
             } else {
                 !is_reference
             };
-            keep && !c.oid.starts_with("synthetic:")
+            keep && !c.is_synthetic()
         })
-        .filter_map(|c| reads::commit_diff_for_fragmap(repo, &c.oid).ok())
+        .filter_map(|c| {
+            c.oid
+                .as_oid()
+                .and_then(|oid| reads::commit_diff_for_fragmap(repo, oid).ok())
+        })
         .collect();
 
     let (_, assignment) = fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
@@ -458,11 +463,11 @@ fn commit_split_piece(
 fn finalize_split(
     repo: &Git2Repo,
     original_commit_oid: git2::Oid,
-    head_oid: &str,
+    head_oid: &Oid,
     final_tip: git2::Oid,
     log_msg: &str,
 ) -> Result<()> {
-    let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
+    let head_git_oid = git2::Oid::from(head_oid);
     let rebased_tip = repo.rebase_descendants(original_commit_oid, head_git_oid, final_tip)?;
     repo.advance_branch_ref(rebased_tip, log_msg)?;
     Ok(())

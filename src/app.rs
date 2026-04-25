@@ -18,7 +18,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    CommitInfo,
+    CommitInfo, Oid,
     fragmap::{FragMap, SquashableScope},
     repo::ConflictState,
     views::theme::Theme,
@@ -92,24 +92,21 @@ pub enum AppAction {
     /// Begin the split flow: get head_oid, count results, confirm if large.
     PrepareSplit {
         strategy: SplitStrategy,
-        commit_oid: String,
+        commit_oid: Oid,
     },
     /// Execute a split that has already been confirmed.
     ExecuteSplit {
         strategy: SplitStrategy,
-        commit_oid: String,
-        head_oid: String,
+        commit_oid: Oid,
+        head_oid: Oid,
     },
     /// Begin the drop flow: get head_oid from repo, then show confirmation.
     PrepareDropConfirm {
-        commit_oid: String,
+        commit_oid: Oid,
         commit_summary: String,
     },
     /// Execute a confirmed drop.
-    ExecuteDrop {
-        commit_oid: String,
-        head_oid: String,
-    },
+    ExecuteDrop { commit_oid: Oid, head_oid: Oid },
     /// Continue a rebase after the user resolved merge conflicts.
     RebaseContinue(ConflictState),
     /// Abort a rebase that hit conflicts.
@@ -126,22 +123,22 @@ pub enum AppAction {
     },
     /// Start the reword flow: get head_oid, launch editor, rewrite commit.
     PrepareReword {
-        commit_oid: String,
+        commit_oid: Oid,
         current_message: String,
     },
     /// Start the squash/fixup flow: user picked source and target.
     /// When `is_fixup` is true the target's message is kept as-is (no editor).
     PrepareSquash {
-        source_oid: String,
-        target_oid: String,
+        source_oid: Oid,
+        target_oid: Oid,
         source_message: String,
         target_message: String,
         is_fixup: bool,
     },
     /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
     ExecuteMove {
-        source_oid: String,
-        insert_after_oid: String,
+        source_oid: Oid,
+        insert_after_oid: Option<Oid>,
     },
 }
 
@@ -295,17 +292,17 @@ impl AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSplit {
     pub strategy: SplitStrategy,
-    pub commit_oid: String,
-    pub head_oid: String,
+    pub commit_oid: Oid,
+    pub head_oid: Oid,
     pub count: usize,
 }
 
 /// Data retained while the user is shown the drop confirmation dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingDrop {
-    pub commit_oid: String,
+    pub commit_oid: Oid,
     pub commit_summary: String,
-    pub head_oid: String,
+    pub head_oid: Oid,
 }
 
 /// Application state for the TUI.
@@ -325,7 +322,7 @@ pub struct AppState {
     pub theme: Theme,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.
-    pub reference_oid: String,
+    pub reference_oid: Oid,
     /// Optional fragmap visualization data.
     /// None if fragmap computation failed or was not performed.
     pub fragmap: Option<FragMap>,
@@ -382,7 +379,7 @@ impl Default for AppState {
             full_fragmap: false,
             squashable_scope: SquashableScope::Group,
             theme: Theme::Plain,
-            reference_oid: String::new(),
+            reference_oid: Oid::from(""),
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,
@@ -513,8 +510,8 @@ impl AppState {
     pub fn enter_split_confirm(
         &mut self,
         strategy: SplitStrategy,
-        commit_oid: String,
-        head_oid: String,
+        commit_oid: Oid,
+        head_oid: Oid,
         count: usize,
     ) {
         self.mode = AppMode::SplitConfirm(PendingSplit {
@@ -531,12 +528,7 @@ impl AppState {
     }
 
     /// Enter the drop confirmation dialog.
-    pub fn enter_drop_confirm(
-        &mut self,
-        commit_oid: String,
-        commit_summary: String,
-        head_oid: String,
-    ) {
+    pub fn enter_drop_confirm(&mut self, commit_oid: Oid, commit_summary: String, head_oid: Oid) {
         self.mode = AppMode::DropConfirm(PendingDrop {
             commit_oid,
             commit_summary,
@@ -783,10 +775,11 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VirtualOid;
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
-            oid: oid.to_string(),
+            oid: VirtualOid::Real(Oid::from(oid)),
             summary: summary.to_string(),
             author: Some("Test Author".to_string()),
             date: Some("2024-01-01".to_string()),

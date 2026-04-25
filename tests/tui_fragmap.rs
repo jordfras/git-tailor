@@ -17,7 +17,7 @@
 mod common;
 
 use git_tailor::{
-    CommitInfo,
+    CommitInfo, Oid, VirtualOid,
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
     views,
@@ -31,7 +31,10 @@ fn create_fragmap(
     matrix: Vec<Vec<TouchKind>>,
 ) -> FragMap {
     FragMap {
-        commits: commit_oids.into_iter().map(String::from).collect(),
+        commits: commit_oids
+            .into_iter()
+            .map(|s| VirtualOid::Real(Oid::from(s)))
+            .collect(),
         clusters,
         matrix,
     }
@@ -44,7 +47,11 @@ fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluste
             start_line: start,
             end_line: end,
         }],
-        commit_oids: oids.iter().map(|s| s.to_string()).collect(),
+        commit_oids: oids
+            .iter()
+            .copied()
+            .map(|s| VirtualOid::Real(Oid::from(s)))
+            .collect(),
     }
 }
 

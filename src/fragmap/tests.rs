@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use super::*;
-use crate::{CommitDiff, CommitInfo, FileDiff, Hunk};
+use crate::{CommitDiff, CommitInfo, FileDiff, Hunk, Oid, VirtualOid};
 
 fn make_commit_info() -> CommitInfo {
     CommitInfo {
-        oid: "abc123".to_string(),
+        oid: VirtualOid::Real(Oid::from("abc123")),
         summary: "Test commit".to_string(),
         author: Some("Test Author".to_string()),
         date: Some("123456789".to_string()),
@@ -464,7 +464,7 @@ fn test_propagation_distant_changes_not_related() {
 
 fn make_commit_info_with_oid(oid: &str) -> CommitInfo {
     CommitInfo {
-        oid: oid.to_string(),
+        oid: VirtualOid::Real(Oid::from(oid)),
         summary: format!("Commit {}", oid),
         author: Some("Test Author".to_string()),
         date: Some("123456789".to_string()),
@@ -535,13 +535,16 @@ fn test_build_fragmap_single_commit() {
     let fragmap = build_fragmap(&commits, true);
 
     assert_eq!(fragmap.commits.len(), 1);
-    assert_eq!(fragmap.commits[0], "c1");
+    assert_eq!(fragmap.commits[0], VirtualOid::Real(Oid::from("c1")));
 
     // Should have one cluster
     assert_eq!(fragmap.clusters.len(), 1);
     assert_eq!(fragmap.clusters[0].spans.len(), 1);
     assert_eq!(fragmap.clusters[0].spans[0].path, "file.txt");
-    assert_eq!(fragmap.clusters[0].commit_oids, vec!["c1"]);
+    assert_eq!(
+        fragmap.clusters[0].commit_oids,
+        vec![VirtualOid::Real(Oid::from("c1"))]
+    );
 
     // Matrix should be 1x1 with Added
     assert_eq!(fragmap.matrix.len(), 1);
@@ -586,7 +589,8 @@ fn test_build_fragmap_overlapping_spans_merge() {
 
     // There should be a cluster containing both commits
     let shared = fragmap.clusters.iter().any(|c| {
-        c.commit_oids.contains(&"c1".to_string()) && c.commit_oids.contains(&"c2".to_string())
+        c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+            && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
     });
     assert!(shared);
 
@@ -595,7 +599,8 @@ fn test_build_fragmap_overlapping_spans_merge() {
         .clusters
         .iter()
         .position(|c| {
-            c.commit_oids.contains(&"c1".to_string()) && c.commit_oids.contains(&"c2".to_string())
+            c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
         })
         .unwrap();
     assert_ne!(fragmap.matrix[0][shared_idx], TouchKind::None);
@@ -1016,7 +1021,8 @@ fn test_cluster_relation_squashable_no_collisions() {
         .clusters
         .iter()
         .position(|c| {
-            c.commit_oids.contains(&"c1".to_string()) && c.commit_oids.contains(&"c2".to_string())
+            c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
         })
         .expect("should have a shared cluster");
 
@@ -1070,9 +1076,9 @@ fn test_cluster_relation_conflicting_with_collision() {
         .clusters
         .iter()
         .position(|c| {
-            c.commit_oids.contains(&"c1".to_string())
-                && c.commit_oids.contains(&"c2".to_string())
-                && c.commit_oids.contains(&"c3".to_string())
+            c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c3")))
         })
         .expect("should have a cluster with all three commits");
 
@@ -1158,8 +1164,8 @@ fn test_cluster_relation_multiple_clusters() {
         .iter()
         .position(|c| {
             c.spans[0].path == "a.txt"
-                && c.commit_oids.contains(&"c1".to_string())
-                && c.commit_oids.contains(&"c2".to_string())
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
         })
         .expect("should have a shared a.txt cluster");
     let b_cluster_idx = fragmap
@@ -1167,8 +1173,8 @@ fn test_cluster_relation_multiple_clusters() {
         .iter()
         .position(|c| {
             c.spans[0].path == "b.txt"
-                && c.commit_oids.contains(&"c1".to_string())
-                && c.commit_oids.contains(&"c3".to_string())
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c3")))
         })
         .expect("should have a shared b.txt cluster");
 
@@ -1242,8 +1248,8 @@ fn test_cluster_relation_squashable_with_gap() {
         .iter()
         .position(|c| {
             c.spans[0].path == "file.txt"
-                && c.commit_oids.contains(&"c1".to_string())
-                && c.commit_oids.contains(&"c4".to_string())
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
+                && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c4")))
         })
         .expect("should have a shared file.txt cluster");
 
@@ -1254,7 +1260,11 @@ fn test_cluster_relation_squashable_with_gap() {
 
 /// Build a FragMap directly from a matrix (bypasses span extraction).
 fn make_fragmap(commit_ids: &[&str], n_clusters: usize, touches: &[(usize, usize)]) -> FragMap {
-    let commits: Vec<String> = commit_ids.iter().map(|s| s.to_string()).collect();
+    let commits: Vec<VirtualOid> = commit_ids
+        .iter()
+        .copied()
+        .map(|s| VirtualOid::Real(Oid::from(s)))
+        .collect();
     let clusters = (0..n_clusters)
         .map(|_| SpanCluster {
             spans: vec![FileSpan {
@@ -1527,7 +1537,8 @@ fn build_fragmap_rename_groups_old_and_new_in_same_cluster() {
     // Both commits share a cluster — the overlapping region groups them.
     assert!(
         fm.clusters.iter().any(|cl| {
-            cl.commit_oids.contains(&"c0".to_string()) && cl.commit_oids.contains(&"c1".to_string())
+            cl.commit_oids.contains(&VirtualOid::Real(Oid::from("c0")))
+                && cl.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
         }),
         "expected c0 and c1 to share a cluster via rename tracking"
     );

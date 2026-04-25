@@ -147,12 +147,11 @@ pub fn render(
     for commit_idx in indices {
         let diff = &commit_diffs[commit_idx];
         let commit = &diff.commit;
-        let sha8 = &commit.oid[..8.min(commit.oid.len())];
         let title: String = commit.summary.chars().take(title_width).collect();
         let title_padded = format!("{title:<title_width$}");
 
         out.push_str(s.sha_start);
-        out.push_str(sha8);
+        out.push_str(commit.oid.short());
         out.push_str(s.reset);
         out.push(' ');
 

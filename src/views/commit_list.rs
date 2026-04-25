@@ -97,7 +97,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             } else {
                 AppAction::PrepareDropConfirm {
-                    commit_oid: commit.oid.clone(),
+                    commit_oid: commit.oid.as_oid().unwrap().clone(),
                     commit_summary: commit.summary.clone(),
                 }
             }
@@ -109,7 +109,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             } else {
                 AppAction::PrepareReword {
-                    commit_oid: commit.oid.clone(),
+                    commit_oid: commit.oid.as_oid().unwrap().clone(),
                     current_message: commit.message.clone(),
                 }
             }
@@ -137,9 +137,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
     }
 }
-
-/// Number of characters to display for short SHA.
-const SHORT_SHA_LENGTH: usize = 8;
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
@@ -499,7 +496,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             rows.push(build_move_separator_row(app, layout, source_index));
         }
 
-        let short_sha: String = commit.oid.chars().take(SHORT_SHA_LENGTH).collect();
+        let short_sha = commit.short_oid().to_string();
 
         let is_synthetic = commit.is_synthetic();
         let is_selected = visual_index == layout.visual_selection;
@@ -614,15 +611,7 @@ fn build_move_separator_row<'a>(
     source_index: usize,
 ) -> Row<'a> {
     let source = app.commits.get(source_index);
-    let short_oid = source
-        .map(|c| {
-            if c.oid.len() >= SHORT_SHA_LENGTH {
-                &c.oid[..SHORT_SHA_LENGTH]
-            } else {
-                &c.oid
-            }
-        })
-        .unwrap_or("?");
+    let short_oid = source.map(|c| c.short_oid()).unwrap_or("?");
 
     let style = Style::new().fg(Color::White).bg(COLOR_ACTION_INSERT_BG);
     let label = format!("▶ move {} here", short_oid);
@@ -675,7 +664,7 @@ pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     } else {
         let commit = &app.commits[app.selection_index];
         let position = app.commits.len() - app.selection_index;
-        format!(" {} {}/{}", commit.oid, position, app.commits.len())
+        format!(" {} {}/{}", commit.oid.long(), position, app.commits.len())
     };
 
     let footer = Paragraph::new(Span::styled(text, FOOTER_STYLE)).style(FOOTER_STYLE);
@@ -697,11 +686,7 @@ fn render_squash_footer(
         None => return,
     };
 
-    let short_oid = if source.oid.len() >= SHORT_SHA_LENGTH {
-        &source.oid[..SHORT_SHA_LENGTH]
-    } else {
-        &source.oid
-    };
+    let short_oid = source.short_oid();
 
     let label = if is_fixup { "Fixup" } else { "Squash" };
 
@@ -744,11 +729,7 @@ fn render_move_footer(
         None => return,
     };
 
-    let short_oid = if source.oid.len() >= SHORT_SHA_LENGTH {
-        &source.oid[..SHORT_SHA_LENGTH]
-    } else {
-        &source.oid
-    };
+    let short_oid = source.short_oid();
 
     let max_summary_len = (area.width as usize)
         .saturating_sub(

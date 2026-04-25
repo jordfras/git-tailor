@@ -18,19 +18,19 @@
 use anyhow::{Context, Result};
 
 use super::Git2Repo;
-use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk};
+use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, Oid, VirtualOid};
 
-pub(super) fn head_oid(repo: &Git2Repo) -> Result<String> {
-    Ok(repo
-        .inner
-        .head()
-        .context("Failed to get HEAD")?
-        .target()
-        .context("HEAD is not a direct reference")?
-        .to_string())
+pub(super) fn head_oid(repo: &Git2Repo) -> Result<Oid> {
+    Ok(Oid::from(
+        repo.inner
+            .head()
+            .context("Failed to get HEAD")?
+            .target()
+            .context("HEAD is not a direct reference")?,
+    ))
 }
 
-pub(super) fn find_reference_point(repo: &Git2Repo, commit_ish: &str) -> Result<String> {
+pub(super) fn find_reference_point(repo: &Git2Repo, commit_ish: &str) -> Result<Oid> {
     let target_object = repo
         .inner
         .revparse_single(commit_ish)
@@ -45,23 +45,23 @@ pub(super) fn find_reference_point(repo: &Git2Repo, commit_ish: &str) -> Result<
         .merge_base(head_oid, target_oid)
         .context("Failed to find merge base")?;
 
-    Ok(reference_oid.to_string())
+    Ok(Oid::from(reference_oid))
 }
 
 pub(super) fn list_commits(
     repo: &Git2Repo,
-    from_oid: &str,
-    to_oid: &str,
+    from_oid: &Oid,
+    to_oid: &Oid,
 ) -> Result<Vec<CommitInfo>> {
     let from_object = repo
         .inner
-        .revparse_single(from_oid)
+        .revparse_single(from_oid.long())
         .context(format!("Failed to resolve '{}'", from_oid))?;
     let from_commit_oid = from_object.id();
 
     let to_object = repo
         .inner
-        .revparse_single(to_oid)
+        .revparse_single(to_oid.long())
         .context(format!("Failed to resolve '{}'", to_oid))?;
     let to_commit_oid = to_object.id();
 
@@ -84,10 +84,10 @@ pub(super) fn list_commits(
     Ok(commits)
 }
 
-pub(super) fn commit_diff(repo: &Git2Repo, oid: &str) -> Result<CommitDiff> {
+pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid) -> Result<CommitDiff> {
     let object = repo
         .inner
-        .revparse_single(oid)
+        .revparse_single(oid.long())
         .context(format!("Failed to resolve '{}'", oid))?;
     let commit = object
         .peel_to_commit()
@@ -108,10 +108,10 @@ pub(super) fn commit_diff(repo: &Git2Repo, oid: &str) -> Result<CommitDiff> {
     extract_commit_diff(&diff, &commit)
 }
 
-pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &str) -> Result<CommitDiff> {
+pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<CommitDiff> {
     let object = repo
         .inner
-        .revparse_single(oid)
+        .revparse_single(oid.long())
         .context(format!("Failed to resolve '{}'", oid))?;
     let commit = object
         .peel_to_commit()
@@ -156,7 +156,7 @@ pub(super) fn staged_diff(repo: &Git2Repo) -> Option<CommitDiff> {
     }
 
     Some(CommitDiff {
-        commit: synthetic_commit_info("staged", "(staged changes)"),
+        commit: synthetic_commit_info(VirtualOid::Staged, "(staged changes)"),
         files,
     })
 }
@@ -177,7 +177,7 @@ pub(super) fn unstaged_diff(repo: &Git2Repo) -> Option<CommitDiff> {
     }
 
     Some(CommitDiff {
-        commit: synthetic_commit_info("unstaged", "(unstaged changes)"),
+        commit: synthetic_commit_info(VirtualOid::Unstaged, "(unstaged changes)"),
         files,
     })
 }
@@ -213,14 +213,14 @@ pub(super) fn default_branch(repo: &Git2Repo) -> Option<String> {
     target.strip_prefix("refs/remotes/").map(str::to_string)
 }
 
-pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<String> {
+pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<Oid> {
     let mut revwalk = repo.inner.revwalk()?;
     revwalk.push_head()?;
     for oid_result in revwalk {
         let oid = oid_result?;
         let commit = repo.inner.find_commit(oid)?;
         if commit.parent_count() == 0 {
-            return Ok(oid.to_string());
+            return Ok(Oid::from(oid));
         }
     }
     anyhow::bail!("No root commit found reachable from HEAD")
@@ -231,11 +231,11 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
     let commit_time = commit.time();
 
     CommitInfo {
-        oid: commit.id().to_string(),
+        oid: VirtualOid::Real(Oid::from(commit.id())),
         summary: commit.summary().unwrap_or("").to_string(),
         author: commit.author().name().map(|s| s.to_string()),
         date: Some(commit.time().seconds().to_string()),
-        parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
+        parent_oids: commit.parent_ids().map(Oid::from).collect(),
         message: commit.message().unwrap_or("").to_string(),
         author_email: commit.author().email().map(|s| s.to_string()),
         author_date: Some(git_time_to_offset_datetime(author_time)),
@@ -245,9 +245,9 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
     }
 }
 
-pub(super) fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
+pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInfo {
     CommitInfo {
-        oid: oid.to_string(),
+        oid,
         summary: summary.to_string(),
         author: None,
         date: None,

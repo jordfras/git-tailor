@@ -14,7 +14,7 @@
 
 mod common;
 
-use git_tailor::repo::GitRepo;
+use git_tailor::{Oid, VirtualOid, repo::GitRepo};
 
 #[test]
 fn test_list_commits_returns_oldest_to_newest() {
@@ -24,16 +24,16 @@ fn test_list_commits_returns_oldest_to_newest() {
     let c2 = test.commit_file("file.txt", "second", "Second commit");
     let c3 = test.commit_file("file.txt", "third", "Third commit");
 
-    let c1_str = c1.to_string();
-    let c2_str = c2.to_string();
-    let c3_str = c3.to_string();
+    let c1_str = Oid::from(c1);
+    let c2_str = Oid::from(c2);
+    let c3_str = Oid::from(c3);
 
     let commits = test.git_repo().list_commits(&c3_str, &c1_str).unwrap();
 
     assert_eq!(commits.len(), 3);
-    assert_eq!(commits[0].oid, c1_str);
-    assert_eq!(commits[1].oid, c2_str);
-    assert_eq!(commits[2].oid, c3_str);
+    assert_eq!(commits[0].oid, VirtualOid::Real(c1_str.clone()));
+    assert_eq!(commits[1].oid, VirtualOid::Real(c2_str.clone()));
+    assert_eq!(commits[2].oid, VirtualOid::Real(c3_str.clone()));
 
     assert_eq!(commits[0].summary, "First commit");
     assert_eq!(commits[1].summary, "Second commit");
@@ -45,12 +45,12 @@ fn test_list_commits_with_same_commit() {
     let test = common::TestRepo::new();
 
     let c1 = test.commit_file("file.txt", "content", "Single commit");
-    let c1_str = c1.to_string();
+    let c1_str = Oid::from(c1);
 
     let commits = test.git_repo().list_commits(&c1_str, &c1_str).unwrap();
 
     assert_eq!(commits.len(), 1);
-    assert_eq!(commits[0].oid, c1_str);
+    assert_eq!(commits[0].oid, VirtualOid::Real(c1_str.clone()));
     assert_eq!(commits[0].summary, "Single commit");
 }
 
@@ -61,8 +61,8 @@ fn test_list_commits_metadata() {
     let c1 = test.commit_file("file.txt", "initial", "Initial commit");
     let c2 = test.commit_file("file.txt", "updated", "Update commit");
 
-    let c1_str = c1.to_string();
-    let c2_str = c2.to_string();
+    let c1_str = Oid::from(c1);
+    let c2_str = Oid::from(c2);
 
     let commits = test.git_repo().list_commits(&c2_str, &c1_str).unwrap();
 
@@ -86,12 +86,15 @@ fn test_list_commits_with_branch_name() {
     let c2 = test.commit_file("file.txt", "second", "Second");
     let _c3 = test.commit_file("file.txt", "third", "Third");
 
-    let c1_str = c1.to_string();
-    let c2_str = c2.to_string();
+    let c1_str = Oid::from(c1);
+    let c2_str = Oid::from(c2);
 
-    let commits = test.git_repo().list_commits("HEAD", &c1_str).unwrap();
+    let commits = test
+        .git_repo()
+        .list_commits(&Oid::from("HEAD"), &c1_str)
+        .unwrap();
 
     assert_eq!(commits.len(), 3);
-    assert_eq!(commits[0].oid, c1_str);
-    assert_eq!(commits[1].oid, c2_str);
+    assert_eq!(commits[0].oid, VirtualOid::Real(c1_str.clone()));
+    assert_eq!(commits[1].oid, VirtualOid::Real(c2_str.clone()));
 }

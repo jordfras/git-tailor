@@ -16,19 +16,20 @@
 //! fixup. Supports the conflict-resolution flow via `try_combine` /
 //! `finalize` so the user can hand-edit the merged tree before finishing.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use super::super::{ConflictState, RebaseOutcome, SquashContext};
 use super::CherryPickResult;
 use super::Git2Repo;
 use super::conflict;
+use crate::Oid;
 
 pub(super) fn squash_commits(
     repo: &Git2Repo,
-    source_oid: &str,
-    target_oid: &str,
+    source_oid: &Oid,
+    target_oid: &Oid,
     message: &str,
-    head_oid: &str,
+    head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     repo.check_no_dirty_state()?;
 
@@ -71,18 +72,18 @@ pub(super) fn squash_commits(
         repo,
         squash_oid,
         &descendants,
-        head_oid.to_string(),
+        head_oid.clone(),
         "git-tailor: squash commits",
     )
 }
 
 pub(super) fn squash_try_combine(
     repo: &Git2Repo,
-    source_oid: &str,
-    target_oid: &str,
+    source_oid: &Oid,
+    target_oid: &Oid,
     combined_message: &str,
     is_fixup: bool,
-    head_oid: &str,
+    head_oid: &Oid,
 ) -> Result<Option<ConflictState>> {
     repo.check_no_dirty_state()?;
 
@@ -108,7 +109,7 @@ pub(super) fn squash_finalize(
     repo: &Git2Repo,
     ctx: &SquashContext,
     message: &str,
-    original_branch_oid: &str,
+    original_branch_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     let mut index = repo.inner.index()?;
     index.read(true)?;
@@ -116,10 +117,8 @@ pub(super) fn squash_finalize(
         anyhow::bail!("Cannot finalize squash: index still has unresolved conflicts");
     }
 
-    let base_git_oid =
-        git2::Oid::from_str(&ctx.base_oid).context("Invalid base OID in squash context")?;
-    let target_git_oid =
-        git2::Oid::from_str(&ctx.target_oid).context("Invalid target OID in squash context")?;
+    let base_git_oid = git2::Oid::from(&ctx.base_oid);
+    let target_git_oid = git2::Oid::from(&ctx.target_oid);
     let base_commit = repo.inner.find_commit(base_git_oid)?;
     let target_commit = repo.inner.find_commit(target_git_oid)?;
 
@@ -135,29 +134,22 @@ pub(super) fn squash_finalize(
         &[&base_commit],
     )?;
 
-    let descendants: Vec<git2::Oid> = ctx
-        .descendant_oids
-        .iter()
-        .map(|s| git2::Oid::from_str(s))
-        .collect::<std::result::Result<_, _>>()
-        .context("Invalid OID in descendant list")?;
+    let descendants: Vec<git2::Oid> = ctx.descendant_oids.iter().map(git2::Oid::from).collect();
 
     replay_and_advance(
         repo,
         squash_oid,
         &descendants,
-        original_branch_oid.to_string(),
+        original_branch_oid.clone(),
         "git-tailor: squash commits (finalize)",
     )
 }
 
-/// Resolved inputs to a squash operation: parsed commits and OIDs alongside
-/// the original `&str` arguments (kept verbatim so the resulting commit IDs
-/// in `ConflictState` match what the caller passed in).
+/// Resolved inputs to a squash operation: parsed commits and OIDs.
 struct SquashInputs<'a> {
-    source_oid: &'a str,
-    target_oid: &'a str,
-    head_oid: &'a str,
+    source_oid: &'a Oid,
+    target_oid: &'a Oid,
+    head_oid: &'a Oid,
     source_commit: git2::Commit<'a>,
     target_commit: git2::Commit<'a>,
     base_oid: git2::Oid,
@@ -166,15 +158,13 @@ struct SquashInputs<'a> {
 
 fn parse_squash_inputs<'a>(
     repo: &'a Git2Repo,
-    source_oid: &'a str,
-    target_oid: &'a str,
-    head_oid: &'a str,
+    source_oid: &'a Oid,
+    target_oid: &'a Oid,
+    head_oid: &'a Oid,
 ) -> Result<SquashInputs<'a>> {
-    let source_git_oid =
-        git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
-    let target_git_oid =
-        git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
-    let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
+    let source_git_oid = git2::Oid::from(source_oid);
+    let target_git_oid = git2::Oid::from(target_oid);
+    let head_git_oid = git2::Oid::from(head_oid);
 
     let source_commit = repo.inner.find_commit(source_git_oid)?;
     let target_commit = repo.inner.find_commit(target_git_oid)?;
@@ -206,10 +196,10 @@ fn build_conflict_state(
 ) -> Result<ConflictState> {
     let all_descendants =
         repo.collect_descendants(inputs.target_commit.id(), inputs.head_git_oid)?;
-    let descendant_oids: Vec<String> = all_descendants
+    let descendant_oids: Vec<Oid> = all_descendants
         .into_iter()
         .filter(|&oid| oid != inputs.source_commit.id())
-        .map(|oid| oid.to_string())
+        .map(Oid::from)
         .collect();
 
     conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit)?;
@@ -218,17 +208,17 @@ fn build_conflict_state(
 
     Ok(ConflictState {
         operation_label,
-        original_branch_oid: inputs.head_oid.to_string(),
-        new_tip_oid: inputs.target_commit.id().to_string(),
-        conflicting_commit_oid: inputs.source_commit.id().to_string(),
+        original_branch_oid: inputs.head_oid.clone(),
+        new_tip_oid: Oid::from(inputs.target_commit.id()),
+        conflicting_commit_oid: Oid::from(inputs.source_commit.id()),
         remaining_oids: vec![],
         conflicting_files: conflict::collect_conflict_files(&repo.inner),
         still_unresolved: false,
         moved_commit_oid: None,
         squash_context: Some(SquashContext {
-            base_oid: inputs.base_oid.to_string(),
-            source_oid: inputs.source_oid.to_string(),
-            target_oid: inputs.target_oid.to_string(),
+            base_oid: Oid::from(inputs.base_oid),
+            source_oid: inputs.source_oid.clone(),
+            target_oid: inputs.target_oid.clone(),
             combined_message: combined_message.to_string(),
             descendant_oids,
             is_fixup,
@@ -242,7 +232,7 @@ fn replay_and_advance(
     repo: &Git2Repo,
     squash_oid: git2::Oid,
     descendants: &[git2::Oid],
-    original_branch_oid: String,
+    original_branch_oid: Oid,
     advance_msg: &str,
 ) -> Result<RebaseOutcome> {
     match repo.cherry_pick_chain(squash_oid, descendants)? {
@@ -256,16 +246,16 @@ fn replay_and_advance(
             conflicting_idx,
         } => {
             let conflicting_oid = descendants[conflicting_idx];
-            let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+            let remaining: Vec<Oid> = descendants[conflicting_idx + 1..]
                 .iter()
-                .map(|oid| oid.to_string())
+                .map(|&oid| Oid::from(oid))
                 .collect();
 
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: "Squash".to_string(),
                 original_branch_oid,
-                new_tip_oid: tip.to_string(),
-                conflicting_commit_oid: conflicting_oid.to_string(),
+                new_tip_oid: Oid::from(tip),
+                conflicting_commit_oid: Oid::from(conflicting_oid),
                 remaining_oids: remaining,
                 conflicting_files: conflict::collect_conflict_files(&repo.inner),
                 still_unresolved: false,

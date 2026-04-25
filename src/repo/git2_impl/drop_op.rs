@@ -14,22 +14,23 @@
 
 //! Drop a commit by cherry-picking its descendants onto its parent.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use super::super::{ConflictState, RebaseOutcome};
 use super::CherryPickResult;
 use super::Git2Repo;
 use super::conflict;
+use crate::Oid;
 
 pub(super) fn drop_commit(
     repo: &Git2Repo,
-    commit_oid: &str,
-    head_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     repo.check_no_dirty_state()?;
 
-    let commit_git_oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID for drop")?;
-    let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for drop")?;
+    let commit_git_oid = git2::Oid::from(commit_oid);
+    let head_git_oid = git2::Oid::from(head_oid);
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
     if commit.parent_count() != 1 {
@@ -37,7 +38,7 @@ pub(super) fn drop_commit(
     }
     let parent_oid = commit.parent_id(0)?;
 
-    let original_branch_oid = head_oid.to_string();
+    let original_branch_oid = head_oid.clone();
 
     // Collect descendants: commits strictly between commit_oid and head_oid.
     let descendants = repo.collect_descendants(commit_git_oid, head_git_oid)?;
@@ -56,16 +57,16 @@ pub(super) fn drop_commit(
             conflicting_idx,
         } => {
             let conflicting_oid = descendants[conflicting_idx];
-            let remaining: Vec<String> = descendants[conflicting_idx + 1..]
+            let remaining: Vec<Oid> = descendants[conflicting_idx + 1..]
                 .iter()
-                .map(|oid| oid.to_string())
+                .map(|&oid| Oid::from(oid))
                 .collect();
 
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: "Drop".to_string(),
                 original_branch_oid,
-                new_tip_oid: tip.to_string(),
-                conflicting_commit_oid: conflicting_oid.to_string(),
+                new_tip_oid: Oid::from(tip),
+                conflicting_commit_oid: Oid::from(conflicting_oid),
                 remaining_oids: remaining,
                 conflicting_files: conflict::collect_conflict_files(&repo.inner),
                 still_unresolved: false,

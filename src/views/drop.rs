@@ -57,11 +57,7 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
         _ => return,
     };
 
-    let short_oid = if pending.commit_oid.len() >= 10 {
-        &pending.commit_oid[..10]
-    } else {
-        &pending.commit_oid
-    };
+    let short_oid = pending.commit_oid.short();
 
     const PREFERRED_WIDTH: u16 = 60;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);

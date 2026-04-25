@@ -17,6 +17,7 @@
 mod common;
 
 use git_tailor::{
+    Oid,
     app::{AppMode, AppState, PendingDrop},
     repo::ConflictState,
     views,
@@ -31,9 +32,9 @@ fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState 
     ];
     app.selection_index = 0;
     app.mode = AppMode::DropConfirm(PendingDrop {
-        commit_oid: commit_oid.to_string(),
+        commit_oid: Oid::from(commit_oid),
         commit_summary: commit_summary.to_string(),
-        head_oid: "def456ghi789abcdef012".to_string(),
+        head_oid: Oid::from("def456ghi789abcdef012"),
     });
     app
 }
@@ -108,10 +109,10 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
     app.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
-        original_branch_oid: "def456ghi789abcdef012".to_string(),
-        new_tip_oid: "aabbccddeeff00112233".to_string(),
-        conflicting_commit_oid: conflicting_oid.to_string(),
-        remaining_oids: remaining.iter().map(|s| s.to_string()).collect(),
+        original_branch_oid: Oid::from("def456ghi789abcdef012"),
+        new_tip_oid: Oid::from("aabbccddeeff00112233"),
+        conflicting_commit_oid: Oid::from(conflicting_oid),
+        remaining_oids: remaining.iter().copied().map(Oid::from).collect(),
         conflicting_files: vec![],
         still_unresolved: false,
         moved_commit_oid: None,
@@ -193,10 +194,10 @@ fn test_drop_conflict_dialog_long_summary() {
     app.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
-        original_branch_oid: "def456ghi789abcdef012".to_string(),
-        new_tip_oid: "aabbccddeeff00112233".to_string(),
-        conflicting_commit_oid: "abc123def456".to_string(),
-        remaining_oids: vec!["111111111111".to_string(), "222222222222".to_string()],
+        original_branch_oid: Oid::from("def456ghi789abcdef012"),
+        new_tip_oid: Oid::from("aabbccddeeff00112233"),
+        conflicting_commit_oid: Oid::from("abc123def456"),
+        remaining_oids: vec![Oid::from("111111111111"), Oid::from("222222222222")],
         conflicting_files: vec![],
         still_unresolved: false,
         moved_commit_oid: None,
@@ -227,9 +228,9 @@ fn test_drop_conflict_dialog_with_files() {
     app.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
-        original_branch_oid: "def456ghi789abcdef012".to_string(),
-        new_tip_oid: "aabbccddeeff00112233".to_string(),
-        conflicting_commit_oid: "abc123def456".to_string(),
+        original_branch_oid: Oid::from("def456ghi789abcdef012"),
+        new_tip_oid: Oid::from("aabbccddeeff00112233"),
+        conflicting_commit_oid: Oid::from("abc123def456"),
         remaining_oids: vec![],
         conflicting_files: vec![
             "src/parser/mod.rs".to_string(),
@@ -265,9 +266,9 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
     app.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
-        original_branch_oid: "def456ghi789abcdef012".to_string(),
-        new_tip_oid: "aabbccddeeff00112233".to_string(),
-        conflicting_commit_oid: "abc123def456".to_string(),
+        original_branch_oid: Oid::from("def456ghi789abcdef012"),
+        new_tip_oid: Oid::from("aabbccddeeff00112233"),
+        conflicting_commit_oid: Oid::from("abc123def456"),
         remaining_oids: vec![],
         conflicting_files: vec!["src/parser/mod.rs".to_string()],
         still_unresolved: true,

@@ -22,7 +22,7 @@ use anyhow::Result;
 use clap::Parser;
 use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
-    CommitDiff, CommitInfo,
+    CommitDiff, CommitInfo, Oid, VirtualOid,
     app::{self, AppAction, AppMode, AppState, SplitStrategy},
     editor, fragmap,
     fragmap::SquashableScope,
@@ -72,7 +72,12 @@ fn compute_fragmap(
 ) -> Option<fragmap::FragMap> {
     let mut commit_diffs: Vec<CommitDiff> = regular_commits
         .iter()
-        .filter_map(|commit| git_repo.commit_diff_for_fragmap(&commit.oid).ok())
+        .filter_map(|commit| {
+            commit
+                .oid
+                .as_oid()
+                .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok())
+        })
         .collect();
 
     // If we couldn't get all diffs, return None
@@ -93,7 +98,7 @@ fn compute_fragmap(
 fn load_initial_commits(
     git_repo: &impl GitRepo,
     cli: &Cli,
-) -> Result<Option<(Vec<CommitInfo>, String, bool)>> {
+) -> Result<Option<(Vec<CommitInfo>, Oid, bool)>> {
     let head_oid = git_repo.head_oid()?;
 
     if cli.all {
@@ -115,7 +120,10 @@ fn load_initial_commits(
     let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
     // Exclude the merge-base commit — it's shared with the target branch
     // and must not be modified (squashed, moved, or split).
-    let commits: Vec<CommitInfo> = raw.into_iter().filter(|c| c.oid != reference_oid).collect();
+    let commits: Vec<CommitInfo> = raw
+        .into_iter()
+        .filter(|c| c.oid != VirtualOid::Real(reference_oid.clone()))
+        .collect();
     if commits.is_empty() {
         eprintln!(
             "No commits to display: HEAD is at the merge-base with '{}'",
@@ -512,7 +520,7 @@ fn dispatch_action(
             insert_after_oid,
         } => {
             let head_oid = get_head_oid_or_continue!(git_repo, app);
-            let outcome = git_repo.move_commit(&source_oid, &insert_after_oid, &head_oid);
+            let outcome = git_repo.move_commit(&source_oid, insert_after_oid.as_ref(), &head_oid);
             handle_rebase_outcome(git_repo, app, outcome, "Move", "Commit moved");
         }
     }
@@ -523,7 +531,11 @@ fn dispatch_action(
 fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli) -> Result<()> {
     let mut commit_diffs: Vec<CommitDiff> = commits
         .iter()
-        .filter_map(|c| git_repo.commit_diff_for_fragmap(&c.oid).ok())
+        .filter_map(|c| {
+            c.oid
+                .as_oid()
+                .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok())
+        })
         .collect();
     if commit_diffs.len() != commits.len() {
         anyhow::bail!("Failed to load diffs for all commits");
@@ -555,7 +567,7 @@ fn init_app_state(
     git_repo: &impl GitRepo,
     cli: &Cli,
     commits: Vec<CommitInfo>,
-    reference_oid: String,
+    reference_oid: Oid,
     include_reference_oid: bool,
 ) -> AppState {
     let mut app = AppState::with_commits(commits);
@@ -625,8 +637,8 @@ fn execute_split(
     git_repo: &impl GitRepo,
     app: &mut AppState,
     strategy: SplitStrategy,
-    commit_oid: &str,
-    head_oid: &str,
+    commit_oid: &Oid,
+    head_oid: &Oid,
 ) {
     match strategy {
         SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
@@ -649,10 +661,10 @@ fn execute_split(
 /// Choose the initial selection index for a commit list:
 /// unstaged row if present, else staged row if present, else the last commit.
 fn select_initial_index(commits: &[CommitInfo]) -> usize {
-    if let Some(i) = commits.iter().rposition(|c| c.oid == "unstaged") {
+    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Unstaged) {
         return i;
     }
-    if let Some(i) = commits.iter().rposition(|c| c.oid == "staged") {
+    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Staged) {
         return i;
     }
     commits.len().saturating_sub(1)
@@ -675,7 +687,9 @@ fn reload_commits(git_repo: &impl GitRepo, app: &mut AppState) {
 
     let commits: Vec<CommitInfo> = commits
         .into_iter()
-        .filter(|c| app.include_reference_oid || c.oid != app.reference_oid)
+        .filter(|c| {
+            app.include_reference_oid || c.oid != VirtualOid::Real(app.reference_oid.clone())
+        })
         .collect();
 
     // Append staged/unstaged as synthetic rows, same as at startup.
