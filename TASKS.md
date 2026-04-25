@@ -361,12 +361,13 @@ Guidelines:
   "unstaged"` is repeated in five or more places across `app.rs` and
   `commit_list.rs`; add a `pub fn is_synthetic(&self) -> bool` method to
   `CommitInfo` in `lib.rs` and replace every inline occurrence with a call to it
-- [ ] T154 P3 fix - Deduplicate `short_oid` truncation logic: the snippet `if
-  oid.len() >= 10 { &oid[..10] } else { &oid }` (or near-identical variants)
-  appears independently in `conflict.rs`, `drop.rs`, `split_select.rs`, and
-  `commit_list.rs`; add a free function `short_oid(oid: &str) -> &str` in a
-  shared location (e.g. `views/dialog.rs` or a new `views/utils.rs`) and
-  replace all call sites
+- [X] T154 P3 fix - Introduce `Oid` / `VirtualOid` types: replace raw `String`
+  OIDs throughout the codebase with a newtype `Oid(String)` (short()/long()
+  accessors, Display, From<String>, From<&str>, From<git2::Oid>) and a
+  `VirtualOid` enum (`Real(Oid)`, `Staged`, `Unstaged`) for commit-list entries
+  that may be synthetic working-tree pseudo-commits; add
+  `CommitInfo::is_synthetic()`, `From<&Oid> for git2::Oid`, and update all
+  call sites, tests, and snapshots
 - [X] T155 P3 fix - Extract common split-commit preamble into a shared helper:
   `split_commit_per_file`, `split_commit_per_hunk`, and
   `split_commit_per_hunk_group` in `git2_impl.rs` each begin with ~20 identical
