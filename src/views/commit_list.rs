@@ -256,17 +256,17 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
 
 /// Compute all layout dimensions, scroll offsets, and visible cluster indices.
 fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
-    let visible_cluster_count = if let Some(ref fragmap) = app.fragmap {
+    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
             .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
-            .count()
+            .collect()
     } else {
-        0
+        vec![]
     };
 
     let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1 + 1) as usize;
     let needs_h_scrollbar =
-        visible_cluster_count > 0 && visible_cluster_count > preliminary_fragmap_width;
+        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
 
     let (table_area, h_scrollbar_area, footer_area) = if needs_h_scrollbar {
         let [t, hs, f] = Layout::vertical([
@@ -288,14 +288,6 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         table_area.width.saturating_sub(1)
     } else {
         table_area.width
-    };
-
-    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
-        (0..fragmap.clusters.len())
-            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
-            .collect()
-    } else {
-        vec![]
     };
 
     // Establish the natural (separator_offset=0) baseline using the same formula as

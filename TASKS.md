@@ -376,7 +376,7 @@ Guidelines:
   `fn load_split_commit(repo, oid) -> Result<SplitCommitParts>` returning the
   shared values, and apply the same extraction to the three `count_split_*`
   methods which duplicate the same setup
-- [ ] T156 P3 fix - Remove redundant `visible_clusters` double-iteration in
+- [X] T156 P3 fix - Remove redundant `visible_clusters` double-iteration in
   `compute_layout`: `commit_list.rs::compute_layout` iterates the fragmap matrix
   twice with identical predicate logic — once to compute `visible_cluster_count`
   for the scrollbar decision, then again to build
