@@ -600,7 +600,7 @@ impl AppState {
     }
 
     /// Enter move commit selection mode.
-    /// The insertion cursor starts one position before the source (i.e. one
+    /// The insertion cursor starts one pos  ition before the source (i.e. one
     /// slot earlier in the commit list, which visually means "above" in
     /// chronological order).
     pub fn enter_move_select(&mut self) {

@@ -45,123 +45,21 @@ pub(super) fn move_commit(
     //
     // `None` for `insert_after_oid` is a sentinel meaning "make the source the
     // new root commit" (used by --all mode when the user moves a commit
-    // before the first visible entry).  In that case the source commit's
-    // diff is applied to an empty tree to create the new orphan root, and
-    // all other commits are cherry-picked on top in their original order.
+    // before the first visible entry).
     let (chain_base, reordered) = match insert_after_oid {
-        None => {
-            // Collect every commit from root to HEAD oldest-first.
-            let mut revwalk = repo.inner.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-position move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            // Build the new root commit from the source commit's own diff
-            // applied to an empty tree.
-            let parent_tree = commit.parent(0)?.tree()?;
-            let commit_tree = commit.tree()?;
-            let diff =
-                repo.inner
-                    .diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-
-            let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
-            let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
-
-            let mut new_idx = repo.inner.apply_to_tree(&empty_tree, &diff, None)?;
-            if new_idx.has_conflicts() {
-                anyhow::bail!("Unexpected conflict creating new root from moved commit");
-            }
-            let new_tree_oid = new_idx.write_tree_to(&repo.inner)?;
-            let new_tree = repo.inner.find_tree(new_tree_oid)?;
-
-            let new_root_oid = repo.inner.commit(
-                None,
-                &commit.author(),
-                &commit.committer(),
-                commit.message().unwrap_or(""),
-                &new_tree,
-                &[], // no parents — this becomes the new root
-            )?;
-
-            let remaining: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            (new_root_oid, remaining)
-        }
-        Some(insert_after) if commit.parent_count() == 0 => {
-            // Source IS the root commit; move it to a later position.
-            // The new first commit in the reordered list becomes the orphan
-            // root (its full tree is used as-is), then the rest (including
-            // the original root) are cherry-picked on top.
-            let insert_after_git_oid = git2::Oid::from(insert_after);
-
-            let mut revwalk = repo.inner.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            let mut reordered: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            let insert_pos = reordered
-                .iter()
-                .position(|&oid| oid == insert_after_git_oid)
-                .context("insert_after_oid not found among branch commits")?
-                + 1;
-            reordered.insert(insert_pos, commit_git_oid);
-
-            // Commit the new first entry as an orphan root using its tree.
-            let first_commit = repo.inner.find_commit(reordered[0])?;
-            let new_root_oid = repo.inner.commit(
-                None,
-                &first_commit.author(),
-                &first_commit.committer(),
-                first_commit.message().unwrap_or(""),
-                &first_commit.tree()?,
-                &[],
-            )?;
-
-            (new_root_oid, reordered[1..].to_vec())
-        }
-        Some(insert_after) => {
-            let insert_after_git_oid = git2::Oid::from(insert_after);
-            let source_parent_oid = commit.parent_id(0)?;
-
-            // The rebase base is the earlier of insert_after and source's parent.
-            let base_oid = repo
-                .inner
-                .merge_base(insert_after_git_oid, source_parent_oid)?;
-
-            // Collect all commits between base (exclusive) and HEAD (inclusive).
-            let all_descendants = repo.collect_descendants(base_oid, head_git_oid)?;
-
-            let mut reordered: Vec<git2::Oid> = all_descendants
-                .iter()
-                .filter(|&&oid| oid != commit_git_oid)
-                .copied()
-                .collect();
-
-            let insert_pos = if insert_after_git_oid == base_oid {
-                0
-            } else {
-                reordered
-                    .iter()
-                    .position(|&oid| oid == insert_after_git_oid)
-                    .context("insert_after_oid not found among branch commits")?
-                    + 1
-            };
-            reordered.insert(insert_pos, commit_git_oid);
-
-            (base_oid, reordered)
-        }
+        None => plan_move_to_root(repo, commit_git_oid, head_git_oid)?,
+        Some(insert_after) if commit.parent_count() == 0 => plan_move_root_to_later(
+            repo,
+            commit_git_oid,
+            git2::Oid::from(insert_after),
+            head_git_oid,
+        )?,
+        Some(insert_after) => plan_reorder(
+            repo,
+            commit_git_oid,
+            git2::Oid::from(insert_after),
+            head_git_oid,
+        )?,
     };
 
     let result = repo.cherry_pick_chain(chain_base, &reordered)?;
@@ -194,4 +92,142 @@ pub(super) fn move_commit(
             })))
         }
     }
+}
+
+/// Build the chain for moving `commit_git_oid` to the root position.
+///
+/// The source commit's diff is applied to an empty tree to create a new orphan
+/// root commit, and all other commits are left in their original order to be
+/// cherry-picked on top.  Returns `(new_root_oid, remaining_oids)`.
+fn plan_move_to_root(
+    repo: &Git2Repo,
+    commit_git_oid: git2::Oid,
+    head_git_oid: git2::Oid,
+) -> Result<(git2::Oid, Vec<git2::Oid>)> {
+    let commit = repo.inner.find_commit(commit_git_oid)?;
+
+    let mut revwalk = repo.inner.revwalk()?;
+    revwalk.push(head_git_oid)?;
+    let mut all_oids: Vec<git2::Oid> = revwalk
+        .collect::<Result<Vec<_>, git2::Error>>()
+        .context("Failed to walk commits for root-position move")?;
+    all_oids.reverse(); // oldest first: [root, …, HEAD]
+
+    let parent_tree = commit.parent(0)?.tree()?;
+    let commit_tree = commit.tree()?;
+    let diff = repo
+        .inner
+        .diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
+
+    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
+    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+    let mut new_idx = repo.inner.apply_to_tree(&empty_tree, &diff, None)?;
+    if new_idx.has_conflicts() {
+        anyhow::bail!("Unexpected conflict creating new root from moved commit");
+    }
+    let new_tree_oid = new_idx.write_tree_to(&repo.inner)?;
+    let new_tree = repo.inner.find_tree(new_tree_oid)?;
+
+    let new_root_oid = repo.inner.commit(
+        None,
+        &commit.author(),
+        &commit.committer(),
+        commit.message().unwrap_or(""),
+        &new_tree,
+        &[], // no parents — this becomes the new root
+    )?;
+
+    let remaining: Vec<git2::Oid> = all_oids
+        .into_iter()
+        .filter(|&oid| oid != commit_git_oid)
+        .collect();
+
+    Ok((new_root_oid, remaining))
+}
+
+/// Build the chain for moving the current root commit to a later position.
+///
+/// The source is the existing root (parent_count == 0).  After removing it
+/// from the ordered list and inserting it at the target position, the commit
+/// that ends up first becomes the new orphan root (its tree is used as-is);
+/// the rest (including the original root) are cherry-picked on top.
+/// Returns `(new_root_oid, commits_to_replay)`.
+fn plan_move_root_to_later(
+    repo: &Git2Repo,
+    commit_git_oid: git2::Oid,
+    insert_after_git_oid: git2::Oid,
+    head_git_oid: git2::Oid,
+) -> Result<(git2::Oid, Vec<git2::Oid>)> {
+    let mut revwalk = repo.inner.revwalk()?;
+    revwalk.push(head_git_oid)?;
+    let mut all_oids: Vec<git2::Oid> = revwalk
+        .collect::<Result<Vec<_>, git2::Error>>()
+        .context("Failed to walk commits for root-move")?;
+    all_oids.reverse(); // oldest first: [root, …, HEAD]
+
+    let mut reordered: Vec<git2::Oid> = all_oids
+        .into_iter()
+        .filter(|&oid| oid != commit_git_oid)
+        .collect();
+
+    let insert_pos = reordered
+        .iter()
+        .position(|&oid| oid == insert_after_git_oid)
+        .context("insert_after_oid not found among branch commits")?
+        + 1;
+    reordered.insert(insert_pos, commit_git_oid);
+
+    let first_commit = repo.inner.find_commit(reordered[0])?;
+    let new_root_oid = repo.inner.commit(
+        None,
+        &first_commit.author(),
+        &first_commit.committer(),
+        first_commit.message().unwrap_or(""),
+        &first_commit.tree()?,
+        &[],
+    )?;
+
+    Ok((new_root_oid, reordered[1..].to_vec()))
+}
+
+/// Build the chain for a standard mid-chain reorder.
+///
+/// Finds the merge-base of `insert_after` and the source's parent, collects
+/// all descendants from that base to HEAD, removes the source from its current
+/// position, and inserts it after `insert_after`.
+/// Returns `(chain_base_oid, reordered_oids)`.
+fn plan_reorder(
+    repo: &Git2Repo,
+    commit_git_oid: git2::Oid,
+    insert_after_git_oid: git2::Oid,
+    head_git_oid: git2::Oid,
+) -> Result<(git2::Oid, Vec<git2::Oid>)> {
+    let commit = repo.inner.find_commit(commit_git_oid)?;
+    let source_parent_oid = commit.parent_id(0)?;
+
+    // The rebase base is the earlier of insert_after and source's parent.
+    let base_oid = repo
+        .inner
+        .merge_base(insert_after_git_oid, source_parent_oid)?;
+
+    let all_descendants = repo.collect_descendants(base_oid, head_git_oid)?;
+
+    let mut reordered: Vec<git2::Oid> = all_descendants
+        .iter()
+        .filter(|&&oid| oid != commit_git_oid)
+        .copied()
+        .collect();
+
+    let insert_pos = if insert_after_git_oid == base_oid {
+        0
+    } else {
+        reordered
+            .iter()
+            .position(|&oid| oid == insert_after_git_oid)
+            .context("insert_after_oid not found among branch commits")?
+            + 1
+    };
+    reordered.insert(insert_pos, commit_git_oid);
+
+    Ok((base_oid, reordered))
 }
