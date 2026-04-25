@@ -341,14 +341,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let fragmap_col_width = display_clusters.len() as u16;
 
-    let visual_selection = if app.reverse {
-        app.commits
-            .len()
-            .saturating_sub(1)
-            .saturating_sub(app.selection_index)
-    } else {
-        app.selection_index
-    };
+    let visual_selection = fragmap_index(app, app.selection_index);
 
     let scroll_offset =
         if app.commits.is_empty() || available_height == 0 || visual_selection < available_height {
@@ -402,6 +395,79 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
     }
 }
 
+/// Convert a visual row index (0 = top of list) to the fragmap matrix index.
+/// When the list is in reverse order the index is mirrored.
+fn fragmap_index(app: &AppState, visual_idx: usize) -> usize {
+    if app.reverse {
+        app.commits
+            .len()
+            .saturating_sub(1)
+            .saturating_sub(visual_idx)
+    } else {
+        visual_idx
+    }
+}
+
+/// Describes which action mode is active, carrying the source commit index.
+/// Used by [`row_text_style`] to pick the foreground style for each row.
+enum FocusContext {
+    Squash { source_idx: usize },
+    Move { source_idx: usize },
+    Normal,
+}
+
+/// Compute the foreground/text style for a single commit row.
+fn row_text_style(
+    app: &AppState,
+    focus_ctx: &FocusContext,
+    commit_idx: usize,
+    is_selected: bool,
+    is_synthetic: bool,
+) -> Style {
+    match focus_ctx {
+        FocusContext::Squash { source_idx } => {
+            if commit_idx == *source_idx {
+                Style::new().fg(Color::White)
+            } else if commit_idx > *source_idx {
+                Style::new().fg(Color::DarkGray)
+            } else if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                hunk_groups::commit_text_style(fm, *source_idx, commit_idx, app.theme.as_theme())
+            } else {
+                Style::default()
+            }
+        }
+        FocusContext::Move { source_idx } => {
+            if commit_idx == *source_idx {
+                Style::new().fg(Color::DarkGray)
+            } else if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                hunk_groups::commit_text_style(fm, *source_idx, commit_idx, app.theme.as_theme())
+            } else {
+                Style::default()
+            }
+        }
+        FocusContext::Normal => {
+            if is_selected {
+                Style::default()
+            } else if is_synthetic {
+                Style::new().fg(COLOR_SYNTHETIC_LABEL)
+            } else if let Some(ref fm) = app.fragmap {
+                hunk_groups::commit_text_style(
+                    fm,
+                    app.selection_index,
+                    commit_idx,
+                    app.theme.as_theme(),
+                )
+            } else {
+                Style::default()
+            }
+        }
+    }
+}
+
 /// Build all visible table rows.
 fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let display_commits: Vec<&crate::CommitInfo> = if app.reverse {
@@ -450,34 +516,23 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         _ => None,
     };
 
-    // Focus commit index in the fragmap matrix, accounting for reverse display.
-    // Used by themes (e.g. HighlightTheme) to classify cluster columns as
-    // focus-related or unrelated.
+    let focus_ctx = match (squash_source_idx, move_info) {
+        (Some(source_idx), _) => FocusContext::Squash { source_idx },
+        (_, Some((source_idx, _))) => FocusContext::Move { source_idx },
+        _ => FocusContext::Normal,
+    };
+
+    // Focus fragmap index for cluster-column highlight classification.
     let focus_source = squash_source_idx
         .or_else(|| move_info.map(|(si, _)| si))
         .unwrap_or(app.selection_index);
-    let focus_idx_in_fragmap = if app.reverse {
-        app.commits
-            .len()
-            .saturating_sub(1)
-            .saturating_sub(focus_source)
-    } else {
-        focus_source
-    };
+    let focus_idx_in_fragmap = fragmap_index(app, focus_source);
 
     let mut rows: Vec<Row<'a>> = Vec::new();
 
     for (visible_index, commit) in visible_commits.iter().enumerate() {
         let visual_index = layout.scroll_offset + visible_index;
-
-        let commit_idx_in_fragmap = if app.reverse {
-            app.commits
-                .len()
-                .saturating_sub(1)
-                .saturating_sub(visual_index)
-        } else {
-            visual_index
-        };
+        let commit_idx_in_fragmap = fragmap_index(app, visual_index);
 
         // Insert separator row before this commit if this is the insertion point.
         if let Some((source_index, insert_before)) = move_info
@@ -495,57 +550,13 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
         let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);
 
-        // Determine text style based on mode and position.
-        let text_style = if let Some(source_idx) = squash_source_idx {
-            // SquashSelect mode: color by relation to squash source.
-            if is_squash_source {
-                Style::new().fg(Color::White)
-            } else if commit_idx_in_fragmap > source_idx {
-                Style::new().fg(Color::DarkGray)
-            } else if is_synthetic {
-                Style::new().fg(COLOR_SYNTHETIC_LABEL)
-            } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(
-                    fm,
-                    source_idx,
-                    commit_idx_in_fragmap,
-                    app.theme.as_theme(),
-                )
-            } else {
-                Style::default()
-            }
-        } else if let Some((source_idx, _)) = move_info {
-            if is_move_source {
-                Style::new().fg(Color::DarkGray)
-            } else if is_synthetic {
-                Style::new().fg(COLOR_SYNTHETIC_LABEL)
-            } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(
-                    fm,
-                    source_idx,
-                    commit_idx_in_fragmap,
-                    app.theme.as_theme(),
-                )
-            } else {
-                Style::default()
-            }
-        } else if !is_selected {
-            // Normal CommitList mode coloring for non-selected rows.
-            if is_synthetic {
-                Style::new().fg(COLOR_SYNTHETIC_LABEL)
-            } else if let Some(ref fm) = app.fragmap {
-                hunk_groups::commit_text_style(
-                    fm,
-                    app.selection_index,
-                    commit_idx_in_fragmap,
-                    app.theme.as_theme(),
-                )
-            } else {
-                Style::default()
-            }
-        } else {
-            Style::default()
-        };
+        let text_style = row_text_style(
+            app,
+            &focus_ctx,
+            commit_idx_in_fragmap,
+            is_selected,
+            is_synthetic,
+        );
 
         // Apply highlight: source gets teal bg, selection in an action mode gets
         // a subtle target-bg tint plus reversed; plain selection gets reversed.

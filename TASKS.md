@@ -334,7 +334,7 @@ Guidelines:
   `compute_scroll_layout(content_area, content) -> ScrollLayout` (returns
   text_area, scrollbar areas, max_scroll, max_h_scroll); render becomes a
   composition of these helpers + the search-highlight pass + widget calls
-- [ ] T164 P3 fix - Decompose `views/commit_list.rs::build_rows` (~190 lines)
+- [X] T164 P3 fix - Decompose `views/commit_list.rs::build_rows` (~190 lines)
   by extracting `fn row_text_style(app, focus_ctx: FocusContext, commit_idx,
   is_selected, is_synthetic) -> Style` to replace the 60-line nested
   if/else-if chain that picks the foreground style based on
