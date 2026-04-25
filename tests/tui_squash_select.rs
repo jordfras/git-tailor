@@ -17,6 +17,7 @@
 mod common;
 
 use git_tailor::{
+    CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
@@ -85,8 +86,8 @@ fn test_squash_confirm_returns_prepare_squash() {
             target_oid,
             ..
         } => {
-            assert_eq!(source_oid, "eee555fff666");
-            assert_eq!(target_oid, "aaa111bbb222");
+            assert_eq!(source_oid, Oid::from("eee555fff666"));
+            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
         }
         other => panic!("Expected PrepareSquash, got {:?}", other),
     }
@@ -110,7 +111,11 @@ fn test_squash_into_staged_blocked() {
     let mut app = AppState::new();
     app.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
-        common::create_test_commit("staged", "staged"),
+        CommitInfo {
+            oid: VirtualOid::Staged,
+            summary: "staged".to_string(),
+            ..common::create_test_commit("staged", "staged")
+        },
     ];
     app.selection_index = 1;
     app.mode = AppMode::SquashSelect {
@@ -137,7 +142,11 @@ fn test_squash_blocked_on_staged_row() {
     let mut app = AppState::new();
     app.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
-        common::create_test_commit("staged", "staged"),
+        CommitInfo {
+            oid: VirtualOid::Staged,
+            summary: "staged".to_string(),
+            ..common::create_test_commit("staged", "staged")
+        },
     ];
     app.selection_index = 1;
     app.mode = AppMode::CommitList;
@@ -238,7 +247,11 @@ fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluste
             start_line: start,
             end_line: end,
         }],
-        commit_oids: oids.iter().map(|s| s.to_string()).collect(),
+        commit_oids: oids
+            .iter()
+            .copied()
+            .map(|s| VirtualOid::Real(Oid::from(s)))
+            .collect(),
     }
 }
 
@@ -266,9 +279,9 @@ fn test_squash_candidate_coloring_with_fragmap() {
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
     app.fragmap = Some(FragMap {
         commits: vec![
-            "aaaa11112222".to_string(),
-            "bbbb33334444".to_string(),
-            "cccc55556666".to_string(),
+            VirtualOid::Real(Oid::from("aaaa11112222")),
+            VirtualOid::Real(Oid::from("bbbb33334444")),
+            VirtualOid::Real(Oid::from("cccc55556666")),
         ],
         clusters: vec![
             simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
@@ -311,9 +324,9 @@ fn test_squash_candidate_coloring_conflicting() {
     // All three commits touch cluster 0 → conflicting between 0 and 2
     app.fragmap = Some(FragMap {
         commits: vec![
-            "aaaa11112222".to_string(),
-            "bbbb33334444".to_string(),
-            "cccc55556666".to_string(),
+            VirtualOid::Real(Oid::from("aaaa11112222")),
+            VirtualOid::Real(Oid::from("bbbb33334444")),
+            VirtualOid::Real(Oid::from("cccc55556666")),
         ],
         clusters: vec![simple_cluster(
             "parser.rs",
@@ -375,8 +388,8 @@ fn test_fixup_confirm_returns_prepare_fixup() {
             is_fixup,
             ..
         } => {
-            assert_eq!(source_oid, "eee555fff666");
-            assert_eq!(target_oid, "aaa111bbb222");
+            assert_eq!(source_oid, Oid::from("eee555fff666"));
+            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
             assert!(is_fixup);
         }
         other => panic!("Expected PrepareSquash with is_fixup, got {:?}", other),

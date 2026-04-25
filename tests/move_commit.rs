@@ -14,7 +14,10 @@
 
 mod common;
 
-use git_tailor::repo::{GitRepo, RebaseOutcome};
+use git_tailor::{
+    Oid,
+    repo::{GitRepo, RebaseOutcome},
+};
 
 /// Read a file from a specific commit tree.
 fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
@@ -70,7 +73,7 @@ fn move_commit_earlier() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&c.to_string(), &a.to_string(), &c.to_string())
+        .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
 
     assert!(
@@ -107,7 +110,7 @@ fn move_commit_later() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&b.to_string(), &d.to_string(), &d.to_string())
+        .move_commit(&Oid::from(b), Some(&Oid::from(d)), &Oid::from(d))
         .unwrap();
 
     assert!(
@@ -138,7 +141,7 @@ fn move_commit_to_beginning() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&c.to_string(), &base.to_string(), &c.to_string())
+        .move_commit(&Oid::from(c), Some(&Oid::from(base)), &Oid::from(c))
         .unwrap();
 
     assert!(
@@ -169,7 +172,7 @@ fn move_head_commit_earlier() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&head.to_string(), &a.to_string(), &head.to_string())
+        .move_commit(&Oid::from(head), Some(&Oid::from(a)), &Oid::from(head))
         .unwrap();
 
     assert!(matches!(result, RebaseOutcome::Complete));
@@ -194,13 +197,13 @@ fn move_commit_conflict_returns_conflict_state() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&b.to_string(), &base.to_string(), &b.to_string())
+        .move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b))
         .unwrap();
 
     match result {
         RebaseOutcome::Conflict(state) => {
             assert_eq!(state.operation_label, "Move");
-            assert_eq!(state.original_branch_oid, b.to_string());
+            assert_eq!(state.original_branch_oid, Oid::from(b));
             assert!(!state.conflicting_files.is_empty());
         }
         RebaseOutcome::Complete => {
@@ -232,7 +235,7 @@ fn move_commit_preserves_file_contents() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&b.to_string(), &c.to_string(), &c.to_string())
+        .move_commit(&Oid::from(b), Some(&Oid::from(c)), &Oid::from(c))
         .unwrap();
 
     assert!(matches!(result, RebaseOutcome::Complete));
@@ -281,7 +284,7 @@ fn move_commit_blocked_with_staged_changes() {
     index.write().unwrap();
 
     let git_repo = test.git_repo();
-    let result = git_repo.move_commit(&b.to_string(), &base.to_string(), &b.to_string());
+    let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));
 
     assert!(
         result.is_err(),
@@ -308,7 +311,7 @@ fn move_commit_blocked_with_unstaged_changes() {
     std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
 
     let git_repo = test.git_repo();
-    let result = git_repo.move_commit(&b.to_string(), &base.to_string(), &b.to_string());
+    let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));
 
     assert!(
         result.is_err(),
@@ -340,7 +343,7 @@ fn move_commit_to_root_position() {
     let git_repo = test.git_repo();
     // "" is the sentinel for "make this commit the new root"
     let result = git_repo
-        .move_commit(&c.to_string(), "", &c.to_string())
+        .move_commit(&Oid::from(c), None, &Oid::from(c))
         .unwrap();
 
     assert!(
@@ -406,7 +409,7 @@ fn move_root_commit_to_later_position() {
     let root_oid = git_repo.root_commit_oid().unwrap();
 
     let result = git_repo
-        .move_commit(&root_oid, &b.to_string(), &b.to_string())
+        .move_commit(&root_oid, Some(&Oid::from(b)), &Oid::from(b))
         .unwrap();
 
     assert!(
@@ -463,7 +466,7 @@ fn move_commit_allowed_with_staged_submodule() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .move_commit(&c.to_string(), &a.to_string(), &c.to_string())
+        .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
 
     assert!(

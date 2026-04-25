@@ -14,7 +14,10 @@
 
 mod common;
 
-use git_tailor::repo::{GitRepo, RebaseOutcome};
+use git_tailor::{
+    Oid,
+    repo::{GitRepo, RebaseOutcome},
+};
 
 /// Read a file from a specific commit tree.
 fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
@@ -59,10 +62,10 @@ fn squash_adjacent_commits_source_is_head() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed message",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -102,10 +105,10 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -151,10 +154,10 @@ fn squash_source_not_head_rebases_later_commits() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &after.to_string(),
+            &Oid::from(after),
         )
         .unwrap();
 
@@ -188,10 +191,10 @@ fn squash_uses_provided_message() {
     let custom_message = "target msg\n\nsource msg\n";
     git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             custom_message,
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -216,10 +219,10 @@ fn squash_preserves_target_authorship() {
     let git_repo = test.git_repo();
     git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -248,10 +251,10 @@ fn squash_returns_conflict_when_source_and_target_conflict() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -284,7 +287,7 @@ fn squash_returns_conflict_when_all_three_modify_same_file() {
     let git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let result = git_repo
-        .squash_commits(&source.to_string(), &target.to_string(), "squashed", &head)
+        .squash_commits(&Oid::from(source), &Oid::from(target), "squashed", &head)
         .unwrap();
 
     match result {
@@ -316,10 +319,10 @@ fn squash_source_onto_target_overlapping_edits_errors() {
     // it should succeed.
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -350,10 +353,10 @@ fn squash_with_multiple_intermediates_and_descendants() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &after2.to_string(),
+            &Oid::from(after2),
         )
         .unwrap();
 
@@ -403,8 +406,8 @@ fn squash_try_combine_returns_none_when_clean() {
 
     let result = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined",
             false,
             &head,
@@ -428,8 +431,8 @@ fn squash_try_combine_returns_conflict_state() {
 
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined msg",
             false,
             &head,
@@ -440,8 +443,8 @@ fn squash_try_combine_returns_conflict_state() {
     assert_eq!(state.operation_label, "Squash");
     assert!(!state.conflicting_files.is_empty());
     let ctx = state.squash_context.as_ref().unwrap();
-    assert_eq!(ctx.source_oid, source.to_string());
-    assert_eq!(ctx.target_oid, target.to_string());
+    assert_eq!(ctx.source_oid, Oid::from(source));
+    assert_eq!(ctx.target_oid, Oid::from(target));
     assert_eq!(ctx.combined_message, "combined msg");
 }
 
@@ -462,8 +465,8 @@ fn squash_finalize_after_conflict_resolution() {
     // Step 1: try combine -> conflict
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined",
             false,
             &head,
@@ -482,8 +485,8 @@ fn squash_finalize_after_conflict_resolution() {
     //         is exercised by the conflict-returning tests above.)
     let ctx = SquashContext {
         base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
-        source_oid: source.to_string(),
-        target_oid: target.to_string(),
+        source_oid: Oid::from(source),
+        target_oid: Oid::from(target),
         combined_message: "combined".to_string(),
         descendant_oids: vec![],
         is_fixup: false,
@@ -535,10 +538,10 @@ fn squash_commits_blocked_with_staged_changes() {
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_commits(
-        &source.to_string(),
-        &target.to_string(),
+        &Oid::from(source),
+        &Oid::from(target),
         "combined",
-        &source.to_string(),
+        &Oid::from(source),
     );
 
     assert!(
@@ -566,10 +569,10 @@ fn squash_commits_blocked_with_unstaged_changes() {
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_commits(
-        &source.to_string(),
-        &target.to_string(),
+        &Oid::from(source),
+        &Oid::from(target),
         "combined",
-        &source.to_string(),
+        &Oid::from(source),
     );
 
     assert!(
@@ -602,11 +605,11 @@ fn squash_try_combine_blocked_with_staged_changes() {
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
-        &source.to_string(),
-        &target.to_string(),
+        &Oid::from(source),
+        &Oid::from(target),
         "combined",
         false,
-        &source.to_string(),
+        &Oid::from(source),
     );
 
     assert!(
@@ -634,11 +637,11 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
-        &source.to_string(),
-        &target.to_string(),
+        &Oid::from(source),
+        &Oid::from(target),
         "combined",
         false,
-        &source.to_string(),
+        &Oid::from(source),
     );
 
     assert!(
@@ -666,10 +669,10 @@ fn squash_commits_allowed_with_staged_submodule() {
     let git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -694,11 +697,11 @@ fn squash_try_combine_allowed_with_staged_submodule() {
     // Returns Ok(None) when there is no merge conflict — both files differ.
     let result = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
             false,
-            &source.to_string(),
+            &Oid::from(source),
         )
         .unwrap();
 
@@ -746,11 +749,11 @@ fn squash_abort_leaves_clean_working_tree() {
     // _base has only a.txt; b.txt is absent from it.
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined",
             false,
-            &_base.to_string(),
+            &Oid::from(_base),
         )
         .unwrap()
         .expect("a.txt conflict (modify/modify) should be detected");
@@ -846,8 +849,8 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
 
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined",
             false,
             &head,
@@ -877,8 +880,8 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
 
     let ctx = SquashContext {
         base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
-        source_oid: source.to_string(),
-        target_oid: target.to_string(),
+        source_oid: Oid::from(source),
+        target_oid: Oid::from(target),
         combined_message: "combined".to_string(),
         descendant_oids: vec![],
         is_fixup: false,
@@ -930,8 +933,8 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     // Step 1: squash_try_combine detects the conflict
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "squashed",
             false,
             &head,
@@ -948,8 +951,8 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     //         commit's tree from any descendant cherry-pick effects.
     let ctx = SquashContext {
         base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
-        source_oid: source.to_string(),
-        target_oid: target.to_string(),
+        source_oid: Oid::from(source),
+        target_oid: Oid::from(target),
         combined_message: "squashed".to_string(),
         descendant_oids: vec![],
         is_fixup: false,
@@ -999,8 +1002,8 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
     // Trigger the conflict
     let state = git_repo
         .squash_try_combine(
-            &source.to_string(),
-            &target.to_string(),
+            &Oid::from(source),
+            &Oid::from(target),
             "combined",
             true, // fixup
             &head,

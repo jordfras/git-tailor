@@ -14,7 +14,7 @@
 
 mod common;
 
-use git_tailor::{DiffLineKind, repo::GitRepo};
+use git_tailor::{DiffLineKind, Oid, VirtualOid, repo::GitRepo};
 use git2::Signature;
 use std::fs;
 
@@ -23,9 +23,9 @@ fn test_commit_diff_root_commit_all_additions() {
     let test = common::TestRepo::new();
     let c1 = test.commit_file("hello.txt", "Hello, world!\n", "Initial commit");
 
-    let diff = test.git_repo().commit_diff(&c1.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c1)).unwrap();
 
-    assert_eq!(diff.commit.oid, c1.to_string());
+    assert_eq!(diff.commit.oid, VirtualOid::Real(Oid::from(c1)));
     assert_eq!(diff.commit.summary, "Initial commit");
     assert_eq!(diff.files.len(), 1);
 
@@ -51,7 +51,7 @@ fn test_commit_diff_file_modification() {
     test.commit_file("file.txt", "line 1\nline 2\nline 3\n", "First");
     let c2 = test.commit_file("file.txt", "line 1\nmodified line 2\nline 3\n", "Modify");
 
-    let diff = test.git_repo().commit_diff(&c2.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c2)).unwrap();
 
     assert_eq!(diff.commit.summary, "Modify");
     assert_eq!(diff.files.len(), 1);
@@ -83,7 +83,7 @@ fn test_commit_diff_file_deletion() {
     test.commit_file("to_delete.txt", "This will be deleted\n", "Add file");
     let c2 = test.delete_file("to_delete.txt", "Delete file");
 
-    let diff = test.git_repo().commit_diff(&c2.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c2)).unwrap();
 
     assert_eq!(diff.commit.summary, "Delete file");
     assert_eq!(diff.files.len(), 1);
@@ -131,7 +131,7 @@ fn test_commit_diff_multiple_files() {
         .commit(Some("HEAD"), &sig, &sig, "Add two files", &tree, &[&parent])
         .unwrap();
 
-    let diff = test.git_repo().commit_diff(&c2.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c2)).unwrap();
 
     assert_eq!(diff.commit.summary, "Add two files");
     assert_eq!(diff.files.len(), 2);
@@ -156,7 +156,7 @@ fn test_commit_diff_multiple_hunks() {
     let modified = "MODIFIED 1\nline 2\nline 3\nkeep 1\nkeep 2\nkeep 3\nkeep 4\nkeep 5\nkeep 6\nkeep 7\nkeep 8\nkeep 9\nkeep 10\nline 20\nMODIFIED 21\nline 22\n";
     let c2 = test.commit_file("multi.txt", modified, "Modify two regions");
 
-    let diff = test.git_repo().commit_diff(&c2.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c2)).unwrap();
 
     assert_eq!(diff.files.len(), 1);
     let file = &diff.files[0];
@@ -174,9 +174,9 @@ fn test_commit_diff_metadata() {
     let test = common::TestRepo::new();
     let c1 = test.commit_file("test.txt", "content\n", "Test commit");
 
-    let diff = test.git_repo().commit_diff(&c1.to_string()).unwrap();
+    let diff = test.git_repo().commit_diff(&Oid::from(c1)).unwrap();
 
-    assert_eq!(diff.commit.oid, c1.to_string());
+    assert_eq!(diff.commit.oid, VirtualOid::Real(Oid::from(c1)));
     assert_eq!(diff.commit.summary, "Test commit");
     assert_eq!(diff.commit.author.as_deref(), Some("Test User"));
     assert!(diff.commit.date.as_deref().is_some_and(|d| !d.is_empty()));
@@ -199,7 +199,7 @@ fn test_commit_diff_for_fragmap_detects_rename() {
 
     let diff = test
         .git_repo()
-        .commit_diff_for_fragmap(&c2.to_string())
+        .commit_diff_for_fragmap(&Oid::from(c2))
         .unwrap();
 
     // find_similar should collapse the delete+add into a single renamed entry

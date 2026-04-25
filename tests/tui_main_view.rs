@@ -19,7 +19,7 @@ mod common;
 
 use anyhow::{Result, anyhow};
 use git_tailor::{
-    CommitDiff, CommitInfo,
+    CommitDiff, CommitInfo, Oid,
     app::AppState,
     repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
     views,
@@ -29,19 +29,19 @@ use ratatui::{Terminal, backend::TestBackend};
 struct NoOpRepo;
 
 impl GitRepo for NoOpRepo {
-    fn head_oid(&self) -> Result<String> {
+    fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
-    fn find_reference_point(&self, _commit_ish: &str) -> Result<String> {
+    fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
         unimplemented!()
     }
-    fn list_commits(&self, _from: &str, _to: &str) -> Result<Vec<CommitInfo>> {
+    fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
         unimplemented!()
     }
-    fn commit_diff(&self, _oid: &str) -> Result<CommitDiff> {
+    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
         Err(anyhow!("no diff"))
     }
-    fn commit_diff_for_fragmap(&self, _oid: &str) -> Result<CommitDiff> {
+    fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
         unimplemented!()
     }
     fn staged_diff(&self) -> Option<CommitDiff> {
@@ -50,48 +50,48 @@ impl GitRepo for NoOpRepo {
     fn unstaged_diff(&self) -> Option<CommitDiff> {
         None
     }
-    fn split_commit_per_file(&self, _commit_oid: &str, _head_oid: &str) -> Result<()> {
+    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
     }
-    fn split_commit_per_hunk(&self, _commit_oid: &str, _head_oid: &str) -> Result<()> {
+    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
     }
     fn split_commit_per_hunk_group(
         &self,
-        _commit_oid: &str,
-        _head_oid: &str,
-        _reference_oid: &str,
+        _commit_oid: &Oid,
+        _head_oid: &Oid,
+        _reference_oid: &Oid,
     ) -> Result<()> {
         unimplemented!()
     }
-    fn count_split_per_file(&self, _commit_oid: &str) -> Result<usize> {
+    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }
-    fn count_split_per_hunk(&self, _commit_oid: &str) -> Result<usize> {
+    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }
     fn count_split_per_hunk_group(
         &self,
-        _commit_oid: &str,
-        _head_oid: &str,
-        _reference_oid: &str,
+        _commit_oid: &Oid,
+        _head_oid: &Oid,
+        _reference_oid: &Oid,
     ) -> Result<usize> {
         unimplemented!()
     }
-    fn reword_commit(&self, _commit_oid: &str, _new_message: &str, _head_oid: &str) -> Result<()> {
+    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
     }
     fn get_config_string(&self, _key: &str) -> Option<String> {
         unimplemented!()
     }
-    fn drop_commit(&self, _commit_oid: &str, _head_oid: &str) -> Result<RebaseOutcome> {
+    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
         unimplemented!()
     }
     fn move_commit(
         &self,
-        _commit_oid: &str,
-        _insert_after_oid: &str,
-        _head_oid: &str,
+        _commit_oid: &Oid,
+        _insert_after_oid: Option<&Oid>,
+        _head_oid: &Oid,
     ) -> Result<RebaseOutcome> {
         unimplemented!()
     }
@@ -112,20 +112,20 @@ impl GitRepo for NoOpRepo {
     }
     fn squash_commits(
         &self,
-        _source_oid: &str,
-        _target_oid: &str,
+        _source_oid: &Oid,
+        _target_oid: &Oid,
         _message: &str,
-        _head_oid: &str,
+        _head_oid: &Oid,
     ) -> Result<RebaseOutcome> {
         unimplemented!()
     }
     fn squash_try_combine(
         &self,
-        _source_oid: &str,
-        _target_oid: &str,
+        _source_oid: &Oid,
+        _target_oid: &Oid,
         _combined_message: &str,
         _is_fixup: bool,
-        _head_oid: &str,
+        _head_oid: &Oid,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()
     }
@@ -133,7 +133,7 @@ impl GitRepo for NoOpRepo {
         &self,
         _ctx: &SquashContext,
         _message: &str,
-        _original_branch_oid: &str,
+        _original_branch_oid: &Oid,
     ) -> Result<RebaseOutcome> {
         unimplemented!()
     }
@@ -148,7 +148,7 @@ impl GitRepo for NoOpRepo {
         None
     }
 
-    fn root_commit_oid(&self) -> Result<String> {
+    fn root_commit_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
 }

@@ -13,11 +13,34 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, fragmap};
+use crate::{CommitDiff, CommitInfo, Oid};
 
 use super::GitRepo;
+
+/// Convert a libgit2 OID into our domain `Oid` type.
+impl From<git2::Oid> for Oid {
+    fn from(oid: git2::Oid) -> Self {
+        Oid::new(oid.to_string())
+    }
+}
+
+/// Convert our domain `Oid` back into a libgit2 OID.
+impl From<&Oid> for git2::Oid {
+    fn from(oid: &Oid) -> Self {
+        git2::Oid::from_str(oid.long()).expect("Oid always holds a valid git OID hex string")
+    }
+}
+
+mod conflict;
+mod drop_op;
+mod hunks;
+mod move_op;
+mod reads;
+mod reword_op;
+mod split_op;
+mod squash_op;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
@@ -40,1160 +63,15 @@ impl Git2Repo {
             }
         }
     }
-}
 
-impl GitRepo for Git2Repo {
-    fn head_oid(&self) -> Result<String> {
-        Ok(self
-            .inner
-            .head()
-            .context("Failed to get HEAD")?
-            .target()
-            .context("HEAD is not a direct reference")?
-            .to_string())
-    }
-
-    fn find_reference_point(&self, commit_ish: &str) -> Result<String> {
-        let target_object = self
-            .inner
-            .revparse_single(commit_ish)
-            .context(format!("Failed to resolve '{}'", commit_ish))?;
-        let target_oid = target_object.id();
-
-        let head = self.inner.head().context("Failed to get HEAD")?;
-        let head_oid = head.target().context("HEAD is not a direct reference")?;
-
-        let reference_oid = self
-            .inner
-            .merge_base(head_oid, target_oid)
-            .context("Failed to find merge base")?;
-
-        Ok(reference_oid.to_string())
-    }
-
-    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>> {
-        let from_object = self
-            .inner
-            .revparse_single(from_oid)
-            .context(format!("Failed to resolve '{}'", from_oid))?;
-        let from_commit_oid = from_object.id();
-
-        let to_object = self
-            .inner
-            .revparse_single(to_oid)
-            .context(format!("Failed to resolve '{}'", to_oid))?;
-        let to_commit_oid = to_object.id();
-
-        let mut revwalk = self.inner.revwalk()?;
-        revwalk.push(from_commit_oid)?;
-
-        let mut commits = Vec::new();
-
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            let commit = self.inner.find_commit(oid)?;
-            commits.push(commit_info_from(&commit));
-
-            if oid == to_commit_oid {
-                break;
-            }
-        }
-
-        commits.reverse();
-        Ok(commits)
-    }
-
-    fn commit_diff(&self, oid: &str) -> Result<CommitDiff> {
-        let object = self
-            .inner
-            .revparse_single(oid)
-            .context(format!("Failed to resolve '{}'", oid))?;
-        let commit = object
-            .peel_to_commit()
-            .context("Resolved object is not a commit")?;
-
-        let new_tree = commit.tree().context("Failed to get commit tree")?;
-
-        let parent_tree = if commit.parent_count() > 0 {
-            Some(commit.parent(0)?.tree()?)
-        } else {
-            None
-        };
-
-        let diff = self
-            .inner
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
-
-        extract_commit_diff(&diff, &commit)
-    }
-
-    fn commit_diff_for_fragmap(&self, oid: &str) -> Result<CommitDiff> {
-        let object = self
-            .inner
-            .revparse_single(oid)
-            .context(format!("Failed to resolve '{}'", oid))?;
-        let commit = object
-            .peel_to_commit()
-            .context("Resolved object is not a commit")?;
-
-        let new_tree = commit.tree().context("Failed to get commit tree")?;
-
-        let parent_tree = if commit.parent_count() > 0 {
-            Some(commit.parent(0)?.tree()?)
-        } else {
-            None
-        };
-
-        let mut opts = git2::DiffOptions::new();
-        opts.context_lines(0);
-        opts.interhunk_lines(0);
-
-        let mut diff =
-            self.inner
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
-
-        diff.find_similar(None)?;
-
-        extract_commit_diff(&diff, &commit)
-    }
-
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        let head = self.inner.head().ok()?.peel_to_tree().ok();
-
-        let mut opts = git2::DiffOptions::new();
-        opts.context_lines(0);
-        opts.interhunk_lines(0);
-
-        let diff = self
-            .inner
-            .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))
-            .ok()?;
-
-        let files = extract_files_from_diff(&diff).ok()?;
-        if files.iter().all(|f| f.hunks.is_empty()) {
-            return None;
-        }
-
-        Some(CommitDiff {
-            commit: synthetic_commit_info("staged", "(staged changes)"),
-            files,
-        })
-    }
-
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        let mut opts = git2::DiffOptions::new();
-        opts.context_lines(0);
-        opts.interhunk_lines(0);
-
-        let diff = self
-            .inner
-            .diff_index_to_workdir(None, Some(&mut opts))
-            .ok()?;
-
-        let files = extract_files_from_diff(&diff).ok()?;
-        if files.iter().all(|f| f.hunks.is_empty()) {
-            return None;
-        }
-
-        Some(CommitDiff {
-            commit: synthetic_commit_info("unstaged", "(unstaged changes)"),
-            files,
-        })
-    }
-
-    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Compute full diff to enumerate files and for the overlap check
-        let full_diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-        let file_count = full_diff.deltas().len();
-
-        if file_count < 2 {
-            anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
-        }
-
-        // Collect non-gitlink file paths for the dirty-overlap check.  Gitlink
-        // (submodule pointer) deltas are excluded because the split applies them
-        // via tree manipulation without touching the working tree, so a dirty
-        // submodule state cannot interfere with the operation.
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter(|d| {
-                d.new_file().mode() != git2::FileMode::Commit
-                    && d.old_file().mode() != git2::FileMode::Commit
-            })
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Create one commit per file, each building on the previous.
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for delta_idx in 0..file_count {
-            let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .expect("delta has a path")
-                .to_string_lossy()
-                .into_owned();
-
-            let base_tree = repo.find_tree(current_tree_oid)?;
-
-            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
-                || delta.old_file().mode() == git2::FileMode::Commit;
-
-            let new_tree_oid = if is_gitlink {
-                // apply_to_tree cannot process gitlink (submodule pointer) entries
-                // because libgit2 tries to patch them as blobs, causing a crash.
-                apply_gitlink_delta_to_tree(repo, &base_tree, &delta)?
-            } else {
-                // Diff from parent→commit scoped to this specific file
-                let mut opts = git2::DiffOptions::new();
-                opts.pathspec(&path);
-                let file_diff = repo.diff_tree_to_tree(
-                    Some(&parent_tree),
-                    Some(&commit_tree),
-                    Some(&mut opts),
-                )?;
-                let mut new_index = repo.apply_to_tree(&base_tree, &file_diff, None)?;
-                if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path);
-                }
-                new_index.write_tree_to(repo)?
-            };
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = split_message(
-                commit.message().unwrap_or("split"),
-                delta_idx + 1,
-                file_count,
-            );
-
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid =
-                repo.commit(None, &author, &committer, &message, &new_tree, &parent_refs)?;
-            current_base = Some(new_oid);
-            current_tree_oid = new_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-file")?;
-
-        Ok(())
-    }
-
-    fn split_commit_per_hunk(&self, commit_oid: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Compute diff with 0 context lines so adjacent hunks stay separate
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let full_diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-
-        // Count total hunks across all files
-        let mut hunk_count = 0usize;
-        full_diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |_, _| {
-                hunk_count += 1;
-                true
-            }),
-            None,
-        )?;
-
-        if hunk_count < 2 {
-            anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
-        }
-
-        // Collect the file paths touched by this commit for the dirty overlap check
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Build one commit per hunk using incremental blob manipulation.
-        //
-        // At each step, recompute diff(current_tree → commit_tree) with 0 context
-        // and apply exactly its first hunk directly to the blob — bypassing
-        // apply_to_tree entirely to avoid libgit2 validating rejected hunks against
-        // the modified output buffer (which shifts line positions and causes
-        // "hunk did not apply").
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for target_k in 0..hunk_count {
-            let next_tree_oid = if target_k == hunk_count - 1 {
-                commit_tree.id()
-            } else {
-                let current_tree = repo.find_tree(current_tree_oid)?;
-                let mut diff_opts = git2::DiffOptions::new();
-                diff_opts.context_lines(0);
-                diff_opts.interhunk_lines(0);
-                let incremental_diff = repo.diff_tree_to_tree(
-                    Some(&current_tree),
-                    Some(&commit_tree),
-                    Some(&mut diff_opts),
-                )?;
-                apply_single_hunk_to_tree(repo, &current_tree, &incremental_diff)
-                    .with_context(|| format!("applying hunk {}", target_k + 1))?
-            };
-
-            let next_tree = repo.find_tree(next_tree_oid)?;
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = split_message(
-                commit.message().unwrap_or("split"),
-                target_k + 1,
-                hunk_count,
-            );
-
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid = repo.commit(
-                None,
-                &author,
-                &committer,
-                &message,
-                &next_tree,
-                &parent_refs,
-            )?;
-            current_base = Some(new_oid);
-            current_tree_oid = next_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk")?;
-
-        Ok(())
-    }
-
-    fn split_commit_per_hunk_group(
-        &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
-    ) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for split")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-
-        // Build the fragmap over all branch commits so hunk grouping reflects
-        // how this commit interacts with its neighbours in the branch.
-        let branch_commits = self.list_commits(head_oid, reference_oid)?;
-        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
-            .iter()
-            // Exclude the reference point unless it is the commit being split
-            // (in --all mode the root commit IS the reference point).
-            .filter(|c| {
-                (c.oid != reference_oid || c.oid == commit_oid) && !c.oid.starts_with("synthetic:")
-            })
-            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
-            .collect();
-
-        let (_, assignment) =
-            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
-                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
-            })?;
-
-        // Build a 0-context full diff (parent_tree → commit_tree) for tree
-        // manipulation; hunk indices here correspond to those in `assignment`.
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let full_diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-
-        let commit_paths: HashSet<String> = full_diff
-            .deltas()
-            .filter_map(|d| {
-                d.new_file()
-                    .path()
-                    .or_else(|| d.old_file().path())
-                    .map(|p| p.to_string_lossy().into_owned())
-            })
-            .collect();
-        self.check_dirty_overlap(&commit_paths)?;
-
-        // Build delta_hunk_groups: for each (delta_idx, hunk_idx), its group index.
-        let mut delta_hunk_groups: Vec<Vec<usize>> = Vec::new();
-        let num_deltas = full_diff.deltas().len();
-        for delta_idx in 0..num_deltas {
-            let delta = full_diff.get_delta(delta_idx).context("delta index")?;
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
-            let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
-            let file_groups = assignment.get(&path);
-            let groups_for_delta: Vec<usize> = (0..num_hunks)
-                .map(|h| file_groups.and_then(|fg| fg.get(h).copied()).unwrap_or(0))
-                .collect();
-            delta_hunk_groups.push(groups_for_delta);
-        }
-
-        // Determine which group indices K's hunks actually touch (sorted).
-        // Only these produce output commits — not every column the full fragmap has.
-        let mut touched: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-        for groups in &delta_hunk_groups {
-            touched.extend(groups);
-        }
-        let k_groups: Vec<usize> = touched.into_iter().collect();
-        let split_count = k_groups.len();
-
-        if split_count < 2 {
-            anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
-        }
-
-        // For each touched group gk (in order), build the intermediate tree by
-        // applying all of K's hunks whose group index ≤ gk to parent_tree in one
-        // sweep (positions relative to the original, no cumulative offset issues).
-        // For root commits current_base is None; the first split piece becomes
-        // the new orphan root and subsequent ones are stacked on top.
-        let mut current_base: Option<git2::Oid> = if commit.parent_count() == 0 {
-            None
-        } else {
-            Some(commit.parent_id(0)?)
-        };
-        let mut current_tree_oid = parent_tree.id();
-        for (out_pos, &gk) in k_groups.iter().enumerate() {
-            let next_tree_oid = if out_pos == split_count - 1 {
-                commit_tree.id()
-            } else {
-                // Collect (delta_idx → hunk_indices) for hunks in groups 0..=gk.
-                let mut selected: HashMap<usize, Vec<usize>> = HashMap::new();
-                for (delta_idx, hunk_groups) in delta_hunk_groups.iter().enumerate() {
-                    let chosen: Vec<usize> = hunk_groups
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(h, &g)| if g <= gk { Some(h) } else { None })
-                        .collect();
-                    if !chosen.is_empty() {
-                        selected.insert(delta_idx, chosen);
-                    }
-                }
-                apply_selected_hunks_to_tree(repo, &parent_tree, &full_diff, &selected)
-                    .with_context(|| format!("building tree for hunk group {}", out_pos + 1))?
-            };
-
-            let next_tree = repo.find_tree(next_tree_oid)?;
-            let author = commit.author();
-            let committer = commit.committer();
-            let message = split_message(
-                commit.message().unwrap_or("split"),
-                out_pos + 1,
-                split_count,
-            );
-            let parents: Vec<git2::Commit> = match current_base {
-                Some(oid) => vec![repo.find_commit(oid)?],
-                None => vec![],
-            };
-            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-            let new_oid = repo.commit(
-                None,
-                &author,
-                &committer,
-                &message,
-                &next_tree,
-                &parent_refs,
-            )?;
-            current_base = Some(new_oid);
-            current_tree_oid = next_tree_oid;
-        }
-
-        let final_tip = current_base.expect("loop produced at least two commits");
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid head OID")?;
-        let rebased_tip = self.rebase_descendants(commit_git_oid, head_git_oid, final_tip)?;
-        self.advance_branch_ref(rebased_tip, "git-tailor: split per-hunk-group")?;
-
-        let _ = current_tree_oid; // suppress unused warning
-        Ok(())
-    }
-
-    fn count_split_per_file(&self, commit_oid: &str) -> Result<usize> {
-        let repo = &self.inner;
-        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
-        let commit = repo.find_commit(oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-        let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-        Ok(diff.deltas().len())
-    }
-
-    fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize> {
-        let repo = &self.inner;
-        let oid = git2::Oid::from_str(commit_oid).context("Invalid commit OID")?;
-        let commit = repo.find_commit(oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot split a merge commit");
-        }
-        let parent_tree = if commit.parent_count() == 0 {
-            let empty_oid = repo.treebuilder(None)?.write()?;
-            repo.find_tree(empty_oid)?
-        } else {
-            commit.parent(0)?.tree()?
-        };
-        let commit_tree = commit.tree()?;
-        let mut diff_opts = git2::DiffOptions::new();
-        diff_opts.context_lines(0);
-        diff_opts.interhunk_lines(0);
-        let diff =
-            repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), Some(&mut diff_opts))?;
-        let mut count = 0usize;
-        diff.foreach(
-            &mut |_, _| true,
-            None,
-            Some(&mut |_, _| {
-                count += 1;
-                true
-            }),
-            None,
-        )?;
-        Ok(count)
-    }
-
-    fn count_split_per_hunk_group(
-        &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
-    ) -> Result<usize> {
-        let branch_commits = self.list_commits(head_oid, reference_oid)?;
-        let branch_diffs: Vec<crate::CommitDiff> = branch_commits
-            .iter()
-            .filter(|c| c.oid != reference_oid && !c.oid.starts_with("synthetic:"))
-            .filter_map(|c| self.commit_diff_for_fragmap(&c.oid).ok())
-            .collect();
-
-        let (_, assignment) =
-            fragmap::assign_hunk_groups(&branch_diffs, commit_oid).ok_or_else(|| {
-                anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid)
-            })?;
-
-        // Count only the group indices that K's own hunks touch.
-        let touched: std::collections::HashSet<usize> =
-            assignment.values().flatten().copied().collect();
-        Ok(touched.len())
-    }
-
-    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()> {
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for reword")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for reword")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        let parents: Vec<git2::Commit> = (0..commit.parent_count())
-            .map(|i| commit.parent(i))
-            .collect::<std::result::Result<_, _>>()?;
-        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-
-        let new_oid = repo.commit(
-            None,
-            &commit.author(),
-            &commit.committer(),
-            new_message,
-            &commit.tree()?,
-            &parent_refs,
-        )?;
-
-        let tip = self.rebase_descendants(commit_git_oid, head_git_oid, new_oid)?;
-        self.advance_branch_ref(tip, "reword: update branch ref")?;
-        Ok(())
-    }
-
-    fn get_config_string(&self, key: &str) -> Option<String> {
-        self.inner.config().ok()?.get_string(key).ok()
-    }
-
-    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<super::RebaseOutcome> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for drop")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for drop")?;
-        let commit = repo.find_commit(commit_git_oid)?;
-
-        if commit.parent_count() != 1 {
-            anyhow::bail!("Cannot drop a merge or root commit");
-        }
-        let parent_oid = commit.parent_id(0)?;
-
-        let original_branch_oid = head_oid.to_string();
-
-        // Collect descendants: commits strictly between commit_oid and head_oid.
-        let descendants = self.collect_descendants(commit_git_oid, head_git_oid)?;
-
-        // Cherry-pick each descendant onto the new chain, starting from the
-        // dropped commit's parent.
-        let result = self.cherry_pick_chain(parent_oid, &descendants)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: drop commit")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = descendants[conflicting_idx];
-                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Drop".to_string(),
-                        original_branch_oid,
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: None,
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
-    }
-
-    fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        let repo = &self.inner;
-
-        let tip_oid =
-            git2::Oid::from_str(&state.new_tip_oid).context("Invalid tip OID in conflict state")?;
-        let conflicting_oid = git2::Oid::from_str(&state.conflicting_commit_oid)
-            .context("Invalid conflicting OID in conflict state")?;
-        let conflicting_commit = repo.find_commit(conflicting_oid)?;
-        let onto_commit = repo.find_commit(tip_oid)?;
-
-        // Re-read index from disk — the user (or another process) resolved
-        // conflicts by editing the on-disk index.
-        let mut index = repo.index()?;
-        index.read(true)?;
-        if index.has_conflicts() {
-            // The user pressed Enter but some files still have conflict
-            // markers. Stay in RebaseConflict mode with a refreshed file
-            // list so the dialog keeps the user informed rather than bailing
-            // out and leaving the repo in a broken state.
-            return Ok(super::RebaseOutcome::Conflict(Box::new(
-                super::ConflictState {
-                    operation_label: state.operation_label.clone(),
-                    original_branch_oid: state.original_branch_oid.clone(),
-                    new_tip_oid: state.new_tip_oid.clone(),
-                    conflicting_commit_oid: state.conflicting_commit_oid.clone(),
-                    remaining_oids: state.remaining_oids.clone(),
-                    conflicting_files: collect_conflict_files(repo),
-                    still_unresolved: true,
-                    moved_commit_oid: state.moved_commit_oid.clone(),
-                    squash_context: state.squash_context.clone(),
-                },
-            )));
-        }
-
-        let new_tree_oid = index.write_tree()?;
-        let new_tree = repo.find_tree(new_tree_oid)?;
-
-        let new_tip = repo.commit(
-            None,
-            &conflicting_commit.author(),
-            &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
-            &new_tree,
-            &[&onto_commit],
-        )?;
-
-        // Continue cherry-picking remaining descendants.
-        let remaining: Vec<git2::Oid> = state
-            .remaining_oids
-            .iter()
-            .map(|s| git2::Oid::from_str(s))
-            .collect::<std::result::Result<_, _>>()
-            .context("Invalid OID in remaining list")?;
-
-        let result = self.cherry_pick_chain(new_tip, &remaining)?;
-        match result {
-            CherryPickResult::Complete(final_tip) => {
-                let label = state.operation_label.to_lowercase();
-                self.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = remaining[conflicting_idx];
-                let new_remaining: Vec<String> = remaining[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: state.operation_label.clone(),
-                        original_branch_oid: state.original_branch_oid.clone(),
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: new_remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: state.moved_commit_oid.clone(),
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
-    }
-
-    fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
-        let original_oid = git2::Oid::from_str(&state.original_branch_oid)
-            .context("Invalid original branch OID in conflict state")?;
-        let label = state.operation_label.to_lowercase();
-        self.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
-
-        // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
-        // clears the index and repopulates it from the cherry-pick result (rooted in
-        // the target commit's tree), so checkout_head alone cannot restore files that
-        // exist in HEAD but were absent from that tree.
-        let head_commit = self.inner.find_commit(original_oid)?;
-        let mut index = self.inner.index()?;
-        index.read_tree(&head_commit.tree()?)?;
-        index.write()?;
-
-        // Force-checkout HEAD and remove files that were written to the workdir
-        // by the conflict checkout but are not tracked by the original HEAD.
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        checkout.remove_untracked(true);
-        self.inner.checkout_head(Some(&mut checkout))?;
-        Ok(())
-    }
-
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        self.inner.workdir().map(|p| p.to_path_buf())
-    }
-
-    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
-        let repo = &self.inner;
-        let mut index = repo.index().context("failed to read index")?;
-        index
-            .read(true)
-            .context("failed to refresh index from disk")?;
-        let Some(entry) = index.get_path(std::path::Path::new(path), stage) else {
-            return Ok(None);
-        };
-        let blob = repo
-            .find_blob(entry.id)
-            .context("failed to find blob for index stage")?;
-        Ok(Some(blob.content().to_vec()))
-    }
-
-    fn read_conflicting_files(&self) -> Vec<String> {
-        collect_conflict_files(&self.inner)
-    }
-
-    fn move_commit(
-        &self,
-        commit_oid: &str,
-        insert_after_oid: &str,
-        head_oid: &str,
-    ) -> Result<super::RebaseOutcome> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let commit_git_oid =
-            git2::Oid::from_str(commit_oid).context("Invalid commit OID for move")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for move")?;
-
-        let commit = repo.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot move a merge commit");
-        }
-
-        let original_branch_oid = head_oid.to_string();
-
-        // Determine the chain base and the ordered commit list to replay.
-        //
-        // Empty `insert_after_oid` is a sentinel meaning "make the source the
-        // new root commit" (used by --all mode when the user moves a commit
-        // before the first visible entry).  In that case the source commit's
-        // diff is applied to an empty tree to create the new orphan root, and
-        // all other commits are cherry-picked on top in their original order.
-        let (chain_base, reordered) = if insert_after_oid.is_empty() {
-            // Collect every commit from root to HEAD oldest-first.
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-position move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            // Build the new root commit from the source commit's own diff
-            // applied to an empty tree.
-            let parent_tree = commit.parent(0)?.tree()?;
-            let commit_tree = commit.tree()?;
-            let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
-
-            let empty_tree_oid = repo.treebuilder(None)?.write()?;
-            let empty_tree = repo.find_tree(empty_tree_oid)?;
-
-            let mut new_idx = repo.apply_to_tree(&empty_tree, &diff, None)?;
-            if new_idx.has_conflicts() {
-                anyhow::bail!("Unexpected conflict creating new root from moved commit");
-            }
-            let new_tree_oid = new_idx.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let new_root_oid = repo.commit(
-                None,
-                &commit.author(),
-                &commit.committer(),
-                commit.message().unwrap_or(""),
-                &new_tree,
-                &[], // no parents — this becomes the new root
-            )?;
-
-            let remaining: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            (new_root_oid, remaining)
-        } else if commit.parent_count() == 0 {
-            // Source IS the root commit; move it to a later position.
-            // The new first commit in the reordered list becomes the orphan
-            // root (its full tree is used as-is), then the rest (including
-            // the original root) are cherry-picked on top.
-            let insert_after_git_oid = git2::Oid::from_str(insert_after_oid)
-                .context("Invalid insert-after OID for move")?;
-
-            let mut revwalk = repo.revwalk()?;
-            revwalk.push(head_git_oid)?;
-            let mut all_oids: Vec<git2::Oid> = revwalk
-                .collect::<Result<Vec<_>, git2::Error>>()
-                .context("Failed to walk commits for root-move")?;
-            all_oids.reverse(); // oldest first: [root, …, HEAD]
-
-            let mut reordered: Vec<git2::Oid> = all_oids
-                .into_iter()
-                .filter(|&oid| oid != commit_git_oid)
-                .collect();
-
-            let insert_pos = reordered
-                .iter()
-                .position(|&oid| oid == insert_after_git_oid)
-                .context("insert_after_oid not found among branch commits")?
-                + 1;
-            reordered.insert(insert_pos, commit_git_oid);
-
-            // Commit the new first entry as an orphan root using its tree.
-            let first_commit = repo.find_commit(reordered[0])?;
-            let new_root_oid = repo.commit(
-                None,
-                &first_commit.author(),
-                &first_commit.committer(),
-                first_commit.message().unwrap_or(""),
-                &first_commit.tree()?,
-                &[],
-            )?;
-
-            (new_root_oid, reordered[1..].to_vec())
-        } else {
-            let insert_after_git_oid = git2::Oid::from_str(insert_after_oid)
-                .context("Invalid insert-after OID for move")?;
-            let source_parent_oid = commit.parent_id(0)?;
-
-            // The rebase base is the earlier of insert_after and source's parent.
-            let base_oid = repo.merge_base(insert_after_git_oid, source_parent_oid)?;
-
-            // Collect all commits between base (exclusive) and HEAD (inclusive).
-            let all_descendants = self.collect_descendants(base_oid, head_git_oid)?;
-
-            let mut reordered: Vec<git2::Oid> = all_descendants
-                .iter()
-                .filter(|&&oid| oid != commit_git_oid)
-                .copied()
-                .collect();
-
-            let insert_pos = if insert_after_git_oid == base_oid {
-                0
-            } else {
-                reordered
-                    .iter()
-                    .position(|&oid| oid == insert_after_git_oid)
-                    .context("insert_after_oid not found among branch commits")?
-                    + 1
-            };
-            reordered.insert(insert_pos, commit_git_oid);
-
-            (base_oid, reordered)
-        };
-
-        let result = self.cherry_pick_chain(chain_base, &reordered)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: move commit")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = reordered[conflicting_idx];
-                let remaining: Vec<String> = reordered[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Move".to_string(),
-                        original_branch_oid,
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: Some(commit_oid.to_string()),
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
-    }
-
-    fn squash_commits(
-        &self,
-        source_oid: &str,
-        target_oid: &str,
-        message: &str,
-        head_oid: &str,
-    ) -> Result<super::RebaseOutcome> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let source_git_oid =
-            git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
-        let target_git_oid =
-            git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
-
-        let source_commit = repo.find_commit(source_git_oid)?;
-        let target_commit = repo.find_commit(target_git_oid)?;
-
-        if target_commit.parent_count() != 1 {
-            anyhow::bail!("Cannot squash into a merge or root commit");
-        }
-        let base_oid = target_commit.parent_id(0)?;
-        let base_commit = repo.find_commit(base_oid)?;
-
-        // Create the combined tree by applying source's diff onto target's tree.
-        let mut cherry_index = repo.cherrypick_commit(&source_commit, &target_commit, 0, None)?;
-        if cherry_index.has_conflicts() {
-            let original_branch_oid = head_oid.to_string();
-
-            // Collect descendants now so they're available after resolution.
-            let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
-            let descendants: Vec<String> = all_descendants
-                .into_iter()
-                .filter(|&oid| oid != source_git_oid)
-                .map(|oid| oid.to_string())
-                .collect();
-
-            // Write the conflicted index to the working tree so the user can
-            // resolve it with their editor or merge tool.
-            self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
-
-            return Ok(super::RebaseOutcome::Conflict(Box::new(
-                super::ConflictState {
-                    operation_label: "Squash".to_string(),
-                    original_branch_oid,
-                    new_tip_oid: target_git_oid.to_string(),
-                    conflicting_commit_oid: source_git_oid.to_string(),
-                    remaining_oids: vec![],
-                    conflicting_files: collect_conflict_files(repo),
-                    still_unresolved: false,
-                    moved_commit_oid: None,
-                    squash_context: Some(super::SquashContext {
-                        base_oid: base_oid.to_string(),
-                        source_oid: source_oid.to_string(),
-                        target_oid: target_oid.to_string(),
-                        combined_message: message.to_string(),
-                        descendant_oids: descendants,
-                        is_fixup: false,
-                    }),
-                },
-            )));
-        }
-
-        let combined_tree_oid = cherry_index.write_tree_to(repo)?;
-        let combined_tree = repo.find_tree(combined_tree_oid)?;
-
-        let squash_oid = repo.commit(
-            None,
-            &target_commit.author(),
-            &target_commit.committer(),
-            message,
-            &combined_tree,
-            &[&base_commit],
-        )?;
-
-        let original_branch_oid = head_oid.to_string();
-
-        // Collect descendants: everything between target and HEAD, minus source.
-        let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
-        let descendants: Vec<git2::Oid> = all_descendants
-            .into_iter()
-            .filter(|&oid| oid != source_git_oid)
-            .collect();
-
-        let result = self.cherry_pick_chain(squash_oid, &descendants)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: squash commits")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = descendants[conflicting_idx];
-                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Squash".to_string(),
-                        original_branch_oid,
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: None,
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
-    }
-
-    fn stage_file(&self, path: &str) -> Result<()> {
-        let repo = &self.inner;
-        let mut index = repo.index().context("failed to read index")?;
+    pub(super) fn stage_file(&self, path: &str) -> Result<()> {
+        let mut index = self.inner.index().context("failed to read index")?;
         index
             .read(true)
             .context("failed to refresh index from disk")?;
 
-        let workdir = repo
+        let workdir = self
+            .inner
             .workdir()
             .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
 
@@ -1217,542 +95,164 @@ impl GitRepo for Git2Repo {
             .context("failed to write index after staging")?;
         Ok(())
     }
+}
+
+impl GitRepo for Git2Repo {
+    fn head_oid(&self) -> Result<Oid> {
+        reads::head_oid(self)
+    }
+
+    fn find_reference_point(&self, commit_ish: &str) -> Result<Oid> {
+        reads::find_reference_point(self, commit_ish)
+    }
+
+    fn list_commits(&self, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<CommitInfo>> {
+        reads::list_commits(self, from_oid, to_oid)
+    }
+
+    fn commit_diff(&self, oid: &Oid) -> Result<CommitDiff> {
+        reads::commit_diff(self, oid)
+    }
+
+    fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff> {
+        reads::commit_diff_for_fragmap(self, oid)
+    }
+
+    fn staged_diff(&self) -> Option<CommitDiff> {
+        reads::staged_diff(self)
+    }
+
+    fn unstaged_diff(&self) -> Option<CommitDiff> {
+        reads::unstaged_diff(self)
+    }
+
+    fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        split_op::split_commit_per_file(self, commit_oid, head_oid)
+    }
+
+    fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        split_op::split_commit_per_hunk(self, commit_oid, head_oid)
+    }
+
+    fn split_commit_per_hunk_group(
+        &self,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+    ) -> Result<()> {
+        split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+    }
+
+    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
+        split_op::count_split_per_file(self, commit_oid)
+    }
+
+    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize> {
+        split_op::count_split_per_hunk(self, commit_oid)
+    }
+
+    fn count_split_per_hunk_group(
+        &self,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+    ) -> Result<usize> {
+        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+    }
+
+    fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
+        reword_op::reword_commit(self, commit_oid, new_message, head_oid)
+    }
+
+    fn get_config_string(&self, key: &str) -> Option<String> {
+        reads::get_config_string(self, key)
+    }
+
+    fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
+        drop_op::drop_commit(self, commit_oid, head_oid)
+    }
+
+    fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        conflict::rebase_continue(self, state)
+    }
+
+    fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
+        conflict::rebase_abort(self, state)
+    }
+
+    fn workdir(&self) -> Option<std::path::PathBuf> {
+        reads::workdir(self)
+    }
+
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+        reads::read_index_stage(self, path, stage)
+    }
+
+    fn read_conflicting_files(&self) -> Vec<String> {
+        conflict::read_conflicting_files(self)
+    }
+
+    fn move_commit(
+        &self,
+        commit_oid: &Oid,
+        insert_after_oid: Option<&Oid>,
+        head_oid: &Oid,
+    ) -> Result<super::RebaseOutcome> {
+        move_op::move_commit(self, commit_oid, insert_after_oid, head_oid)
+    }
+
+    fn squash_commits(
+        &self,
+        source_oid: &Oid,
+        target_oid: &Oid,
+        message: &str,
+        head_oid: &Oid,
+    ) -> Result<super::RebaseOutcome> {
+        squash_op::squash_commits(self, source_oid, target_oid, message, head_oid)
+    }
+
+    fn stage_file(&self, path: &str) -> Result<()> {
+        self.stage_file(path)
+    }
 
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
-        let workdir = self
-            .inner
-            .workdir()
-            .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-
-        for path in files {
-            let full_path = workdir.join(path);
-            if !full_path.exists() {
-                // File was deleted — stage the deletion to clear conflict entries.
-                self.stage_file(path)?;
-                continue;
-            }
-            let content = std::fs::read(&full_path)
-                .with_context(|| format!("failed to read '{path}' from working tree"))?;
-            if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
-                self.stage_file(path)?;
-            }
-        }
-        Ok(())
+        conflict::auto_stage_resolved_conflicts(self, files)
     }
 
     fn default_branch(&self) -> Option<String> {
-        let reference = self.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
-        let target = reference.symbolic_target()?;
-        // Strip the "refs/remotes/" prefix so the caller can pass the result
-        // directly to find_reference_point (e.g. "origin/main").
-        target.strip_prefix("refs/remotes/").map(str::to_string)
+        reads::default_branch(self)
     }
 
-    fn root_commit_oid(&self) -> Result<String> {
-        let mut revwalk = self.inner.revwalk()?;
-        revwalk.push_head()?;
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            let commit = self.inner.find_commit(oid)?;
-            if commit.parent_count() == 0 {
-                return Ok(oid.to_string());
-            }
-        }
-        anyhow::bail!("No root commit found reachable from HEAD")
+    fn root_commit_oid(&self) -> Result<Oid> {
+        reads::root_commit_oid(self)
     }
 
     fn squash_try_combine(
         &self,
-        source_oid: &str,
-        target_oid: &str,
+        source_oid: &Oid,
+        target_oid: &Oid,
         combined_message: &str,
         is_fixup: bool,
-        head_oid: &str,
+        head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
-        self.check_no_dirty_state()?;
-
-        let repo = &self.inner;
-
-        let source_git_oid =
-            git2::Oid::from_str(source_oid).context("Invalid source OID for squash")?;
-        let target_git_oid =
-            git2::Oid::from_str(target_oid).context("Invalid target OID for squash")?;
-        let head_git_oid = git2::Oid::from_str(head_oid).context("Invalid HEAD OID for squash")?;
-
-        let source_commit = repo.find_commit(source_git_oid)?;
-        let target_commit = repo.find_commit(target_git_oid)?;
-
-        if target_commit.parent_count() != 1 {
-            anyhow::bail!("Cannot squash into a merge or root commit");
-        }
-        let base_oid = target_commit.parent_id(0)?;
-
-        let cherry_index = repo.cherrypick_commit(&source_commit, &target_commit, 0, None)?;
-        if !cherry_index.has_conflicts() {
-            return Ok(None);
-        }
-
-        let original_branch_oid = head_oid.to_string();
-
-        let all_descendants = self.collect_descendants(target_git_oid, head_git_oid)?;
-        let descendants: Vec<String> = all_descendants
-            .into_iter()
-            .filter(|&oid| oid != source_git_oid)
-            .map(|oid| oid.to_string())
-            .collect();
-
-        self.write_conflicts_to_workdir(&cherry_index, &target_commit)?;
-
-        let operation_label = if is_fixup { "Fixup" } else { "Squash" }.to_string();
-
-        Ok(Some(super::ConflictState {
-            operation_label,
-            original_branch_oid,
-            new_tip_oid: target_git_oid.to_string(),
-            conflicting_commit_oid: source_git_oid.to_string(),
-            remaining_oids: vec![],
-            conflicting_files: collect_conflict_files(repo),
-            still_unresolved: false,
-            moved_commit_oid: None,
-            squash_context: Some(super::SquashContext {
-                base_oid: base_oid.to_string(),
-                source_oid: source_oid.to_string(),
-                target_oid: target_oid.to_string(),
-                combined_message: combined_message.to_string(),
-                descendant_oids: descendants,
-                is_fixup,
-            }),
-        }))
+        squash_op::squash_try_combine(
+            self,
+            source_oid,
+            target_oid,
+            combined_message,
+            is_fixup,
+            head_oid,
+        )
     }
 
     fn squash_finalize(
         &self,
         ctx: &super::SquashContext,
         message: &str,
-        original_branch_oid: &str,
+        original_branch_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        let repo = &self.inner;
-
-        let mut index = repo.index()?;
-        index.read(true)?;
-        if index.has_conflicts() {
-            anyhow::bail!("Cannot finalize squash: index still has unresolved conflicts");
-        }
-
-        let base_git_oid =
-            git2::Oid::from_str(&ctx.base_oid).context("Invalid base OID in squash context")?;
-        let target_git_oid =
-            git2::Oid::from_str(&ctx.target_oid).context("Invalid target OID in squash context")?;
-        let base_commit = repo.find_commit(base_git_oid)?;
-        let target_commit = repo.find_commit(target_git_oid)?;
-
-        let combined_tree_oid = index.write_tree()?;
-        let combined_tree = repo.find_tree(combined_tree_oid)?;
-
-        let squash_oid = repo.commit(
-            None,
-            &target_commit.author(),
-            &target_commit.committer(),
-            message,
-            &combined_tree,
-            &[&base_commit],
-        )?;
-
-        let descendants: Vec<git2::Oid> = ctx
-            .descendant_oids
-            .iter()
-            .map(|s| git2::Oid::from_str(s))
-            .collect::<std::result::Result<_, _>>()
-            .context("Invalid OID in descendant list")?;
-
-        let result = self.cherry_pick_chain(squash_oid, &descendants)?;
-        match result {
-            CherryPickResult::Complete(tip) => {
-                self.advance_branch_ref(tip, "git-tailor: squash commits (finalize)")?;
-                self.checkout_head()?;
-                Ok(super::RebaseOutcome::Complete)
-            }
-            CherryPickResult::Conflict {
-                tip,
-                conflicting_idx,
-            } => {
-                let conflicting_oid = descendants[conflicting_idx];
-                let remaining: Vec<String> = descendants[conflicting_idx + 1..]
-                    .iter()
-                    .map(|oid| oid.to_string())
-                    .collect();
-
-                Ok(super::RebaseOutcome::Conflict(Box::new(
-                    super::ConflictState {
-                        operation_label: "Squash".to_string(),
-                        original_branch_oid: original_branch_oid.to_string(),
-                        new_tip_oid: tip.to_string(),
-                        conflicting_commit_oid: conflicting_oid.to_string(),
-                        remaining_oids: remaining,
-                        conflicting_files: collect_conflict_files(repo),
-                        still_unresolved: false,
-                        moved_commit_oid: None,
-                        squash_context: None,
-                    },
-                )))
-            }
-        }
+        squash_op::squash_finalize(self, ctx, message, original_branch_oid)
     }
-}
-
-// ---------------------------------------------------------------------------
-// Private helpers for drop/conflict operations
-// ---------------------------------------------------------------------------
-
-/// Collect paths of all files that have conflict entries (stage > 0) in the
-/// repository's current index.  Returns them sorted for a stable display order.
-fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
-    let mut index = match repo.index() {
-        Ok(i) => i,
-        Err(_) => return Vec::new(),
-    };
-    let _ = index.read(true);
-    let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for entry in index.iter() {
-        // stage is encoded in the high bits of flags
-        let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0
-            && let Ok(p) = std::str::from_utf8(&entry.path)
-        {
-            paths.insert(p.to_string());
-        }
-    }
-    paths.into_iter().collect()
-}
-
-// ---------------------------------------------------------------------------
-// Private helpers for split operations (not part of the GitRepo trait)
-// ---------------------------------------------------------------------------
-
-/// Build the commit message for the n-th commit in a split sequence.
-///
-/// The first line of the original message is kept and suffixed with "(n/total)".
-/// If the original message has a body (text after the first line), it is
-/// appended unchanged so no information is lost.
-fn split_message(original: &str, n: usize, total: usize) -> String {
-    let mut lines = original.splitn(2, '\n');
-    let first = lines.next().unwrap_or("split").trim_end();
-    let rest = lines.next().unwrap_or("");
-    if rest.trim().is_empty() {
-        format!("{} ({}/{})", first, n, total)
-    } else {
-        format!("{} ({}/{})\n{}", first, n, total, rest)
-    }
-}
-
-/// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
-/// updated tree OID.
-///
-/// `apply_to_tree` cannot handle gitlink entries because libgit2 treats them
-/// as blobs, causing a crash.  `TreeUpdateBuilder` supports the `0o160000`
-/// commit-mode entry directly and is used here instead.
-fn apply_gitlink_delta_to_tree(
-    repo: &git2::Repository,
-    base_tree: &git2::Tree<'_>,
-    delta: &git2::DiffDelta<'_>,
-) -> Result<git2::Oid> {
-    let path = delta
-        .new_file()
-        .path()
-        .or_else(|| delta.old_file().path())
-        .context("gitlink delta has no path")?
-        .to_owned();
-    let path_str = path.to_str().context("submodule path is not valid UTF-8")?;
-
-    let mut builder = git2::build::TreeUpdateBuilder::new();
-    if delta.status() == git2::Delta::Deleted {
-        builder.remove(path_str);
-    } else {
-        builder.upsert(path_str, delta.new_file().id(), git2::FileMode::Commit);
-    }
-    builder.create_updated(repo, base_tree).map_err(Into::into)
-}
-
-/// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
-/// and return the resulting tree OID.
-///
-/// The diff must have been computed from `base_tree`, so the hunk's old-side
-/// content matches exactly.  This avoids `apply_to_tree` with `hunk_callback`
-/// filtering, which fails because libgit2 validates rejected hunks against the
-/// already-modified output buffer (whose line positions have shifted).
-fn apply_single_hunk_to_tree(
-    repo: &git2::Repository,
-    base_tree: &git2::Tree,
-    diff: &git2::Diff,
-) -> Result<git2::Oid> {
-    for delta_idx in 0..diff.deltas().len() {
-        let mut patch = match git2::Patch::from_diff(diff, delta_idx)? {
-            Some(p) => p,
-            None => continue,
-        };
-        if patch.num_hunks() == 0 {
-            continue;
-        }
-        let delta = diff.get_delta(delta_idx).context("delta index in range")?;
-        let file_path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .context("delta has no file path")?
-            .to_owned();
-
-        let (old_content, mode) = match delta.status() {
-            git2::Delta::Added => {
-                let m: u32 = delta.new_file().mode().into();
-                (Vec::new(), m)
-            }
-            _ => {
-                let entry = base_tree
-                    .get_path(&file_path)
-                    .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
-                let blob = repo.find_blob(entry.id())?;
-                (blob.content().to_owned(), entry.filemode() as u32)
-            }
-        };
-
-        let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
-            .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
-
-        let new_blob_oid = repo.blob(&new_content)?;
-
-        // Load base_tree into an in-memory index, update the one file, write tree.
-        let mut idx = git2::Index::new()?;
-        idx.read_tree(base_tree)?;
-
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
-        idx.add(&git2::IndexEntry {
-            ctime: git2::IndexTime::new(0, 0),
-            mtime: git2::IndexTime::new(0, 0),
-            dev: 0,
-            ino: 0,
-            mode,
-            uid: 0,
-            gid: 0,
-            file_size: new_content.len() as u32,
-            id: new_blob_oid,
-            flags: 0,
-            flags_extended: 0,
-            path: path_bytes,
-        })?;
-
-        return idx.write_tree_to(repo).map_err(Into::into);
-    }
-    Ok(base_tree.id())
-}
-
-/// Apply hunk `hunk_idx` from `patch` to `content`, returning the new bytes.
-///
-/// Replacement splices in context + added lines, dropping deleted lines.
-fn apply_hunk_to_content(
-    content: &[u8],
-    patch: &mut git2::Patch,
-    hunk_idx: usize,
-) -> Result<Vec<u8>> {
-    let (hunk_header, _) = patch.hunk(hunk_idx)?;
-    let old_start = hunk_header.old_start() as usize; // 1-based
-    let old_count = hunk_header.old_lines() as usize;
-
-    let lines = split_lines_keep_eol(content);
-
-    let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
-    let mut replacement: Vec<Vec<u8>> = Vec::new();
-    for line_idx in 0..num_lines {
-        let line = patch.line_in_hunk(hunk_idx, line_idx)?;
-        match line.origin() {
-            ' ' | '+' => replacement.push(line.content().to_owned()),
-            _ => {}
-        }
-    }
-
-    // old_start is 1-based.  For a substitution or deletion (old_count > 0) it
-    // is the first line to remove, so the 0-based index is old_start-1.
-    // For a pure insertion (old_count == 0) git convention says "insert after
-    // line old_start", so the splice point is old_start (0-based).
-    let start = if old_count == 0 {
-        old_start.min(lines.len())
-    } else {
-        old_start.saturating_sub(1).min(lines.len())
-    };
-    let end = (start + old_count).min(lines.len());
-
-    let mut result: Vec<u8> = Vec::new();
-    for l in &lines[..start] {
-        result.extend_from_slice(l);
-    }
-    for r in &replacement {
-        result.extend_from_slice(r);
-    }
-    for l in &lines[end..] {
-        result.extend_from_slice(l);
-    }
-    Ok(result)
-}
-
-/// Split raw bytes into lines keeping each `\n` terminator attached.
-fn split_lines_keep_eol(data: &[u8]) -> Vec<&[u8]> {
-    let mut lines: Vec<&[u8]> = Vec::new();
-    let mut start = 0;
-    for (i, &b) in data.iter().enumerate() {
-        if b == b'\n' {
-            lines.push(&data[start..=i]);
-            start = i + 1;
-        }
-    }
-    if start < data.len() {
-        lines.push(&data[start..]);
-    }
-    lines
-}
-
-/// Apply the hunks at `hunk_indices` from `patch` to `content` in a single
-/// sweep, using each hunk's original `old_start` position.  Hunks NOT listed
-/// in `hunk_indices` are preserved unchanged.
-///
-/// `hunk_indices` need not be sorted on entry; the function sorts them by
-/// `old_start` before processing.
-fn apply_multiple_hunks_to_content(
-    content: &[u8],
-    patch: &mut git2::Patch,
-    hunk_indices: &[usize],
-) -> Result<Vec<u8>> {
-    // Sort by old_start so we can sweep top-to-bottom through the original.
-    let mut sorted: Vec<(usize, u32)> = hunk_indices
-        .iter()
-        .map(|&i| {
-            patch
-                .hunk(i)
-                .map(|(h, _)| (i, h.old_start()))
-                .map_err(anyhow::Error::from)
-        })
-        .collect::<Result<_>>()?;
-    sorted.sort_by_key(|&(_, s)| s);
-
-    let lines = split_lines_keep_eol(content);
-    let mut result: Vec<u8> = Vec::new();
-    let mut src_pos: usize = 0;
-
-    for (hunk_idx, _) in &sorted {
-        let (hunk_header, _) = patch.hunk(*hunk_idx)?;
-        let old_start = hunk_header.old_start() as usize; // 1-based
-        let old_count = hunk_header.old_lines() as usize;
-
-        let splice_start = if old_count == 0 {
-            old_start.min(lines.len())
-        } else {
-            old_start.saturating_sub(1).min(lines.len())
-        };
-
-        for line in &lines[src_pos..splice_start] {
-            result.extend_from_slice(line);
-        }
-        src_pos = splice_start + old_count;
-
-        let num_lines = patch.num_lines_in_hunk(*hunk_idx)?;
-        for line_idx in 0..num_lines {
-            let line = patch.line_in_hunk(*hunk_idx, line_idx)?;
-            if matches!(line.origin(), ' ' | '+') {
-                result.extend_from_slice(line.content());
-            }
-        }
-    }
-
-    for line in &lines[src_pos..] {
-        result.extend_from_slice(line);
-    }
-    Ok(result)
-}
-
-/// Apply a selected subset of hunks from `full_diff` to `parent_tree`,
-/// returning the new tree OID.
-///
-/// `selected_hunks` maps each delta index to the list of hunk indices
-/// (within that delta) to apply.  Files with no selected hunks keep their
-/// original content from `parent_tree`.
-fn apply_selected_hunks_to_tree(
-    repo: &git2::Repository,
-    parent_tree: &git2::Tree,
-    full_diff: &git2::Diff,
-    selected_hunks: &HashMap<usize, Vec<usize>>,
-) -> Result<git2::Oid> {
-    let mut idx = git2::Index::new()?;
-    idx.read_tree(parent_tree)?;
-
-    for (&delta_idx, hunk_indices) in selected_hunks {
-        if hunk_indices.is_empty() {
-            continue;
-        }
-
-        let mut patch = match git2::Patch::from_diff(full_diff, delta_idx)? {
-            Some(p) => p,
-            None => continue,
-        };
-
-        let delta = full_diff
-            .get_delta(delta_idx)
-            .context("delta index in range")?;
-        let file_path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .context("delta has no file path")?
-            .to_owned();
-
-        let (old_content, mode) = match delta.status() {
-            git2::Delta::Added => {
-                let m: u32 = delta.new_file().mode().into();
-                (Vec::new(), m)
-            }
-            _ => {
-                let entry = parent_tree
-                    .get_path(&file_path)
-                    .with_context(|| format!("'{}' not in parent tree", file_path.display()))?;
-                let blob = repo.find_blob(entry.id())?;
-                (blob.content().to_owned(), entry.filemode() as u32)
-            }
-        };
-
-        let new_content =
-            apply_multiple_hunks_to_content(&old_content, &mut patch, hunk_indices)
-                .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
-
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
-
-        if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
-            // All lines removed → delete the file from the intermediate tree.
-            idx.remove(&file_path, 0)?;
-        } else {
-            let new_blob_oid = repo.blob(&new_content)?;
-            idx.add(&git2::IndexEntry {
-                ctime: git2::IndexTime::new(0, 0),
-                mtime: git2::IndexTime::new(0, 0),
-                dev: 0,
-                ino: 0,
-                mode,
-                uid: 0,
-                gid: 0,
-                file_size: new_content.len() as u32,
-                id: new_blob_oid,
-                flags: 0,
-                flags_extended: 0,
-                path: path_bytes,
-            })?;
-        }
-    }
-
-    idx.write_tree_to(repo).map_err(Into::into)
 }
 
 impl Git2Repo {
@@ -1959,7 +459,7 @@ impl Git2Repo {
                 repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?
             };
             if cherry_index.has_conflicts() {
-                self.write_conflicts_to_workdir(&cherry_index, &onto_commit)?;
+                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit)?;
                 return Ok(CherryPickResult::Conflict {
                     tip,
                     conflicting_idx: idx,
@@ -1980,42 +480,6 @@ impl Git2Repo {
         }
 
         Ok(CherryPickResult::Complete(tip))
-    }
-
-    /// Write a conflicted merge index to the repo index and working tree so
-    /// the user can resolve conflicts manually.
-    fn write_conflicts_to_workdir(
-        &self,
-        cherry_index: &git2::Index,
-        onto_commit: &git2::Commit,
-    ) -> Result<()> {
-        let repo = &self.inner;
-
-        // Point the branch at the onto commit so HEAD matches the partially
-        // rebased chain.
-        self.advance_branch_ref(onto_commit.id(), "git-tailor: drop commit (conflict)")?;
-
-        // Write the conflicted index entries (including conflict markers) into
-        // the repo's index so `git status` and the user's editor see them.
-        let mut repo_index = repo.index()?;
-        // Clear stale entries before populating the index with the cherry-pick
-        // result.  Without this, leftover files from the previous index state
-        // (typically HEAD) leak into the written index and end up in trees
-        // created by rebase_continue / squash_finalize.
-        repo_index.clear()?;
-        for entry in cherry_index.iter() {
-            repo_index.add(&entry)?;
-        }
-        repo_index.write()?;
-
-        // Check out the index to the working tree. Force-checkout writes
-        // conflict markers into the working-tree files.
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        checkout.allow_conflicts(true);
-        repo.checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
-
-        Ok(())
     }
 
     /// Reset the working tree and index to match HEAD.
@@ -2050,189 +514,4 @@ enum CherryPickResult {
         tip: git2::Oid,
         conflicting_idx: usize,
     },
-}
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-pub(crate) fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
-    let offset_seconds = git_time.offset_minutes() * 60;
-    let utc_offset =
-        time::UtcOffset::from_whole_seconds(offset_seconds).unwrap_or(time::UtcOffset::UTC);
-
-    time::OffsetDateTime::from_unix_timestamp(git_time.seconds())
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
-        .to_offset(utc_offset)
-}
-
-fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
-    let author_time = commit.author().when();
-    let commit_time = commit.time();
-
-    CommitInfo {
-        oid: commit.id().to_string(),
-        summary: commit.summary().unwrap_or("").to_string(),
-        author: commit.author().name().map(|s| s.to_string()),
-        date: Some(commit.time().seconds().to_string()),
-        parent_oids: commit.parent_ids().map(|id| id.to_string()).collect(),
-        message: commit.message().unwrap_or("").to_string(),
-        author_email: commit.author().email().map(|s| s.to_string()),
-        author_date: Some(git_time_to_offset_datetime(author_time)),
-        committer: commit.committer().name().map(|s| s.to_string()),
-        committer_email: commit.committer().email().map(|s| s.to_string()),
-        commit_date: Some(git_time_to_offset_datetime(commit_time)),
-    }
-}
-
-fn extract_commit_diff(diff: &git2::Diff, commit: &git2::Commit) -> Result<CommitDiff> {
-    Ok(CommitDiff {
-        commit: commit_info_from(commit),
-        files: extract_files_from_diff(diff)?,
-    })
-}
-
-fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
-    let mut files: Vec<FileDiff> = Vec::new();
-
-    for delta_idx in 0..diff.deltas().len() {
-        let delta = diff.get_delta(delta_idx).expect("delta index in range");
-
-        let old_path = delta
-            .old_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let new_path = delta
-            .new_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-
-        let status = match delta.status() {
-            git2::Delta::Unmodified => crate::DeltaStatus::Unmodified,
-            git2::Delta::Added => crate::DeltaStatus::Added,
-            git2::Delta::Deleted => crate::DeltaStatus::Deleted,
-            git2::Delta::Modified => crate::DeltaStatus::Modified,
-            git2::Delta::Renamed => crate::DeltaStatus::Renamed,
-            git2::Delta::Copied => crate::DeltaStatus::Copied,
-            git2::Delta::Ignored => crate::DeltaStatus::Ignored,
-            git2::Delta::Untracked => crate::DeltaStatus::Untracked,
-            git2::Delta::Typechange => crate::DeltaStatus::Typechange,
-            git2::Delta::Unreadable => crate::DeltaStatus::Unreadable,
-            git2::Delta::Conflicted => crate::DeltaStatus::Conflicted,
-        };
-
-        let patch = git2::Patch::from_diff(diff, delta_idx)?
-            .context("Failed to extract patch from diff")?;
-
-        let mut hunks = Vec::new();
-        for hunk_idx in 0..patch.num_hunks() {
-            let (hunk_header, _num_lines) = patch.hunk(hunk_idx)?;
-
-            let mut lines = Vec::new();
-            for line_idx in 0..patch.num_lines_in_hunk(hunk_idx)? {
-                let line = patch.line_in_hunk(hunk_idx, line_idx)?;
-                let kind = match line.origin() {
-                    '+' => DiffLineKind::Addition,
-                    '-' => DiffLineKind::Deletion,
-                    _ => DiffLineKind::Context,
-                };
-                let content = String::from_utf8_lossy(line.content()).to_string();
-                lines.push(DiffLine { kind, content });
-            }
-
-            hunks.push(Hunk {
-                old_start: hunk_header.old_start(),
-                old_lines: hunk_header.old_lines(),
-                new_start: hunk_header.new_start(),
-                new_lines: hunk_header.new_lines(),
-                lines,
-            });
-        }
-
-        files.push(FileDiff {
-            old_path,
-            new_path,
-            status,
-            hunks,
-        });
-    }
-
-    Ok(files)
-}
-
-fn synthetic_commit_info(oid: &str, summary: &str) -> CommitInfo {
-    CommitInfo {
-        oid: oid.to_string(),
-        summary: summary.to_string(),
-        author: None,
-        date: None,
-        parent_oids: vec![],
-        message: summary.to_string(),
-        author_email: None,
-        author_date: None,
-        committer: None,
-        committer_email: None,
-        commit_date: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{git_time_to_offset_datetime, split_message};
-
-    #[test]
-    fn utc_epoch_stays_at_zero() {
-        let t = git2::Time::new(0, 0);
-        let dt = git_time_to_offset_datetime(t);
-        assert_eq!(dt.unix_timestamp(), 0);
-        assert_eq!(dt.offset(), time::UtcOffset::UTC);
-    }
-
-    #[test]
-    fn positive_offset_applied_correctly() {
-        // 60-minute (UTC+1) offset: same instant, but hour should read as 1.
-        let t = git2::Time::new(0, 60);
-        let dt = git_time_to_offset_datetime(t);
-        assert_eq!(dt.unix_timestamp(), 0);
-        let expected_offset = time::UtcOffset::from_whole_seconds(3600).unwrap();
-        assert_eq!(dt.offset(), expected_offset);
-        assert_eq!(dt.hour(), 1);
-    }
-
-    #[test]
-    fn negative_offset_applied_correctly() {
-        // −300-minute (UTC−5) offset: same instant, hour reads as 19 on previous day.
-        let t = git2::Time::new(0, -300);
-        let dt = git_time_to_offset_datetime(t);
-        assert_eq!(dt.unix_timestamp(), 0);
-        let expected_offset = time::UtcOffset::from_whole_seconds(-18000).unwrap();
-        assert_eq!(dt.offset(), expected_offset);
-        assert_eq!(dt.hour(), 19);
-    }
-
-    #[test]
-    fn split_message_summary_only() {
-        assert_eq!(split_message("my fix", 1, 3), "my fix (1/3)");
-    }
-
-    #[test]
-    fn split_message_preserves_body() {
-        let original = "my fix\n\nBody line 1.\nBody line 2.";
-        let result = split_message(original, 2, 3);
-        assert_eq!(result, "my fix (2/3)\n\nBody line 1.\nBody line 2.");
-    }
-
-    #[test]
-    fn split_message_body_whitespace_only_treated_as_no_body() {
-        let original = "my fix\n\n  \n";
-        let result = split_message(original, 1, 2);
-        assert_eq!(result, "my fix (1/2)");
-    }
-
-    #[test]
-    fn split_message_trailing_newline_on_summary() {
-        // git commit messages often end with a newline
-        let result = split_message("my fix\n", 1, 1);
-        assert_eq!(result, "my fix (1/1)");
-    }
 }

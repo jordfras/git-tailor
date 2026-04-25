@@ -17,6 +17,7 @@
 mod common;
 
 use git_tailor::{
+    CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
     views,
 };
@@ -212,7 +213,7 @@ fn test_move_navigation_reverse_inverts_direction() {
 #[test]
 fn test_move_confirm_returns_execute_move() {
     let mut app = make_app_in_move_select(2, 0);
-    app.reference_oid = "ref000".to_string();
+    app.reference_oid = Oid::from("ref000");
 
     let result = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
     match result {
@@ -220,8 +221,8 @@ fn test_move_confirm_returns_execute_move() {
             source_oid,
             insert_after_oid,
         } => {
-            assert_eq!(source_oid, "eee555fff666");
-            assert_eq!(insert_after_oid, "ref000");
+            assert_eq!(source_oid, Oid::from("eee555fff666"));
+            assert_eq!(insert_after_oid, Some(Oid::from("ref000")));
         }
         other => panic!("expected ExecuteMove, got {other:?}"),
     }
@@ -265,7 +266,11 @@ fn test_enter_move_select_blocks_on_synthetic() {
     let mut app = AppState::new();
     app.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
-        common::create_test_commit("staged", "staged"),
+        CommitInfo {
+            oid: VirtualOid::Staged,
+            summary: "staged".to_string(),
+            ..common::create_test_commit("staged", "staged")
+        },
     ];
     app.selection_index = 1;
     app.mode = AppMode::CommitList;

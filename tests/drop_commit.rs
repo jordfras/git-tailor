@@ -14,7 +14,10 @@
 
 mod common;
 
-use git_tailor::repo::{GitRepo, RebaseOutcome};
+use git_tailor::{
+    Oid,
+    repo::{GitRepo, RebaseOutcome},
+};
 
 /// Read a file from a specific commit tree.
 fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
@@ -58,7 +61,7 @@ fn drop_head_commit_removes_it() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &to_drop.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
     assert!(
@@ -87,7 +90,7 @@ fn drop_middle_commit_rebases_descendants() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &child.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(child))
         .unwrap();
 
     assert!(
@@ -130,7 +133,7 @@ fn drop_with_multiple_descendants() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     assert!(matches!(result, RebaseOutcome::Complete));
@@ -160,7 +163,7 @@ fn drop_preserves_commit_messages() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .drop_commit(&to_drop.to_string(), &head_oid)
+        .drop_commit(&Oid::from(to_drop), &head_oid)
         .unwrap();
 
     let commits = commits_from_head(&test.repo, base);
@@ -190,17 +193,17 @@ fn drop_returns_conflict_when_descendant_depends_on_dropped_commit() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     match result {
         RebaseOutcome::Conflict(state) => {
-            assert_eq!(state.conflicting_commit_oid, head.to_string());
+            assert_eq!(state.conflicting_commit_oid, Oid::from(head));
             assert!(
                 state.remaining_oids.is_empty(),
                 "no commits after the conflicting one"
             );
-            assert_eq!(state.original_branch_oid, head.to_string());
+            assert_eq!(state.original_branch_oid, Oid::from(head));
         }
         RebaseOutcome::Complete => panic!("expected Conflict, got Complete"),
     }
@@ -219,13 +222,13 @@ fn drop_conflict_state_has_correct_remaining_oids() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head_oid)
+        .drop_commit(&Oid::from(to_drop), &head_oid)
         .unwrap();
 
     match result {
         RebaseOutcome::Conflict(state) => {
-            assert_eq!(state.conflicting_commit_oid, child1.to_string());
-            assert_eq!(state.remaining_oids, vec![child2.to_string()]);
+            assert_eq!(state.conflicting_commit_oid, Oid::from(child1));
+            assert_eq!(state.remaining_oids, vec![Oid::from(child2)]);
         }
         RebaseOutcome::Complete => panic!("expected Conflict, got Complete"),
     }
@@ -245,7 +248,7 @@ fn drop_continue_after_resolving_conflict() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {
@@ -294,7 +297,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {
@@ -349,7 +352,7 @@ fn drop_abort_restores_original_branch() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {
@@ -397,18 +400,18 @@ fn drop_abort_after_second_conflict_restores_branch() {
 
     let git_repo = test.git_repo();
     let head_oid_before = git_repo.head_oid().unwrap();
-    assert_eq!(head_oid_before, child2.to_string());
+    assert_eq!(head_oid_before, Oid::from(child2));
 
     // First drop → first conflict on child1.
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &child2.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(child2))
         .unwrap();
     let state1 = match result {
         RebaseOutcome::Conflict(s) => s,
         RebaseOutcome::Complete => panic!("expected first Conflict"),
     };
-    assert_eq!(state1.conflicting_commit_oid, child1.to_string());
-    assert_eq!(state1.original_branch_oid, child2.to_string());
+    assert_eq!(state1.conflicting_commit_oid, Oid::from(child1));
+    assert_eq!(state1.original_branch_oid, Oid::from(child2));
 
     // Fake-resolve conflict 1: write content and re-stage.
     let workdir = test.repo.workdir().unwrap();
@@ -426,9 +429,9 @@ fn drop_abort_after_second_conflict_restores_branch() {
         RebaseOutcome::Conflict(s) => s,
         RebaseOutcome::Complete => panic!("expected second Conflict"),
     };
-    assert_eq!(state2.conflicting_commit_oid, child2.to_string());
+    assert_eq!(state2.conflicting_commit_oid, Oid::from(child2));
     // original_branch_oid must still refer to the pre-drop HEAD.
-    assert_eq!(state2.original_branch_oid, child2.to_string());
+    assert_eq!(state2.original_branch_oid, Oid::from(child2));
 
     // Abort from the second conflict — must fully restore the branch.
     git_repo.rebase_abort(&state2).unwrap();
@@ -452,7 +455,7 @@ fn drop_root_commit_fails() {
     let root = test.commit_file("a.txt", "v1\n", "root");
 
     let git_repo = test.git_repo();
-    let result = git_repo.drop_commit(&root.to_string(), &root.to_string());
+    let result = git_repo.drop_commit(&Oid::from(root), &Oid::from(root));
 
     assert!(result.is_err(), "dropping a root commit should fail");
     let msg = result.unwrap_err().to_string();
@@ -471,7 +474,7 @@ fn drop_commit_with_no_descendants() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &to_drop.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
     assert!(matches!(result, RebaseOutcome::Complete));
@@ -504,7 +507,7 @@ fn drop_commit_blocked_with_staged_changes() {
     index.write().unwrap();
 
     let git_repo = test.git_repo();
-    let result = git_repo.drop_commit(&to_drop.to_string(), &to_drop.to_string());
+    let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(to_drop));
 
     assert!(
         result.is_err(),
@@ -529,7 +532,7 @@ fn drop_commit_blocked_with_unstaged_changes() {
     std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
 
     let git_repo = test.git_repo();
-    let result = git_repo.drop_commit(&to_drop.to_string(), &to_drop.to_string());
+    let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(to_drop));
 
     assert!(
         result.is_err(),
@@ -554,7 +557,7 @@ fn drop_commit_allowed_with_staged_submodule() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &to_drop.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
     assert!(
@@ -579,7 +582,7 @@ fn rebase_abort_leaves_clean_working_tree() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {
@@ -656,7 +659,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {
@@ -713,7 +716,7 @@ fn auto_stage_does_not_stage_file_with_conflict_markers() {
 
     let git_repo = test.git_repo();
     let result = git_repo
-        .drop_commit(&to_drop.to_string(), &head.to_string())
+        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
     let state = match result {

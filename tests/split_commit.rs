@@ -14,7 +14,7 @@
 
 mod common;
 
-use git_tailor::repo::GitRepo;
+use git_tailor::{Oid, repo::GitRepo};
 
 /// Read a file from a specific commit tree.
 fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
@@ -58,7 +58,7 @@ fn split_per_file_creates_two_commits() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     // There should now be 3 commits above base: base, split-1, split-2
@@ -138,7 +138,7 @@ fn split_per_file_rebases_descendants() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     // We should now have: base → split1 → split2 → rebased-c
@@ -169,7 +169,7 @@ fn split_per_file_refuses_single_file_commit() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.split_commit_per_file(&only_one.to_string(), &head_oid);
+    let result = git_repo.split_commit_per_file(&Oid::from(only_one), &head_oid);
     assert!(
         result.is_err(),
         "should fail when commit touches only 1 file"
@@ -192,7 +192,7 @@ fn split_per_file_refuses_dirty_overlap() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.split_commit_per_file(&to_split.to_string(), &head_oid);
+    let result = git_repo.split_commit_per_file(&Oid::from(to_split), &head_oid);
     assert!(result.is_err(), "should fail when staged changes overlap");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -252,7 +252,7 @@ fn split_per_file_handles_submodule_delta() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let commits_above_base = commits_from_head(&test.repo, base);
@@ -294,7 +294,7 @@ fn split_per_file_preserves_commit_message_body() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let base_oid = test
@@ -349,7 +349,7 @@ fn split_per_hunk_single_file_two_hunks() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     // Should now have 2 commits above base
@@ -397,7 +397,7 @@ fn split_per_hunk_two_files_one_hunk_each() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let commits_above_base = commits_from_head(&test.repo, base);
@@ -422,7 +422,7 @@ fn split_per_hunk_refuses_single_hunk_commit() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.split_commit_per_hunk(&only_one.to_string(), &head_oid);
+    let result = git_repo.split_commit_per_hunk(&Oid::from(only_one), &head_oid);
     assert!(result.is_err(), "should fail when commit has only 1 hunk");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -454,7 +454,7 @@ fn split_per_hunk_preserves_commit_message_body() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let stop = test
@@ -490,7 +490,7 @@ fn split_per_hunk_group_two_groups_shared_context() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
     // 3 commits above base: commit A + K-part1 + K-part2
@@ -542,7 +542,7 @@ fn split_per_hunk_group_three_commits_two_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
     // 4 commits above base: A + K-part1 + K-part2 + B' (rebased B)
@@ -599,9 +599,9 @@ fn split_per_hunk_group_refuses_single_group() {
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_per_hunk_group(
-        &only_one_group.to_string(),
+        &Oid::from(only_one_group),
         &head_oid,
-        &base.to_string(),
+        &Oid::from(base),
     );
     assert!(
         result.is_err(),
@@ -638,7 +638,7 @@ fn split_per_hunk_pure_insertions() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let commits_above_base = commits_from_head(&test.repo, base);
@@ -712,7 +712,7 @@ fn split_per_hunk_group_multi_path_two_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
     // 3 commits above base: A' + K-part1 + K-part2
@@ -793,7 +793,7 @@ fn split_per_hunk_group_multi_path_three_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
     // 5 commits above base: A' + K-part1 + K-part2 + K-part3 + B'
@@ -855,7 +855,7 @@ fn split_per_file_preserves_staged_changes() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     // The staged file must still be staged (present in the index at stage 0)
@@ -896,7 +896,7 @@ fn split_per_file_preserves_unstaged_changes() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_file(&to_split.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     // The unstaged modification must survive
@@ -926,7 +926,7 @@ fn split_per_hunk_preserves_staged_changes() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     let mut idx = test.repo.index().unwrap();
@@ -959,7 +959,7 @@ fn split_per_hunk_preserves_unstaged_changes() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk(&to_split.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
     assert_eq!(
@@ -983,7 +983,7 @@ fn split_per_hunk_group_preserves_commit_message_body() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&to_split.to_string(), &head_oid, &base.to_string())
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
     let commits_above_base = commits_from_head(&test.repo, base);
@@ -1015,10 +1015,10 @@ fn split_root_commit_per_file() {
     let git_repo = test.git_repo();
     // head_oid == root since there's only one commit
     let head_oid = git_repo.head_oid().unwrap();
-    assert_eq!(head_oid, root.to_string());
+    assert_eq!(head_oid, Oid::from(root));
 
     git_repo
-        .split_commit_per_file(&root.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(root), &head_oid)
         .unwrap();
 
     let new_head = test.repo.head().unwrap().target().unwrap();
@@ -1068,7 +1068,7 @@ fn split_root_commit_per_file_with_descendants() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_file(&root.to_string(), &head_oid)
+        .split_commit_per_file(&Oid::from(root), &head_oid)
         .unwrap();
 
     let new_head = test.repo.head().unwrap().target().unwrap();
@@ -1106,7 +1106,7 @@ fn split_root_commit_per_hunk() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk(&root.to_string(), &head_oid)
+        .split_commit_per_hunk(&Oid::from(root), &head_oid)
         .unwrap();
 
     let new_head = test.repo.head().unwrap().target().unwrap();
@@ -1145,10 +1145,10 @@ fn split_root_commit_per_hunk_group() {
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     // In --all mode reference_oid is the root commit OID
-    let reference_oid = root.to_string();
+    let reference_oid = Oid::from(root);
 
     git_repo
-        .split_commit_per_hunk_group(&root.to_string(), &head_oid, &reference_oid)
+        .split_commit_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid)
         .unwrap();
 
     let new_head = test.repo.head().unwrap().target().unwrap();

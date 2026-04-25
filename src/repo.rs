@@ -18,7 +18,7 @@ pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
 
-use crate::{CommitDiff, CommitInfo};
+use crate::{CommitDiff, CommitInfo, Oid};
 
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
@@ -44,15 +44,15 @@ pub struct ConflictState {
     pub operation_label: String,
     /// The branch tip OID before the operation started, used to restore on
     /// abort.
-    pub original_branch_oid: String,
+    pub original_branch_oid: Oid,
     /// The new tip OID built so far (all commits cherry-picked before the
     /// conflicting one).
-    pub new_tip_oid: String,
+    pub new_tip_oid: Oid,
     /// The OID of the commit whose cherry-pick conflicted.
-    pub conflicting_commit_oid: String,
+    pub conflicting_commit_oid: Oid,
     /// OIDs of commits that still need to be cherry-picked after the
     /// conflicting commit is resolved, in order (oldest first).
-    pub remaining_oids: Vec<String>,
+    pub remaining_oids: Vec<Oid>,
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
     pub conflicting_files: Vec<String>,
@@ -62,7 +62,7 @@ pub struct ConflictState {
     /// When this conflict was triggered by a move operation, this holds the OID
     /// of the commit being moved. The conflict view uses it to tell the user
     /// whether the moved commit itself conflicted or a successor did.
-    pub moved_commit_oid: Option<String>,
+    pub moved_commit_oid: Option<Oid>,
     /// When present, the conflict arose during the initial squash tree
     /// creation (source vs target overlap). After the user resolves the
     /// conflict the TUI should open the editor and then call
@@ -75,17 +75,17 @@ pub struct ConflictState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SquashContext {
     /// OID of the target commit's parent (the base for the squash commit).
-    pub base_oid: String,
+    pub base_oid: Oid,
     /// OID of the source commit (removed after squash).
-    pub source_oid: String,
+    pub source_oid: Oid,
     /// OID of the target commit (author/committer are taken from here).
-    pub target_oid: String,
+    pub target_oid: Oid,
     /// The message to use for the squash commit. For squash this is the
     /// combined (target + source) message shown in the editor; for fixup
     /// this is just the target message, used as-is without opening an editor.
     pub combined_message: String,
     /// OIDs of descendants to rebase after the squash commit is created.
-    pub descendant_oids: Vec<String>,
+    pub descendant_oids: Vec<Oid>,
     /// When true the operation is a fixup: the editor is skipped and
     /// `combined_message` (the target message) is used directly.
     pub is_fixup: bool,
@@ -101,7 +101,7 @@ pub trait GitRepo {
     ///
     /// Fails if HEAD is detached or does not resolve to a direct commit
     /// reference.
-    fn head_oid(&self) -> Result<String>;
+    fn head_oid(&self) -> Result<Oid>;
 
     /// Find the merge-base (reference point) between HEAD and a given commit-ish.
     ///
@@ -111,7 +111,7 @@ pub trait GitRepo {
     /// - A commit hash (short or long)
     ///
     /// Returns the OID of the common ancestor as a string.
-    fn find_reference_point(&self, commit_ish: &str) -> Result<String>;
+    fn find_reference_point(&self, commit_ish: &str) -> Result<Oid>;
 
     /// List commits from one commit back to another (inclusive).
     ///
@@ -120,14 +120,14 @@ pub trait GitRepo {
     ///
     /// Both `from_oid` and `to_oid` can be any commit-ish (branch, tag, hash).
     /// The range includes both endpoints.
-    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>>;
+    fn list_commits(&self, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<CommitInfo>>;
 
     /// Extract the full diff for a single commit compared to its first parent.
     ///
     /// For the root commit (no parents), diffs against an empty tree so all
     /// files show as additions. Returns a `CommitDiff` containing the commit
     /// metadata and every file/hunk/line changed.
-    fn commit_diff(&self, oid: &str) -> Result<CommitDiff>;
+    fn commit_diff(&self, oid: &Oid) -> Result<CommitDiff>;
 
     /// Extract commit diff with zero context lines, suitable for fragmap analysis.
     ///
@@ -135,7 +135,7 @@ pub trait GitRepo {
     /// the default 3-line context, git merges adjacent hunks together which
     /// produces fewer but larger hunks — breaking the SPG's fine-grained
     /// span tracking.
-    fn commit_diff_for_fragmap(&self, oid: &str) -> Result<CommitDiff>;
+    fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff>;
 
     /// Return a synthetic `CommitDiff` for changes staged in the index (index vs HEAD).
     ///
@@ -158,7 +158,7 @@ pub trait GitRepo {
     /// - the commit has fewer than 2 changed files (nothing to split)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
+    fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
 
     /// Split a commit into one commit per hunk.
     ///
@@ -170,7 +170,7 @@ pub trait GitRepo {
     /// - the commit has fewer than 2 hunks (nothing to split)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_per_hunk(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
+    fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
 
     /// Split a commit into one commit per hunk group.
     ///
@@ -187,25 +187,25 @@ pub trait GitRepo {
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_per_hunk_group(
         &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
     ) -> Result<()>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.
-    fn count_split_per_file(&self, commit_oid: &str) -> Result<usize>;
+    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
 
     /// Count how many commits `split_commit_per_hunk` would produce for this commit.
-    fn count_split_per_hunk(&self, commit_oid: &str) -> Result<usize>;
+    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize>;
 
     /// Count how many fragmap groups `split_commit_per_hunk_group` would produce
     /// for this commit, given the full branch context up to `head_oid` from
     /// `reference_oid`.
     fn count_split_per_hunk_group(
         &self,
-        commit_oid: &str,
-        head_oid: &str,
-        reference_oid: &str,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
     ) -> Result<usize>;
 
     /// Reword the message of an existing commit.
@@ -217,7 +217,7 @@ pub trait GitRepo {
     ///
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
-    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
+    fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()>;
 
     /// Read a string value from the repository's git configuration.
     ///
@@ -231,7 +231,7 @@ pub trait GitRepo {
     /// successfully rebased, or `RebaseOutcome::Conflict` when a cherry-pick
     /// step produces merge conflicts. In the conflict case the working tree
     /// and index contain the partially merged state for the user to resolve.
-    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
+    fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<RebaseOutcome>;
 
     /// Move a commit to a different position on the branch.
     ///
@@ -246,9 +246,9 @@ pub trait GitRepo {
     /// `RebaseOutcome::Conflict` when a cherry-pick step conflicts.
     fn move_commit(
         &self,
-        commit_oid: &str,
-        insert_after_oid: &str,
-        head_oid: &str,
+        commit_oid: &Oid,
+        insert_after_oid: Option<&Oid>,
+        head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
     /// Resume a conflicted rebase after the user has resolved conflicts.
@@ -296,10 +296,10 @@ pub trait GitRepo {
     /// can let the user resolve, then call `squash_finalize`.
     fn squash_commits(
         &self,
-        source_oid: &str,
-        target_oid: &str,
+        source_oid: &Oid,
+        target_oid: &Oid,
         message: &str,
-        head_oid: &str,
+        head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
     /// Test whether combining source onto target produces a conflict.
@@ -314,11 +314,11 @@ pub trait GitRepo {
     /// call `squash_finalize` directly without opening the editor.
     fn squash_try_combine(
         &self,
-        source_oid: &str,
-        target_oid: &str,
+        source_oid: &Oid,
+        target_oid: &Oid,
         combined_message: &str,
         is_fixup: bool,
-        head_oid: &str,
+        head_oid: &Oid,
     ) -> Result<Option<ConflictState>>;
 
     /// Finalize a squash after the user resolved a squash-time tree conflict.
@@ -330,7 +330,7 @@ pub trait GitRepo {
         &self,
         ctx: &SquashContext,
         message: &str,
-        original_branch_oid: &str,
+        original_branch_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.
@@ -355,7 +355,7 @@ pub trait GitRepo {
     ///
     /// Walks the ancestry of HEAD until it finds a commit with no parents.
     /// For repositories with a single linear history this is the initial commit.
-    fn root_commit_oid(&self) -> Result<String>;
+    fn root_commit_oid(&self) -> Result<Oid>;
 
     /// Return the name of the repository's default upstream branch.
     ///

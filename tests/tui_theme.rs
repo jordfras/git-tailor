@@ -41,6 +41,7 @@
 mod common;
 
 use git_tailor::{
+    Oid, VirtualOid,
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
     views,
@@ -55,7 +56,10 @@ fn make_fragmap() -> FragMap {
             start_line: 10,
             end_line: 20,
         }],
-        commit_oids: vec!["aaa1".to_string(), "ccc3".to_string()],
+        commit_oids: vec![
+            VirtualOid::Real(Oid::from("aaa1")),
+            VirtualOid::Real(Oid::from("ccc3")),
+        ],
     };
     let cluster1 = SpanCluster {
         spans: vec![FileSpan {
@@ -63,7 +67,11 @@ fn make_fragmap() -> FragMap {
             start_line: 1,
             end_line: 50,
         }],
-        commit_oids: vec!["aaa1".to_string(), "bbb2".to_string(), "ccc3".to_string()],
+        commit_oids: vec![
+            VirtualOid::Real(Oid::from("aaa1")),
+            VirtualOid::Real(Oid::from("bbb2")),
+            VirtualOid::Real(Oid::from("ccc3")),
+        ],
     };
     let cluster2 = SpanCluster {
         spans: vec![FileSpan {
@@ -71,10 +79,14 @@ fn make_fragmap() -> FragMap {
             start_line: 1,
             end_line: 5,
         }],
-        commit_oids: vec!["ccc3".to_string()],
+        commit_oids: vec![VirtualOid::Real(Oid::from("ccc3"))],
     };
     FragMap {
-        commits: vec!["aaa1".to_string(), "bbb2".to_string(), "ccc3".to_string()],
+        commits: vec![
+            VirtualOid::Real(Oid::from("aaa1")),
+            VirtualOid::Real(Oid::from("bbb2")),
+            VirtualOid::Real(Oid::from("ccc3")),
+        ],
         clusters: vec![cluster0, cluster1, cluster2],
         matrix: vec![
             // A: touches cluster0 and cluster1, not cluster2

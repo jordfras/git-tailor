@@ -18,7 +18,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    CommitInfo,
+    CommitInfo, Oid,
     fragmap::{FragMap, SquashableScope},
     repo::ConflictState,
     views::theme::Theme,
@@ -92,24 +92,21 @@ pub enum AppAction {
     /// Begin the split flow: get head_oid, count results, confirm if large.
     PrepareSplit {
         strategy: SplitStrategy,
-        commit_oid: String,
+        commit_oid: Oid,
     },
     /// Execute a split that has already been confirmed.
     ExecuteSplit {
         strategy: SplitStrategy,
-        commit_oid: String,
-        head_oid: String,
+        commit_oid: Oid,
+        head_oid: Oid,
     },
     /// Begin the drop flow: get head_oid from repo, then show confirmation.
     PrepareDropConfirm {
-        commit_oid: String,
+        commit_oid: Oid,
         commit_summary: String,
     },
     /// Execute a confirmed drop.
-    ExecuteDrop {
-        commit_oid: String,
-        head_oid: String,
-    },
+    ExecuteDrop { commit_oid: Oid, head_oid: Oid },
     /// Continue a rebase after the user resolved merge conflicts.
     RebaseContinue(ConflictState),
     /// Abort a rebase that hit conflicts.
@@ -126,22 +123,22 @@ pub enum AppAction {
     },
     /// Start the reword flow: get head_oid, launch editor, rewrite commit.
     PrepareReword {
-        commit_oid: String,
+        commit_oid: Oid,
         current_message: String,
     },
     /// Start the squash/fixup flow: user picked source and target.
     /// When `is_fixup` is true the target's message is kept as-is (no editor).
     PrepareSquash {
-        source_oid: String,
-        target_oid: String,
+        source_oid: Oid,
+        target_oid: Oid,
         source_message: String,
         target_message: String,
         is_fixup: bool,
     },
     /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
     ExecuteMove {
-        source_oid: String,
-        insert_after_oid: String,
+        source_oid: Oid,
+        insert_after_oid: Option<Oid>,
     },
 }
 
@@ -295,17 +292,17 @@ impl AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSplit {
     pub strategy: SplitStrategy,
-    pub commit_oid: String,
-    pub head_oid: String,
+    pub commit_oid: Oid,
+    pub head_oid: Oid,
     pub count: usize,
 }
 
 /// Data retained while the user is shown the drop confirmation dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingDrop {
-    pub commit_oid: String,
+    pub commit_oid: Oid,
     pub commit_summary: String,
-    pub head_oid: String,
+    pub head_oid: Oid,
 }
 
 /// Application state for the TUI.
@@ -325,7 +322,7 @@ pub struct AppState {
     pub theme: Theme,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.
-    pub reference_oid: String,
+    pub reference_oid: Oid,
     /// Optional fragmap visualization data.
     /// None if fragmap computation failed or was not performed.
     pub fragmap: Option<FragMap>,
@@ -372,9 +369,8 @@ pub struct AppState {
     pub search_match_index: Option<usize>,
 }
 
-impl AppState {
-    /// Create a new AppState with default values.
-    pub fn new() -> Self {
+impl Default for AppState {
+    fn default() -> Self {
         Self {
             should_quit: false,
             commits: Vec::new(),
@@ -383,7 +379,7 @@ impl AppState {
             full_fragmap: false,
             squashable_scope: SquashableScope::Group,
             theme: Theme::Plain,
-            reference_oid: String::new(),
+            reference_oid: Oid::from(""),
             fragmap: None,
             fragmap_scroll_offset: 0,
             mode: AppMode::CommitList,
@@ -407,40 +403,21 @@ impl AppState {
             search_match_index: None,
         }
     }
+}
+
+impl AppState {
+    /// Create a new AppState with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Create a new AppState with the given commits, selecting the last one (HEAD).
     pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
         let selection_index = commits.len().saturating_sub(1);
         Self {
-            should_quit: false,
             commits,
             selection_index,
-            reverse: false,
-            full_fragmap: false,
-            squashable_scope: SquashableScope::Group,
-            theme: Theme::Plain,
-            reference_oid: String::new(),
-            fragmap: None,
-            fragmap_scroll_offset: 0,
-            mode: AppMode::CommitList,
-            detail_scroll_offset: 0,
-            max_detail_scroll: 0,
-            detail_h_scroll_offset: 0,
-            max_detail_h_scroll: 0,
-            commit_list_visible_height: 0,
-            detail_visible_height: 0,
-            dialog_scroll_offset: 0,
-            max_dialog_scroll: 0,
-            dialog_visible_height: 0,
-            status_message: None,
-            status_is_error: false,
-            separator_offset: 0,
-            include_reference_oid: false,
-            search_query: String::new(),
-            search_input_active: false,
-            search_active: false,
-            search_matches: Vec::new(),
-            search_match_index: None,
+            ..Self::default()
         }
     }
 
@@ -533,8 +510,8 @@ impl AppState {
     pub fn enter_split_confirm(
         &mut self,
         strategy: SplitStrategy,
-        commit_oid: String,
-        head_oid: String,
+        commit_oid: Oid,
+        head_oid: Oid,
         count: usize,
     ) {
         self.mode = AppMode::SplitConfirm(PendingSplit {
@@ -551,12 +528,7 @@ impl AppState {
     }
 
     /// Enter the drop confirmation dialog.
-    pub fn enter_drop_confirm(
-        &mut self,
-        commit_oid: String,
-        commit_summary: String,
-        head_oid: String,
-    ) {
+    pub fn enter_drop_confirm(&mut self, commit_oid: Oid, commit_summary: String, head_oid: Oid) {
         self.mode = AppMode::DropConfirm(PendingDrop {
             commit_oid,
             commit_summary,
@@ -578,7 +550,7 @@ impl AppState {
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.oid.is_synthetic()
         {
             self.set_error_message("Cannot split staged/unstaged changes");
             return;
@@ -600,7 +572,7 @@ impl AppState {
     fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
         let label = if is_fixup { "fixup" } else { "squash" };
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.oid.is_synthetic()
         {
             self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
             return;
@@ -608,7 +580,7 @@ impl AppState {
         let real_count = self
             .commits
             .iter()
-            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .filter(|c| !c.oid.is_synthetic())
             .count();
         if real_count < 2 {
             self.set_error_message(format!(
@@ -628,12 +600,12 @@ impl AppState {
     }
 
     /// Enter move commit selection mode.
-    /// The insertion cursor starts one position before the source (i.e. one
+    /// The insertion cursor starts one pos  ition before the source (i.e. one
     /// slot earlier in the commit list, which visually means "above" in
     /// chronological order).
     pub fn enter_move_select(&mut self) {
         if let Some(commit) = self.commits.get(self.selection_index)
-            && (commit.oid == "staged" || commit.oid == "unstaged")
+            && commit.oid.is_synthetic()
         {
             self.set_error_message("Cannot move staged/unstaged changes");
             return;
@@ -643,7 +615,7 @@ impl AppState {
         let real_count = self
             .commits
             .iter()
-            .filter(|c| c.oid != "staged" && c.oid != "unstaged")
+            .filter(|c| !c.oid.is_synthetic())
             .count();
         if real_count < 2 {
             self.set_error_message("Nothing to move — only one commit on the branch");
@@ -808,19 +780,14 @@ impl AppState {
     }
 }
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VirtualOid;
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
-            oid: oid.to_string(),
+            oid: VirtualOid::Real(Oid::from(oid)),
             summary: summary.to_string(),
             author: Some("Test Author".to_string()),
             date: Some("2024-01-01".to_string()),

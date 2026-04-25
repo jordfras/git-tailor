@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use git_tailor::{CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, repo::Git2Repo};
+use git_tailor::{
+    CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, repo::Git2Repo,
+};
 use git2::{Repository, Signature};
 use std::fs;
 use tempfile::TempDir;
@@ -287,11 +289,11 @@ pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid)
 #[allow(dead_code)]
 pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
     CommitInfo {
-        oid: oid.to_string(),
+        oid: VirtualOid::Real(Oid::from(oid)),
         summary: summary.to_string(),
         author: Some("Test Author".to_string()),
         date: Some("1705318200".to_string()),
-        parent_oids: vec!["parent123".to_string()],
+        parent_oids: vec![Oid::from("parent123")],
         message: summary.to_string(),
         author_email: Some("test@example.com".to_string()),
         author_date: Some(time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap()),
