@@ -98,7 +98,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
 
             let source = &app.commits[source_index];
-            if source.is_synthetic() {
+            if source.oid.is_synthetic() {
                 app.set_error_message("Cannot move staged/unstaged changes");
                 return AppAction::Handled;
             }

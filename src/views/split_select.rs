@@ -92,7 +92,7 @@ pub fn render(app: &AppState, frame: &mut Frame) {
     let commit_summary = app
         .commits
         .get(app.selection_index)
-        .map(|c| format!("{} {}", c.short_oid(), c.summary))
+        .map(|c| format!("{} {}", c.oid.short(), c.summary))
         .unwrap_or_default();
 
     // Truncate summary if too long for dialog

@@ -411,7 +411,7 @@ fn compute_hunk_group_assignment(
             } else {
                 !is_reference
             };
-            keep && !c.is_synthetic()
+            keep && !c.oid.is_synthetic()
         })
         .filter_map(|c| {
             c.oid

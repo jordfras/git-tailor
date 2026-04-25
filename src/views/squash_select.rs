@@ -82,7 +82,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             // Cannot squash onto staged/unstaged
             let target = &app.commits[target_index];
-            if target.is_synthetic() {
+            if target.oid.is_synthetic() {
                 app.set_error_message("Cannot squash into staged/unstaged changes");
                 return AppAction::Handled;
             }

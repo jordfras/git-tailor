@@ -154,19 +154,6 @@ pub struct CommitInfo {
     pub commit_date: Option<time::OffsetDateTime>,
 }
 
-impl CommitInfo {
-    /// Returns `true` if this is a synthetic pseudo-commit (staged or unstaged
-    /// working-tree changes), rather than a real git commit.
-    pub fn is_synthetic(&self) -> bool {
-        self.oid.is_synthetic()
-    }
-
-    /// Return the short display string for the OID (8-char SHA or synthetic label).
-    pub fn short_oid(&self) -> &str {
-        self.oid.short()
-    }
-}
-
 /// The kind of change a diff line represents.
 ///
 /// When Git compares two versions of a file, each line in the output falls

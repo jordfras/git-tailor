@@ -92,7 +92,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Drop => {
             let commit = &app.commits[app.selection_index];
-            if commit.is_synthetic() {
+            if commit.oid.is_synthetic() {
                 app.set_error_message("Cannot drop staged/unstaged changes");
                 AppAction::Handled
             } else {
@@ -104,7 +104,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Reword => {
             let commit = &app.commits[app.selection_index];
-            if commit.is_synthetic() {
+            if commit.oid.is_synthetic() {
                 app.set_error_message("Cannot reword staged/unstaged changes");
                 AppAction::Handled
             } else {
@@ -496,9 +496,9 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             rows.push(build_move_separator_row(app, layout, source_index));
         }
 
-        let short_sha = commit.short_oid().to_string();
+        let short_sha = commit.oid.short().to_string();
 
-        let is_synthetic = commit.is_synthetic();
+        let is_synthetic = commit.oid.is_synthetic();
         let is_selected = visual_index == layout.visual_selection;
         let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
         let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);
@@ -611,7 +611,7 @@ fn build_move_separator_row<'a>(
     source_index: usize,
 ) -> Row<'a> {
     let source = app.commits.get(source_index);
-    let short_oid = source.map(|c| c.short_oid()).unwrap_or("?");
+    let short_oid = source.map(|c| c.oid.short()).unwrap_or("?");
 
     let style = Style::new().fg(Color::White).bg(COLOR_ACTION_INSERT_BG);
     let label = format!("▶ move {} here", short_oid);
@@ -686,7 +686,7 @@ fn render_squash_footer(
         None => return,
     };
 
-    let short_oid = source.short_oid();
+    let short_oid = source.oid.short();
 
     let label = if is_fixup { "Fixup" } else { "Squash" };
 
@@ -729,7 +729,7 @@ fn render_move_footer(
         None => return,
     };
 
-    let short_oid = source.short_oid();
+    let short_oid = source.oid.short();
 
     let max_summary_len = (area.width as usize)
         .saturating_sub(
