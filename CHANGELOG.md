@@ -13,6 +13,14 @@ The format is based on
 - Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
   `fg` in the shell resumes the TUI exactly where it was left.
 
+### Internals
+
+- Extensive internal refactoring of the TUI rendering layer: extracted shared
+  layout helpers, decomposed large rendering functions into smaller focused
+  units, and consolidated duplicated style logic. No intentional behaviour
+  changes, but these structural changes touch most view modules and may
+  introduce subtle regressions.
+
 
 ## [0.4.0] - 2026-04-22
 
