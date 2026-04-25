@@ -292,7 +292,7 @@ Guidelines:
   apply_gitlink_delta_to_tree, split_lines_keep_eol); the `Git2Repo` struct
   stays in `git2_impl.rs` and each sub-module adds its `impl Git2Repo` /
   `impl GitRepo for Git2Repo` block; preserves the existing public API
-- [ ] T158 P3 fix - Move the inline `#[cfg(test)] mod tests` block (~1600 lines)
+- [X] T158 P3 fix - Move the inline `#[cfg(test)] mod tests` block (~1600 lines)
   out of `src/fragmap.rs` (2387 lines) into a separate `src/fragmap/tests.rs`
   file gated by `#[cfg(test)] mod tests;` in `fragmap.rs`; production code drops
   to ~700 lines and the file becomes navigable; no behavioural change
