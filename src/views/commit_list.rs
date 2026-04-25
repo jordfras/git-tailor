@@ -124,6 +124,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::OpenEditor
         | KeyCommand::None
         | KeyCommand::ForceQuit
+        | KeyCommand::Suspend
         | KeyCommand::Search
         | KeyCommand::SearchNext
         | KeyCommand::SearchPrev => AppAction::Handled,

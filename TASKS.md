@@ -45,7 +45,7 @@ Guidelines:
   appropriate subset of bindings to display
 
 ## Interactivity — Terminal Integration
-- [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
+- [X] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
   (Unix only): in raw mode the kernel line discipline no longer converts Ctrl-Z
   into SIGTSTP automatically, so the keystroke arrives as a key event; handle
   `KeyCode::Char('z') + CONTROL` in the event loop by tearing down the TUI

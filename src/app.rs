@@ -51,6 +51,8 @@ pub enum KeyCommand {
     Confirm,
     /// Ctrl+C: quit immediately, aborting any in-progress rebase first.
     ForceQuit,
+    /// Ctrl+Z (Unix only): suspend the process with SIGTSTP.
+    Suspend,
     SeparatorLeft,
     SeparatorRight,
     None,
@@ -233,12 +235,13 @@ impl AppMode {
         }) = event
             && kind == event::KeyEventKind::Press
         {
-            // Ctrl+C always force-quits regardless of mode.
-            if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
-                return KeyCommand::ForceQuit;
-            }
             if modifiers.contains(KeyModifiers::CONTROL) {
                 match code {
+                    // Ctrl+C always force-quits regardless of mode.
+                    KeyCode::Char('c') => return KeyCommand::ForceQuit,
+                    // Ctrl-Z (Unix only): suspend the process with SIGTSTP.
+                    #[cfg(unix)]
+                    KeyCode::Char('z') => return KeyCommand::Suspend,
                     KeyCode::Left => return KeyCommand::SeparatorLeft,
                     KeyCode::Right => return KeyCommand::SeparatorRight,
                     _ => {}

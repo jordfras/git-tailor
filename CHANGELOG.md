@@ -6,6 +6,14 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Added
+
+- Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
+  `fg` in the shell resumes the TUI exactly where it was left.
+
+
 ## [0.4.0] - 2026-04-22
 
 ### Added

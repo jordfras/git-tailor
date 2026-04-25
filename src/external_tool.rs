@@ -22,14 +22,14 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 
-/// Run a function that takes over the terminal (editor, mergetool), then
-/// clear the terminal so the next TUI draw starts from a clean buffer.
-pub fn run_external_tool<T>(
+/// Suspend the TUI around `f`, then clear the terminal so the next draw
+/// starts from a clean buffer. Used for editors, mergetool, and SIGTSTP.
+pub fn with_tui_suspended<T>(
     terminal: &mut Terminal<CrosstermBackend<io::Stderr>>,
     kb_enhanced: bool,
     f: impl FnOnce() -> T,
 ) -> io::Result<T> {
-    let result = with_external_process(kb_enhanced, f);
+    let result = tui_suspend_restore(kb_enhanced, f);
     terminal.clear()?;
     Ok(result)
 }
@@ -46,7 +46,7 @@ pub fn run_external_tool<T>(
 /// `ENABLE_VIRTUAL_TERMINAL_INPUT`), that change would persist and break arrow
 /// key handling — arrow keys would arrive as escape-sequence characters
 /// instead of virtual-key-code events.
-fn with_external_process<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
+fn tui_suspend_restore<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
     #[cfg(windows)]
     let saved_mode = save_console_input_mode();
 
