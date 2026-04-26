@@ -225,7 +225,52 @@ fn test_status_bar_short_error() {
     let buffer = terminal.backend().buffer().clone();
     insta::assert_debug_snapshot!(buffer);
 }
+// Footer is exactly 65 columns wide: left=" abc123def456abc123def456abc123def456abc1 1/1" (45 chars)
+// + 2 padding + hint "Press 'h' for help" (18 chars) = 65. Hint should be visible.
+#[test]
+fn test_footer_hint_fits() {
+    let backend = TestBackend::new(65, 5);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
 
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit(
+        "abc123def456abc123def456abc123def456abc1",
+        "A commit",
+    )];
+    app.selection_index = 0;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
+
+// Footer is 64 columns wide: one column too narrow to fit the hint (needs 65). Hint suppressed.
+#[test]
+fn test_footer_hint_too_narrow() {
+    let backend = TestBackend::new(64, 5);
+    let mut terminal = Terminal::new(backend.clone()).unwrap();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit(
+        "abc123def456abc123def456abc123def456abc1",
+        "A commit",
+    )];
+    app.selection_index = 0;
+
+    terminal
+        .draw(|frame| {
+            views::commit_list::render(&mut app, frame);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer().clone();
+    insta::assert_debug_snapshot!(buffer);
+}
 #[test]
 fn test_status_bar_long_error() {
     let backend = TestBackend::new(80, 10);

@@ -12,7 +12,7 @@ Buffer {
         "█00000000   Commit number 7                                 ",
         "█00000000   Commit number 8                                 ",
         "█00000000   Commit number 9                                 ",
-        " 000000000009 1/10                                          ",
+        " 000000000009 1/10                        Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
@@ -23,5 +23,6 @@ Buffer {
         x: 12, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 27, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 42, y: 7, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

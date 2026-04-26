@@ -19,7 +19,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " def456ghi789 2/3                                                               ",
+        " def456ghi789 2/3                                             Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -29,5 +29,6 @@ Buffer {
         x: 11, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 24, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 14, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

@@ -20,7 +20,7 @@ use crate::fragmap::TouchKind;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
 };
@@ -663,15 +663,29 @@ pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
-    let text = if app.commits.is_empty() {
+    const HINT: &str = "Press 'h' for help";
+    let left = if app.commits.is_empty() {
         String::from("No commits")
     } else {
         let commit = &app.commits[app.selection_index];
         let position = app.commits.len() - app.selection_index;
         format!(" {} {}/{}", commit.oid.long(), position, app.commits.len())
     };
-
-    let footer = Paragraph::new(Span::styled(text, FOOTER_STYLE)).style(FOOTER_STYLE);
+    let hint_style = FOOTER_STYLE.add_modifier(Modifier::DIM);
+    let width = area.width as usize;
+    let left_len = left.len();
+    let hint_len = HINT.len();
+    let line = if left_len + 2 + hint_len <= width {
+        let padding = width - left_len - hint_len;
+        Line::from(vec![
+            Span::styled(left, FOOTER_STYLE),
+            Span::styled(" ".repeat(padding), FOOTER_STYLE),
+            Span::styled(HINT, hint_style),
+        ])
+    } else {
+        Line::from(Span::styled(left, FOOTER_STYLE))
+    };
+    let footer = Paragraph::new(line).style(FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 

@@ -12,6 +12,10 @@ The format is based on
 
 - Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
   `fg` in the shell resumes the TUI exactly where it was left.
+- The footer now shows a right-aligned `Press 'h' for help` hint so new users
+  can discover key bindings without prior knowledge. The hint is shown only when
+  there is enough space and is suppressed whenever a status or error message
+  occupies the footer.
 
 ### Internals
 

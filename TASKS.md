@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Basic UI
-- [ ] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
+- [X] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
   append a short hint such as `Press 'h' for key bindings` to the footer line
   rendered in `render_footer` so first-time users can discover the help overlay
   without prior knowledge; the hint should appear in all modes that display the

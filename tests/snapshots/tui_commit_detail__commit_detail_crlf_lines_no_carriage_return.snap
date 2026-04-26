@@ -28,7 +28,7 @@ Buffer {
         "█@@ -1,2 +1,2 @@                                                                ",
         "█ unchanged line                                                                ",
         "│-old content                                                                   ",
-        "                                                                                ",
+        " crlf001 1/1                                                  Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -91,5 +91,6 @@ Buffer {
         x: 1, y: 22, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 13, y: 22, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

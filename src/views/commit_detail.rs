@@ -25,7 +25,6 @@ use ratatui::{
 use regex::RegexBuilder;
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
-const FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Blue);
 
 use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
@@ -461,8 +460,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
     }
 
     // Render footer
-    let footer = Paragraph::new("").style(FOOTER_STYLE);
-    frame.render_widget(footer, footer_area);
+    super::commit_list::render_footer(frame, app, footer_area);
 }
 
 /// Build the metadata section: OID, full message, author, dates, committer.
