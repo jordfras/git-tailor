@@ -1,6 +1,5 @@
 ---
 source: tests/tui_theme.rs
-assertion_line: 207
 expression: terminal.backend().buffer().clone()
 ---
 Buffer {
@@ -15,7 +14,7 @@ Buffer {
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " ccc3 1/3                                                                       ",
+        " ccc3 1/3                                                     Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -56,5 +55,6 @@ Buffer {
         x: 71, y: 8, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 9, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 9, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

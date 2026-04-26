@@ -6,6 +6,31 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Fixed
+
+- Entering commit detail mode (`i`) on a narrow terminal now correctly shows
+  the commit detail panel.
+
+### Added
+
+- Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
+  `fg` in the shell resumes the TUI exactly where it was left.
+- The footer now shows a right-aligned `Press 'h' for help` hint so new users
+  can discover key bindings without prior knowledge. The hint is shown only when
+  there is enough space and is suppressed whenever a status or error message
+  occupies the footer.
+
+### Internals
+
+- Extensive internal refactoring of the TUI rendering layer: extracted shared
+  layout helpers, decomposed large rendering functions into smaller focused
+  units, and consolidated duplicated style logic. No intentional behaviour
+  changes, but these structural changes touch most view modules and may
+  introduce subtle regressions.
+
+
 ## [0.4.0] - 2026-04-22
 
 ### Added

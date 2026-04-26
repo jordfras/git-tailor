@@ -28,7 +28,7 @@ Buffer {
         "█@@ -1,1 +1,1 @@                                                                ",
         "│-old line                                                                      ",
         "/old█  [1/1]                                                                    ",
-        "                                                                                ",
+        " abc123 1/1                                                   Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -94,5 +94,6 @@ Buffer {
         x: 4, y: 22, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 12, y: 22, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

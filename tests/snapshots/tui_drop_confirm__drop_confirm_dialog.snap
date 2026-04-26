@@ -24,7 +24,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " abc123def456 2/2                                                               ",
+        " abc123def456 2/2                                             Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -75,5 +75,6 @@ Buffer {
         x: 10, y: 14, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 70, y: 14, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 19, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 19, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

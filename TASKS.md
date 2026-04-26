@@ -12,6 +12,26 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Interactivity — Basic UI
+- [X] T168 P2 bug - Commit detail view not shown when right panel is too narrow:
+  when the terminal is narrow or the separator has been moved far right, entering
+  commit detail mode ('i') keeps displaying the fragmap/chunk-group matrix
+  instead of the commit detail content; the app state correctly reflects
+  `CommitDetail` mode but the render path in `main_view.rs` calls
+  `commit_detail::render` with a very small `right_width` — investigate whether
+  `render_in_area_without_fragmap_cols` is painting over the right panel area,
+  or whether the `right_width > 0` guard should have a higher minimum (e.g.
+  `MIN_RIGHT`) before switching to the split layout, and fall back to
+  full-screen commit detail when the right area is too narrow to show it usefully
+- [X] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
+  append a short hint such as `Press 'h' for key bindings` to the footer line
+  rendered in `render_footer` so first-time users can discover the help overlay
+  without prior knowledge; the hint should appear in all modes that display the
+  footer (commit list, commit detail) and be visually subordinate (e.g. dim
+  style) so it does not compete with status messages or commit position info;
+  when a status or error message is shown the hint should be suppressed so the
+  two do not overlap
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
@@ -36,6 +56,20 @@ Guidelines:
   detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
   `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
   (rightmost position) respectively
+- [ ] T166 P3 feat - Increase and decrease diff context lines in commit detail
+  view with `+` and `-`: pressing `+` should increase the number of context
+  lines shown around each hunk (default 3, matching git's default), and `-`
+  should decrease it (minimum 0); store the context line count in `AppState`
+  and pass it through to `commit_diff` (or re-render the cached diff with the
+  new context); changing the value should trigger a re-fetch or re-render of the
+  diff so the change is immediately visible; show the current context line count
+  in the footer or status line so the user knows the active value
+- [ ] T165 P3 feat - Navigate between files in commit detail view by pressing
+  `f`: pressing `f` should jump the scroll position to the start of the next
+  file's diff block in the commit detail view; pressing `F` (shift) should jump
+  to the previous file; the file boundary can be detected from the rendered line
+  list (each `FileDiff` entry starts with a file header line); wrap around when
+  reaching the end/beginning of the file list so the navigation is cyclic
 - [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
   `h`) in the commit detail view should show only the keybindings relevant to
   that view (scrolling, search, navigation back), while pressing it in the
@@ -45,7 +79,7 @@ Guidelines:
   appropriate subset of bindings to display
 
 ## Interactivity — Terminal Integration
-- [ ] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
+- [X] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
   (Unix only): in raw mode the kernel line discipline no longer converts Ctrl-Z
   into SIGTSTP automatically, so the keystroke arrives as a key event; handle
   `KeyCode::Char('z') + CONTROL` in the event loop by tearing down the TUI
@@ -58,20 +92,17 @@ Guidelines:
   to avoid duplication with editor.rs and mergetool.rs
 
 ## CLI — Shell Completion
-- [ ] T140 P3 feat - Add dynamic shell completion for CLI options: use
-  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
-  binary itself emits completions when invoked by the shell's completion
-  machinery — no separate script generation or installation step required; all
-  flags and value_enum variants (e.g. `--squashable-scope`) should be covered
-  automatically from clap's derived schema
-- [ ] T141 P3 feat - Add dynamic branch/tag completion for the BASE argument:
+- [ ] T140 P3 feat - Add shell completion for CLI options: use
+  `clap_complete` to generate static completion scripts (bash, zsh, fish) for
+  all flags and value_enum variants (e.g. `--squashable-scope`). NOTE: zero-setup
+  completions require distribution via a package manager (apt, brew, etc.) that
+  can deposit the script in the right system directory at install time; users
+  installing via `cargo install` will still need a manual one-time setup step.
+- [ ] T141 P3 feat - Add branch/tag completion for the BASE argument:
   extend the completion mechanism from T140 so that the positional `base`
-  argument offers branch and tag candidates; implement this via
-  `clap_complete_dynamic` (or a `COMPLETE=<shell> gt ...` convention) so the
-  running binary queries `git2` for local branches, remote-tracking refs, and
-  tags at completion time — no pre-generated shell scripts required; the dynamic
-  path should degrade gracefully if the current directory is not inside a git
-  repository
+  argument offers branch and tag candidates by querying `git2` for local
+  branches, remote-tracking refs, and tags; degrade gracefully if the current
+  directory is not inside a git repository. Same distribution requirement as T140.
 
 ## CLI Output & Compatibility
 

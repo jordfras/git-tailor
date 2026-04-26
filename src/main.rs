@@ -31,7 +31,7 @@ use git_tailor::{
 };
 
 use crate::cli::Cli;
-use crate::external_tool::run_external_tool;
+use crate::external_tool::with_tui_suspended;
 use crate::terminal_guard::setup_terminal;
 
 /// Loop-control signal returned by [`dispatch_action`].
@@ -198,6 +198,16 @@ fn main() -> Result<()> {
             break;
         }
 
+        // Ctrl-Z (Unix only): suspend the process, then redraw when resumed.
+        #[cfg(unix)]
+        if action == app::KeyCommand::Suspend {
+            with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+                // SAFETY: raise() is async-signal-safe; SIGTSTP is POSIX.
+                unsafe { libc::raise(libc::SIGTSTP) };
+            })?;
+            continue;
+        }
+
         // Mode-first dispatch: each view module handles its own actions.
         let mode = app.mode.clone();
         let result = match mode {
@@ -320,7 +330,7 @@ fn dispatch_action(
                 } else {
                     let combined = ctx.combined_message.clone();
                     let editor_result =
-                        run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
                             editor::edit_message_in_editor(git_repo, &combined)
                         })?;
                     match editor_result {
@@ -369,7 +379,7 @@ fn dispatch_action(
             files,
             conflict_state,
         } => {
-            let result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+            let result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
                 mergetool::run_mergetool(git_repo, &files)
             })?;
             match result {
@@ -400,7 +410,7 @@ fn dispatch_action(
         } => {
             let workdir = git_repo.workdir();
             let result: anyhow::Result<()> =
-                run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
                     let workdir = workdir
                         .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
                     for file_path in &files {
@@ -430,7 +440,7 @@ fn dispatch_action(
             current_message,
         } => {
             let head_oid = get_head_oid_or_continue!(git_repo, app);
-            let editor_result = run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+            let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
                 editor::edit_message_in_editor(git_repo, &current_message)
             })?;
             match editor_result {
@@ -489,7 +499,7 @@ fn dispatch_action(
                 Some(target_message)
             } else {
                 let editor_result =
-                    run_external_tool(terminal_guard.terminal(), kb_enhanced, || {
+                    with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
                         editor::edit_message_in_editor(git_repo, &combined)
                     })?;
                 match editor_result {

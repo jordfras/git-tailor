@@ -12,7 +12,7 @@ Buffer {
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " aaaa11112222 2/2                                                               ",
+        " aaaa11112222 2/2                                             Press 'h' for help",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -41,5 +41,6 @@ Buffer {
         x: 71, y: 6, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 7, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

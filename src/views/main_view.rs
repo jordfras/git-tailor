@@ -26,19 +26,24 @@ use crate::views;
 /// Render the main view with split screen (commit list on left, detail on right).
 pub fn render(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::Frame) {
     let area = frame.area();
-    const BASE_SPLIT_X: i32 = 72; // SHA(10) + gap(1) + title(60) + gap(1)
-    // MIN_LEFT: scrollbar(1) + SHA(10) + col-gap(1) + min-title(10) + panel-sep(1) = 23
-    // This matches CommitList mode's minimum separator position so both modes
-    // stop at the same column, and SHA is never obscured by the panel separator.
-    const MIN_LEFT: i32 = 23;
-    const MIN_RIGHT: i32 = 20;
-    let max_offset = (area.width as i32 - BASE_SPLIT_X - MIN_RIGHT).max(0);
-    let min_offset = (MIN_LEFT - BASE_SPLIT_X).min(0);
-    let clamped_offset = (app.separator_offset as i32).clamp(min_offset, max_offset);
-    app.separator_offset = clamped_offset as i16;
-    let separator_x = ((BASE_SPLIT_X + clamped_offset) as u16).min(area.width);
-    let left_width = separator_x.min(area.width);
-    let right_width = area.width.saturating_sub(left_width);
+    // Position the separator at the same column as the fragmap "│" in CommitList
+    // mode, so switching to CommitDetail causes no visual movement.
+    // Falls back to BASE_SPLIT_X when no fragmap clusters are visible.
+    let (left_width, right_width) =
+        if let Some(sep_x) = views::commit_list::compute_fragmap_sep_x(app, area) {
+            // sep_x is the column of the "│"; right panel starts one column after.
+            let lw = (sep_x + 1).min(area.width);
+            (lw, area.width.saturating_sub(lw))
+        } else {
+            // No fragmap clusters (no commits loaded): give the right panel MIN_RIGHT cols.
+            const MIN_RIGHT: u16 = 20;
+            if area.width > MIN_RIGHT {
+                let lw = area.width - MIN_RIGHT;
+                (lw, MIN_RIGHT)
+            } else {
+                (0, area.width)
+            }
+        };
 
     if right_width > 0 {
         let left_area = Rect {
