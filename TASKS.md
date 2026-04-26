@@ -13,6 +13,16 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Basic UI
+- [ ] T168 P2 bug - Commit detail view not shown when right panel is too narrow:
+  when the terminal is narrow or the separator has been moved far right, entering
+  commit detail mode ('i') keeps displaying the fragmap/chunk-group matrix
+  instead of the commit detail content; the app state correctly reflects
+  `CommitDetail` mode but the render path in `main_view.rs` calls
+  `commit_detail::render` with a very small `right_width` — investigate whether
+  `render_in_area_without_fragmap_cols` is painting over the right panel area,
+  or whether the `right_width > 0` guard should have a higher minimum (e.g.
+  `MIN_RIGHT`) before switching to the split layout, and fall back to
+  full-screen commit detail when the right area is too narrow to show it usefully
 - [X] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
   append a short hint such as `Press 'h' for key bindings` to the footer line
   rendered in `render_footer` so first-time users can discover the help overlay
