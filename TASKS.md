@@ -12,6 +12,16 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Interactivity — Basic UI
+- [ ] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
+  append a short hint such as `Press 'h' for key bindings` to the footer line
+  rendered in `render_footer` so first-time users can discover the help overlay
+  without prior knowledge; the hint should appear in all modes that display the
+  footer (commit list, commit detail) and be visually subordinate (e.g. dim
+  style) so it does not compete with status messages or commit position info;
+  when a status or error message is shown the hint should be suppressed so the
+  two do not overlap
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
@@ -36,6 +46,20 @@ Guidelines:
   detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
   `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
   (rightmost position) respectively
+- [ ] T166 P3 feat - Increase and decrease diff context lines in commit detail
+  view with `+` and `-`: pressing `+` should increase the number of context
+  lines shown around each hunk (default 3, matching git's default), and `-`
+  should decrease it (minimum 0); store the context line count in `AppState`
+  and pass it through to `commit_diff` (or re-render the cached diff with the
+  new context); changing the value should trigger a re-fetch or re-render of the
+  diff so the change is immediately visible; show the current context line count
+  in the footer or status line so the user knows the active value
+- [ ] T165 P3 feat - Navigate between files in commit detail view by pressing
+  `f`: pressing `f` should jump the scroll position to the start of the next
+  file's diff block in the commit detail view; pressing `F` (shift) should jump
+  to the previous file; the file boundary can be detected from the rendered line
+  list (each `FileDiff` entry starts with a file header line); wrap around when
+  reaching the end/beginning of the file list so the navigation is cyclic
 - [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
   `h`) in the commit detail view should show only the keybindings relevant to
   that view (scrolling, search, navigation back), while pressing it in the
