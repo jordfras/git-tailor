@@ -152,6 +152,12 @@ const COLOR_ACTION_SOURCE_BG: Color = Color::Rgb(0, 120, 120);
 const COLOR_ACTION_TARGET_BG: Color = Color::Rgb(0, 40, 50);
 const COLOR_ACTION_INSERT_BG: Color = Color::Rgb(40, 40, 100);
 
+/// Width of the SHA column in the commit table.
+const SHA_COL_WIDTH: u16 = 10;
+
+/// Minimum title column width reserved when computing natural fragmap space.
+const MIN_TITLE_WIDTH: u16 = 20;
+
 /// Maximum width for the title column, keeping fragmap adjacent to titles.
 const MAX_TITLE_WIDTH: u16 = 60;
 
@@ -191,6 +197,26 @@ pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame
     render_in_area_with_layout(app, frame, layout);
 }
 
+/// Returns the x-coordinate of the fragmap "│" separator as it would be
+/// rendered when the commit list occupies `area`, or `None` when no fragmap
+/// clusters are visible (no data to split on).
+///
+/// As a side effect, updates `app.separator_offset` to the clamped value for
+/// this area — the same value that `render_in_area` would produce.
+pub fn compute_fragmap_sep_x(app: &mut AppState, area: Rect) -> Option<u16> {
+    app.fragmap.as_ref()?;
+    let layout = compute_layout(app, area);
+    if layout.fragmap_col_width == 0 {
+        return None;
+    }
+    let content_x = if layout.has_v_scrollbar {
+        area.x + 1
+    } else {
+        area.x
+    };
+    Some(content_x + SHA_COL_WIDTH + 1 + layout.title_width)
+}
+
 /// Render the commit list view in a specific area.
 pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
     let layout = compute_layout(app, area);
@@ -218,7 +244,7 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     frame.render_widget(table, content_area);
 
     if layout.fragmap_col_width > 0 {
-        let sep_x = content_area.x + 10 + 1 + layout.title_width;
+        let sep_x = content_area.x + SHA_COL_WIDTH + 1 + layout.title_width;
         let sep_height = if layout.h_scrollbar_area.is_some() {
             content_area.height + 1
         } else {
@@ -265,7 +291,10 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let preliminary_fragmap_width = frame_area.width.saturating_sub(10 + 1 + 20 + 1 + 1) as usize;
+    let preliminary_fragmap_width = frame_area
+        .width
+        .saturating_sub(SHA_COL_WIDTH + 1 + MIN_TITLE_WIDTH + 1 + 1)
+        as usize;
     let needs_h_scrollbar =
         !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
 
@@ -293,7 +322,8 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     // Establish the natural (separator_offset=0) baseline using the same formula as
     // before T117: title is whatever fits after allocating maximum fragmap space.
-    let natural_fragmap_w = effective_width.saturating_sub(10 + 2 + 20) as usize;
+    let natural_fragmap_w =
+        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + MIN_TITLE_WIDTH) as usize;
     let natural_h_scroll = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -306,12 +336,12 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         end.saturating_sub(natural_h_scroll) as u16
     };
     let natural_title = effective_width
-        .saturating_sub(10 + 2 + natural_frag_col_w)
+        .saturating_sub(SHA_COL_WIDTH + 2 + natural_frag_col_w)
         .min(MAX_TITLE_WIDTH);
 
     // Apply separator_offset on top of the natural baseline. Clamp and write back
     // immediately so reversing direction takes effect without delay.
-    let max_title = effective_width.saturating_sub(10 + 2 + 1) as i32;
+    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + 2 + 1) as i32;
     let min_title: i32 = 10;
     let title_width: u16 = if max_title >= min_title {
         let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
@@ -324,7 +354,8 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     // Derive fragmap available width from the final title_width so that the
     // table constraints (SHA + title + fragmap) always sum to effective_width.
-    let fragmap_available_width = effective_width.saturating_sub(10 + 2 + title_width) as usize;
+    let fragmap_available_width =
+        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + title_width) as usize;
 
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
@@ -384,7 +415,7 @@ fn build_header(layout: &LayoutInfo) -> Row<'static> {
 fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
     if layout.fragmap_col_width > 0 {
         vec![
-            Constraint::Length(10),
+            Constraint::Length(SHA_COL_WIDTH),
             Constraint::Length(layout.title_width),
             Constraint::Min(layout.fragmap_col_width),
         ]
@@ -392,7 +423,7 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
         // Min(0) for title: SHA's Length(10) always wins over the title column
         // so the SHA is never squished when the panel is narrow (e.g. the left
         // sub-panel in CommitDetail view).
-        vec![Constraint::Length(10), Constraint::Min(0)]
+        vec![Constraint::Length(SHA_COL_WIDTH), Constraint::Min(0)]
     }
 }
 

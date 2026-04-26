@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Basic UI
-- [ ] T168 P2 bug - Commit detail view not shown when right panel is too narrow:
+- [X] T168 P2 bug - Commit detail view not shown when right panel is too narrow:
   when the terminal is narrow or the separator has been moved far right, entering
   commit detail mode ('i') keeps displaying the fragmap/chunk-group matrix
   instead of the commit detail content; the app state correctly reflects

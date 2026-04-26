@@ -8,6 +8,11 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- Entering commit detail mode (`i`) on a narrow terminal now correctly shows
+  the commit detail panel.
+
 ### Added
 
 - Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing

@@ -19,8 +19,9 @@ mod common;
 
 use anyhow::{Result, anyhow};
 use git_tailor::{
-    CommitDiff, CommitInfo, Oid,
+    CommitDiff, CommitInfo, Oid, VirtualOid,
     app::AppState,
+    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
     views,
 };
@@ -161,6 +162,24 @@ fn app_with_commits() -> AppState {
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
     ];
     app.selection_index = 0;
+    // One visible cluster so compute_fragmap_sep_x takes the fragmap path
+    // and the separator aligns with the fragmap │ column.
+    app.fragmap = Some(FragMap {
+        commits: vec![VirtualOid::Real(Oid::new("abc123def456".to_string())); 3],
+        clusters: vec![SpanCluster {
+            spans: vec![FileSpan {
+                path: "a.rs".to_string(),
+                start_line: 1,
+                end_line: 5,
+            }],
+            commit_oids: vec![],
+        }],
+        matrix: {
+            let mut m = vec![vec![TouchKind::None; 1]; 3];
+            m[0][0] = TouchKind::Modified;
+            m
+        },
+    });
     app
 }
 
@@ -288,8 +307,8 @@ fn test_separator_clamps_left() {
         .unwrap();
 
     // After clamping, separator_offset is written back by render.
-    // MIN_LEFT=23 → separator_x=23 → sep cell at 22.
-    let clamped_col = 22usize;
+    // min_title=10 → sep_x = SHA_COL_WIDTH + gap + min_title = 10+1+10 = 21 → sep cell at 21.
+    let clamped_col = 21usize;
     assert_eq!(
         cell_at(&terminal, clamped_col, 0),
         "│",
@@ -299,7 +318,7 @@ fn test_separator_clamps_left() {
     // At clamped minimum, title column width is 10. "Initial commit" is 14
     // characters so it overflows — verify the full string is NOT present.
     // (Ratatui clips the cell; the rightmost visible column of the title area
-    // is column 21 = SHA(10) + gap(1) + title_end(10+1) - 1.)
+    // is column 20 = SHA(10) + gap(1) + title_end(10) - 1.)
     let first_row_as_text: String = (0..clamped_col)
         .map(|col| cell_at(&terminal, col, 1))
         .collect();
@@ -311,8 +330,9 @@ fn test_separator_clamps_left() {
     insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
 }
 
-/// Extreme positive offset is clamped — separator never closer than MIN_RIGHT (20) to right edge.
-/// With width=120, max separator_x = 120-20 = 100, so sep cell at column 99.
+/// Extreme positive offset is clamped — separator goes as far right as the
+/// fragmap layout allows: max_title = effective_width - SHA - 2 - 1 = 107,
+/// so sep_x = SHA + 1 + max_title = 118, separator cell at column 118.
 #[test]
 fn test_separator_clamps_right() {
     let repo = NoOpRepo;
@@ -325,8 +345,9 @@ fn test_separator_clamps_right() {
         .draw(|frame| views::main_view::render(&repo, &mut app, frame))
         .unwrap();
 
-    // After clamping: max_offset = 120 - 72 - 20 = 28, so separator_x = 100, sep cell at 99.
-    let clamped_col = 99usize;
+    // max_title = 120 - SHA(10) - col-gaps(2) - min-fragmap(1) = 107
+    // sep_x = SHA(10) + gap(1) + max_title(107) = 118
+    let clamped_col = 118usize;
     assert_eq!(
         cell_at(&terminal, clamped_col, 0),
         "│",
@@ -385,13 +406,13 @@ fn test_commit_detail_shown_on_narrow_terminal() {
         .draw(|frame| views::main_view::render(&repo, &mut app, frame))
         .unwrap();
 
-    // Row 0 should be the commit detail header ("Commit information"),
-    // not the commit list header ("SHA").
-    let header: String = (0..60)
-        .map(|col| cell_at(&terminal, col, 0))
-        .collect();
-    assert!(
-        header.contains("Commit information"),
-        "narrow terminal in CommitDetail mode should show commit detail header; got: {header:?}"
+    // With a 60-col terminal: sep_x = SHA(10) + gap(1) + title(47) = 58,
+    // so the right panel is 1 col wide at column 59. The commit detail header
+    // "Commit information" is truncated to a single 'C', proving that
+    // commit_detail::render was called rather than falling back to commit_list.
+    let right_panel_char = cell_at(&terminal, 59, 0);
+    assert_eq!(
+        right_panel_char, "C",
+        "narrow terminal in CommitDetail mode: right panel (col 59) should show first char of commit detail header; got: {right_panel_char:?}"
     );
 }
