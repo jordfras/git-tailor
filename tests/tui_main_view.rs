@@ -369,3 +369,29 @@ fn test_separator_title_truncation_boundary() {
 
     insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
 }
+
+/// When the terminal is narrower than BASE_SPLIT_X (72 cols), right_width == 0.
+/// In CommitDetail mode the commit detail view should be rendered fullscreen,
+/// not the commit list. Regression test for T168.
+#[test]
+fn test_commit_detail_shown_on_narrow_terminal() {
+    let repo = NoOpRepo;
+    let backend = TestBackend::new(60, 10);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let mut app = app_with_commits();
+    app.mode = git_tailor::app::AppMode::CommitDetail;
+
+    terminal
+        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
+        .unwrap();
+
+    // Row 0 should be the commit detail header ("Commit information"),
+    // not the commit list header ("SHA").
+    let header: String = (0..60)
+        .map(|col| cell_at(&terminal, col, 0))
+        .collect();
+    assert!(
+        header.contains("Commit information"),
+        "narrow terminal in CommitDetail mode should show commit detail header; got: {header:?}"
+    );
+}
