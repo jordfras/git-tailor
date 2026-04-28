@@ -128,7 +128,7 @@ fn test_fragmap_conflicting_pair() {
 /// Tests that each column renders independently.
 #[test]
 fn test_fragmap_mixed_columns() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -213,7 +213,7 @@ fn test_fragmap_reversed() {
 /// Visually this is identical to having two independent clusters side by side.
 #[test]
 fn test_fragmap_full_duplicate_columns_visible() {
-    let mut harness = TuiTestHarness::new(80, 8);
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -244,7 +244,7 @@ fn test_fragmap_full_duplicate_columns_visible() {
 
 #[test]
 fn test_fragmap_adjacent_squashable() {
-    let mut harness = TuiTestHarness::new(80, 8);
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -274,7 +274,7 @@ fn test_fragmap_adjacent_squashable() {
 /// With 12 clusters and scroll_offset=4, should show clusters 4..12.
 #[test]
 fn test_fragmap_horizontal_scroll() {
-    let mut harness = TuiTestHarness::new(40, 8);
+    let mut harness = TuiTestHarness::very_narrow();
 
     let oids: Vec<&str> = vec!["aaa1", "bbb2", "ccc3"];
     let commits: Vec<CommitInfo> = oids

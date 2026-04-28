@@ -55,7 +55,7 @@ fn test_move_select_footer_renders() {
 
 #[test]
 fn test_move_select_separator_at_top() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     // Source is the newest commit (index 2), insertion at 0 (top)
     let mut app = make_app_in_move_select(2, 0);
@@ -67,7 +67,7 @@ fn test_move_select_separator_at_top() {
 
 #[test]
 fn test_move_select_separator_at_middle() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     // Source is index 0 (oldest), insertion at 2 (first valid middle position)
     let mut app = make_app_in_move_select(0, 2);
@@ -79,7 +79,7 @@ fn test_move_select_separator_at_middle() {
 
 #[test]
 fn test_move_select_source_highlighted() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     // Source is middle commit (index 1), insertion at 0
     let mut app = make_app_in_move_select(1, 0);
@@ -91,7 +91,7 @@ fn test_move_select_source_highlighted() {
 
 #[test]
 fn test_move_select_reversed() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     let mut app = make_app_in_move_select(2, 0);
     app.reverse = true;

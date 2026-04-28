@@ -36,7 +36,7 @@ fn make_app_in_split_select(strategy_index: usize) -> AppState {
 
 #[test]
 fn test_split_dialog_per_file_selected() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(0);
 
@@ -48,7 +48,7 @@ fn test_split_dialog_per_file_selected() {
 
 #[test]
 fn test_split_dialog_per_hunk_selected() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(1);
 
@@ -60,7 +60,7 @@ fn test_split_dialog_per_hunk_selected() {
 
 #[test]
 fn test_split_dialog_per_hunk_group_selected() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(2);
 

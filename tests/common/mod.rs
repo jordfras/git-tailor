@@ -300,6 +300,16 @@ impl TuiTestHarness {
         Self::new(80, 10)
     }
 
+    /// Narrow 60×10 terminal for tests that need reduced horizontal space.
+    pub fn narrow() -> Self {
+        Self::new(60, 10)
+    }
+
+    /// Very narrow 40×15 terminal for tests that exercise very tight widths.
+    pub fn very_narrow() -> Self {
+        Self::new(40, 15)
+    }
+
     /// Draw one frame using `f` and return the resulting buffer.
     ///
     /// Pass the returned `Buffer` to `insta::assert_debug_snapshot!` at the

@@ -33,7 +33,7 @@ fn test_commit_list_empty() {
 
 #[test]
 fn test_commit_list_with_commits() {
-    let mut harness = TuiTestHarness::new(80, 15);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -50,7 +50,7 @@ fn test_commit_list_with_commits() {
 
 #[test]
 fn test_commit_list_with_selection() {
-    let mut harness = TuiTestHarness::new(80, 15);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -67,7 +67,7 @@ fn test_commit_list_with_selection() {
 
 #[test]
 fn test_commit_list_long_summary() {
-    let mut harness = TuiTestHarness::new(80, 12);
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -86,9 +86,8 @@ fn test_commit_list_long_summary() {
 
 #[test]
 fn test_commit_list_scrolled_to_top() {
-    // Terminal height 8: borders(2) + header(1) = 3 overhead, so 5 rows visible.
-    // 10 commits total → scrollbar should appear.
-    let mut harness = TuiTestHarness::new(60, 8);
+    // 10 commits, 60-col terminal — scrollbar should appear.
+    let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
     app.commits = (0..10)
@@ -106,7 +105,7 @@ fn test_commit_list_scrolled_to_top() {
 #[test]
 fn test_commit_list_scrolled_to_bottom() {
     // Same setup as above, but selection at last commit.
-    let mut harness = TuiTestHarness::new(60, 8);
+    let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
     app.commits = (0..10)
@@ -123,7 +122,7 @@ fn test_commit_list_scrolled_to_bottom() {
 
 #[test]
 fn test_commit_list_reversed_with_commits() {
-    let mut harness = TuiTestHarness::new(80, 15);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -142,7 +141,7 @@ fn test_commit_list_reversed_with_commits() {
 #[test]
 fn test_commit_list_reversed_scrolled() {
     // 10 commits, reverse mode with HEAD selected (index 9) → visual index 0 (top).
-    let mut harness = TuiTestHarness::new(60, 8);
+    let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
     app.commits = (0..10)

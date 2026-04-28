@@ -358,7 +358,7 @@ Guidelines:
   delegates to `insta::assert_debug_snapshot!`. Reduces each TUI test to: `let
   mut h = TuiTestHarness::std(); let buf = h.render(|f|
   views::commit_list::render(&mut app, f)); h.snapshot();`.
-- [ ] T196 P3 feat - Introduce terminal-dimension constants for tests:
+- [X] T196 P3 feat - Introduce terminal-dimension constants for tests:
   `TestBackend::new(80, 24)` / `(120, 20)` / `(80, 10)` / `(60, 10)` /
   `(80, 12)` are scattered across 25+ TUI test sites
   (`tests/tui_squash_select.rs`, `tui_move_select.rs`, `tui_main_view.rs`,

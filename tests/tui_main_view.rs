@@ -250,7 +250,7 @@ fn test_separator_title_truncation_boundary() {
 #[test]
 fn test_commit_detail_shown_on_narrow_terminal() {
     let repo = NoOpRepo;
-    let mut harness = TuiTestHarness::new(60, 10);
+    let mut harness = TuiTestHarness::narrow();
     let mut app = app_with_commits();
     app.mode = git_tailor::app::AppMode::CommitDetail;
 

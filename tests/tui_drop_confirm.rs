@@ -42,7 +42,7 @@ fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState 
 
 #[test]
 fn test_drop_confirm_dialog() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_drop_confirm("abc123def456", "Refactor parser module");
 
@@ -54,7 +54,7 @@ fn test_drop_confirm_dialog() {
 
 #[test]
 fn test_drop_confirm_dialog_long_summary() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_drop_confirm(
         "abc123def456",
@@ -69,7 +69,7 @@ fn test_drop_confirm_dialog_long_summary() {
 
 #[test]
 fn test_drop_confirm_dialog_narrow_terminal() {
-    let mut harness = TuiTestHarness::new(40, 15);
+    let mut harness = TuiTestHarness::very_narrow();
 
     let mut app = make_app_in_drop_confirm("abc123def456", "Add feature X");
 
@@ -106,7 +106,7 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
 
 #[test]
 fn test_drop_conflict_dialog_no_remaining() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_drop_conflict("abc123def456", vec![]);
 
@@ -118,7 +118,7 @@ fn test_drop_conflict_dialog_no_remaining() {
 
 #[test]
 fn test_drop_conflict_dialog_with_remaining() {
-    let mut harness = TuiTestHarness::new(80, 20);
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_drop_conflict(
         "abc123def456",
@@ -133,7 +133,7 @@ fn test_drop_conflict_dialog_with_remaining() {
 
 #[test]
 fn test_drop_conflict_dialog_narrow_terminal() {
-    let mut harness = TuiTestHarness::new(40, 15);
+    let mut harness = TuiTestHarness::very_narrow();
 
     let mut app = make_app_in_drop_conflict("abc123def456", vec!["111111111111"]);
 
