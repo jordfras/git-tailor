@@ -13,6 +13,9 @@
 // limitations under the License.
 
 #[allow(unused_imports)]
+pub mod assert;
+
+#[allow(unused_imports)]
 pub mod fake;
 #[allow(unused_imports)]
 pub use fake::{FakeDiffRepo, NoOpRepo};

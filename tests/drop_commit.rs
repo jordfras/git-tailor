@@ -37,10 +37,7 @@ fn drop_head_commit_removes_it() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1, "should have 1 commit above base");
@@ -66,10 +63,7 @@ fn drop_middle_commit_rebases_descendants() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(child))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
@@ -109,7 +103,7 @@ fn drop_with_multiple_descendants() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
@@ -224,10 +218,7 @@ fn drop_continue_after_resolving_conflict() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     // Simulate user resolving the conflict: write the resolved content,
     // clear conflict entries, then stage the file.
@@ -241,10 +232,7 @@ fn drop_continue_after_resolving_conflict() {
     index.write().unwrap();
 
     let result = git_repo.rebase_continue(&state).unwrap();
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete after resolution, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
@@ -273,10 +261,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     // Do NOT resolve the conflict — just call continue immediately.
     let result = git_repo.rebase_continue(&state).unwrap();
@@ -328,10 +313,7 @@ fn drop_abort_restores_original_branch() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     git_repo.rebase_abort(&state).unwrap();
 
@@ -379,10 +361,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(child2))
         .unwrap();
-    let state1 = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected first Conflict"),
-    };
+    let state1 = expect_rebase_conflict!(result);
     assert_eq!(state1.conflicting_commit_oid, Oid::from(child1));
     assert_eq!(state1.original_branch_oid, Oid::from(child2));
 
@@ -398,10 +377,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
 
     // Continue → second conflict on child2.
     let result = git_repo.rebase_continue(&state1).unwrap();
-    let state2 = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected second Conflict"),
-    };
+    let state2 = expect_rebase_conflict!(result);
     assert_eq!(state2.conflicting_commit_oid, Oid::from(child2));
     // original_branch_oid must still refer to the pre-drop HEAD.
     assert_eq!(state2.original_branch_oid, Oid::from(child2));
@@ -450,7 +426,7 @@ fn drop_commit_with_no_descendants() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -533,10 +509,7 @@ fn drop_commit_allowed_with_staged_submodule() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "drop should succeed when only a submodule pointer is staged; got {result:?}"
-    );
+    assert_rebase_complete!(result);
 }
 
 /// After aborting a conflicted operation, the working tree must be completely
@@ -558,10 +531,7 @@ fn rebase_abort_leaves_clean_working_tree() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     // Abort — must restore branch and leave a clean working tree.
     git_repo.rebase_abort(&state).unwrap();
@@ -635,10 +605,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => *s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     // Simulate external editor: write resolved content but do NOT stage.
     let workdir = test.repo.workdir().unwrap();
@@ -663,10 +630,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
 
     // rebase_continue should succeed.
     let result = git_repo.rebase_continue(&state).unwrap();
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete after auto-staging, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
@@ -692,10 +656,7 @@ fn auto_stage_does_not_stage_file_with_conflict_markers() {
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
 
-    let state = match result {
-        RebaseOutcome::Conflict(s) => *s,
-        RebaseOutcome::Complete => panic!("expected Conflict"),
-    };
+    let state = expect_rebase_conflict!(result);
 
     // Working tree already has conflict markers from write_conflicts_to_workdir.
     // auto_stage should NOT clear them.

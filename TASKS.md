@@ -324,7 +324,7 @@ Guidelines:
   `pub struct NoOpRepo;` in `tests/common.rs` and import from both files;
   eliminates ~120 LOC of risky copy-paste that has to stay in sync with the
   `GitRepo` trait.
-- [ ] T192 P1 feat - Add `assert_complete!` / `assert_conflict!` macros for
+- [X] T192 P1 feat - Add `assert_complete!` / `assert_conflict!` macros for
   `RebaseOutcome`: the patterns
   `assert!(matches!(result, RebaseOutcome::Complete), …)` and `match outcome {
   RebaseOutcome::Complete => panic!("expected conflict"),

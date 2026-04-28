@@ -42,10 +42,7 @@ fn squash_adjacent_commits_source_is_head() {
         )
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1, "should have 1 commit above base");
@@ -85,7 +82,7 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
         )
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
@@ -143,7 +140,7 @@ fn squash_source_not_head_rebases_later_commits() {
         )
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
@@ -317,10 +314,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
         )
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "sequential line additions should auto-merge: got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -351,7 +345,7 @@ fn squash_with_multiple_intermediates_and_descendants() {
         )
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     // 1 squash + 2 intermediates + 2 after = 5
     let commits = common::commits_from_head(&test.repo, base);
@@ -487,10 +481,7 @@ fn squash_finalize_after_conflict_resolution() {
         .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "should complete after resolution: {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     // Verify the squash commit
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -667,10 +658,7 @@ fn squash_commits_allowed_with_staged_submodule() {
         )
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "squash should succeed when only a submodule pointer is staged; got {result:?}"
-    );
+    assert_rebase_complete!(result);
 }
 
 #[test]
@@ -882,10 +870,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "should complete after auto-staging: {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -953,10 +938,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         .squash_finalize(&ctx, "squashed", &state.original_branch_oid)
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "should complete: {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     // The squash commit's tree must NOT contain b.txt — a file that only
     // exists in the desc commit (post-source). If it does, stale entries

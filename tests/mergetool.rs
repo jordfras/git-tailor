@@ -123,13 +123,11 @@ fn make_conflict(test: &common::TestRepo) -> git_tailor::repo::ConflictState {
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
     let git_repo = test.git_repo();
-    match git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap()
-    {
-        RebaseOutcome::Conflict(state) => *state,
-        RebaseOutcome::Complete => panic!("expected conflict"),
-    }
+    expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    )
 }
 
 #[test]
@@ -217,13 +215,11 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
     let git_repo = test.git_repo();
-    let state = match git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap()
-    {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected conflict"),
-    };
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
 
     assert!(
         !state.conflicting_files.is_empty(),
@@ -247,13 +243,10 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     let refreshed_state = git_tailor::repo::ConflictState {
         conflicting_files: git_repo.read_conflicting_files(),
         still_unresolved: false,
-        ..(*state)
+        ..state
     };
     let outcome = git_repo.rebase_continue(&refreshed_state).unwrap();
-    assert!(
-        matches!(outcome, RebaseOutcome::Complete),
-        "expected Complete after resolution, got {outcome:?}"
-    );
+    assert_rebase_complete!(outcome);
 }
 
 // ---------------------------------------------------------------------------
@@ -287,13 +280,11 @@ fn read_index_stage_returns_exact_content_for_each_stage() {
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
     let git_repo = test.git_repo();
-    let state = match git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap()
-    {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected conflict"),
-    };
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
 
     let path = &state.conflicting_files[0];
 
@@ -371,13 +362,11 @@ fn read_conflicting_files_returns_multiple_paths() {
     );
 
     let git_repo = test.git_repo();
-    let state = match git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap()
-    {
-        RebaseOutcome::Conflict(s) => s,
-        RebaseOutcome::Complete => panic!("expected conflict"),
-    };
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
 
     let conflicts = git_repo.read_conflicting_files();
     assert!(

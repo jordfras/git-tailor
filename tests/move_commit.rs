@@ -49,10 +49,7 @@ fn move_commit_earlier() {
         .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 3);
@@ -95,10 +92,7 @@ fn move_commit_later() {
         .move_commit(&Oid::from(b), Some(&Oid::from(d)), &Oid::from(d))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 4);
@@ -126,10 +120,7 @@ fn move_commit_to_beginning() {
         .move_commit(&Oid::from(c), Some(&Oid::from(base)), &Oid::from(c))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 3);
@@ -157,7 +148,7 @@ fn move_head_commit_earlier() {
         .move_commit(&Oid::from(head), Some(&Oid::from(a)), &Oid::from(head))
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let messages: Vec<String> = common::commits_from_head(&test.repo, base)
         .iter()
@@ -220,7 +211,7 @@ fn move_commit_preserves_file_contents() {
         .move_commit(&Oid::from(b), Some(&Oid::from(c)), &Oid::from(c))
         .unwrap();
 
-    assert!(matches!(result, RebaseOutcome::Complete));
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -328,10 +319,7 @@ fn move_commit_to_root_position() {
         .move_commit(&Oid::from(c), None, &Oid::from(c))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
 
@@ -403,10 +391,7 @@ fn move_root_commit_to_later_position() {
         .move_commit(&root_oid, Some(&Oid::from(b)), &Oid::from(b))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "expected Complete, got {result:?}"
-    );
+    assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
 
@@ -469,8 +454,5 @@ fn move_commit_allowed_with_staged_submodule() {
         .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
 
-    assert!(
-        matches!(result, RebaseOutcome::Complete),
-        "move should succeed when only a submodule pointer is staged; got {result:?}"
-    );
+    assert_rebase_complete!(result);
 }
