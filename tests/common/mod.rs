@@ -21,8 +21,9 @@ pub mod fake;
 pub use fake::{FakeDiffRepo, NoOpRepo};
 
 use git_tailor::{
-    CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, app::AppState,
-    repo::Git2Repo,
+    CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,
+    app::AppState,
+    repo::{ConflictState, Git2Repo, GitRepo},
 };
 use git2::{Repository, Signature};
 use ratatui::{Frame, Terminal, backend::TestBackend, buffer::Buffer};
@@ -271,6 +272,27 @@ impl TestRepo {
             })
             .unwrap();
         index.write().unwrap();
+    }
+
+    /// Create a 3-commit drop-conflict scenario and return the resulting
+    /// [`ConflictState`].
+    ///
+    /// Commit history (oldest → newest):
+    /// - base: `"a.txt"` = `"base\n"`
+    /// - to_drop: `"a.txt"` = `"base\ndropped\n"` (the commit that will be dropped)
+    /// - head: `"a.txt"` = `"base\ndropped\nhead\n"` (depends on the dropped line)
+    ///
+    /// Dropping `to_drop` conflicts when cherry-picking `head` onto `base`.
+    pub fn make_drop_conflict(&self) -> ConflictState {
+        let _base = self.commit_file("a.txt", "base\n", "base");
+        let to_drop = self.commit_file("a.txt", "base\ndropped\n", "add dropped line");
+        let head = self.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+        let git_repo = self.git_repo();
+        crate::expect_rebase_conflict!(
+            git_repo
+                .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+                .unwrap()
+        )
     }
 }
 

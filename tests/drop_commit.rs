@@ -240,17 +240,8 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     // error — leaving the repo in a usable state so the user can keep
     // editing or abort.
     let test = common::TestRepo::new();
-
-    let _base = test.commit_file("a.txt", "line1\n", "base");
-    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
-    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
-
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
-    let result = git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap();
-
-    let state = expect_rebase_conflict!(result);
 
     // Do NOT resolve the conflict — just call continue immediately.
     let result = git_repo.rebase_continue(&state).unwrap();
@@ -286,34 +277,30 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     // Repo must still be in a state where abort works cleanly.
     git_repo.rebase_abort(&state).unwrap();
     let restored = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(restored, head, "abort should restore original HEAD");
+    assert_eq!(
+        Oid::from(restored),
+        state.original_branch_oid,
+        "abort should restore original HEAD"
+    );
 }
 
 #[test]
 fn drop_abort_restores_original_branch() {
     let test = common::TestRepo::new();
-
-    let _base = test.commit_file("a.txt", "line1\n", "base");
-    let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
-    let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
-
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
-    let result = git_repo
-        .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-        .unwrap();
-
-    let state = expect_rebase_conflict!(result);
 
     git_repo.rebase_abort(&state).unwrap();
 
     // Branch should be back to the original HEAD.
     let current_head = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        current_head, head,
+        Oid::from(current_head),
+        state.original_branch_oid,
         "HEAD should be restored to original after abort"
     );
 
-    assert_file_contents!(&test.repo, current_head, "a.txt", "line1\nline2\nline3\n");
+    assert_file_contents!(&test.repo, current_head, "a.txt", "base\ndropped\nhead\n");
 }
 
 // ---------------------------------------------------------------------------

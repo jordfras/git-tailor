@@ -380,7 +380,7 @@ Guidelines:
   synthesises deterministic OIDs from the index and populates `commits`.
   Per-file helpers shrink to one or two lines and adding a 4th/5th commit to a
   test no longer requires inventing a fake OID.
-- [ ] T198 P3 feat - Add `common::create_drop_conflict(&TestRepo) ->
+- [x] T198 P3 feat - Add `common::create_drop_conflict(&TestRepo) ->
   ConflictState` fixture: the same 3-commit setup that triggers a drop conflict
   (base → adds line → depends on dropped line) appears at
   `tests/mergetool.rs:119` and a couple of places in `tests/drop_commit.rs`

@@ -116,20 +116,6 @@ fn resolve_merge_tool_cmd_returns_none_for_unknown_tool_without_cmd() {
 // read_index_stage / stage_file / read_conflicting_files (via Git2Repo)
 // ---------------------------------------------------------------------------
 
-/// Set up a drop-commit conflict and return the resulting ConflictState.
-fn make_conflict(test: &common::TestRepo) -> git_tailor::repo::ConflictState {
-    let _base = test.commit_file("a.txt", "base\n", "base");
-    let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
-    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
-
-    let git_repo = test.git_repo();
-    expect_rebase_conflict!(
-        git_repo
-            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
-            .unwrap()
-    )
-}
-
 #[test]
 fn read_index_stage_returns_none_when_no_conflict_entry() {
     let test = common::TestRepo::new();
@@ -147,7 +133,7 @@ fn read_index_stage_returns_none_when_no_conflict_entry() {
 #[test]
 fn read_index_stage_returns_content_after_conflict() {
     let test = common::TestRepo::new();
-    let state = make_conflict(&test);
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
 
     // Stage 2 = ours (the cherry-pick source). Must have non-empty content.
@@ -173,7 +159,7 @@ fn read_index_stage_returns_content_after_conflict() {
 #[test]
 fn stage_file_clears_conflict_entries_in_index() {
     let test = common::TestRepo::new();
-    let state = make_conflict(&test);
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
 
     // Sanity: there is a conflict.
@@ -332,7 +318,7 @@ fn read_conflicting_files_returns_empty_when_no_conflict() {
 #[test]
 fn read_conflicting_files_lists_conflicted_paths() {
     let test = common::TestRepo::new();
-    let state = make_conflict(&test);
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
     // The ConflictState already records paths at conflict time; verify the live
     // method agrees.
@@ -407,7 +393,7 @@ fn read_conflicting_files_is_sorted() {
 #[test]
 fn stage_file_and_check_content_matches_written_file() {
     let test = common::TestRepo::new();
-    let state = make_conflict(&test);
+    let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
     let path = &state.conflicting_files[0];
     let workdir = test.repo.workdir().unwrap();
