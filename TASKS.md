@@ -342,7 +342,7 @@ Guidelines:
   git2::Oid, expected_summaries: &[&str])` that verifies the count and each
   summary in oldest-to-newest order with descriptive panic messages. Each test
   then asserts the post-rebase commit graph in a single line.
-- [ ] T194 P2 feat - Add `assert_file_contents!` macro: the pattern
+- [X] T194 P2 feat - Add `assert_file_contents!` macro: the pattern
   `assert_eq!(file_content_at(&test.repo, head_oid, "a.txt"), "alpha2\n");`
   appears 30+ times across the rebase-op tests. Add
   `assert_file_contents!(&test.repo, head_oid, "a.txt", "alpha2\n")` in

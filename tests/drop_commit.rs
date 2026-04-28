@@ -43,11 +43,7 @@ fn drop_head_commit_removes_it() {
     assert_eq!(commits.len(), 1, "should have 1 commit above base");
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "v2\n",
-        "HEAD should have the middle commit's content"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "v2\n");
 }
 
 #[test]
@@ -73,11 +69,7 @@ fn drop_middle_commit_rebases_descendants() {
     );
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "changed\n",
-        "descendant's change to a.txt should survive"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "changed\n");
 
     // b.txt should not exist in the final tree since the commit that added it
     // was dropped.
@@ -238,10 +230,7 @@ fn drop_continue_after_resolving_conflict() {
     assert_eq!(commits.len(), 1);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "line1\nline3\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "line1\nline3\n");
 }
 
 #[test]
@@ -324,11 +313,7 @@ fn drop_abort_restores_original_branch() {
         "HEAD should be restored to original after abort"
     );
 
-    assert_eq!(
-        common::file_content_at(&test.repo, current_head, "a.txt"),
-        "line1\nline2\nline3\n",
-        "working tree content should match original HEAD"
-    );
+    assert_file_contents!(&test.repo, current_head, "a.txt", "line1\nline2\nline3\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -390,11 +375,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
         head_after, child2,
         "HEAD must be fully restored after abort at second conflict"
     );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_after, "a.txt"),
-        "v4\n",
-        "file content must match original HEAD after abort"
-    );
+    assert_file_contents!(&test.repo, head_after, "a.txt", "v4\n");
 }
 
 #[test]
@@ -635,10 +616,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "line1\nline3\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "line1\nline3\n");
 }
 
 #[test]

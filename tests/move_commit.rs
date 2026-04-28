@@ -54,18 +54,9 @@ fn move_commit_earlier() {
     assert_history!(&test.repo, base, &["A", "C", "B"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "x.txt"),
-        "x\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "y.txt"),
-        "y\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "z.txt"),
-        "z\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "x.txt", "x\n");
+    assert_file_contents!(&test.repo, head_oid, "y.txt", "y\n");
+    assert_file_contents!(&test.repo, head_oid, "z.txt", "z\n");
 }
 
 #[test]
@@ -184,18 +175,9 @@ fn move_commit_preserves_file_contents() {
     assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "x.txt"),
-        "x-content\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "y.txt"),
-        "y-content\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "z.txt"),
-        "z-content\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "x.txt", "x-content\n");
+    assert_file_contents!(&test.repo, head_oid, "y.txt", "y-content\n");
+    assert_file_contents!(&test.repo, head_oid, "z.txt", "z-content\n");
 
     assert_history!(&test.repo, base, &["A", "C", "B"]);
 }
@@ -309,22 +291,10 @@ fn move_commit_to_root_position() {
     assert_eq!(messages, vec!["C", "root", "A", "B"]);
 
     // All files must be present at HEAD.
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "root_content\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "x.txt"),
-        "x\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "y.txt"),
-        "y\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "z.txt"),
-        "z\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "root_content\n");
+    assert_file_contents!(&test.repo, head_oid, "x.txt", "x\n");
+    assert_file_contents!(&test.repo, head_oid, "y.txt", "y\n");
+    assert_file_contents!(&test.repo, head_oid, "z.txt", "z\n");
 
     // Working tree must be clean — no staged deletions or untracked files.
     let statuses = test.repo.statuses(None).unwrap();
@@ -376,18 +346,9 @@ fn move_root_commit_to_later_position() {
         .collect();
     assert_eq!(messages, vec!["A", "B", "root"]);
 
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "root.txt"),
-        "root\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "a\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "b.txt"),
-        "b\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "root.txt", "root\n");
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "a\n");
+    assert_file_contents!(&test.repo, head_oid, "b.txt", "b\n");
 
     // Working tree must be clean — no staged deletions or untracked files.
     let statuses = test.repo.statuses(None).unwrap();

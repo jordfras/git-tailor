@@ -47,16 +47,8 @@ fn squash_adjacent_commits_source_is_head() {
     assert_history!(&test.repo, base, &["squashed message"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "target\n",
-        "target's file change should be in the squash"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "b.txt"),
-        "source\n",
-        "source's file change should be in the squash"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "target\n");
+    assert_file_contents!(&test.repo, head_oid, "b.txt", "source\n");
 }
 
 #[test]
@@ -85,18 +77,9 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
     let head_oid = test.repo.head().unwrap().target().unwrap();
 
     // Final tree should have all three files
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "target\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "b.txt"),
-        "source\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "c.txt"),
-        "middle\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "target\n");
+    assert_file_contents!(&test.repo, head_oid, "b.txt", "source\n");
+    assert_file_contents!(&test.repo, head_oid, "c.txt", "middle\n");
 
     // Verify middle was properly squash-excluded
     let commits = common::commits_from_head(&test.repo, base);
@@ -130,18 +113,9 @@ fn squash_source_not_head_rebases_later_commits() {
     assert_history!(&test.repo, base, &["squashed", "after commit"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "target\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "b.txt"),
-        "source\n"
-    );
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "c.txt"),
-        "after\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "target\n");
+    assert_file_contents!(&test.repo, head_oid, "b.txt", "source\n");
+    assert_file_contents!(&test.repo, head_oid, "c.txt", "after\n");
 }
 
 #[test]
@@ -294,10 +268,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
     assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "line1\nline2\nline3\n"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "line1\nline2\nline3\n");
 }
 
 #[test]
@@ -338,11 +309,7 @@ fn squash_with_multiple_intermediates_and_descendants() {
         ("f.txt", "after1\n"),
         ("g.txt", "after2\n"),
     ] {
-        assert_eq!(
-            common::file_content_at(&test.repo, head_oid, path),
-            expected,
-            "file {path} should have correct content"
-        );
+        assert_file_contents!(&test.repo, head_oid, path, expected);
     }
 
     // Squash commit (first after base) should combine target + source
@@ -464,11 +431,7 @@ fn squash_finalize_after_conflict_resolution() {
     let head_oid = test.repo.head().unwrap().target().unwrap();
     let head_commit = test.repo.find_commit(head_oid).unwrap();
     assert_eq!(head_commit.message().unwrap(), "resolved squash");
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "resolved\n",
-        "resolved content should be in HEAD"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "resolved\n");
 
     // Squash commit's parent should be target's parent (the base commit)
     assert_eq!(head_commit.parent_count(), 1);
@@ -850,11 +813,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     assert_rebase_complete!(result);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(
-        common::file_content_at(&test.repo, head_oid, "a.txt"),
-        "resolved\n",
-        "resolved content should be in HEAD"
-    );
+    assert_file_contents!(&test.repo, head_oid, "a.txt", "resolved\n");
 }
 
 /// Regression test: after resolving a squash-time conflict, the squash commit's

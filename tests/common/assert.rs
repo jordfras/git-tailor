@@ -66,3 +66,31 @@ macro_rules! assert_history {
         }
     }};
 }
+
+/// Read a file from a specific commit tree.
+///
+/// Private helper for [`assert_file_contents!`].
+pub fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
+    let commit = repo.find_commit(commit_oid).unwrap();
+    let tree = commit.tree().unwrap();
+    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
+    let blob = repo
+        .find_blob(entry.id())
+        .expect("tree entry should be a blob");
+    String::from_utf8_lossy(blob.content()).into_owned()
+}
+
+/// Assert the contents of a file at a specific commit match the expected string.
+///
+/// Includes the file path in the failure message and panics at the call site.
+#[macro_export]
+macro_rules! assert_file_contents {
+    ($repo:expr, $oid:expr, $path:expr, $expected:expr) => {{
+        let actual = common::assert::file_content_at($repo, $oid, $path);
+        assert_eq!(
+            actual, $expected,
+            "file {:?} at commit {:?}: expected {:?}, got {:?}",
+            $path, $oid, $expected, actual
+        );
+    }};
+}
