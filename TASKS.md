@@ -349,7 +349,7 @@ Guidelines:
   `tests/common.rs` so call sites read declaratively and produce better failure
   messages including the file path. Build on T190 so the macro can call
   `common::file_content_at` directly.
-- [ ] T195 P2 feat - Build a `TuiTestHarness` to consolidate
+- [X] T195 P2 feat - Build a `TuiTestHarness` to consolidate
   backend/terminal/draw/snapshot boilerplate: every TUI test repeats ~6 lines —
   create `TestBackend`, wrap in `Terminal`, call `terminal.draw(|f| ...)`, clone
   the buffer, snapshot. Repeated 20+ times across `tests/tui_*.rs`. Add

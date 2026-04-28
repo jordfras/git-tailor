@@ -16,13 +16,13 @@
 
 #[allow(dead_code)]
 mod common;
+use common::TuiTestHarness;
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
     views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
 fn make_app_in_move_select(source_index: usize, insert_before: usize) -> AppState {
     let mut app = AppState::new();
@@ -43,92 +43,62 @@ fn make_app_in_move_select(source_index: usize, insert_before: usize) -> AppStat
 
 #[test]
 fn test_move_select_footer_renders() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     // Source is the newest commit (index 2), insertion cursor at 1
     let mut app = make_app_in_move_select(2, 1);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_move_select_separator_at_top() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 12);
 
     // Source is the newest commit (index 2), insertion at 0 (top)
     let mut app = make_app_in_move_select(2, 0);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_move_select_separator_at_middle() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 12);
 
     // Source is index 0 (oldest), insertion at 2 (first valid middle position)
     let mut app = make_app_in_move_select(0, 2);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_move_select_source_highlighted() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 12);
 
     // Source is middle commit (index 1), insertion at 0
     let mut app = make_app_in_move_select(1, 0);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_move_select_reversed() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 12);
 
     let mut app = make_app_in_move_select(2, 0);
     app.reverse = true;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 // ── Key handling tests ───────────────────────────────────────────────

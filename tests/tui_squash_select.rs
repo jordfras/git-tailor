@@ -16,6 +16,7 @@
 
 #[allow(dead_code)]
 mod common;
+use common::TuiTestHarness;
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
@@ -39,41 +40,27 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app
 }
 
-use ratatui::{Terminal, backend::TestBackend};
-
 #[test]
 fn test_squash_footer_renders() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_squash_select(2, 2);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_squash_footer_source_different_from_selection() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     // Source is index 2, but user has navigated selection to index 0
     let mut app = make_app_in_squash_select(2, 0);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
@@ -262,8 +249,7 @@ fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluste
 /// unrelated should be dim.
 #[test]
 fn test_squash_candidate_coloring_with_fragmap() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -295,20 +281,16 @@ fn test_squash_candidate_coloring_with_fragmap() {
         ],
     });
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Squash mode with fragmap: source is commit 2, commit 0 would conflict
 /// (commit 1 also touches the same cluster, creating a conflict).
 #[test]
 fn test_squash_candidate_coloring_conflicting() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -342,29 +324,22 @@ fn test_squash_candidate_coloring_conflicting() {
         ],
     });
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Squash mode with source_index=1 (middle commit): commit at index 2 (newest)
 /// should be dimmed with DarkGray to indicate it is an unreachable target.
 #[test]
 fn test_squash_dims_later_commits() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = make_app_in_squash_select(1, 0);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 #[test]
@@ -400,8 +375,7 @@ fn test_fixup_confirm_returns_prepare_fixup() {
 
 #[test]
 fn test_fixup_footer_renders() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -415,12 +389,7 @@ fn test_fixup_footer_renders() {
         is_fixup: true,
     };
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }

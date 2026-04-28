@@ -24,9 +24,9 @@ use git_tailor::{
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
-use common::NoOpRepo;
+use common::{NoOpRepo, TuiTestHarness};
+use ratatui::buffer::Buffer;
 
 fn app_with_commits() -> AppState {
     let mut app = AppState::new();
@@ -64,9 +64,8 @@ fn separator_column(offset: i16) -> usize {
     (BASE_SPLIT_X + offset as i32 - 1) as usize
 }
 
-/// Render main_view and return the character at the given (col, row).
-fn cell_at(terminal: &Terminal<TestBackend>, col: usize, row: usize) -> String {
-    let buf = terminal.backend().buffer();
+/// Return the character at the given (col, row) in a rendered buffer.
+fn cell_at(buf: &Buffer, col: usize, row: usize) -> String {
     buf.cell((col as u16, row as u16))
         .map(|c| c.symbol().to_string())
         .unwrap_or_default()
@@ -76,26 +75,23 @@ fn cell_at(terminal: &Terminal<TestBackend>, col: usize, row: usize) -> String {
 #[test]
 fn test_separator_default_position() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     // offset = 0 is the default
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     // Separator should appear at column BASE_SPLIT_X - 1 = 71.
     let sep_col = separator_column(0);
     assert_eq!(
-        cell_at(&terminal, sep_col, 0),
+        cell_at(&buf, sep_col, 0),
         "│",
         "separator should be at column {sep_col} with offset 0"
     );
     // Row 1 is the selected commit (selection_index = 0). The selection
     // highlight must not bleed into the separator column.
     assert_eq!(
-        cell_at(&terminal, sep_col, 1),
+        cell_at(&buf, sep_col, 1),
         "│",
         "separator on selected data row should be '│', not overwritten by row highlight"
     );
@@ -105,63 +101,57 @@ fn test_separator_default_position() {
     // right half (sep_col+10) should also be non-null (blue background extends
     // past the separator).
     let last_row = 19usize;
-    let footer_oid_start = cell_at(&terminal, 1, last_row);
+    let footer_oid_start = cell_at(&buf, 1, last_row);
     assert_eq!(
         footer_oid_start, "a",
         "footer should start with the commit OID at col 1"
     );
     // A cell well past the separator should be a space (blue bg fill), not the
     // null character that appears for completely-unpainted cells.
-    let footer_far_right = cell_at(&terminal, sep_col + 10, last_row);
+    let footer_far_right = cell_at(&buf, sep_col + 10, last_row);
     assert_ne!(
         footer_far_right, "\u{0}",
         "footer should extend past the separator column into the right half"
     );
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// Separator moved left by 16 columns (offset = -16) — bar at column 55.
 #[test]
 fn test_separator_shifted_left() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = -16;
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     let sep_col = separator_column(-16);
     assert_eq!(
-        cell_at(&terminal, sep_col, 0),
+        cell_at(&buf, sep_col, 0),
         "│",
         "separator should be at column {sep_col} with offset -16"
     );
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// Separator moved right by 8 columns (offset = +8) — bar at column 79.
 #[test]
 fn test_separator_shifted_right() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = 8;
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     let sep_col = separator_column(8);
     assert_eq!(
-        cell_at(&terminal, sep_col, 0),
+        cell_at(&buf, sep_col, 0),
         "│",
         "separator should be at column {sep_col} with offset 8"
     );
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// Extreme negative offset is clamped — separator never goes below MIN_LEFT (23).
@@ -171,20 +161,17 @@ fn test_separator_shifted_right() {
 #[test]
 fn test_separator_clamps_left() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = -9999;
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     // After clamping, separator_offset is written back by render.
     // min_title=10 → sep_x = SHA_COL_WIDTH + gap + min_title = 10+1+10 = 21 → sep cell at 21.
     let clamped_col = 21usize;
     assert_eq!(
-        cell_at(&terminal, clamped_col, 0),
+        cell_at(&buf, clamped_col, 0),
         "│",
         "separator should be clamped to column {clamped_col}"
     );
@@ -193,15 +180,13 @@ fn test_separator_clamps_left() {
     // characters so it overflows — verify the full string is NOT present.
     // (Ratatui clips the cell; the rightmost visible column of the title area
     // is column 20 = SHA(10) + gap(1) + title_end(10) - 1.)
-    let first_row_as_text: String = (0..clamped_col)
-        .map(|col| cell_at(&terminal, col, 1))
-        .collect();
+    let first_row_as_text: String = (0..clamped_col).map(|col| cell_at(&buf, col, 1)).collect();
     assert!(
         !first_row_as_text.contains("Initial commit"),
         "'Initial commit' (14 chars) should be truncated when title column is 10 wide; row text: {first_row_as_text:?}"
     );
 
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// Extreme positive offset is clamped — separator goes as far right as the
@@ -210,20 +195,17 @@ fn test_separator_clamps_left() {
 #[test]
 fn test_separator_clamps_right() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = 9999;
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     // max_title = 120 - SHA(10) - col-gaps(2) - min-fragmap(1) = 107
     // sep_x = SHA(10) + gap(1) + max_title(107) = 118
     let clamped_col = 118usize;
     assert_eq!(
-        cell_at(&terminal, clamped_col, 0),
+        cell_at(&buf, clamped_col, 0),
         "│",
         "separator should be clamped to column {clamped_col}"
     );
@@ -234,21 +216,18 @@ fn test_separator_clamps_right() {
 #[test]
 fn test_separator_title_truncation_boundary() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(120, 20);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     // Use a commit whose summary is clearly longer than the squeezed column.
     app.commits[0].summary = "A commit with a very long title that will be cut".to_string();
     app.separator_offset = -32; // squeezes left panel to ~40 cols, title to ~14
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     // Collect the first data row (row 1, after the header).
     let left_panel_end = separator_column(-32);
     let first_row_text: String = (0..left_panel_end)
-        .map(|col| cell_at(&terminal, col, 1))
+        .map(|col| cell_at(&buf, col, 1))
         .collect();
 
     // The full summary should not appear in the left panel — it is truncated.
@@ -262,7 +241,7 @@ fn test_separator_title_truncation_boundary() {
         "SHA should still be visible; row: {first_row_text:?}"
     );
 
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// When the terminal is narrower than BASE_SPLIT_X (72 cols), right_width == 0.
@@ -271,20 +250,17 @@ fn test_separator_title_truncation_boundary() {
 #[test]
 fn test_commit_detail_shown_on_narrow_terminal() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(60, 10);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let mut harness = TuiTestHarness::new(60, 10);
     let mut app = app_with_commits();
     app.mode = git_tailor::app::AppMode::CommitDetail;
 
-    terminal
-        .draw(|frame| views::main_view::render(&repo, &mut app, frame))
-        .unwrap();
+    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
 
     // With a 60-col terminal: sep_x = SHA(10) + gap(1) + title(47) = 58,
     // so the right panel is 1 col wide at column 59. The commit detail header
     // "Commit information" is truncated to a single 'C', proving that
     // commit_detail::render was called rather than falling back to commit_list.
-    let right_panel_char = cell_at(&terminal, 59, 0);
+    let right_panel_char = cell_at(&buf, 59, 0);
     assert_eq!(
         right_panel_char, "C",
         "narrow terminal in CommitDetail mode: right panel (col 59) should show first char of commit detail header; got: {right_panel_char:?}"

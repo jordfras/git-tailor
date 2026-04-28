@@ -16,31 +16,24 @@
 
 #[allow(dead_code)]
 mod common;
+use common::TuiTestHarness;
 
 use git_tailor::{app::AppState, views};
-use ratatui::{Terminal, backend::TestBackend};
 
 #[test]
 fn test_commit_list_empty() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_with_commits() {
-    let backend = TestBackend::new(80, 15);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 15);
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -50,20 +43,14 @@ fn test_commit_list_with_commits() {
     ];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_with_selection() {
-    let backend = TestBackend::new(80, 15);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 15);
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -73,20 +60,14 @@ fn test_commit_list_with_selection() {
     ];
     app.selection_index = 1;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_long_summary() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 12);
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -98,22 +79,16 @@ fn test_commit_list_long_summary() {
     ];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_scrolled_to_top() {
     // Terminal height 8: borders(2) + header(1) = 3 overhead, so 5 rows visible.
     // 10 commits total → scrollbar should appear.
-    let backend = TestBackend::new(60, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(60, 8);
 
     let mut app = AppState::new();
     app.commits = (0..10)
@@ -123,21 +98,15 @@ fn test_commit_list_scrolled_to_top() {
         .collect();
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_scrolled_to_bottom() {
     // Same setup as above, but selection at last commit.
-    let backend = TestBackend::new(60, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(60, 8);
 
     let mut app = AppState::new();
     app.commits = (0..10)
@@ -147,20 +116,14 @@ fn test_commit_list_scrolled_to_bottom() {
         .collect();
     app.selection_index = 9;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_reversed_with_commits() {
-    let backend = TestBackend::new(80, 15);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 15);
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -171,21 +134,15 @@ fn test_commit_list_reversed_with_commits() {
     app.selection_index = 2; // HEAD
     app.reverse = true;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_commit_list_reversed_scrolled() {
     // 10 commits, reverse mode with HEAD selected (index 9) → visual index 0 (top).
-    let backend = TestBackend::new(60, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(60, 8);
 
     let mut app = AppState::new();
     app.commits = (0..10)
@@ -196,20 +153,14 @@ fn test_commit_list_reversed_scrolled() {
     app.selection_index = 9; // HEAD
     app.reverse = true;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_status_bar_short_error() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
@@ -217,21 +168,15 @@ fn test_status_bar_short_error() {
     app.status_message = Some("Cannot split staged/unstaged changes".to_string());
     app.status_is_error = true;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 // Footer is exactly 65 columns wide: left=" abc123def456abc123def456abc123def456abc1 1/1" (45 chars)
 // + 2 padding + hint "Press 'h' for help" (18 chars) = 65. Hint should be visible.
 #[test]
 fn test_footer_hint_fits() {
-    let backend = TestBackend::new(65, 5);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(65, 5);
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit(
@@ -240,21 +185,15 @@ fn test_footer_hint_fits() {
     )];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 // Footer is 64 columns wide: one column too narrow to fit the hint (needs 65). Hint suppressed.
 #[test]
 fn test_footer_hint_too_narrow() {
-    let backend = TestBackend::new(64, 5);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(64, 5);
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit(
@@ -263,19 +202,13 @@ fn test_footer_hint_too_narrow() {
     )];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 #[test]
 fn test_status_bar_long_error() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
@@ -286,12 +219,7 @@ fn test_status_bar_long_error() {
     );
     app.status_is_error = true;
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }

@@ -24,6 +24,7 @@ use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, repo::Git2Repo,
 };
 use git2::{Repository, Signature};
+use ratatui::{Frame, Terminal, backend::TestBackend, buffer::Buffer};
 use std::fs;
 use tempfile::TempDir;
 
@@ -269,6 +270,44 @@ impl TestRepo {
             })
             .unwrap();
         index.write().unwrap();
+    }
+}
+
+/// Test harness that wraps `Terminal<TestBackend>` to eliminate per-test
+/// boilerplate: create backend, wrap in terminal, draw, clone buffer.
+pub struct TuiTestHarness {
+    terminal: Terminal<TestBackend>,
+}
+
+impl TuiTestHarness {
+    pub fn new(width: u16, height: u16) -> Self {
+        let terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        Self { terminal }
+    }
+
+    /// Typical 80×24 terminal used by most detail and selector tests.
+    pub fn typical() -> Self {
+        Self::new(80, 24)
+    }
+
+    /// Wide 120×20 terminal for tests that need extra horizontal space.
+    pub fn wide() -> Self {
+        Self::new(120, 20)
+    }
+
+    /// Short 80×10 terminal for tests that need limited vertical space.
+    pub fn short() -> Self {
+        Self::new(80, 10)
+    }
+
+    /// Draw one frame using `f` and return the resulting buffer.
+    ///
+    /// Pass the returned `Buffer` to `insta::assert_debug_snapshot!` at the
+    /// call site — calling that macro directly in the test ensures insta uses
+    /// the test function name (not a helper location) for the snapshot file.
+    pub fn render(&mut self, f: impl FnOnce(&mut Frame)) -> Buffer {
+        self.terminal.draw(|frame| f(frame)).unwrap();
+        self.terminal.backend().buffer().clone()
     }
 }
 

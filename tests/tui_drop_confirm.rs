@@ -16,6 +16,7 @@
 
 #[allow(dead_code)]
 mod common;
+use common::TuiTestHarness;
 
 use git_tailor::{
     Oid,
@@ -23,7 +24,6 @@ use git_tailor::{
     repo::ConflictState,
     views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
 fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState {
     let mut app = AppState::new();
@@ -42,59 +42,41 @@ fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState 
 
 #[test]
 fn test_drop_confirm_dialog() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 20);
 
     let mut app = make_app_in_drop_confirm("abc123def456", "Refactor parser module");
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_confirm(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::drop::render_drop_confirm(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_confirm_dialog_long_summary() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 20);
 
     let mut app = make_app_in_drop_confirm(
         "abc123def456",
         "Refactor the entire parser module to use trait-based dispatching for better extensibility",
     );
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_confirm(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::drop::render_drop_confirm(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_confirm_dialog_narrow_terminal() {
-    let backend = TestBackend::new(40, 15);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(40, 15);
 
     let mut app = make_app_in_drop_confirm("abc123def456", "Add feature X");
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::drop::render_drop_confirm(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::drop::render_drop_confirm(&app, frame);
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -124,65 +106,46 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
 
 #[test]
 fn test_drop_conflict_dialog_no_remaining() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 20);
 
     let mut app = make_app_in_drop_conflict("abc123def456", vec![]);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_conflict_dialog_with_remaining() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(80, 20);
 
     let mut app = make_app_in_drop_conflict(
         "abc123def456",
         vec!["111111111111", "222222222222", "333333333333"],
     );
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_conflict_dialog_narrow_terminal() {
-    let backend = TestBackend::new(40, 15);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::new(40, 15);
 
     let mut app = make_app_in_drop_conflict("abc123def456", vec!["111111111111"]);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_conflict_dialog_long_summary() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -205,21 +168,15 @@ fn test_drop_conflict_dialog_long_summary() {
         squash_context: None,
     }));
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_conflict_dialog_with_files() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -243,21 +200,15 @@ fn test_drop_conflict_dialog_with_files() {
         squash_context: None,
     }));
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }
 
 #[test]
 fn test_drop_conflict_dialog_still_unresolved_warning() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -277,13 +228,8 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         squash_context: None,
     }));
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::conflict::render_conflict(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&app, frame);
+    }));
 }

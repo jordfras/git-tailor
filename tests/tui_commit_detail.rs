@@ -21,29 +21,23 @@ mod common;
 use git_tailor::{
     CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, app::AppState, views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
-use common::{FakeDiffRepo, NoOpRepo};
+use common::{FakeDiffRepo, NoOpRepo, TuiTestHarness};
 
 /// Short message: all content lines fit within 80 columns — no horizontal scrollbar.
 #[test]
 fn test_commit_detail_short_lines_no_hscroll() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Long message line (100 chars) exceeds the 80-column terminal width, so the
@@ -51,22 +45,17 @@ fn test_commit_detail_short_lines_no_hscroll() {
 #[test]
 fn test_commit_detail_long_lines_hscroll_visible() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     let long_message = "A".repeat(100);
     app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// With a positive `detail_h_scroll_offset`, the paragraph is rendered
@@ -75,8 +64,7 @@ fn test_commit_detail_long_lines_hscroll_visible() {
 #[test]
 fn test_commit_detail_hscroll_offset_clips_content() {
     let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     let long_message = "A".repeat(100);
@@ -84,14 +72,10 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     app.selection_index = 0;
     app.detail_h_scroll_offset = 10;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Diff lines from a file with Windows (CRLF) line endings must be stripped of
@@ -128,8 +112,7 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
         }],
     };
     let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit(
@@ -138,22 +121,19 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     )];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
+    let buf = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
 
-    let buffer = terminal.backend().buffer().clone();
-    for cell in buffer.content() {
+    for cell in buf.content() {
         assert!(
             !cell.symbol().contains('\r'),
             "carriage return found in rendered cell: {:?}",
             cell.symbol()
         );
     }
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(buf);
 }
 
 // --- Unit tests for scroll_detail_left / scroll_detail_right ---
@@ -234,8 +214,7 @@ fn test_commit_detail_search_bar_visible() {
         }],
     };
     let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add feature")];
@@ -246,14 +225,10 @@ fn test_commit_detail_search_bar_visible() {
     app.activate_search();
     app.search_query = "old".to_string();
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Snapshot: search highlights matching text in diff lines.
@@ -288,8 +263,7 @@ fn test_commit_detail_search_highlight_matches() {
         }],
     };
     let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add feature")];
@@ -301,14 +275,10 @@ fn test_commit_detail_search_highlight_matches() {
     app.search_query = "hello".to_string();
     app.search_input_active = false; // Confirmed search
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// handle_search_event appends characters to the query.
@@ -440,8 +410,7 @@ fn test_search_case_sensitive() {
         }],
     };
     let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
@@ -453,18 +422,16 @@ fn test_search_case_sensitive() {
     app.search_query = "FOO".to_string();
     app.search_input_active = false;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
+    let buf = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
     // "foo" in file path and "+foo baz" must NOT match.
     assert_eq!(app.search_matches.len(), 2);
 
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// parse_key maps / to Search, n to SearchNext, N to SearchPrev in CommitDetail.
