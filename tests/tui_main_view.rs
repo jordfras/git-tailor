@@ -15,6 +15,7 @@
 // TUI snapshot tests for the main split view (commit list + commit detail).
 // These tests exercise separator bar positioning via `separator_offset`.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{

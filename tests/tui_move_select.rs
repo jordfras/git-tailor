@@ -14,6 +14,7 @@
 
 // TUI snapshot + behavioral tests for the move commit selection mode.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{

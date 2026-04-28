@@ -17,6 +17,7 @@
 // All tests use `colors: false` so the output is plain Unicode without ANSI
 // escape codes, making snapshots readable and stable.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::fragmap::SquashableScope;

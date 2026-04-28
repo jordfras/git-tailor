@@ -14,6 +14,7 @@
 
 // TUI snapshot tests for the commit list view.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{app::AppState, views};

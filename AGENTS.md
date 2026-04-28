@@ -89,7 +89,7 @@ Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
 
 ### Module Organization Convention
 
-**Never use `mod.rs` files.** Follow Rust 2018+ module style:
+**Never use `mod.rs` files** in `src/` — follow Rust 2018+ module style:
 
 - A module without sub-modules: `src/repo.rs`
 - A module with sub-modules: `src/repo.rs` + `src/repo/*.rs`
@@ -108,7 +108,12 @@ src/
     fragmap.rs
 ```
 
-This keeps the module tree clear and avoids the old `mod.rs` pattern.
+**Exception — integration test helpers:** `tests/common/mod.rs` (and its
+sub-modules like `tests/common/fake.rs`) use the `mod.rs` style intentionally.
+This keeps every file directly inside `tests/` an actual test binary entry
+point, making the layout unambiguous at a glance.
+
+This keeps the module tree clear and avoids the old `mod.rs` pattern in production code.
 
 ### Code Comments Convention
 

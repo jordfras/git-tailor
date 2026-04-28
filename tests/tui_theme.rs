@@ -38,6 +38,7 @@
 //   Cluster 2 — A: Unrelated (no cell) B: Unrelated (no connector)
 //               C: Current/Conflict
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{

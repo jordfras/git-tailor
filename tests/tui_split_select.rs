@@ -14,6 +14,7 @@
 
 // TUI snapshot tests for the split-strategy selection dialog.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{

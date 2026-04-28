@@ -15,6 +15,7 @@
 // TUI snapshot tests for the commit detail view, covering the horizontal
 // scrollbar that appears when content lines exceed the terminal width.
 
+#[allow(dead_code)]
 mod common;
 
 use git_tailor::{

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[path = "common/fake.rs"]
+#[allow(unused_imports)]
 pub mod fake;
 #[allow(unused_imports)]
 pub use fake::{FakeDiffRepo, NoOpRepo};
@@ -29,20 +29,17 @@ use tempfile::TempDir;
 /// Keeps a `git2::Repository` for low-level setup (creating commits, branches,
 /// tags) and exposes [`git_repo()`][TestRepo::git_repo] to obtain a `Git2Repo`
 /// handle for calling library functions under test.
-#[allow(dead_code)]
 pub struct TestRepo {
     pub _temp_dir: TempDir,
     pub repo: Repository,
 }
 
-#[allow(dead_code)]
 impl Default for TestRepo {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[allow(dead_code)]
 impl TestRepo {
     pub fn new() -> Self {
         let temp_dir = TempDir::new().unwrap();
@@ -64,7 +61,6 @@ impl TestRepo {
     ///
     /// Each call opens a fresh handle to the same on-disk repository, which is
     /// valid — libgit2 supports multiple concurrent handles to the same repo.
-    #[allow(dead_code)]
     pub fn git_repo(&self) -> Git2Repo {
         Git2Repo::open(self._temp_dir.path().to_path_buf()).unwrap()
     }
@@ -102,7 +98,6 @@ impl TestRepo {
     }
 
     /// Create a single commit that writes (or overwrites) multiple files at once.
-    #[allow(dead_code)]
     pub fn commit_files(&self, files: &[(&str, &str)], message: &str) -> git2::Oid {
         let repo_path = self.repo.workdir().unwrap();
         let mut index = self.repo.index().unwrap();
@@ -133,7 +128,6 @@ impl TestRepo {
             .unwrap()
     }
 
-    #[allow(dead_code)]
     pub fn delete_file(&self, path: &str, message: &str) -> git2::Oid {
         let repo_path = self.repo.workdir().unwrap();
         let file_path = repo_path.join(path);
@@ -162,7 +156,6 @@ impl TestRepo {
 
     /// Rename a file and optionally modify its content in a single commit.
     /// If `new_content` is `None`, the file keeps its current content.
-    #[allow(dead_code)]
     pub fn rename_file(
         &self,
         old_path: &str,
@@ -205,13 +198,11 @@ impl TestRepo {
             .unwrap()
     }
 
-    #[allow(dead_code)]
     pub fn create_branch(&self, name: &str, target: git2::Oid) {
         let commit = self.repo.find_commit(target).unwrap();
         self.repo.branch(name, &commit, false).unwrap();
     }
 
-    #[allow(dead_code)]
     pub fn create_tag(&self, name: &str, target: git2::Oid) {
         let commit = self.repo.find_commit(target).unwrap();
         let sig = Signature::now("Test User", "test@example.com").unwrap();
@@ -221,13 +212,11 @@ impl TestRepo {
     }
 
     /// Write a key/value pair to the repository-local git config.
-    #[allow(dead_code)]
     pub fn set_config(&self, key: &str, value: &str) {
         let mut config = self.repo.config().unwrap();
         config.set_str(key, value).unwrap();
     }
 
-    #[allow(dead_code)]
     pub fn checkout(&self, refname: &str) {
         self.repo.set_head(refname).unwrap();
         self.repo.checkout_head(None).unwrap();
@@ -237,7 +226,6 @@ impl TestRepo {
 /// Build a minimal `CommitDiff` with a single file hunk for use in static fragmap tests.
 ///
 /// `hunk_range` is `(start_line, line_count)` for both old and new sides.
-#[allow(dead_code)]
 pub fn create_test_commit_diff(
     oid: &str,
     summary: &str,
@@ -267,7 +255,6 @@ pub fn create_test_commit_diff(
 /// This simulates the state produced by `git submodule update` or a manual
 /// submodule bump — the working tree inside the submodule directory is
 /// unaffected; only the gitlink entry in the index changes.
-#[allow(dead_code)]
 pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid) {
     let mut index = repo.index().unwrap();
     index.read(true).unwrap();
@@ -291,7 +278,6 @@ pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid)
 }
 
 /// Read a file from a specific commit tree.
-#[allow(dead_code)]
 pub fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
     let commit = repo.find_commit(commit_oid).unwrap();
     let tree = commit.tree().unwrap();
@@ -304,7 +290,6 @@ pub fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &st
 
 /// Walk commits from HEAD back to (but not including) the given stop OID.
 /// Returns commits in oldest-first order.
-#[allow(dead_code)]
 pub fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
     let head_oid = repo.head().unwrap().target().unwrap();
     let mut revwalk = repo.revwalk().unwrap();
@@ -322,7 +307,6 @@ pub fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<gi
 }
 
 /// Build a minimal `CommitInfo` for use in TUI snapshot tests.
-#[allow(dead_code)]
 pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
     CommitInfo {
         oid: VirtualOid::Real(Oid::from(oid)),

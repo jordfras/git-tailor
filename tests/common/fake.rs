@@ -23,10 +23,8 @@ use git_tailor::{
 /// Every method panics with `unimplemented!()` except `commit_diff` (returns
 /// an error), `staged_diff` / `unstaged_diff` (return `None`), and
 /// `default_branch` (returns `None`).
-#[allow(dead_code)]
 pub struct NoOpRepo;
 
-#[allow(dead_code)]
 impl GitRepo for NoOpRepo {
     fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
@@ -154,10 +152,8 @@ impl GitRepo for NoOpRepo {
 ///
 /// All other methods panic with `unimplemented!()`. Useful for TUI tests that
 /// exercise diff rendering without a real repository on disk.
-#[allow(dead_code)]
 pub struct FakeDiffRepo(pub CommitDiff);
 
-#[allow(dead_code)]
 impl GitRepo for FakeDiffRepo {
     fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
