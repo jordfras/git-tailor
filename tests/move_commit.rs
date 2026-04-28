@@ -51,14 +51,7 @@ fn move_commit_earlier() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(commits.len(), 3);
-
-    let messages: Vec<String> = commits
-        .iter()
-        .map(|&oid| commit_message(&test.repo, oid))
-        .collect();
-    assert_eq!(messages, vec!["A", "C", "B"]);
+    assert_history!(&test.repo, base, &["A", "C", "B"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -94,14 +87,7 @@ fn move_commit_later() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(commits.len(), 4);
-
-    let messages: Vec<String> = commits
-        .iter()
-        .map(|&oid| commit_message(&test.repo, oid))
-        .collect();
-    assert_eq!(messages, vec!["A", "C", "D", "B"]);
+    assert_history!(&test.repo, base, &["A", "C", "D", "B"]);
 }
 
 #[test]
@@ -122,14 +108,7 @@ fn move_commit_to_beginning() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(commits.len(), 3);
-
-    let messages: Vec<String> = commits
-        .iter()
-        .map(|&oid| commit_message(&test.repo, oid))
-        .collect();
-    assert_eq!(messages, vec!["C", "A", "B"]);
+    assert_history!(&test.repo, base, &["C", "A", "B"]);
 }
 
 #[test]
@@ -150,11 +129,7 @@ fn move_head_commit_earlier() {
 
     assert_rebase_complete!(result);
 
-    let messages: Vec<String> = common::commits_from_head(&test.repo, base)
-        .iter()
-        .map(|&oid| commit_message(&test.repo, oid))
-        .collect();
-    assert_eq!(messages, vec!["A", "C", "B"]);
+    assert_history!(&test.repo, base, &["A", "C", "B"]);
 }
 
 #[test]
@@ -184,12 +159,7 @@ fn move_commit_conflict_returns_conflict_state() {
             // may or may not conflict depending on diff mechanics.
             // If git can apply B's hunk cleanly against the base, that's
             // also valid — the commit just adds line3 after line1.
-            let msgs: Vec<String> = common::commits_from_head(&test.repo, base)
-                .iter()
-                .map(|&oid| commit_message(&test.repo, oid))
-                .collect();
-            assert_eq!(msgs[0], "B");
-            assert_eq!(msgs[1], "A");
+            assert_history!(&test.repo, base, &["B", "A"]);
         }
     }
 }
@@ -227,12 +197,7 @@ fn move_commit_preserves_file_contents() {
         "z-content\n"
     );
 
-    let commits = common::commits_from_head(&test.repo, base);
-    let messages: Vec<String> = commits
-        .iter()
-        .map(|&oid| commit_message(&test.repo, oid))
-        .collect();
-    assert_eq!(messages, vec!["A", "C", "B"]);
+    assert_history!(&test.repo, base, &["A", "C", "B"]);
 }
 
 // ---------------------------------------------------------------------------

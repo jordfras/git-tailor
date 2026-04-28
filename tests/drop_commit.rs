@@ -125,7 +125,8 @@ fn drop_preserves_commit_messages() {
 
     let base = test.commit_file("a.txt", "base\n", "base");
     let to_drop = test.commit_file("b.txt", "added\n", "add b.txt");
-    let _child = test.commit_file("c.txt", "c1\n", "important change");
+    // Multi-line message: drop must preserve the full body, not just the summary.
+    let _child = test.commit_file("c.txt", "c1\n", "important change\n\nDetailed body text.");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
@@ -135,12 +136,11 @@ fn drop_preserves_commit_messages() {
 
     let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
-
     let rebased = test.repo.find_commit(commits[0]).unwrap();
     assert_eq!(
         rebased.message().unwrap(),
-        "important change",
-        "rebased descendant should keep its original message"
+        "important change\n\nDetailed body text.",
+        "rebased descendant should keep its full commit message"
     );
 }
 

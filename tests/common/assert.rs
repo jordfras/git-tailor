@@ -39,3 +39,30 @@ macro_rules! expect_rebase_conflict {
         }
     };
 }
+
+/// Assert the commit history above `base` matches `expected_summaries` (oldest → newest).
+///
+/// Panics point to the call site. Checks count then each summary in order.
+#[macro_export]
+macro_rules! assert_history {
+    ($repo:expr, $base:expr, $expected:expr) => {{
+        let oids = common::commits_from_head($repo, $base);
+        let expected: &[&str] = $expected;
+        assert_eq!(
+            oids.len(),
+            expected.len(),
+            "expected {} commit(s) above base, got {}",
+            expected.len(),
+            oids.len()
+        );
+        for (i, (oid, exp)) in oids.iter().zip(expected.iter()).enumerate() {
+            let commit = $repo.find_commit(*oid).unwrap();
+            let summary = commit.summary().unwrap_or("");
+            assert_eq!(
+                summary, *exp,
+                "commit[{i}] (oldest-first): expected summary {:?}, got {:?}",
+                exp, summary
+            );
+        }
+    }};
+}

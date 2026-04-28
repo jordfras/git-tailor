@@ -44,8 +44,7 @@ fn squash_adjacent_commits_source_is_head() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(commits.len(), 1, "should have 1 commit above base");
+    assert_history!(&test.repo, base, &["squashed message"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -58,9 +57,6 @@ fn squash_adjacent_commits_source_is_head() {
         "source\n",
         "source's file change should be in the squash"
     );
-
-    let squash_commit = test.repo.find_commit(head_oid).unwrap();
-    assert_eq!(squash_commit.message().unwrap(), "squashed message");
 }
 
 #[test]
@@ -84,21 +80,9 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(
-        commits.len(),
-        2,
-        "should have 2 commits: squash + rebased middle"
-    );
+    assert_history!(&test.repo, base, &["squashed", "middle commit"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-
-    // The squash is the older commit (index 0), middle is rebased on top
-    let squash_commit = test.repo.find_commit(commits[0]).unwrap();
-    assert_eq!(squash_commit.message().unwrap(), "squashed");
-
-    let middle_commit = test.repo.find_commit(commits[1]).unwrap();
-    assert_eq!(middle_commit.message().unwrap(), "middle commit");
 
     // Final tree should have all three files
     assert_eq!(
@@ -115,6 +99,7 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
     );
 
     // Verify middle was properly squash-excluded
+    let commits = common::commits_from_head(&test.repo, base);
     assert_ne!(
         commits[1], middle,
         "middle should be a new OID (rebased), not the original"
@@ -142,12 +127,7 @@ fn squash_source_not_head_rebases_later_commits() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
-    assert_eq!(
-        commits.len(),
-        2,
-        "should have 2 commits: squash + rebased after"
-    );
+    assert_history!(&test.repo, base, &["squashed", "after commit"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
@@ -162,9 +142,6 @@ fn squash_source_not_head_rebases_later_commits() {
         common::file_content_at(&test.repo, head_oid, "c.txt"),
         "after\n"
     );
-
-    let after_commit = test.repo.find_commit(commits[1]).unwrap();
-    assert_eq!(after_commit.message().unwrap(), "after commit");
 }
 
 #[test]

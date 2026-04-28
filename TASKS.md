@@ -334,7 +334,7 @@ Guidelines:
   `expect_conflict!(outcome) -> ConflictState` (returns the boxed state,
   panicking otherwise). Call sites become one line each and read as intent
   rather than as a match-on-an-enum.
-- [ ] T193 P2 feat - Add `assert_history!(repo, base, &["msg1", "msg2"])`
+- [X] T193 P2 feat - Add `assert_history!(repo, base, &["msg1", "msg2"])`
   helper: the pattern "walk commits from HEAD back to base, assert count, then
   per-commit assert summary contains/equals X" is repeated 15+ times across
   `tests/{split,squash,drop,move}_commit.rs` with bespoke loops. Add a helper in
