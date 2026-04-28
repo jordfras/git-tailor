@@ -25,12 +25,11 @@ use git_tailor::{
 };
 
 fn make_app_in_move_select(source_index: usize, insert_before: usize) -> AppState {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = source_index;
     app.mode = AppMode::MoveSelect {
         source_index,
@@ -192,7 +191,7 @@ fn test_move_confirm_returns_execute_move() {
             source_oid,
             insert_after_oid,
         } => {
-            assert_eq!(source_oid, Oid::from("eee555fff666"));
+            assert_eq!(source_oid, Oid::from("333333333333"));
             assert_eq!(insert_after_oid, Some(Oid::from("ref000")));
         }
         other => panic!("expected ExecuteMove, got {other:?}"),
@@ -255,12 +254,7 @@ fn test_enter_move_select_blocks_on_synthetic() {
 
 #[test]
 fn test_enter_move_select_sets_correct_indices() {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "First"),
-        common::create_test_commit("ccc333ddd444", "Second"),
-        common::create_test_commit("eee555fff666", "Third"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&["First", "Second", "Third"]);
     app.selection_index = 2;
     app.mode = AppMode::CommitList;
 
@@ -277,12 +271,7 @@ fn test_enter_move_select_sets_correct_indices() {
 
 #[test]
 fn test_enter_move_select_oldest_commit_starts_at_valid_position() {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "First"),
-        common::create_test_commit("ccc333ddd444", "Second"),
-        common::create_test_commit("eee555fff666", "Third"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&["First", "Second", "Third"]);
     app.selection_index = 0;
     app.mode = AppMode::CommitList;
 

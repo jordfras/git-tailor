@@ -21,7 +21,8 @@ pub mod fake;
 pub use fake::{FakeDiffRepo, NoOpRepo};
 
 use git_tailor::{
-    CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, repo::Git2Repo,
+    CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, app::AppState,
+    repo::Git2Repo,
 };
 use git2::{Repository, Signature};
 use ratatui::{Frame, Terminal, backend::TestBackend, buffer::Buffer};
@@ -319,6 +320,26 @@ impl TuiTestHarness {
         self.terminal.draw(|frame| f(frame)).unwrap();
         self.terminal.backend().buffer().clone()
     }
+}
+
+/// Build an `AppState` with synthesised commits for use in TUI tests.
+///
+/// Each element of `summaries` becomes one commit. OIDs are derived
+/// deterministically from the index: index `i` gets the 12-hex-char OID
+/// `format!("{:012x}", (i + 1) * 0x111111111111)` — e.g. `"111111111111"`,
+/// `"222222222222"`, `"333333333333"`, etc.
+pub fn app_state_from_commit_summaries(summaries: &[&str]) -> AppState {
+    let commits = summaries
+        .iter()
+        .enumerate()
+        .map(|(i, &summary)| {
+            let oid = format!("{:012x}", (i + 1) * 0x111111111111_usize);
+            create_test_commit(&oid, summary)
+        })
+        .collect();
+    let mut app = AppState::new();
+    app.commits = commits;
+    app
 }
 
 /// Build a minimal `CommitDiff` with a single file hunk for use in static fragmap tests.

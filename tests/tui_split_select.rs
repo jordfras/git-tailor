@@ -24,11 +24,8 @@ use git_tailor::{
 };
 
 fn make_app_in_split_select(strategy_index: usize) -> AppState {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("abc123def456", "Refactor parser module"),
-        common::create_test_commit("def456ghi789", "Add feature X"),
-    ];
+    let mut app =
+        common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
     app.selection_index = 0;
     app.mode = AppMode::SplitSelect { strategy_index };
     app

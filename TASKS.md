@@ -371,7 +371,7 @@ Guidelines:
   `TERMINAL_PICKER: (u16, u16) = (80, 12)` — and replace the magic numbers.
   Pairs naturally with T195's `TuiTestHarness::std()` / `wide()` / `short()`
   constructors.
-- [ ] T197 P3 feat - Generalize the 3-commit TUI fixture into
+- [x] T197 P3 feat - Generalize the 3-commit TUI fixture into
   `common::create_n_commit_app(&[...])`: the helper `make_app_in_squash_select`
   / `make_app_in_move_select` and similar in 6+ TUI test files all build an
   `AppState` whose `commits` field is a hand-rolled

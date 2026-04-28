@@ -26,12 +26,11 @@ use git_tailor::{
 };
 
 fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> AppState {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = selection_index;
     app.mode = AppMode::SquashSelect {
         source_index,
@@ -74,8 +73,8 @@ fn test_squash_confirm_returns_prepare_squash() {
             target_oid,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("eee555fff666"));
-            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(target_oid, Oid::from("111111111111"));
         }
         other => panic!("Expected PrepareSquash, got {:?}", other),
     }
@@ -344,12 +343,11 @@ fn test_squash_dims_later_commits() {
 
 #[test]
 fn test_fixup_confirm_returns_prepare_fixup() {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
@@ -364,8 +362,8 @@ fn test_fixup_confirm_returns_prepare_fixup() {
             is_fixup,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("eee555fff666"));
-            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(target_oid, Oid::from("111111111111"));
             assert!(is_fixup);
         }
         other => panic!("Expected PrepareSquash with is_fixup, got {:?}", other),
@@ -377,12 +375,11 @@ fn test_fixup_confirm_returns_prepare_fixup() {
 fn test_fixup_footer_renders() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
