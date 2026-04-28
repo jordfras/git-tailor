@@ -51,7 +51,7 @@ fn move_commit_earlier() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["A", "C", "B"]);
+    assert_history!(&test, base, &["A", "C", "B"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_file_contents!(&test.repo, head_oid, "x.txt", "x\n");
@@ -78,7 +78,7 @@ fn move_commit_later() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["A", "C", "D", "B"]);
+    assert_history!(&test, base, &["A", "C", "D", "B"]);
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn move_commit_to_beginning() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["C", "A", "B"]);
+    assert_history!(&test, base, &["C", "A", "B"]);
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn move_head_commit_earlier() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["A", "C", "B"]);
+    assert_history!(&test, base, &["A", "C", "B"]);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn move_commit_conflict_returns_conflict_state() {
             // may or may not conflict depending on diff mechanics.
             // If git can apply B's hunk cleanly against the base, that's
             // also valid — the commit just adds line3 after line1.
-            assert_history!(&test.repo, base, &["B", "A"]);
+            assert_history!(&test, base, &["B", "A"]);
         }
     }
 }
@@ -179,7 +179,7 @@ fn move_commit_preserves_file_contents() {
     assert_file_contents!(&test.repo, head_oid, "y.txt", "y-content\n");
     assert_file_contents!(&test.repo, head_oid, "z.txt", "z-content\n");
 
-    assert_history!(&test.repo, base, &["A", "C", "B"]);
+    assert_history!(&test, base, &["A", "C", "B"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +373,7 @@ fn move_commit_allowed_with_staged_submodule() {
     let c = test.commit_file("z.txt", "z\n", "C");
 
     // Stage a submodule pointer update — the only dirty state is a gitlink.
-    common::stage_gitlink(&test.repo, "libs/sub", base);
+    test.stage_gitlink("libs/sub", base);
 
     let git_repo = test.git_repo();
     let result = git_repo

@@ -44,7 +44,7 @@ fn squash_adjacent_commits_source_is_head() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["squashed message"]);
+    assert_history!(&test, base, &["squashed message"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_file_contents!(&test.repo, head_oid, "a.txt", "target\n");
@@ -72,7 +72,7 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["squashed", "middle commit"]);
+    assert_history!(&test, base, &["squashed", "middle commit"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
 
@@ -82,7 +82,7 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
     assert_file_contents!(&test.repo, head_oid, "c.txt", "middle\n");
 
     // Verify middle was properly squash-excluded
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_ne!(
         commits[1], middle,
         "middle should be a new OID (rebased), not the original"
@@ -110,7 +110,7 @@ fn squash_source_not_head_rebases_later_commits() {
 
     assert_rebase_complete!(result);
 
-    assert_history!(&test.repo, base, &["squashed", "after commit"]);
+    assert_history!(&test, base, &["squashed", "after commit"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_file_contents!(&test.repo, head_oid, "a.txt", "target\n");
@@ -137,7 +137,7 @@ fn squash_uses_provided_message() {
         )
         .unwrap();
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 1);
 
     let squash = test.repo.find_commit(commits[0]).unwrap();
@@ -296,7 +296,7 @@ fn squash_with_multiple_intermediates_and_descendants() {
     assert_rebase_complete!(result);
 
     // 1 squash + 2 intermediates + 2 after = 5
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 5);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -586,7 +586,7 @@ fn squash_commits_allowed_with_staged_submodule() {
     let source = test.commit_file("c.txt", "c\n", "source commit");
 
     // Stage a submodule pointer update — the only dirty state is a gitlink.
-    common::stage_gitlink(&test.repo, "libs/sub", base);
+    test.stage_gitlink("libs/sub", base);
 
     let git_repo = test.git_repo();
     let result = git_repo
@@ -610,7 +610,7 @@ fn squash_try_combine_allowed_with_staged_submodule() {
     let source = test.commit_file("c.txt", "c\n", "source commit");
 
     // Stage a submodule pointer update — the only dirty state is a gitlink.
-    common::stage_gitlink(&test.repo, "libs/sub", base);
+    test.stage_gitlink("libs/sub", base);
 
     let git_repo = test.git_repo();
     // Returns Ok(None) when there is no merge conflict — both files differ.

@@ -35,7 +35,7 @@ fn split_per_file_creates_two_commits() {
         .unwrap();
 
     // There should now be 3 commits above base: base, split-1, split-2
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -115,7 +115,7 @@ fn split_per_file_rebases_descendants() {
         .unwrap();
 
     // We should now have: base → split1 → split2 → rebased-c
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -225,7 +225,7 @@ fn split_per_file_handles_submodule_delta() {
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
 
     let tip_oid = *commits_above_base.last().unwrap();
@@ -273,7 +273,7 @@ fn split_per_file_preserves_commit_message_body() {
         .unwrap()
         .parent_id(0)
         .unwrap();
-    let commits_above_base = common::commits_from_head(&test.repo, base_oid);
+    let commits_above_base = test.commits_from_head(base_oid);
     assert_eq!(commits_above_base.len(), 2);
 
     for oid in &commits_above_base {
@@ -323,7 +323,7 @@ fn split_per_hunk_single_file_two_hunks() {
         .unwrap();
 
     // Should now have 2 commits above base
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -372,7 +372,7 @@ fn split_per_hunk_two_files_one_hunk_each() {
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -435,7 +435,7 @@ fn split_per_hunk_preserves_commit_message_body() {
         .unwrap()
         .parent_id(0)
         .unwrap();
-    for oid in common::commits_from_head(&test.repo, stop) {
+    for oid in test.commits_from_head(stop) {
         let commit = test.repo.find_commit(oid).unwrap();
         let msg = commit.message().unwrap_or("");
         assert!(
@@ -466,7 +466,7 @@ fn split_per_hunk_group_two_groups_shared_context() {
         .unwrap();
 
     // 3 commits above base: commit A + K-part1 + K-part2
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -518,7 +518,7 @@ fn split_per_hunk_group_three_commits_two_groups() {
         .unwrap();
 
     // 4 commits above base: A + K-part1 + K-part2 + B' (rebased B)
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         4,
@@ -613,7 +613,7 @@ fn split_per_hunk_pure_insertions() {
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
 
     // First split commit: only the first insertion applied.
@@ -689,7 +689,7 @@ fn split_per_hunk_group_multi_path_two_groups() {
         .unwrap();
 
     // 3 commits above base: A' + K-part1 + K-part2
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -767,7 +767,7 @@ fn split_per_hunk_group_multi_path_three_groups() {
         .unwrap();
 
     // 5 commits above base: A' + K-part1 + K-part2 + K-part3 + B'
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
         5,
@@ -953,7 +953,7 @@ fn split_per_hunk_group_preserves_commit_message_body() {
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
-    let commits_above_base = common::commits_from_head(&test.repo, base);
+    let commits_above_base = test.commits_from_head(base);
     // commit A + 2 split parts
     assert_eq!(commits_above_base.len(), 3);
     for oid in &commits_above_base[1..] {

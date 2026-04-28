@@ -39,7 +39,7 @@ fn drop_head_commit_removes_it() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 1, "should have 1 commit above base");
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -61,7 +61,7 @@ fn drop_middle_commit_rebases_descendants() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(
         commits.len(),
         1,
@@ -97,7 +97,7 @@ fn drop_with_multiple_descendants() {
 
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(
         commits.len(),
         2,
@@ -126,7 +126,7 @@ fn drop_preserves_commit_messages() {
         .drop_commit(&Oid::from(to_drop), &head_oid)
         .unwrap();
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 1);
     let rebased = test.repo.find_commit(commits[0]).unwrap();
     assert_eq!(
@@ -226,7 +226,7 @@ fn drop_continue_after_resolving_conflict() {
     let result = git_repo.rebase_continue(&state).unwrap();
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 1);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -483,7 +483,7 @@ fn drop_commit_allowed_with_staged_submodule() {
     let to_drop = test.commit_file("a.txt", "v2\n", "to drop");
 
     // Stage a submodule pointer update — the only dirty state is a gitlink.
-    common::stage_gitlink(&test.repo, "libs/sub", base);
+    test.stage_gitlink("libs/sub", base);
 
     let git_repo = test.git_repo();
     let result = git_repo
@@ -613,7 +613,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
     let result = git_repo.rebase_continue(&state).unwrap();
     assert_rebase_complete!(result);
 
-    let commits = common::commits_from_head(&test.repo, base);
+    let commits = test.commits_from_head(base);
     assert_eq!(commits.len(), 1);
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_file_contents!(&test.repo, head_oid, "a.txt", "line1\nline3\n");

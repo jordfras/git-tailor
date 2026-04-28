@@ -33,7 +33,7 @@ use tempfile::TempDir;
 /// tags) and exposes [`git_repo()`][TestRepo::git_repo] to obtain a `Git2Repo`
 /// handle for calling library functions under test.
 pub struct TestRepo {
-    pub _temp_dir: TempDir,
+    _temp_dir: TempDir,
     pub repo: Repository,
 }
 
@@ -224,6 +224,52 @@ impl TestRepo {
         self.repo.set_head(refname).unwrap();
         self.repo.checkout_head(None).unwrap();
     }
+
+    /// Walk commits from HEAD back to (but not including) the given stop OID.
+    /// Returns commits in oldest-first order.
+    pub fn commits_from_head(&self, stop_oid: git2::Oid) -> Vec<git2::Oid> {
+        let head_oid = self.repo.head().unwrap().target().unwrap();
+        let mut revwalk = self.repo.revwalk().unwrap();
+        revwalk.push(head_oid).unwrap();
+        let mut oids = Vec::new();
+        for result in revwalk {
+            let oid = result.unwrap();
+            if oid == stop_oid {
+                break;
+            }
+            oids.push(oid);
+        }
+        oids.reverse(); // oldest first
+        oids
+    }
+
+    /// Stage a gitlink (submodule pointer) entry in the repo's index at `path`
+    /// pointing at `target_oid`, without making a commit.
+    ///
+    /// This simulates the state produced by `git submodule update` or a manual
+    /// submodule bump — the working tree inside the submodule directory is
+    /// unaffected; only the gitlink entry in the index changes.
+    pub fn stage_gitlink(&self, path: &str, target_oid: git2::Oid) {
+        let mut index = self.repo.index().unwrap();
+        index.read(true).unwrap();
+        index
+            .add(&git2::IndexEntry {
+                ctime: git2::IndexTime::new(0, 0),
+                mtime: git2::IndexTime::new(0, 0),
+                dev: 0,
+                ino: 0,
+                mode: 0o160000,
+                uid: 0,
+                gid: 0,
+                file_size: 0,
+                id: target_oid,
+                flags: 0,
+                flags_extended: 0,
+                path: path.as_bytes().to_vec(),
+            })
+            .unwrap();
+        index.write().unwrap();
+    }
 }
 
 /// Build a minimal `CommitDiff` with a single file hunk for use in static fragmap tests.
@@ -250,52 +296,6 @@ pub fn create_test_commit_diff(
             }],
         }],
     }
-}
-
-/// Stage a gitlink (submodule pointer) entry in the repo's index at `path`
-/// pointing at `target_oid`, without making a commit.
-///
-/// This simulates the state produced by `git submodule update` or a manual
-/// submodule bump — the working tree inside the submodule directory is
-/// unaffected; only the gitlink entry in the index changes.
-pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid) {
-    let mut index = repo.index().unwrap();
-    index.read(true).unwrap();
-    index
-        .add(&git2::IndexEntry {
-            ctime: git2::IndexTime::new(0, 0),
-            mtime: git2::IndexTime::new(0, 0),
-            dev: 0,
-            ino: 0,
-            mode: 0o160000,
-            uid: 0,
-            gid: 0,
-            file_size: 0,
-            id: target_oid,
-            flags: 0,
-            flags_extended: 0,
-            path: path.as_bytes().to_vec(),
-        })
-        .unwrap();
-    index.write().unwrap();
-}
-
-/// Walk commits from HEAD back to (but not including) the given stop OID.
-/// Returns commits in oldest-first order.
-pub fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
-    let head_oid = repo.head().unwrap().target().unwrap();
-    let mut revwalk = repo.revwalk().unwrap();
-    revwalk.push(head_oid).unwrap();
-    let mut oids = Vec::new();
-    for result in revwalk {
-        let oid = result.unwrap();
-        if oid == stop_oid {
-            break;
-        }
-        oids.push(oid);
-    }
-    oids.reverse(); // oldest first
-    oids
 }
 
 /// Build a minimal `CommitInfo` for use in TUI snapshot tests.

@@ -45,8 +45,8 @@ macro_rules! expect_rebase_conflict {
 /// Panics point to the call site. Checks count then each summary in order.
 #[macro_export]
 macro_rules! assert_history {
-    ($repo:expr, $base:expr, $expected:expr) => {{
-        let oids = common::commits_from_head($repo, $base);
+    ($test:expr, $base:expr, $expected:expr) => {{
+        let oids = $test.commits_from_head($base);
         let expected: &[&str] = $expected;
         assert_eq!(
             oids.len(),
@@ -56,7 +56,7 @@ macro_rules! assert_history {
             oids.len()
         );
         for (i, (oid, exp)) in oids.iter().zip(expected.iter()).enumerate() {
-            let commit = $repo.find_commit(*oid).unwrap();
+            let commit = $test.repo.find_commit(*oid).unwrap();
             let summary = commit.summary().unwrap_or("");
             assert_eq!(
                 summary, *exp,
