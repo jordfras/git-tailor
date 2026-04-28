@@ -19,34 +19,6 @@ use git_tailor::{
     repo::{GitRepo, RebaseOutcome},
 };
 
-/// Read a file from a specific commit tree.
-fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
-    let commit = repo.find_commit(commit_oid).unwrap();
-    let tree = commit.tree().unwrap();
-    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
-    let blob = repo
-        .find_blob(entry.id())
-        .expect("tree entry should be a blob");
-    String::from_utf8_lossy(blob.content()).into_owned()
-}
-
-/// Walk commits from HEAD back to (but not including) the given stop OID.
-fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
-    let head_oid = repo.head().unwrap().target().unwrap();
-    let mut revwalk = repo.revwalk().unwrap();
-    revwalk.push(head_oid).unwrap();
-    let mut oids = Vec::new();
-    for result in revwalk {
-        let oid = result.unwrap();
-        if oid == stop_oid {
-            break;
-        }
-        oids.push(oid);
-    }
-    oids.reverse(); // oldest first
-    oids
-}
-
 // ---------------------------------------------------------------------------
 // Happy-path tests
 // ---------------------------------------------------------------------------
@@ -69,12 +41,12 @@ fn drop_head_commit_removes_it() {
         "expected Complete, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1, "should have 1 commit above base");
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "a.txt"),
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
         "v2\n",
         "HEAD should have the middle commit's content"
     );
@@ -98,7 +70,7 @@ fn drop_middle_commit_rebases_descendants() {
         "expected Complete, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits.len(),
         1,
@@ -107,7 +79,7 @@ fn drop_middle_commit_rebases_descendants() {
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "a.txt"),
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
         "changed\n",
         "descendant's change to a.txt should survive"
     );
@@ -138,7 +110,7 @@ fn drop_with_multiple_descendants() {
 
     assert!(matches!(result, RebaseOutcome::Complete));
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits.len(),
         2,
@@ -166,7 +138,7 @@ fn drop_preserves_commit_messages() {
         .drop_commit(&Oid::from(to_drop), &head_oid)
         .unwrap();
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
 
     let rebased = test.repo.find_commit(commits[0]).unwrap();
@@ -273,12 +245,12 @@ fn drop_continue_after_resolving_conflict() {
         "expected Complete after resolution, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "a.txt"),
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
         "line1\nline3\n"
     );
 }
@@ -370,7 +342,7 @@ fn drop_abort_restores_original_branch() {
     );
 
     assert_eq!(
-        file_content_at(&test.repo, current_head, "a.txt"),
+        common::file_content_at(&test.repo, current_head, "a.txt"),
         "line1\nline2\nline3\n",
         "working tree content should match original HEAD"
     );
@@ -442,7 +414,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
         "HEAD must be fully restored after abort at second conflict"
     );
     assert_eq!(
-        file_content_at(&test.repo, head_after, "a.txt"),
+        common::file_content_at(&test.repo, head_after, "a.txt"),
         "v4\n",
         "file content must match original HEAD after abort"
     );
@@ -695,11 +667,11 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
         "expected Complete after auto-staging, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 1);
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "a.txt"),
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
         "line1\nline3\n"
     );
 }

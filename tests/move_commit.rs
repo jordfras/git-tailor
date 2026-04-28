@@ -19,34 +19,6 @@ use git_tailor::{
     repo::{GitRepo, RebaseOutcome},
 };
 
-/// Read a file from a specific commit tree.
-fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
-    let commit = repo.find_commit(commit_oid).unwrap();
-    let tree = commit.tree().unwrap();
-    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
-    let blob = repo
-        .find_blob(entry.id())
-        .expect("tree entry should be a blob");
-    String::from_utf8_lossy(blob.content()).into_owned()
-}
-
-/// Walk commits from HEAD back to (but not including) the given stop OID.
-fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
-    let head_oid = repo.head().unwrap().target().unwrap();
-    let mut revwalk = repo.revwalk().unwrap();
-    revwalk.push(head_oid).unwrap();
-    let mut oids = Vec::new();
-    for result in revwalk {
-        let oid = result.unwrap();
-        if oid == stop_oid {
-            break;
-        }
-        oids.push(oid);
-    }
-    oids.reverse(); // oldest first
-    oids
-}
-
 fn commit_message(repo: &git2::Repository, oid: git2::Oid) -> String {
     repo.find_commit(oid)
         .unwrap()
@@ -81,7 +53,7 @@ fn move_commit_earlier() {
         "expected Complete, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 3);
 
     let messages: Vec<String> = commits
@@ -91,9 +63,18 @@ fn move_commit_earlier() {
     assert_eq!(messages, vec!["A", "C", "B"]);
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
-    assert_eq!(file_content_at(&test.repo, head_oid, "x.txt"), "x\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "y.txt"), "y\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "z.txt"), "z\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "x.txt"),
+        "x\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "y.txt"),
+        "y\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "z.txt"),
+        "z\n"
+    );
 }
 
 #[test]
@@ -118,7 +99,7 @@ fn move_commit_later() {
         "expected Complete, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 4);
 
     let messages: Vec<String> = commits
@@ -149,7 +130,7 @@ fn move_commit_to_beginning() {
         "expected Complete, got {result:?}"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     assert_eq!(commits.len(), 3);
 
     let messages: Vec<String> = commits
@@ -177,7 +158,7 @@ fn move_head_commit_earlier() {
 
     assert!(matches!(result, RebaseOutcome::Complete));
 
-    let messages: Vec<String> = commits_from_head(&test.repo, base)
+    let messages: Vec<String> = common::commits_from_head(&test.repo, base)
         .iter()
         .map(|&oid| commit_message(&test.repo, oid))
         .collect();
@@ -211,7 +192,7 @@ fn move_commit_conflict_returns_conflict_state() {
             // may or may not conflict depending on diff mechanics.
             // If git can apply B's hunk cleanly against the base, that's
             // also valid — the commit just adds line3 after line1.
-            let msgs: Vec<String> = commits_from_head(&test.repo, base)
+            let msgs: Vec<String> = common::commits_from_head(&test.repo, base)
                 .iter()
                 .map(|&oid| commit_message(&test.repo, oid))
                 .collect();
@@ -242,19 +223,19 @@ fn move_commit_preserves_file_contents() {
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "x.txt"),
+        common::file_content_at(&test.repo, head_oid, "x.txt"),
         "x-content\n"
     );
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "y.txt"),
+        common::file_content_at(&test.repo, head_oid, "y.txt"),
         "y-content\n"
     );
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "z.txt"),
+        common::file_content_at(&test.repo, head_oid, "z.txt"),
         "z-content\n"
     );
 
-    let commits = commits_from_head(&test.repo, base);
+    let commits = common::commits_from_head(&test.repo, base);
     let messages: Vec<String> = commits
         .iter()
         .map(|&oid| commit_message(&test.repo, oid))
@@ -375,12 +356,21 @@ fn move_commit_to_root_position() {
 
     // All files must be present at HEAD.
     assert_eq!(
-        file_content_at(&test.repo, head_oid, "a.txt"),
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
         "root_content\n"
     );
-    assert_eq!(file_content_at(&test.repo, head_oid, "x.txt"), "x\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "y.txt"), "y\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "z.txt"), "z\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "x.txt"),
+        "x\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "y.txt"),
+        "y\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "z.txt"),
+        "z\n"
+    );
 
     // Working tree must be clean — no staged deletions or untracked files.
     let statuses = test.repo.statuses(None).unwrap();
@@ -435,9 +425,18 @@ fn move_root_commit_to_later_position() {
         .collect();
     assert_eq!(messages, vec!["A", "B", "root"]);
 
-    assert_eq!(file_content_at(&test.repo, head_oid, "root.txt"), "root\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "a.txt"), "a\n");
-    assert_eq!(file_content_at(&test.repo, head_oid, "b.txt"), "b\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "root.txt"),
+        "root\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "a.txt"),
+        "a\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, head_oid, "b.txt"),
+        "b\n"
+    );
 
     // Working tree must be clean — no staged deletions or untracked files.
     let statuses = test.repo.statuses(None).unwrap();

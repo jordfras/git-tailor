@@ -308,7 +308,7 @@ Guidelines:
   fields with `Default` types no longer require touching the constructor.
 
 ## Refactoring — Integration Tests
-- [ ] T190 P1 feat - Move duplicated `file_content_at` and `commits_from_head`
+- [X] T190 P1 feat - Move duplicated `file_content_at` and `commits_from_head`
   helpers into `tests/common.rs`: identical 8-line and 13-line definitions
   appear at `tests/split_commit.rs:20`, `tests/squash_commit.rs:23`,
   `tests/drop_commit.rs:23`, `tests/move_commit.rs:23` (and the matching

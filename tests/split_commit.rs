@@ -16,34 +16,6 @@ mod common;
 
 use git_tailor::{Oid, repo::GitRepo};
 
-/// Read a file from a specific commit tree.
-fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
-    let commit = repo.find_commit(commit_oid).unwrap();
-    let tree = commit.tree().unwrap();
-    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
-    let blob = repo
-        .find_blob(entry.id())
-        .expect("tree entry should be a blob");
-    String::from_utf8_lossy(blob.content()).into_owned()
-}
-
-/// Walk commits from HEAD back to (but not including) the given stop OID.
-fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
-    let head_oid = repo.head().unwrap().target().unwrap();
-    let mut revwalk = repo.revwalk().unwrap();
-    revwalk.push(head_oid).unwrap();
-    let mut oids = Vec::new();
-    for result in revwalk {
-        let oid = result.unwrap();
-        if oid == stop_oid {
-            break;
-        }
-        oids.push(oid);
-    }
-    oids.reverse(); // oldest first
-    oids
-}
-
 #[test]
 fn split_per_file_creates_two_commits() {
     let test = common::TestRepo::new();
@@ -62,7 +34,7 @@ fn split_per_file_creates_two_commits() {
         .unwrap();
 
     // There should now be 3 commits above base: base, split-1, split-2
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -119,8 +91,14 @@ fn split_per_file_creates_two_commits() {
     );
 
     // Together the two split commits contain all the changes from the original
-    assert_eq!(file_content_at(&test.repo, split2_oid, "a.txt"), "alpha2\n");
-    assert_eq!(file_content_at(&test.repo, split2_oid, "b.txt"), "beta2\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, split2_oid, "a.txt"),
+        "alpha2\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, split2_oid, "b.txt"),
+        "beta2\n"
+    );
 }
 
 #[test]
@@ -142,7 +120,7 @@ fn split_per_file_rebases_descendants() {
         .unwrap();
 
     // We should now have: base → split1 → split2 → rebased-c
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -151,13 +129,19 @@ fn split_per_file_rebases_descendants() {
 
     // Rebased descendant should still have the c.txt content
     let rebased_tip = *commits_above_base.last().unwrap();
-    assert_eq!(file_content_at(&test.repo, rebased_tip, "c.txt"), "gamma\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, rebased_tip, "c.txt"),
+        "gamma\n"
+    );
     // And all files from the split should also be present
     assert_eq!(
-        file_content_at(&test.repo, rebased_tip, "a.txt"),
+        common::file_content_at(&test.repo, rebased_tip, "a.txt"),
         "alpha2\n"
     );
-    assert_eq!(file_content_at(&test.repo, rebased_tip, "b.txt"), "beta2\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, rebased_tip, "b.txt"),
+        "beta2\n"
+    );
 }
 
 #[test]
@@ -255,7 +239,7 @@ fn split_per_file_handles_submodule_delta() {
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
 
     let tip_oid = *commits_above_base.last().unwrap();
@@ -303,7 +287,7 @@ fn split_per_file_preserves_commit_message_body() {
         .unwrap()
         .parent_id(0)
         .unwrap();
-    let commits_above_base = commits_from_head(&test.repo, base_oid);
+    let commits_above_base = common::commits_from_head(&test.repo, base_oid);
     assert_eq!(commits_above_base.len(), 2);
 
     for oid in &commits_above_base {
@@ -353,7 +337,7 @@ fn split_per_hunk_single_file_two_hunks() {
         .unwrap();
 
     // Should now have 2 commits above base
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -377,7 +361,7 @@ fn split_per_hunk_single_file_two_hunks() {
     // Final content is intact at HEAD
     let tip = commits_above_base[1];
     assert_eq!(
-        file_content_at(&test.repo, tip, "a.txt"),
+        common::file_content_at(&test.repo, tip, "a.txt"),
         "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n"
     );
 }
@@ -400,7 +384,7 @@ fn split_per_hunk_two_files_one_hunk_each() {
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         2,
@@ -409,8 +393,11 @@ fn split_per_hunk_two_files_one_hunk_each() {
 
     // The final tip contains both file changes
     let tip = *commits_above_base.last().unwrap();
-    assert_eq!(file_content_at(&test.repo, tip, "a.txt"), "alpha2\n");
-    assert_eq!(file_content_at(&test.repo, tip, "b.txt"), "beta2\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, tip, "a.txt"),
+        "alpha2\n"
+    );
+    assert_eq!(common::file_content_at(&test.repo, tip, "b.txt"), "beta2\n");
 }
 
 #[test]
@@ -463,7 +450,7 @@ fn split_per_hunk_preserves_commit_message_body() {
         .unwrap()
         .parent_id(0)
         .unwrap();
-    for oid in commits_from_head(&test.repo, stop) {
+    for oid in common::commits_from_head(&test.repo, stop) {
         let commit = test.repo.find_commit(oid).unwrap();
         let msg = commit.message().unwrap_or("");
         assert!(
@@ -494,7 +481,7 @@ fn split_per_hunk_group_two_groups_shared_context() {
         .unwrap();
 
     // 3 commits above base: commit A + K-part1 + K-part2
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -516,13 +503,13 @@ fn split_per_hunk_group_two_groups_shared_context() {
 
     // Intermediate commit (K-part1) should have applied a.txt but not b.txt.
     let k1_oid = commits_above_base[1];
-    assert_eq!(file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
-    assert_eq!(file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
+    assert_eq!(common::file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
+    assert_eq!(common::file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
 
     // Final commit (K-part2) should match K's full state.
     let tip = commits_above_base[2];
-    assert_eq!(file_content_at(&test.repo, tip, "a.txt"), "A3\n");
-    assert_eq!(file_content_at(&test.repo, tip, "b.txt"), "B2\n");
+    assert_eq!(common::file_content_at(&test.repo, tip, "a.txt"), "A3\n");
+    assert_eq!(common::file_content_at(&test.repo, tip, "b.txt"), "B2\n");
 }
 
 #[test]
@@ -546,7 +533,7 @@ fn split_per_hunk_group_three_commits_two_groups() {
         .unwrap();
 
     // 4 commits above base: A + K-part1 + K-part2 + B' (rebased B)
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         4,
@@ -568,17 +555,20 @@ fn split_per_hunk_group_three_commits_two_groups() {
 
     // K-part1 should have applied only the a.txt group.
     let k1_oid = commits_above_base[1];
-    assert_eq!(file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
-    assert_eq!(file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
+    assert_eq!(common::file_content_at(&test.repo, k1_oid, "a.txt"), "A3\n");
+    assert_eq!(common::file_content_at(&test.repo, k1_oid, "b.txt"), "B\n");
 
     // K-part2 should match K's full state.
     let k2_oid = commits_above_base[2];
-    assert_eq!(file_content_at(&test.repo, k2_oid, "a.txt"), "A3\n");
-    assert_eq!(file_content_at(&test.repo, k2_oid, "b.txt"), "B2\n");
+    assert_eq!(common::file_content_at(&test.repo, k2_oid, "a.txt"), "A3\n");
+    assert_eq!(common::file_content_at(&test.repo, k2_oid, "b.txt"), "B2\n");
 
     // B' (rebased) should have b.txt = B3.
     let b_prime_oid = commits_above_base[3];
-    assert_eq!(file_content_at(&test.repo, b_prime_oid, "b.txt"), "B3\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, b_prime_oid, "b.txt"),
+        "B3\n"
+    );
 }
 
 #[test]
@@ -641,7 +631,7 @@ fn split_per_hunk_pure_insertions() {
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
         .unwrap();
 
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
 
     // First split commit: only the first insertion applied.
@@ -661,7 +651,7 @@ fn split_per_hunk_pure_insertions() {
 
     // Final commit: both insertions.
     assert_eq!(
-        file_content_at(&test.repo, *commits_above_base.last().unwrap(), "a.txt"),
+        common::file_content_at(&test.repo, *commits_above_base.last().unwrap(), "a.txt"),
         "line1\nNEW\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nOTHER\n",
         "final commit should have both insertions"
     );
@@ -716,7 +706,7 @@ fn split_per_hunk_group_multi_path_two_groups() {
         .unwrap();
 
     // 3 commits above base: A' + K-part1 + K-part2
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         3,
@@ -740,10 +730,10 @@ fn split_per_hunk_group_multi_path_two_groups() {
     // Final split commit must match K's full tree.
     let tip = *commits_above_base.last().unwrap();
     assert_eq!(
-        file_content_at(&test.repo, tip, "a.txt"),
+        common::file_content_at(&test.repo, tip, "a.txt"),
         "L1\nK2\nK3\nK4\nL5\n"
     );
-    assert_eq!(file_content_at(&test.repo, tip, "c.txt"), "CK1\n");
+    assert_eq!(common::file_content_at(&test.repo, tip, "c.txt"), "CK1\n");
 }
 
 #[test]
@@ -797,7 +787,7 @@ fn split_per_hunk_group_multi_path_three_groups() {
         .unwrap();
 
     // 5 commits above base: A' + K-part1 + K-part2 + K-part3 + B'
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     assert_eq!(
         commits_above_base.len(),
         5,
@@ -821,15 +811,24 @@ fn split_per_hunk_group_multi_path_three_groups() {
     // Last split commit (K-part3) must match K's full tree.
     let k3_oid = commits_above_base[3];
     assert_eq!(
-        file_content_at(&test.repo, k3_oid, "a.txt"),
+        common::file_content_at(&test.repo, k3_oid, "a.txt"),
         "L1\nK2\nK3\nK4\nL5\n"
     );
-    assert_eq!(file_content_at(&test.repo, k3_oid, "b.txt"), "KB1\n");
-    assert_eq!(file_content_at(&test.repo, k3_oid, "c.txt"), "CK1\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, k3_oid, "b.txt"),
+        "KB1\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, k3_oid, "c.txt"),
+        "CK1\n"
+    );
 
     // Rebased B' should have its b.txt content.
     let b_prime_oid = commits_above_base[4];
-    assert_eq!(file_content_at(&test.repo, b_prime_oid, "b.txt"), "BB1\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, b_prime_oid, "b.txt"),
+        "BB1\n"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -986,7 +985,7 @@ fn split_per_hunk_group_preserves_commit_message_body() {
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
-    let commits_above_base = commits_from_head(&test.repo, base);
+    let commits_above_base = common::commits_from_head(&test.repo, base);
     // commit A + 2 split parts
     assert_eq!(commits_above_base.len(), 3);
     for oid in &commits_above_base[1..] {
@@ -1051,8 +1050,14 @@ fn split_root_commit_per_file() {
         split2.summary().unwrap_or("")
     );
 
-    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
-    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "a.txt"),
+        "alpha\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "b.txt"),
+        "beta\n"
+    );
 }
 
 /// Same as above but with a descendant commit that must be rebased on top of
@@ -1088,9 +1093,18 @@ fn split_root_commit_per_file_with_descendants() {
     );
 
     // All files present at final HEAD
-    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
-    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
-    assert_eq!(file_content_at(&test.repo, new_head, "c.txt"), "gamma\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "a.txt"),
+        "alpha\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "b.txt"),
+        "beta\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "c.txt"),
+        "gamma\n"
+    );
 }
 
 /// Split the root commit per hunk. Two file introductions = 2 hunks.
@@ -1124,8 +1138,14 @@ fn split_root_commit_per_hunk() {
         "first split commit must be an orphan root"
     );
 
-    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "alpha\n");
-    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "beta\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "a.txt"),
+        "alpha\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "b.txt"),
+        "beta\n"
+    );
 }
 
 /// Split the root commit per hunk group. The root touches 2 files and a
@@ -1172,6 +1192,12 @@ fn split_root_commit_per_hunk_group() {
     );
 
     // Final HEAD has both original files (with A's change to a.txt on top)
-    assert_eq!(file_content_at(&test.repo, new_head, "a.txt"), "A2\n");
-    assert_eq!(file_content_at(&test.repo, new_head, "b.txt"), "B\n");
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "a.txt"),
+        "A2\n"
+    );
+    assert_eq!(
+        common::file_content_at(&test.repo, new_head, "b.txt"),
+        "B\n"
+    );
 }

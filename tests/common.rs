@@ -285,6 +285,37 @@ pub fn stage_gitlink(repo: &git2::Repository, path: &str, target_oid: git2::Oid)
     index.write().unwrap();
 }
 
+/// Read a file from a specific commit tree.
+#[allow(dead_code)]
+pub fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
+    let commit = repo.find_commit(commit_oid).unwrap();
+    let tree = commit.tree().unwrap();
+    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
+    let blob = repo
+        .find_blob(entry.id())
+        .expect("tree entry should be a blob");
+    String::from_utf8_lossy(blob.content()).into_owned()
+}
+
+/// Walk commits from HEAD back to (but not including) the given stop OID.
+/// Returns commits in oldest-first order.
+#[allow(dead_code)]
+pub fn commits_from_head(repo: &git2::Repository, stop_oid: git2::Oid) -> Vec<git2::Oid> {
+    let head_oid = repo.head().unwrap().target().unwrap();
+    let mut revwalk = repo.revwalk().unwrap();
+    revwalk.push(head_oid).unwrap();
+    let mut oids = Vec::new();
+    for result in revwalk {
+        let oid = result.unwrap();
+        if oid == stop_oid {
+            break;
+        }
+        oids.push(oid);
+    }
+    oids.reverse(); // oldest first
+    oids
+}
+
 /// Build a minimal `CommitInfo` for use in TUI snapshot tests.
 #[allow(dead_code)]
 pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
