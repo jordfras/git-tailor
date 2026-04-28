@@ -317,7 +317,7 @@ Guidelines:
   `pub fn commits_from_head(...)` and remove the four local copies; ~80 LOC of
   duplication eliminated and ~80 call sites stay readable via
   `common::file_content_at(...)` / `common::commits_from_head(...)`.
-- [ ] T191 P1 feat - Move duplicated `NoOpRepo` GitRepo stub into
+- [X] T191 P1 feat - Move duplicated `NoOpRepo` GitRepo stub into
   `tests/common.rs`: the `struct NoOpRepo` plus its ~120-line `GitRepo` impl
   (every method `unimplemented!()`/panics) is defined identically at
   `tests/tui_main_view.rs:30` and `tests/tui_commit_detail.rs:33`. Promote to

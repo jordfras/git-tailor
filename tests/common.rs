@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[path = "common/fake.rs"]
+pub mod fake;
+#[allow(unused_imports)]
+pub use fake::{FakeDiffRepo, NoOpRepo};
+
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, repo::Git2Repo,
 };

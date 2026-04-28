@@ -17,142 +17,15 @@
 
 mod common;
 
-use anyhow::{Result, anyhow};
 use git_tailor::{
-    CommitDiff, CommitInfo, Oid, VirtualOid,
+    Oid, VirtualOid,
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
-    repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
     views,
 };
 use ratatui::{Terminal, backend::TestBackend};
 
-struct NoOpRepo;
-
-impl GitRepo for NoOpRepo {
-    fn head_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
-        Err(anyhow!("no diff"))
-    }
-    fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn get_config_string(&self, _key: &str) -> Option<String> {
-        unimplemented!()
-    }
-    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn move_commit(
-        &self,
-        _commit_oid: &Oid,
-        _insert_after_oid: Option<&Oid>,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    fn squash_commits(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _message: &str,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _combined_message: &str,
-        _is_fixup: bool,
-        _head_oid: &Oid,
-    ) -> Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _ctx: &SquashContext,
-        _message: &str,
-        _original_branch_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn stage_file(&self, _path: &str) -> Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
-        unimplemented!()
-    }
-
-    fn default_branch(&self) -> Option<String> {
-        None
-    }
-
-    fn root_commit_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-}
+use common::NoOpRepo;
 
 fn app_with_commits() -> AppState {
     let mut app = AppState::new();
