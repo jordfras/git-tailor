@@ -1018,8 +1018,8 @@ fn split_root_commit_per_file() {
         split2.summary().unwrap_or("")
     );
 
-    assert_file_contents!(&test.repo, new_head, "a.txt", "alpha\n");
-    assert_file_contents!(&test.repo, new_head, "b.txt", "beta\n");
+    assert_file_contents_at_head!(&test.repo, "a.txt", "alpha\n");
+    assert_file_contents_at_head!(&test.repo, "b.txt", "beta\n");
 }
 
 /// Same as above but with a descendant commit that must be rebased on top of
@@ -1055,9 +1055,9 @@ fn split_root_commit_per_file_with_descendants() {
     );
 
     // All files present at final HEAD
-    assert_file_contents!(&test.repo, new_head, "a.txt", "alpha\n");
-    assert_file_contents!(&test.repo, new_head, "b.txt", "beta\n");
-    assert_file_contents!(&test.repo, new_head, "c.txt", "gamma\n");
+    assert_file_contents_at_head!(&test.repo, "a.txt", "alpha\n");
+    assert_file_contents_at_head!(&test.repo, "b.txt", "beta\n");
+    assert_file_contents_at_head!(&test.repo, "c.txt", "gamma\n");
 }
 
 /// Split the root commit per hunk. Two file introductions = 2 hunks.
@@ -1091,8 +1091,8 @@ fn split_root_commit_per_hunk() {
         "first split commit must be an orphan root"
     );
 
-    assert_file_contents!(&test.repo, new_head, "a.txt", "alpha\n");
-    assert_file_contents!(&test.repo, new_head, "b.txt", "beta\n");
+    assert_file_contents_at_head!(&test.repo, "a.txt", "alpha\n");
+    assert_file_contents_at_head!(&test.repo, "b.txt", "beta\n");
 }
 
 /// Split the root commit per hunk group. The root touches 2 files and a
@@ -1139,6 +1139,6 @@ fn split_root_commit_per_hunk_group() {
     );
 
     // Final HEAD has both original files (with A's change to a.txt on top)
-    assert_file_contents!(&test.repo, new_head, "a.txt", "A2\n");
-    assert_file_contents!(&test.repo, new_head, "b.txt", "B\n");
+    assert_file_contents_at_head!(&test.repo, "a.txt", "A2\n");
+    assert_file_contents_at_head!(&test.repo, "b.txt", "B\n");
 }

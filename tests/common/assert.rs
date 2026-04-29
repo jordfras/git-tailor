@@ -94,3 +94,18 @@ macro_rules! assert_file_contents {
         );
     }};
 }
+
+/// Assert the contents of a file at HEAD match the expected string.
+///
+/// Includes the file path in the failure message and panics at the call site.
+#[macro_export]
+macro_rules! assert_file_contents_at_head {
+    ($repo:expr, $path:expr, $expected:expr) => {{
+        assert_file_contents!(
+            $repo,
+            $repo.head().unwrap().target().unwrap(),
+            $path,
+            $expected
+        );
+    }};
+}

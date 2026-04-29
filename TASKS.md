@@ -402,14 +402,17 @@ Guidelines:
   `tests/{split,squash,drop,move}_commit.rs` and `tests/mergetool.rs`. Define
   `pub const FILE_A: &str = "a.txt";` (etc.) in `tests/common.rs` and use them;
   makes test file usage grep-able and lets a future rename touch one place.
-  Pairs naturally with T194's `assert_file_contents!` macro.
-- [ ] T201 P2 feat - Add `TestRepo::head_oid()` returning `Oid`: the pattern
-  `let head_oid = git_repo.head_oid().unwrap();` (or the raw
-  `test.repo.head().unwrap().target().unwrap()` variant) recurs 20+ times across
-  the rebase-op tests. Add `pub fn head_oid(&self) ->
-  Oid` on `TestRepo` (in `tests/common.rs`) that wraps the underlying
-  `Git2Repo::head_oid()` call and converts via `Oid::from(...)`. Tests then
-  become `let head = test.head_oid();`.
+  Pairs naturally with T194's `assert_file_contents!` macro. (Flags: WONT DO)
+- [x] T201 P2 feat - Add `assert_file_contents_at_head!` macro: the pattern `let
+  head_oid = test.repo.head().unwrap().target().unwrap();
+  assert_file_contents!(&test.repo, head_oid, path, expected);` recurred 15+
+  times at pure-HEAD assertion sites. Added
+  `assert_file_contents_at_head!($repo, $path, $expected)` to
+  `tests/common/assert.rs` (delegates to `assert_file_contents!`) and migrated
+  all pure-HEAD call sites in `drop_commit`, `move_commit`, `split_commit`, and
+  `squash_commit`. Sites where the raw `git2::Oid` is also used for
+  `find_commit`, `revwalk`, `merge_base`, or `assert_eq` comparisons are left
+  using `assert_file_contents!` directly.
 - [ ] T202 P2 feat - Add `TestRepo::file_at_head(path)` shorthand: the pattern
   of looking up HEAD and reading a file's tree contents appears 50+ times after
   T190 lands as `let head_oid = ...;
