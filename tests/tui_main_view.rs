@@ -25,7 +25,7 @@ use git_tailor::{
     views,
 };
 
-use common::{NoOpRepo, TuiTestHarness};
+use common::{StubRepo, TuiTestHarness};
 use ratatui::buffer::Buffer;
 
 fn app_with_commits() -> AppState {
@@ -74,7 +74,7 @@ fn cell_at(buf: &Buffer, col: usize, row: usize) -> String {
 /// Default separator position (offset = 0) — separator bar at column 71.
 #[test]
 fn test_separator_default_position() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     // offset = 0 is the default
@@ -119,7 +119,7 @@ fn test_separator_default_position() {
 /// Separator moved left by 16 columns (offset = -16) — bar at column 55.
 #[test]
 fn test_separator_shifted_left() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = -16;
@@ -138,7 +138,7 @@ fn test_separator_shifted_left() {
 /// Separator moved right by 8 columns (offset = +8) — bar at column 79.
 #[test]
 fn test_separator_shifted_right() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = 8;
@@ -160,7 +160,7 @@ fn test_separator_shifted_right() {
 /// 14-character "Initial commit" summary — titles are truncated.
 #[test]
 fn test_separator_clamps_left() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = -9999;
@@ -194,7 +194,7 @@ fn test_separator_clamps_left() {
 /// so sep_x = SHA + 1 + max_title = 118, separator cell at column 118.
 #[test]
 fn test_separator_clamps_right() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     app.separator_offset = 9999;
@@ -215,7 +215,7 @@ fn test_separator_clamps_right() {
 /// giving a title width of ~14. A long commit summary is visually cut off.
 #[test]
 fn test_separator_title_truncation_boundary() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     // Use a commit whose summary is clearly longer than the squeezed column.
@@ -249,7 +249,7 @@ fn test_separator_title_truncation_boundary() {
 /// not the commit list. Regression test for T168.
 #[test]
 fn test_commit_detail_shown_on_narrow_terminal() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::narrow();
     let mut app = app_with_commits();
     app.mode = git_tailor::app::AppMode::CommitDetail;

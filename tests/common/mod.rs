@@ -18,7 +18,7 @@ pub mod assert;
 #[allow(unused_imports)]
 pub mod fake;
 #[allow(unused_imports)]
-pub use fake::{FakeDiffRepo, NoOpRepo};
+pub use fake::{StubRepo, StubRepoBuilder};
 
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,

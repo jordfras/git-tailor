@@ -22,12 +22,12 @@ use git_tailor::{
     CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, app::AppState, views,
 };
 
-use common::{FakeDiffRepo, NoOpRepo, TuiTestHarness};
+use common::{StubRepo, StubRepoBuilder, TuiTestHarness};
 
 /// Short message: all content lines fit within 80 columns — no horizontal scrollbar.
 #[test]
 fn test_commit_detail_short_lines_no_hscroll() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -44,7 +44,7 @@ fn test_commit_detail_short_lines_no_hscroll() {
 /// horizontal scrollbar row must appear at the bottom of the content area.
 #[test]
 fn test_commit_detail_long_lines_hscroll_visible() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -63,7 +63,7 @@ fn test_commit_detail_long_lines_hscroll_visible() {
 /// are clipped out of view.
 #[test]
 fn test_commit_detail_hscroll_offset_clips_content() {
-    let repo = NoOpRepo;
+    let repo = StubRepo::default();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -111,7 +111,7 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -213,7 +213,7 @@ fn test_commit_detail_search_bar_visible() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -262,7 +262,7 @@ fn test_commit_detail_search_highlight_matches() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -409,7 +409,7 @@ fn test_search_case_sensitive() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();

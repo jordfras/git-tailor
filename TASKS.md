@@ -387,7 +387,7 @@ Guidelines:
   (e.g. lines 185–210). Extract a helper that returns the resulting
   `ConflictState` so tests focused on conflict resolution start with a one-line
   setup and read more like specifications.
-- [ ] T199 P3 feat - Centralize stub `GitRepo` variants (NoOpRepo + FakeDiffRepo
+- [X] T199 P3 feat - Centralize stub `GitRepo` variants (NoOpRepo + FakeDiffRepo
   + a builder) in `tests/common.rs`: TUI tests need `GitRepo` instances that
   either panic on every call (`NoOpRepo`, see T191) or return a canned
   `CommitDiff` for one method (`FakeDiffRepo` lives inline in

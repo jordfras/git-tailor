@@ -18,143 +18,76 @@ use git_tailor::{
     repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
 };
 
-/// Minimal `GitRepo` stub for TUI tests that don't need any real git operations.
+/// Builder for a configurable [`StubRepo`].
 ///
-/// Every method panics with `unimplemented!()` except `commit_diff` (returns
-/// an error), `staged_diff` / `unstaged_diff` (return `None`), and
-/// `default_branch` (returns `None`).
-pub struct NoOpRepo;
+/// Set only the methods your test needs; all others will panic with
+/// `unimplemented!()` for unconfigured paths.
+///
+/// # Example
+///
+/// ```ignore
+/// let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+/// ```
+pub struct StubRepoBuilder {
+    commit_diff: Option<CommitDiff>,
+    staged_diff: Option<CommitDiff>,
+    unstaged_diff: Option<CommitDiff>,
+}
 
-impl GitRepo for NoOpRepo {
-    fn head_oid(&self) -> Result<Oid> {
-        unimplemented!()
+impl StubRepoBuilder {
+    pub fn new() -> Self {
+        Self {
+            commit_diff: None,
+            staged_diff: None,
+            unstaged_diff: None,
+        }
     }
-    fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
-        unimplemented!()
+
+    /// Configure the diff returned by [`GitRepo::commit_diff`] for any OID.
+    pub fn with_commit_diff(mut self, diff: CommitDiff) -> Self {
+        self.commit_diff = Some(diff);
+        self
     }
-    fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
-        unimplemented!()
+
+    /// Configure the diff returned by [`GitRepo::staged_diff`].
+    pub fn with_staged_diff(mut self, diff: CommitDiff) -> Self {
+        self.staged_diff = Some(diff);
+        self
     }
-    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
-        Err(anyhow!("no diff"))
+
+    /// Configure the diff returned by [`GitRepo::unstaged_diff`].
+    pub fn with_unstaged_diff(mut self, diff: CommitDiff) -> Self {
+        self.unstaged_diff = Some(diff);
+        self
     }
-    fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn get_config_string(&self, _key: &str) -> Option<String> {
-        unimplemented!()
-    }
-    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn move_commit(
-        &self,
-        _commit_oid: &Oid,
-        _insert_after_oid: Option<&Oid>,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    fn squash_commits(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _message: &str,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _combined_message: &str,
-        _is_fixup: bool,
-        _head_oid: &Oid,
-    ) -> Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _ctx: &SquashContext,
-        _message: &str,
-        _original_branch_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn stage_file(&self, _path: &str) -> Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
-        unimplemented!()
-    }
-    fn default_branch(&self) -> Option<String> {
-        None
-    }
-    fn root_commit_oid(&self) -> Result<Oid> {
-        unimplemented!()
+
+    pub fn build(self) -> StubRepo {
+        StubRepo {
+            commit_diff: self.commit_diff,
+            staged_diff: self.staged_diff,
+            unstaged_diff: self.unstaged_diff,
+        }
     }
 }
 
-/// `GitRepo` stub that returns a fixed `CommitDiff` for any OID.
-///
-/// All other methods panic with `unimplemented!()`. Useful for TUI tests that
-/// exercise diff rendering without a real repository on disk.
-pub struct FakeDiffRepo(pub CommitDiff);
+impl Default for StubRepoBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-impl GitRepo for FakeDiffRepo {
+/// Configurable `GitRepo` stub produced by [`StubRepoBuilder`].
+///
+/// Methods set via the builder return their configured values; all other
+/// methods panic with `unimplemented!()`.
+#[derive(Default)]
+pub struct StubRepo {
+    commit_diff: Option<CommitDiff>,
+    staged_diff: Option<CommitDiff>,
+    unstaged_diff: Option<CommitDiff>,
+}
+
+impl GitRepo for StubRepo {
     fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
@@ -165,16 +98,19 @@ impl GitRepo for FakeDiffRepo {
         unimplemented!()
     }
     fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
-        Ok(self.0.clone())
+        match &self.commit_diff {
+            Some(diff) => Ok(diff.clone()),
+            None => Err(anyhow!("commit_diff not configured on StubRepo")),
+        }
     }
     fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
         unimplemented!()
     }
     fn staged_diff(&self) -> Option<CommitDiff> {
-        None
+        self.staged_diff.clone()
     }
     fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
+        self.unstaged_diff.clone()
     }
     fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
