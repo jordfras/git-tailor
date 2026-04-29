@@ -396,7 +396,7 @@ Guidelines:
   `StubRepoBuilder::new().with_commit_diff(diff)
   .build()`) so future TUI tests that need to mock another `GitRepo` method can
   do so without copying the giant impl block.
-- [ ] T200 P2 feat - Introduce file-path constants for tests: hardcoded
+- [-] T200 P2 feat - Introduce file-path constants for tests: hardcoded
   `"a.txt"`, `"b.txt"`, `"c.txt"`, `"x.txt"`, `"y.txt"`, `"z.txt"`,
   `"root.txt"`, `"unrelated.txt"` appear 50+ times across
   `tests/{split,squash,drop,move}_commit.rs` and `tests/mergetool.rs`. Define
