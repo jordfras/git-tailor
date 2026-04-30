@@ -23,6 +23,7 @@ pub use fake::{StubRepo, StubRepoBuilder};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,
     app::AppState,
+    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
     repo::{ConflictState, Git2Repo, GitRepo},
 };
 use git2::{Repository, Signature};
@@ -387,6 +388,38 @@ pub fn create_test_commit_diff(
                 lines: vec![],
             }],
         }],
+    }
+}
+
+/// Build a `FragMap` with the given commit OIDs, clusters, and matrix.
+pub fn create_fragmap(
+    commit_oids: Vec<&str>,
+    clusters: Vec<SpanCluster>,
+    matrix: Vec<Vec<TouchKind>>,
+) -> FragMap {
+    FragMap {
+        commits: commit_oids
+            .into_iter()
+            .map(|s| VirtualOid::Real(Oid::from(s)))
+            .collect(),
+        clusters,
+        matrix,
+    }
+}
+
+/// Build a `SpanCluster` covering a single file span, touched by the given commits.
+pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
+    SpanCluster {
+        spans: vec![FileSpan {
+            path: path.to_string(),
+            start_line: start,
+            end_line: end,
+        }],
+        commit_oids: oids
+            .iter()
+            .copied()
+            .map(|s| VirtualOid::Real(Oid::from(s)))
+            .collect(),
     }
 }
 

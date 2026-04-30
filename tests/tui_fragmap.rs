@@ -16,45 +16,14 @@
 
 #[allow(dead_code)]
 mod common;
-use common::TuiTestHarness;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
-    CommitInfo, Oid, VirtualOid,
+    CommitInfo,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
+    fragmap::{SpanCluster, SquashableScope, TouchKind},
     views,
 };
-
-/// Build a FragMap with the given commit OIDs, clusters, and matrix.
-fn create_fragmap(
-    commit_oids: Vec<&str>,
-    clusters: Vec<SpanCluster>,
-    matrix: Vec<Vec<TouchKind>>,
-) -> FragMap {
-    FragMap {
-        commits: commit_oids
-            .into_iter()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-        clusters,
-        matrix,
-    }
-}
-
-fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
-    SpanCluster {
-        spans: vec![FileSpan {
-            path: path.to_string(),
-            start_line: start,
-            end_line: end,
-        }],
-        commit_oids: oids
-            .iter()
-            .copied()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-    }
-}
 
 /// Two commits touching the same cluster with no commits in between → squashable.
 /// Expects gray squares with yellow connector.

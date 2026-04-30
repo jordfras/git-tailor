@@ -16,12 +16,12 @@
 
 #[allow(dead_code)]
 mod common;
-use common::TuiTestHarness;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
+    fragmap::TouchKind,
     views,
 };
 
@@ -227,21 +227,6 @@ fn test_squash_page_down_clamped() {
     assert_eq!(app.selection_index, 1);
 }
 
-fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
-    SpanCluster {
-        spans: vec![FileSpan {
-            path: path.to_string(),
-            start_line: start,
-            end_line: end,
-        }],
-        commit_oids: oids
-            .iter()
-            .copied()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-    }
-}
-
 /// Squash mode with fragmap: source is commit 2 (selected), commit 0 is
 /// squashable (shares cluster cleanly), commit 1 is unrelated.
 /// Source should have magenta bg, squashable candidate should be yellow,
@@ -263,22 +248,18 @@ fn test_squash_candidate_coloring_with_fragmap() {
     };
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
-    app.fragmap = Some(FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaaa11112222")),
-            VirtualOid::Real(Oid::from("bbbb33334444")),
-            VirtualOid::Real(Oid::from("cccc55556666")),
-        ],
-        clusters: vec![
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![
             simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
             simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
         ],
-        matrix: vec![
+        vec![
             vec![TouchKind::Added, TouchKind::None],
             vec![TouchKind::None, TouchKind::Modified],
             vec![TouchKind::Modified, TouchKind::None],
         ],
-    });
+    ));
 
     insta::assert_debug_snapshot!(
         harness.render(|frame| views::commit_list::render(&mut app, frame))
@@ -304,24 +285,20 @@ fn test_squash_candidate_coloring_conflicting() {
     };
 
     // All three commits touch cluster 0 → conflicting between 0 and 2
-    app.fragmap = Some(FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaaa11112222")),
-            VirtualOid::Real(Oid::from("bbbb33334444")),
-            VirtualOid::Real(Oid::from("cccc55556666")),
-        ],
-        clusters: vec![simple_cluster(
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![simple_cluster(
             "parser.rs",
             10,
             30,
             &["aaaa11112222", "bbbb33334444", "cccc55556666"],
         )],
-        matrix: vec![
+        vec![
             vec![TouchKind::Added],
             vec![TouchKind::Modified],
             vec![TouchKind::Modified],
         ],
-    });
+    ));
 
     insta::assert_debug_snapshot!(
         harness.render(|frame| views::commit_list::render(&mut app, frame))

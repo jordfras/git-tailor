@@ -437,7 +437,7 @@ Guidelines:
   `TestRepo::oid_of(git2::Oid) -> Oid` method so call sites simplify to
   `.drop_commit(&oid(to_drop), &oid(head))`. Trivial wrapper but removes a lot
   of visual repetition. (Flags: WONT DO)
-- [ ] T205 P3 feat - Move `create_fragmap` and `simple_cluster` helpers into
+- [x] T205 P3 feat - Move `create_fragmap` and `simple_cluster` helpers into
   `tests/common.rs`: `tests/tui_fragmap.rs:19-45` defines `create_fragmap(...)`
   and a `simple_cluster(...)` helper used 10+ times in that file, and
   `tests/tui_squash_select.rs:255` re-defines its own near-identical

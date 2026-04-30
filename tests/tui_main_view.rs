@@ -18,42 +18,31 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::{
-    Oid, VirtualOid,
-    app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
-    views,
-};
+use git_tailor::{app::AppState, fragmap::TouchKind, views};
 
-use common::{StubRepo, TuiTestHarness};
+use common::{StubRepo, TuiTestHarness, create_fragmap, simple_cluster};
 use ratatui::buffer::Buffer;
 
 fn app_with_commits() -> AppState {
     let mut app = AppState::new();
+    let oids = ["abc123def456", "def456ghi789", "ghi789jkl012"];
     app.commits = vec![
-        common::create_test_commit("abc123def456", "Initial commit"),
-        common::create_test_commit("def456ghi789", "Add feature X"),
-        common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
+        common::create_test_commit(oids[0], "Initial commit"),
+        common::create_test_commit(oids[1], "Add feature X"),
+        common::create_test_commit(oids[2], "Fix bug in parser"),
     ];
     app.selection_index = 0;
     // One visible cluster so compute_fragmap_sep_x takes the fragmap path
     // and the separator aligns with the fragmap │ column.
-    app.fragmap = Some(FragMap {
-        commits: vec![VirtualOid::Real(Oid::new("abc123def456".to_string())); 3],
-        clusters: vec![SpanCluster {
-            spans: vec![FileSpan {
-                path: "a.rs".to_string(),
-                start_line: 1,
-                end_line: 5,
-            }],
-            commit_oids: vec![],
-        }],
-        matrix: {
-            let mut m = vec![vec![TouchKind::None; 1]; 3];
-            m[0][0] = TouchKind::Modified;
-            m
-        },
-    });
+    app.fragmap = Some(create_fragmap(
+        oids.to_vec(),
+        vec![simple_cluster("a.rs", 1, 5, &[])],
+        vec![
+            vec![TouchKind::Modified],
+            vec![TouchKind::None],
+            vec![TouchKind::None],
+        ],
+    ));
     app
 }
 

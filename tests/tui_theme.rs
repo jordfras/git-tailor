@@ -40,56 +40,24 @@
 
 #[allow(dead_code)]
 mod common;
-use common::TuiTestHarness;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
-    Oid, VirtualOid,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
+    fragmap::{SquashableScope, TouchKind},
     views,
     views::theme::Theme,
 };
 
-fn make_fragmap() -> FragMap {
-    let cluster0 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "config.rs".to_string(),
-            start_line: 10,
-            end_line: 20,
-        }],
-        commit_oids: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("ccc3")),
+fn make_fragmap() -> git_tailor::fragmap::FragMap {
+    create_fragmap(
+        vec!["aaa1", "bbb2", "ccc3"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaa1", "ccc3"]),
+            simple_cluster("parser.rs", 1, 50, &["aaa1", "bbb2", "ccc3"]),
+            simple_cluster("unique.rs", 1, 5, &["ccc3"]),
         ],
-    };
-    let cluster1 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "parser.rs".to_string(),
-            start_line: 1,
-            end_line: 50,
-        }],
-        commit_oids: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("bbb2")),
-            VirtualOid::Real(Oid::from("ccc3")),
-        ],
-    };
-    let cluster2 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "unique.rs".to_string(),
-            start_line: 1,
-            end_line: 5,
-        }],
-        commit_oids: vec![VirtualOid::Real(Oid::from("ccc3"))],
-    };
-    FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("bbb2")),
-            VirtualOid::Real(Oid::from("ccc3")),
-        ],
-        clusters: vec![cluster0, cluster1, cluster2],
-        matrix: vec![
+        vec![
             // A: touches cluster0 and cluster1, not cluster2
             vec![TouchKind::Added, TouchKind::Added, TouchKind::None],
             // B: touches cluster1 only
@@ -97,7 +65,7 @@ fn make_fragmap() -> FragMap {
             // C: touches all three clusters
             vec![TouchKind::Modified, TouchKind::Modified, TouchKind::Added],
         ],
-    }
+    )
 }
 
 fn make_app(theme: Theme, focus: usize) -> AppState {
