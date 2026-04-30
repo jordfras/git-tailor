@@ -444,17 +444,17 @@ Guidelines:
   `simple_cluster`. Promote both to `pub fn` in `tests/common.rs` (parameterised
   over path / line range / commit OIDs) and import from both files; future TUI
   tests that need synthetic fragmap state get the helpers for free.
-- [ ] T206 P3 feat - Reorganize large test files into `mod` groups for
-  navigability: `tests/split_commit.rs` (1177 LOC), `tests/squash_commit.rs`
-  (1046 LOC), `tests/drop_commit.rs` (737 LOC), and `tests/move_commit.rs` (476
-  LOC) currently use comment banners (`// --- Conflict tests ---`) to group
-  related tests. Wrap each group in
-  `mod happy_path_tests { use super::*; ... }`,
-  `mod conflict_tests { use super::*; ... }`,
-  `mod dirty_state_tests { use super::*; ... }`, etc. Improves IDE outline
-  navigation, surfaces the test taxonomy in `cargo test` output, and creates
-  natural homes for per-group fixtures (e.g.
-  `conflict_tests::setup_conflict()`). No logic changes.
+- [x] T206 P3 feat - Split large test files into sub-modules for navigability:
+  `tests/split_commit.rs` (1177 LOC), `tests/squash_commit.rs` (1046 LOC),
+  `tests/drop_commit.rs` (737 LOC), and `tests/move_commit.rs` (476 LOC)
+  currently use comment banners (`// --- Conflict tests ---`) to group related
+  tests. Replace each with a thin entry-point that just declares sub-modules,
+  e.g. `tests/squash_commit.rs` becomes `mod happy_path; mod conflict; mod
+  dirty_state;` with the actual tests in `tests/squash_commit/happy_path.rs`,
+  `tests/squash_commit/conflict.rs`, etc. Each sub-module declares `mod common;`
+  (or uses a shared path attr). Improves IDE file-tree navigation, surfaces the
+  test taxonomy in `cargo test` output, and creates natural homes for per-group
+  fixtures. No logic changes.
 - [ ] T207 P3 feat - Add a `common::prelude` module re-exporting
   frequently used test imports: every rebase-op test starts with the
   same import block — `use git_tailor::repo::{Git2Repo, GitRepo,
