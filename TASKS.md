@@ -413,13 +413,13 @@ Guidelines:
   `squash_commit`. Sites where the raw `git2::Oid` is also used for
   `find_commit`, `revwalk`, `merge_base`, or `assert_eq` comparisons are left
   using `assert_file_contents!` directly.
-- [ ] T202 P2 feat - Add `TestRepo::file_at_head(path)` shorthand: the pattern
+- [-] T202 P2 feat - Add `TestRepo::file_at_head(path)` shorthand: the pattern
   of looking up HEAD and reading a file's tree contents appears 50+ times after
   T190 lands as `let head_oid = ...;
   assert_eq!(common::file_content_at(&test.repo, head_oid, "a.txt"),
   ...)`. Add `pub fn file_at_head(&self, path: &str) -> String` on `TestRepo` so
   call sites become `assert_eq!(test.file_at_head("a.txt"), "alpha2\n")`. Halves
-  the noise of HEAD lookups in assertions.
+  the noise of HEAD lookups in assertions. (Flags: WONT DO)
 - [ ] T203 P2 feat - Add `TestRepo::commits(&[(path, content, msg), ...])`
   bulk-creation helper: the 3-commit setup `let base = test.commit_file(...);
   let mid = test.commit_file(...); let head = test.commit_file(...);` recurs 20+
