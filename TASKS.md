@@ -428,7 +428,7 @@ Guidelines:
   `TestRepo` so tests can write `let [base, mid, head]: [git2::Oid; 3] =
   test.commits(&[(...), (...), (...)]).try_into().unwrap();` (or destructure
   however ergonomic). Reduces ~80 LOC of noisy commit setup. (Flags: WONT DO)
-- [ ] T204 P2 feat - Add `oid()` / `TestRepo::oid_of()` conversion helpers: the
+- [-] T204 P2 feat - Add `oid()` / `TestRepo::oid_of()` conversion helpers: the
   conversion `&Oid::from(commit_oid)` (where `commit_oid: git2::Oid`) appears
   30+ times across the rebase-op and mergetool tests, often clustered in the
   same call expression (e.g.
@@ -436,7 +436,7 @@ Guidelines:
   free `pub fn oid(v: git2::Oid) -> Oid` in `tests/common.rs` or a
   `TestRepo::oid_of(git2::Oid) -> Oid` method so call sites simplify to
   `.drop_commit(&oid(to_drop), &oid(head))`. Trivial wrapper but removes a lot
-  of visual repetition.
+  of visual repetition. (Flags: WONT DO)
 - [ ] T205 P3 feat - Move `create_fragmap` and `simple_cluster` helpers into
   `tests/common.rs`: `tests/tui_fragmap.rs:19-45` defines `create_fragmap(...)`
   and a `simple_cluster(...)` helper used 10+ times in that file, and
