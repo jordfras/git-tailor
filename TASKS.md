@@ -420,14 +420,14 @@ Guidelines:
   ...)`. Add `pub fn file_at_head(&self, path: &str) -> String` on `TestRepo` so
   call sites become `assert_eq!(test.file_at_head("a.txt"), "alpha2\n")`. Halves
   the noise of HEAD lookups in assertions. (Flags: WONT DO)
-- [ ] T203 P2 feat - Add `TestRepo::commits(&[(path, content, msg), ...])`
+- [-] T203 P2 feat - Add `TestRepo::commits(&[(path, content, msg), ...])`
   bulk-creation helper: the 3-commit setup `let base = test.commit_file(...);
   let mid = test.commit_file(...); let head = test.commit_file(...);` recurs 20+
   times across `tests/{split,squash,drop,move}_commit.rs`. Add `pub fn
   commits(&self, configs: &[(&str, &str, &str)]) -> Vec<git2::Oid>` on
   `TestRepo` so tests can write `let [base, mid, head]: [git2::Oid; 3] =
   test.commits(&[(...), (...), (...)]).try_into().unwrap();` (or destructure
-  however ergonomic). Reduces ~80 LOC of noisy commit setup.
+  however ergonomic). Reduces ~80 LOC of noisy commit setup. (Flags: WONT DO)
 - [ ] T204 P2 feat - Add `oid()` / `TestRepo::oid_of()` conversion helpers: the
   conversion `&Oid::from(commit_oid)` (where `commit_oid: git2::Oid`) appears
   30+ times across the rebase-op and mergetool tests, often clustered in the
