@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::assert_file_contents;
-use crate::assert_file_contents_at_head;
 use crate::common;
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 /// Split the root commit (no parent) per file. The first split piece must
 /// become a new orphan root and subsequent pieces must stack on top of it.

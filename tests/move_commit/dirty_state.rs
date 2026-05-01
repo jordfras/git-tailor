@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use crate::{assert_file_contents, assert_file_contents_at_head, assert_rebase_complete};
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 fn commit_message(repo: &git2::Repository, oid: git2::Oid) -> String {
     repo.find_commit(oid)

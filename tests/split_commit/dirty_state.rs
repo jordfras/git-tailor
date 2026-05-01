@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 #[test]
 fn split_per_file_preserves_staged_changes() {

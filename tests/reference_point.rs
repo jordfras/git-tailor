@@ -15,7 +15,7 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::repo::GitRepo;
+use common::prelude::*;
 
 #[test]
 fn test_merge_base_with_branch_name() {

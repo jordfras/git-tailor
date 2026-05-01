@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::assert_file_contents;
 use crate::common;
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 #[test]
 fn split_per_hunk_single_file_two_hunks() {

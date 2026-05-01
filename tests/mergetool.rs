@@ -15,10 +15,8 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::{
-    Oid, mergetool,
-    repo::{GitRepo, RebaseOutcome},
-};
+use common::prelude::*;
+use git_tailor::mergetool;
 
 // ---------------------------------------------------------------------------
 // resolve_merge_tool_cmd

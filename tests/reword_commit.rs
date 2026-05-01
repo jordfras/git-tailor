@@ -15,7 +15,7 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::{Oid, repo::GitRepo};
+use common::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Happy-path tests

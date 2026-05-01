@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use crate::{assert_rebase_complete, expect_rebase_conflict};
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 #[test]
 fn drop_commit_blocked_with_staged_changes() {

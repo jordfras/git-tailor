@@ -455,7 +455,7 @@ Guidelines:
   (or uses a shared path attr). Improves IDE file-tree navigation, surfaces the
   test taxonomy in `cargo test` output, and creates natural homes for per-group
   fixtures. No logic changes.
-- [ ] T207 P3 feat - Add a `common::prelude` module re-exporting
+- [X] T207 P3 feat - Add a `common::prelude` module re-exporting
   frequently used test imports: every rebase-op test starts with the
   same import block — `use git_tailor::repo::{Git2Repo, GitRepo,
   RebaseOutcome}; use git_tailor::Oid; use anyhow::Result;` plus

@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use crate::{
-    assert_file_contents, assert_file_contents_at_head, assert_rebase_complete,
-    expect_rebase_conflict,
-};
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 #[test]
 fn drop_abort_after_second_conflict_restores_branch() {

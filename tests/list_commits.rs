@@ -15,7 +15,7 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::{Oid, VirtualOid, repo::GitRepo};
+use common::prelude::*;
 
 #[test]
 fn test_list_commits_returns_oldest_to_newest() {

@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use crate::{assert_file_contents, assert_file_contents_at_head, assert_rebase_complete};
-use git_tailor::{Oid, repo::GitRepo};
+use crate::common::prelude::*;
 
 #[test]
 fn squash_finalize_after_external_conflict_resolution_without_staging() {

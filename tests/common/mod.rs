@@ -17,6 +17,9 @@ pub mod assert;
 
 #[allow(unused_imports)]
 pub mod fake;
+
+#[allow(unused_imports)]
+pub mod prelude;
 #[allow(unused_imports)]
 pub use fake::{StubRepo, StubRepoBuilder};
 

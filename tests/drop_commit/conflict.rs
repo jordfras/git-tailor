@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use git_tailor::{
-    Oid,
-    repo::{GitRepo, RebaseOutcome},
-};
+use crate::common::prelude::*;
 
 #[test]
 fn drop_returns_conflict_when_descendant_depends_on_dropped_commit() {

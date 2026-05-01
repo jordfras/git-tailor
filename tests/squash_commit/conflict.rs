@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use crate::common;
-use crate::{assert_file_contents, assert_file_contents_at_head, assert_rebase_complete};
-use git_tailor::{
-    Oid,
-    repo::{GitRepo, RebaseOutcome},
-};
+use crate::common::prelude::*;
 
 #[test]
 fn squash_returns_conflict_when_source_and_target_conflict() {
