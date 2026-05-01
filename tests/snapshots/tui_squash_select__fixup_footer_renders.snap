@@ -1,14 +1,14 @@
 ---
 source: tests/tui_squash_select.rs
-expression: buffer
+expression: "harness.render(|frame| { views::commit_list::render(&mut app, frame); })"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 24 },
     content: [
         "SHA        Title                                                                ",
-        "aaa111bb   Oldest commit on branch                                              ",
-        "ccc333dd   Middle commit                                                        ",
-        "eee555ff   Newest commit (HEAD)                                                 ",
+        "11111111   Oldest commit on branch                                              ",
+        "22222222   Middle commit                                                        ",
+        "33333333   Newest commit (HEAD)                                                 ",
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
@@ -28,7 +28,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " Fixup eee555ff "Newest commit (HEAD)" into… · Enter confirm · Esc cancel       ",
+        " Fixup 33333333 "Newest commit (HEAD)" into… · Enter confirm · Esc cancel       ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,

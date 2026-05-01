@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(dead_code)]
 mod common;
 
-use git_tailor::repo::GitRepo;
+use common::prelude::*;
 
 #[test]
 fn test_merge_base_with_branch_name() {

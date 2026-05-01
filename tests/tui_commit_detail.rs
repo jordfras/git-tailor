@@ -15,318 +15,47 @@
 // TUI snapshot tests for the commit detail view, covering the horizontal
 // scrollbar that appears when content lines exceed the terminal width.
 
+#[allow(dead_code)]
 mod common;
 
-use anyhow::{Result, anyhow};
 use git_tailor::{
-    CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, Oid,
-    app::AppState,
-    repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
-    views,
+    CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, app::AppState, views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
-/// Minimal GitRepo stub for commit detail tests.
-///
-/// Returns no diff for any commit so tests exercise metadata rendering and
-/// the scrollbar logic without needing a real repository on disk.
-struct NoOpRepo;
-
-impl GitRepo for NoOpRepo {
-    fn head_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
-        Err(anyhow!("no diff"))
-    }
-    fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn get_config_string(&self, _key: &str) -> Option<String> {
-        unimplemented!()
-    }
-    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn move_commit(
-        &self,
-        _commit_oid: &Oid,
-        _insert_after_oid: Option<&Oid>,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    fn squash_commits(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _message: &str,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _combined_message: &str,
-        _is_fixup: bool,
-        _head_oid: &Oid,
-    ) -> Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _ctx: &SquashContext,
-        _message: &str,
-        _original_branch_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn stage_file(&self, _path: &str) -> Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
-        unimplemented!()
-    }
-
-    fn default_branch(&self) -> Option<String> {
-        None
-    }
-
-    fn root_commit_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-}
-
-/// GitRepo stub that returns a fixed CommitDiff for the selected commit OID.
-struct FakeDiffRepo(CommitDiff);
-
-impl GitRepo for FakeDiffRepo {
-    fn head_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
-        unimplemented!()
-    }
-    fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
-        Ok(self.0.clone())
-    }
-    fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
-    }
-    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn get_config_string(&self, _key: &str) -> Option<String> {
-        unimplemented!()
-    }
-    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn move_commit(
-        &self,
-        _commit_oid: &Oid,
-        _insert_after_oid: Option<&Oid>,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    fn squash_commits(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _message: &str,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _combined_message: &str,
-        _is_fixup: bool,
-        _head_oid: &Oid,
-    ) -> Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _ctx: &SquashContext,
-        _message: &str,
-        _original_branch_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn stage_file(&self, _path: &str) -> Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
-        unimplemented!()
-    }
-
-    fn default_branch(&self) -> Option<String> {
-        None
-    }
-
-    fn root_commit_oid(&self) -> Result<Oid> {
-        unimplemented!()
-    }
-}
+use common::{StubRepo, StubRepoBuilder, TuiTestHarness};
 
 /// Short message: all content lines fit within 80 columns — no horizontal scrollbar.
 #[test]
 fn test_commit_detail_short_lines_no_hscroll() {
-    let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepo::default();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Long message line (100 chars) exceeds the 80-column terminal width, so the
 /// horizontal scrollbar row must appear at the bottom of the content area.
 #[test]
 fn test_commit_detail_long_lines_hscroll_visible() {
-    let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepo::default();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     let long_message = "A".repeat(100);
     app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// With a positive `detail_h_scroll_offset`, the paragraph is rendered
@@ -334,9 +63,8 @@ fn test_commit_detail_long_lines_hscroll_visible() {
 /// are clipped out of view.
 #[test]
 fn test_commit_detail_hscroll_offset_clips_content() {
-    let repo = NoOpRepo;
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepo::default();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     let long_message = "A".repeat(100);
@@ -344,14 +72,10 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     app.selection_index = 0;
     app.detail_h_scroll_offset = 10;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Diff lines from a file with Windows (CRLF) line endings must be stripped of
@@ -387,9 +111,8 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit(
@@ -398,22 +121,19 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     )];
     app.selection_index = 0;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
+    let buf = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
 
-    let buffer = terminal.backend().buffer().clone();
-    for cell in buffer.content() {
+    for cell in buf.content() {
         assert!(
             !cell.symbol().contains('\r'),
             "carriage return found in rendered cell: {:?}",
             cell.symbol()
         );
     }
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(buf);
 }
 
 // --- Unit tests for scroll_detail_left / scroll_detail_right ---
@@ -493,9 +213,8 @@ fn test_commit_detail_search_bar_visible() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add feature")];
@@ -506,14 +225,10 @@ fn test_commit_detail_search_bar_visible() {
     app.activate_search();
     app.search_query = "old".to_string();
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// Snapshot: search highlights matching text in diff lines.
@@ -547,9 +262,8 @@ fn test_commit_detail_search_highlight_matches() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add feature")];
@@ -561,14 +275,10 @@ fn test_commit_detail_search_highlight_matches() {
     app.search_query = "hello".to_string();
     app.search_input_active = false; // Confirmed search
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    }));
 }
 
 /// handle_search_event appends characters to the query.
@@ -699,9 +409,8 @@ fn test_search_case_sensitive() {
             }],
         }],
     };
-    let repo = FakeDiffRepo(diff);
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
@@ -713,18 +422,16 @@ fn test_search_case_sensitive() {
     app.search_query = "FOO".to_string();
     app.search_input_active = false;
 
-    terminal
-        .draw(|frame| {
-            let area = frame.area();
-            views::commit_detail::render(&repo, frame, &mut app, area);
-        })
-        .unwrap();
+    let buf = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
     // "foo" in file path and "+foo baz" must NOT match.
     assert_eq!(app.search_matches.len(), 2);
 
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(buf);
 }
 
 /// parse_key maps / to Search, n to SearchNext, N to SearchPrev in CommitDetail.

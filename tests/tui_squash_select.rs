@@ -14,22 +14,23 @@
 
 // TUI snapshot tests for the squash target selection dialog.
 
+#[allow(dead_code)]
 mod common;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
+    fragmap::TouchKind,
     views,
 };
 
 fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> AppState {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = selection_index;
     app.mode = AppMode::SquashSelect {
         source_index,
@@ -38,41 +39,27 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app
 }
 
-use ratatui::{Terminal, backend::TestBackend};
-
 #[test]
 fn test_squash_footer_renders() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_squash_select(2, 2);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
 fn test_squash_footer_source_different_from_selection() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     // Source is index 2, but user has navigated selection to index 0
     let mut app = make_app_in_squash_select(2, 0);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }
 
 #[test]
@@ -86,8 +73,8 @@ fn test_squash_confirm_returns_prepare_squash() {
             target_oid,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("eee555fff666"));
-            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(target_oid, Oid::from("111111111111"));
         }
         other => panic!("Expected PrepareSquash, got {:?}", other),
     }
@@ -240,29 +227,13 @@ fn test_squash_page_down_clamped() {
     assert_eq!(app.selection_index, 1);
 }
 
-fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
-    SpanCluster {
-        spans: vec![FileSpan {
-            path: path.to_string(),
-            start_line: start,
-            end_line: end,
-        }],
-        commit_oids: oids
-            .iter()
-            .copied()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-    }
-}
-
 /// Squash mode with fragmap: source is commit 2 (selected), commit 0 is
 /// squashable (shares cluster cleanly), commit 1 is unrelated.
 /// Source should have magenta bg, squashable candidate should be yellow,
 /// unrelated should be dim.
 #[test]
 fn test_squash_candidate_coloring_with_fragmap() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -277,37 +248,29 @@ fn test_squash_candidate_coloring_with_fragmap() {
     };
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
-    app.fragmap = Some(FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaaa11112222")),
-            VirtualOid::Real(Oid::from("bbbb33334444")),
-            VirtualOid::Real(Oid::from("cccc55556666")),
-        ],
-        clusters: vec![
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![
             simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
             simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
         ],
-        matrix: vec![
+        vec![
             vec![TouchKind::Added, TouchKind::None],
             vec![TouchKind::None, TouchKind::Modified],
             vec![TouchKind::Modified, TouchKind::None],
         ],
-    });
+    ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Squash mode with fragmap: source is commit 2, commit 0 would conflict
 /// (commit 1 also touches the same cluster, creating a conflict).
 #[test]
 fn test_squash_candidate_coloring_conflicting() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -322,58 +285,46 @@ fn test_squash_candidate_coloring_conflicting() {
     };
 
     // All three commits touch cluster 0 → conflicting between 0 and 2
-    app.fragmap = Some(FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaaa11112222")),
-            VirtualOid::Real(Oid::from("bbbb33334444")),
-            VirtualOid::Real(Oid::from("cccc55556666")),
-        ],
-        clusters: vec![simple_cluster(
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![simple_cluster(
             "parser.rs",
             10,
             30,
             &["aaaa11112222", "bbbb33334444", "cccc55556666"],
         )],
-        matrix: vec![
+        vec![
             vec![TouchKind::Added],
             vec![TouchKind::Modified],
             vec![TouchKind::Modified],
         ],
-    });
+    ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Squash mode with source_index=1 (middle commit): commit at index 2 (newest)
 /// should be dimmed with DarkGray to indicate it is an unreachable target.
 #[test]
 fn test_squash_dims_later_commits() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = make_app_in_squash_select(1, 0);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 #[test]
 fn test_fixup_confirm_returns_prepare_fixup() {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
@@ -388,8 +339,8 @@ fn test_fixup_confirm_returns_prepare_fixup() {
             is_fixup,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("eee555fff666"));
-            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(target_oid, Oid::from("111111111111"));
             assert!(is_fixup);
         }
         other => panic!("Expected PrepareSquash with is_fixup, got {:?}", other),
@@ -399,27 +350,20 @@ fn test_fixup_confirm_returns_prepare_fixup() {
 
 #[test]
 fn test_fixup_footer_renders() {
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("aaa111bbb222", "Oldest commit on branch"),
-        common::create_test_commit("ccc333ddd444", "Middle commit"),
-        common::create_test_commit("eee555fff666", "Newest commit (HEAD)"),
-    ];
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
         is_fixup: true,
     };
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
 }

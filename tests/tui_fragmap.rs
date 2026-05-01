@@ -14,53 +14,22 @@
 
 // TUI snapshot tests for the fragmap view.
 
+#[allow(dead_code)]
 mod common;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
-    CommitInfo, Oid, VirtualOid,
+    CommitInfo,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
+    fragmap::{SpanCluster, SquashableScope, TouchKind},
     views,
 };
-use ratatui::{Terminal, backend::TestBackend};
-
-/// Build a FragMap with the given commit OIDs, clusters, and matrix.
-fn create_fragmap(
-    commit_oids: Vec<&str>,
-    clusters: Vec<SpanCluster>,
-    matrix: Vec<Vec<TouchKind>>,
-) -> FragMap {
-    FragMap {
-        commits: commit_oids
-            .into_iter()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-        clusters,
-        matrix,
-    }
-}
-
-fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
-    SpanCluster {
-        spans: vec![FileSpan {
-            path: path.to_string(),
-            start_line: start,
-            end_line: end,
-        }],
-        commit_oids: oids
-            .iter()
-            .copied()
-            .map(|s| VirtualOid::Real(Oid::from(s)))
-            .collect(),
-    }
-}
 
 /// Two commits touching the same cluster with no commits in between → squashable.
 /// Expects gray squares with yellow connector.
 #[test]
 fn test_fragmap_squashable_pair() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -84,20 +53,16 @@ fn test_fragmap_squashable_pair() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Two commits touching the same cluster with a conflicting commit in between.
 /// Expects white squares with red connector.
 #[test]
 fn test_fragmap_conflicting_pair() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -123,20 +88,16 @@ fn test_fragmap_conflicting_pair() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Mixed columns: one squashable cluster and one conflicting cluster.
 /// Tests that each column renders independently.
 #[test]
 fn test_fragmap_mixed_columns() {
-    let backend = TestBackend::new(80, 12);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -178,20 +139,16 @@ fn test_fragmap_mixed_columns() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Fragmap rendering in reversed display order.
 /// Verifies that commit-to-fragmap index mapping works correctly.
 #[test]
 fn test_fragmap_reversed() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -215,12 +172,9 @@ fn test_fragmap_reversed() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Full (non-deduplicated) fragmap: two clusters with the same per-commit
@@ -228,8 +182,7 @@ fn test_fragmap_reversed() {
 /// Visually this is identical to having two independent clusters side by side.
 #[test]
 fn test_fragmap_full_duplicate_columns_visible() {
-    let backend = TestBackend::new(80, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -253,18 +206,14 @@ fn test_fragmap_full_duplicate_columns_visible() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 #[test]
 fn test_fragmap_adjacent_squashable() {
-    let backend = TestBackend::new(80, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -284,12 +233,9 @@ fn test_fragmap_adjacent_squashable() {
         vec![vec![TouchKind::Added], vec![TouchKind::Modified]],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Narrow terminal with many clusters — verifies horizontal scrolling.
@@ -297,8 +243,7 @@ fn test_fragmap_adjacent_squashable() {
 /// With 12 clusters and scroll_offset=4, should show clusters 4..12.
 #[test]
 fn test_fragmap_horizontal_scroll() {
-    let backend = TestBackend::new(40, 8);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::very_narrow();
 
     let oids: Vec<&str> = vec!["aaa1", "bbb2", "ccc3"];
     let commits: Vec<CommitInfo> = oids
@@ -331,12 +276,9 @@ fn test_fragmap_horizontal_scroll() {
     app.fragmap_scroll_offset = 4;
     app.fragmap = Some(create_fragmap(oids, clusters, matrix));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// C touches cluster0 (also touched by A) and cluster2 (only C).
@@ -344,8 +286,7 @@ fn test_fragmap_horizontal_scroll() {
 /// B's connector is Yellow and C's cluster0 square is DarkGray.
 #[test]
 fn test_fragmap_squashable_scope_group() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -373,12 +314,9 @@ fn test_fragmap_squashable_scope_group() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// Same fragmap as `test_fragmap_squashable_scope_group` but with `Commit`
@@ -387,8 +325,7 @@ fn test_fragmap_squashable_scope_group() {
 /// becomes White (not DarkGray).
 #[test]
 fn test_fragmap_squashable_scope_commit() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
     app.commits = vec![
@@ -413,10 +350,7 @@ fn test_fragmap_squashable_scope_commit() {
         ],
     ));
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }

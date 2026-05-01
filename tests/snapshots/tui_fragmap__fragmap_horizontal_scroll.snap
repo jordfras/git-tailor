@@ -1,14 +1,21 @@
 ---
 source: tests/tui_fragmap.rs
-expression: buffer
+expression: "harness.render(|frame| views::commit_list::render(&mut app, frame))"
 ---
 Buffer {
-    area: Rect { x: 0, y: 0, width: 40, height: 8 },
+    area: Rect { x: 0, y: 0, width: 40, height: 15 },
     content: [
         "SHA        Title               │Hunk gro",
         "aaa1       Commit aaa1         │  █  █  ",
         "bbb2       Commit bbb2         │█  █  █ ",
         "ccc3       Commit ccc3         │ █  █  █",
+        "                               │        ",
+        "                               │        ",
+        "                               │        ",
+        "                               │        ",
+        "                               │        ",
+        "                               │        ",
+        "                               │        ",
         "                               │        ",
         "                               │        ",
         "                               │──██████",
@@ -50,7 +57,21 @@ Buffer {
         x: 32, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 31, y: 6, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 32, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 22, y: 7, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 31, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 8, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 9, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 9, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 10, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 10, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 11, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 11, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 12, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 12, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 31, y: 13, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 32, y: 13, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 22, y: 14, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

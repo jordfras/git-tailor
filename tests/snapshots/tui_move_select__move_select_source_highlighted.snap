@@ -1,22 +1,20 @@
 ---
 source: tests/tui_move_select.rs
-expression: buffer
+expression: "harness.render(|frame| { views::commit_list::render(&mut app, frame); })"
 ---
 Buffer {
-    area: Rect { x: 0, y: 0, width: 80, height: 12 },
+    area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
         "SHA        Title                                                                ",
-        "           ▶ move ccc333dd here                                                 ",
-        "aaa111bb   Oldest commit on branch                                              ",
-        "ccc333dd   Middle commit                                                        ",
-        "eee555ff   Newest commit (HEAD)                                                 ",
+        "           ▶ move 22222222 here                                                 ",
+        "11111111   Oldest commit on branch                                              ",
+        "22222222   Middle commit                                                        ",
+        "33333333   Newest commit (HEAD)                                                 ",
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        "                                                                                ",
-        "                                                                                ",
-        " Move ccc333dd "Middle…" · ↑/↓ pick position · Enter confirm · Esc cancel       ",
+        " Move 22222222 "Middle…" · ↑/↓ pick position · Enter confirm · Esc cancel       ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -27,14 +25,14 @@ Buffer {
         x: 8, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 11, y: 3, fg: White, bg: Rgb(0, 120, 120), underline: Reset, modifier: NONE,
         x: 24, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 11, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 6, y: 11, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 14, y: 11, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 27, y: 11, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 30, y: 11, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 47, y: 11, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 52, y: 11, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 63, y: 11, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 66, y: 11, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 6, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 14, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 27, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 30, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 47, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 52, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 63, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 66, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
     ]
 }

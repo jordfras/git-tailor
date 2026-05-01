@@ -1,13 +1,15 @@
 ---
 source: tests/tui_fragmap.rs
-expression: buffer
+expression: "harness.render(|frame| views::commit_list::render(&mut app, frame))"
 ---
 Buffer {
-    area: Rect { x: 0, y: 0, width: 80, height: 8 },
+    area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
         "SHA        Title                                                       │Hunk gro",
         "aaaa1111   Add handler                                                 │█       ",
         "bbbb3333   Fix handler                                                 │█       ",
+        "                                                                       │        ",
+        "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
@@ -40,7 +42,11 @@ Buffer {
         x: 72, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 6, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 0, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 62, y: 7, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 71, y: 7, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 72, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 71, y: 8, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 72, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: White, bg: Blue, underline: Reset, modifier: NONE,
+        x: 62, y: 9, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }

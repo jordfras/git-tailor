@@ -14,20 +14,18 @@
 
 // TUI snapshot tests for the split-strategy selection dialog.
 
+#[allow(dead_code)]
 mod common;
+use common::TuiTestHarness;
 
 use git_tailor::{
     app::{AppMode, AppState},
     views,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
 fn make_app_in_split_select(strategy_index: usize) -> AppState {
-    let mut app = AppState::new();
-    app.commits = vec![
-        common::create_test_commit("abc123def456", "Refactor parser module"),
-        common::create_test_commit("def456ghi789", "Add feature X"),
-    ];
+    let mut app =
+        common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
     app.selection_index = 0;
     app.mode = AppMode::SplitSelect { strategy_index };
     app
@@ -35,54 +33,36 @@ fn make_app_in_split_select(strategy_index: usize) -> AppState {
 
 #[test]
 fn test_split_dialog_per_file_selected() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(0);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::split_select::render(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::split_select::render(&app, frame);
+    }));
 }
 
 #[test]
 fn test_split_dialog_per_hunk_selected() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(1);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::split_select::render(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::split_select::render(&app, frame);
+    }));
 }
 
 #[test]
 fn test_split_dialog_per_hunk_group_selected() {
-    let backend = TestBackend::new(80, 20);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_split_select(2);
 
-    terminal
-        .draw(|frame| {
-            views::commit_list::render(&mut app, frame);
-            views::split_select::render(&app, frame);
-        })
-        .unwrap();
-
-    let buffer = terminal.backend().buffer().clone();
-    insta::assert_debug_snapshot!(buffer);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::split_select::render(&app, frame);
+    }));
 }

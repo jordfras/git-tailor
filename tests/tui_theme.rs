@@ -38,57 +38,26 @@
 //   Cluster 2 — A: Unrelated (no cell) B: Unrelated (no connector)
 //               C: Current/Conflict
 
+#[allow(dead_code)]
 mod common;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
-    Oid, VirtualOid,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, SquashableScope, TouchKind},
+    fragmap::{SquashableScope, TouchKind},
     views,
     views::theme::Theme,
 };
-use ratatui::{Terminal, backend::TestBackend};
 
-fn make_fragmap() -> FragMap {
-    let cluster0 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "config.rs".to_string(),
-            start_line: 10,
-            end_line: 20,
-        }],
-        commit_oids: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("ccc3")),
+fn make_fragmap() -> git_tailor::fragmap::FragMap {
+    create_fragmap(
+        vec!["aaa1", "bbb2", "ccc3"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaa1", "ccc3"]),
+            simple_cluster("parser.rs", 1, 50, &["aaa1", "bbb2", "ccc3"]),
+            simple_cluster("unique.rs", 1, 5, &["ccc3"]),
         ],
-    };
-    let cluster1 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "parser.rs".to_string(),
-            start_line: 1,
-            end_line: 50,
-        }],
-        commit_oids: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("bbb2")),
-            VirtualOid::Real(Oid::from("ccc3")),
-        ],
-    };
-    let cluster2 = SpanCluster {
-        spans: vec![FileSpan {
-            path: "unique.rs".to_string(),
-            start_line: 1,
-            end_line: 5,
-        }],
-        commit_oids: vec![VirtualOid::Real(Oid::from("ccc3"))],
-    };
-    FragMap {
-        commits: vec![
-            VirtualOid::Real(Oid::from("aaa1")),
-            VirtualOid::Real(Oid::from("bbb2")),
-            VirtualOid::Real(Oid::from("ccc3")),
-        ],
-        clusters: vec![cluster0, cluster1, cluster2],
-        matrix: vec![
+        vec![
             // A: touches cluster0 and cluster1, not cluster2
             vec![TouchKind::Added, TouchKind::Added, TouchKind::None],
             // B: touches cluster1 only
@@ -96,7 +65,7 @@ fn make_fragmap() -> FragMap {
             // C: touches all three clusters
             vec![TouchKind::Modified, TouchKind::Modified, TouchKind::Added],
         ],
-    }
+    )
 }
 
 fn make_app(theme: Theme, focus: usize) -> AppState {
@@ -124,30 +93,24 @@ fn make_app(theme: Theme, focus: usize) -> AppState {
 /// scope because cluster2 has no earlier partner).
 #[test]
 fn test_theme_plain_focus_first() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Plain, 0);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// PlainTheme: focus on commit C (idx 2).
 /// Swaps which squares are Current vs Related relative to the first test.
 #[test]
 fn test_theme_plain_focus_last() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Plain, 2);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -158,29 +121,23 @@ fn test_theme_plain_focus_last() {
 /// backgrounds; connectors use colored backgrounds too.
 #[test]
 fn test_theme_classic_focus_first() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Classic, 0);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// ClassicTheme: focus on commit C.
 #[test]
 fn test_theme_classic_focus_last() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Classic, 2);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -192,15 +149,12 @@ fn test_theme_classic_focus_last() {
 /// Cluster 2 is unrelated to A → medium square (◼) for C's cell.
 #[test]
 fn test_theme_highlight_focus_first() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Highlight, 0);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// HighlightTheme: focus on commit C (idx 2).
@@ -208,15 +162,12 @@ fn test_theme_highlight_focus_first() {
 /// no Unrelated squares appear.
 #[test]
 fn test_theme_highlight_focus_last() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Highlight, 2);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }
 
 /// HighlightTheme: focus on commit B (idx 1).
@@ -224,13 +175,10 @@ fn test_theme_highlight_focus_last() {
 /// cluster1 is Related/Current for B.
 #[test]
 fn test_theme_highlight_focus_middle() {
-    let backend = TestBackend::new(80, 10);
-    let mut terminal = Terminal::new(backend.clone()).unwrap();
+    let mut harness = TuiTestHarness::short();
     let mut app = make_app(Theme::Highlight, 1);
 
-    terminal
-        .draw(|frame| views::commit_list::render(&mut app, frame))
-        .unwrap();
-
-    insta::assert_debug_snapshot!(terminal.backend().buffer().clone());
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }

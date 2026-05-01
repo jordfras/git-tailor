@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(dead_code)]
 mod common;
 
-use git_tailor::{Oid, repo::GitRepo};
+use common::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Happy-path tests
@@ -73,12 +74,8 @@ fn reword_preserves_staged_changes() {
 
     // Stage a change to an unrelated file before the operation
     let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     git_repo
@@ -109,7 +106,7 @@ fn reword_preserves_unstaged_changes() {
 
     // Write an unstaged change to a tracked file that the reword doesn't touch
     let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+    test.write_file("a.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     git_repo
