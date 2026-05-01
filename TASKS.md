@@ -92,7 +92,7 @@ Guidelines:
   consolidating similar error handling, reducing parameter passing, and
   improving module boundaries; create follow-up tasks for the most impactful
   improvements
-- [ ] T169 P1 feat - Extract shared list-selector key handling for squash_select
+- [X] T169 P1 feat - Extract shared list-selector key handling for squash_select
   / move_select / split_select: the three modal pickers in
   `src/views/{squash_select,move_select,split_select}.rs` each implement
   near-identical `handle_key(KeyCommand, &mut AppState) -> AppAction` bodies

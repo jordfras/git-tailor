@@ -15,6 +15,7 @@
 // Split strategy selection dialog
 
 use super::dialog::render_centered_dialog;
+use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
 use ratatui::{
     Frame,
@@ -25,17 +26,23 @@ use ratatui::{
 
 /// Handle an action while in SplitSelect mode.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
-    match action {
-        KeyCommand::MoveUp => {
-            app.split_select_up();
+    let strategy_index = match app.mode {
+        AppMode::SplitSelect { strategy_index } => strategy_index,
+        _ => return AppAction::Handled,
+    };
+
+    let len = SplitStrategy::ALL.len();
+    let mut cursor = strategy_index;
+
+    match list_nav::handle_list_navigation(action, &mut cursor, len, len, false) {
+        ListNav::Moved => {
+            app.mode = AppMode::SplitSelect {
+                strategy_index: cursor,
+            };
             AppAction::Handled
         }
-        KeyCommand::MoveDown => {
-            app.split_select_down();
-            AppAction::Handled
-        }
-        KeyCommand::Confirm => {
-            let strategy = app.selected_split_strategy();
+        ListNav::Confirmed => {
+            let strategy = SplitStrategy::ALL[strategy_index];
             let commit_oid = app.commits[app.selection_index]
                 .oid
                 .as_oid()
@@ -47,15 +54,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 commit_oid,
             }
         }
-        KeyCommand::ShowHelp => {
-            app.toggle_help();
-            AppAction::Handled
-        }
-        KeyCommand::Quit => {
+        ListNav::Cancelled => {
             app.mode = AppMode::CommitList;
             AppAction::Handled
         }
-        _ => AppAction::Handled,
+        ListNav::Help => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        ListNav::Unhandled => AppAction::Handled,
     }
 }
 

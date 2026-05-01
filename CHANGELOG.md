@@ -10,8 +10,14 @@ The format is based on
 
 ### Fixed
 
+- The move-commit picker now scrolls to keep the insertion-point separator
+  visible when it moves outside the current viewport.
 - Entering commit detail mode (`i`) on a narrow terminal now correctly shows
   the commit detail panel.
+
+### Added
+
+- PageUp/Down now works in the move-commit, squash, and split-strategy pickers.
 
 ### Added
 

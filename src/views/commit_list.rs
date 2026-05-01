@@ -594,9 +594,9 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         // a subtle target-bg tint plus reversed; plain selection gets reversed.
         let text_cell_style = if is_squash_source || is_move_source {
             text_style.fg(Color::White).bg(COLOR_ACTION_SOURCE_BG)
-        } else if is_selected && (squash_source_idx.is_some() || move_info.is_some()) {
+        } else if is_selected && squash_source_idx.is_some() {
             text_style.bg(COLOR_ACTION_TARGET_BG).reversed()
-        } else if is_selected {
+        } else if is_selected && move_info.is_none() {
             text_style.reversed()
         } else {
             text_style

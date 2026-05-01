@@ -664,33 +664,6 @@ impl AppState {
         self.status_is_error = false;
     }
 
-    /// Move split strategy selection up.
-    pub fn split_select_up(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
-            && *strategy_index > 0
-        {
-            *strategy_index -= 1;
-        }
-    }
-
-    /// Move split strategy selection down.
-    pub fn split_select_down(&mut self) {
-        if let AppMode::SplitSelect { strategy_index } = &mut self.mode
-            && *strategy_index < SplitStrategy::ALL.len() - 1
-        {
-            *strategy_index += 1;
-        }
-    }
-
-    /// Get the currently selected split strategy.
-    pub fn selected_split_strategy(&self) -> SplitStrategy {
-        if let AppMode::SplitSelect { strategy_index } = self.mode {
-            SplitStrategy::ALL[strategy_index]
-        } else {
-            SplitStrategy::ALL[0]
-        }
-    }
-
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
         let new_mode = match &self.mode {

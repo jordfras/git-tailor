@@ -15,6 +15,7 @@
 // Squash target selection — key handling only; rendering is done via the
 // commit list footer (see `render_footer` in commit_list.rs).
 
+use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 
 /// Handle an action while in SquashSelect mode.
@@ -32,55 +33,24 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    match action {
-        KeyCommand::MoveUp => {
-            if app.reverse {
-                app.move_down();
-            } else {
-                app.move_up();
-            }
-            app.selection_index = app.selection_index.min(source_index);
+    let len = app.commits.len();
+    let page_size = app.commit_list_visible_height;
+    let reverse = app.reverse;
+    let mut cursor = app.selection_index;
+
+    match list_nav::handle_list_navigation(action, &mut cursor, len, page_size, reverse) {
+        ListNav::Moved => {
+            app.selection_index = cursor.min(source_index);
             AppAction::Handled
         }
-        KeyCommand::MoveDown => {
-            if app.reverse {
-                app.move_up();
-            } else {
-                app.move_down();
-            }
-            app.selection_index = app.selection_index.min(source_index);
-            AppAction::Handled
-        }
-        KeyCommand::PageUp => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.page_down(h);
-            } else {
-                app.page_up(h);
-            }
-            app.selection_index = app.selection_index.min(source_index);
-            AppAction::Handled
-        }
-        KeyCommand::PageDown => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.page_up(h);
-            } else {
-                app.page_down(h);
-            }
-            app.selection_index = app.selection_index.min(source_index);
-            AppAction::Handled
-        }
-        KeyCommand::Confirm => {
+        ListNav::Confirmed => {
             let target_index = app.selection_index;
 
-            // Cannot squash onto itself
             if target_index == source_index {
                 app.set_error_message("Cannot squash a commit into itself");
                 return AppAction::Handled;
             }
 
-            // Cannot squash onto staged/unstaged
             let target = &app.commits[target_index];
             if target.oid.is_synthetic() {
                 app.set_error_message("Cannot squash into staged/unstaged changes");
@@ -99,14 +69,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.mode = AppMode::CommitList;
             result
         }
-        KeyCommand::ShowHelp => {
-            app.toggle_help();
-            AppAction::Handled
-        }
-        KeyCommand::Quit => {
+        ListNav::Cancelled => {
             app.cancel_squash_select();
             AppAction::Handled
         }
-        _ => AppAction::Handled,
+        ListNav::Help => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        ListNav::Unhandled => AppAction::Handled,
     }
 }
