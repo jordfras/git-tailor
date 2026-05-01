@@ -464,5 +464,26 @@ Guidelines:
   git_tailor::Oid; }` inside `tests/common.rs` (or as
   `tests/common/prelude.rs`) so each test file can write
   `use common::prelude::*;` and drop ~5 lines of repeated imports.
+- [ ] T208 P2 feat - Add `TestRepo::write_file`, `stage_file`, and `commit`
+  helpers and rename `commit_file` to reflect what it does: `commit_file(path,
+  content, message)` actually writes the file to disk, stages it, and creates a
+  commit — three distinct operations. (1) Add `pub fn write_file(&self, path:
+  &str, content: &str)` that just writes the file to the workdir (replacing the
+  repeated `let workdir = test.repo.workdir().unwrap(); std::fs::write(...)` pair
+  at ~25 call sites across `drop_commit/dirty_state.rs`,
+  `squash_commit/dirty_state.rs`, `split_commit/dirty_state.rs`,
+  `move_commit/dirty_state.rs`, `reword_commit.rs`, and others). (2) Add `pub
+  fn stage_file(&self, path: &str)` that stages a single file (replacing the
+  4-line `index.add_path` + `index.write` block at ~10 call sites in the same
+  files, plus `drop_commit/continue_abort.rs`, `drop_commit/error_cases.rs`,
+  `split_commit/per_file.rs`, `commit_diff.rs`). (3) Add `pub fn
+  commit(&self, message: &str) -> git2::Oid` that commits whatever is currently
+  staged (useful in `commit_diff.rs` where files are manually staged before
+  committing, and as the building block for `commit_file`). (4) Rename
+  `commit_file` → `write_stage_commit` (or a name the implementer prefers) so
+  the name accurately describes the three-step operation; refactor its body to
+  call `write_file` + `stage_file` + `commit`. Similarly refactor
+  `commit_files` to delegate to the new primitives. No test-behaviour changes —
+  purely mechanical cleanup.
 
 ## Notes
