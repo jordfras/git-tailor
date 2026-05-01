@@ -980,3 +980,37 @@
   call `write_file` + `stage_file` + `commit`. Similarly refactor
   `commit_files` to delegate to the new primitives. No test-behaviour changes —
   purely mechanical cleanup.
+
+## Interactivity — Basic UI
+- [X] T168 P2 bug - Commit detail view not shown when right panel is too narrow:
+  when the terminal is narrow or the separator has been moved far right,
+  entering commit detail mode ('i') keeps displaying the fragmap/chunk-group
+  matrix instead of the commit detail content; the app state correctly reflects
+  `CommitDetail` mode but the render path in `main_view.rs` calls
+  `commit_detail::render` with a very small `right_width` — investigate whether
+  `render_in_area_without_fragmap_cols` is painting over the right panel area,
+  or whether the `right_width > 0` guard should have a higher minimum (e.g.
+  `MIN_RIGHT`) before switching to the split layout, and fall back to
+  full-screen commit detail when the right area is too narrow to show it
+  usefully
+- [X] T167 P3 feat - Show a persistent hint in the footer that `h` opens help:
+  append a short hint such as `Press 'h' for key bindings` to the footer line
+  rendered in `render_footer` so first-time users can discover the help overlay
+  without prior knowledge; the hint should appear in all modes that display the
+  footer (commit list, commit detail) and be visually subordinate (e.g. dim
+  style) so it does not compete with status messages or commit position info;
+  when a status or error message is shown the hint should be suppressed so the
+  two do not overlap
+
+## Interactivity — Terminal Integration
+- [X] T142 P3 feat - Support Ctrl-Z to suspend the TUI and return to the shell
+  (Unix only): in raw mode the kernel line discipline no longer converts Ctrl-Z
+  into SIGTSTP automatically, so the keystroke arrives as a key event; handle
+  `KeyCode::Char('z') + CONTROL` in the event loop by tearing down the TUI
+  (disable raw mode, leave alternate screen — the same cleanup already done for
+  the external editor/mergetool), then calling `libc::raise(libc::SIGTSTP)` to
+  suspend the process; when the user runs `fg` the process receives SIGCONT,
+  resumes after `raise` returns, and re-initialises raw mode and redraws; gate
+  the entire feature on `#[cfg(unix)]` — on Windows the key event is silently
+  ignored; the teardown/restore logic should be extracted into a shared helper
+  to avoid duplication with editor.rs and mergetool.rs
