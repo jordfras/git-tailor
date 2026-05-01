@@ -16,8 +16,6 @@
 mod common;
 
 use git_tailor::{DiffLineKind, Oid, VirtualOid, repo::GitRepo};
-use git2::Signature;
-use std::fs;
 
 #[test]
 fn test_commit_diff_root_commit_all_additions() {
@@ -109,28 +107,11 @@ fn test_commit_diff_multiple_files() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "First");
 
-    let mut index = test.repo.index().unwrap();
-    let repo_path = test.repo.workdir().unwrap();
-
-    fs::write(repo_path.join("b.txt"), "b\n").unwrap();
-    fs::write(repo_path.join("c.txt"), "c\n").unwrap();
-
-    index.add_path(std::path::Path::new("b.txt")).unwrap();
-    index.add_path(std::path::Path::new("c.txt")).unwrap();
-    index.write().unwrap();
-
-    let tree_oid = index.write_tree().unwrap();
-    let tree = test.repo.find_tree(tree_oid).unwrap();
-    let sig = Signature::now("Test User", "test@example.com").unwrap();
-    let parent = test
-        .repo
-        .find_commit(test.repo.head().unwrap().target().unwrap())
-        .unwrap();
-
-    let c2 = test
-        .repo
-        .commit(Some("HEAD"), &sig, &sig, "Add two files", &tree, &[&parent])
-        .unwrap();
+    test.write_file("b.txt", "b\n");
+    test.write_file("c.txt", "c\n");
+    test.stage_file("b.txt");
+    test.stage_file("c.txt");
+    let c2 = test.commit("Add two files");
 
     let diff = test.git_repo().commit_diff(&Oid::from(c2)).unwrap();
 

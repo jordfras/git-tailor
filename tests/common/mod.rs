@@ -75,67 +75,70 @@ impl TestRepo {
         Git2Repo::open(self._temp_dir.path().to_path_buf()).unwrap()
     }
 
-    pub fn commit_file(&self, path: &str, content: &str, message: &str) -> git2::Oid {
-        let repo_path = self.repo.workdir().unwrap();
-        let file_path = repo_path.join(path);
-
+    /// Write `content` to `path` in the working tree, creating parent
+    /// directories as needed.
+    ///
+    /// This is a raw filesystem operation — it does **not** touch the index.
+    /// Use it to create unstaged dirty state (e.g. to verify that an operation
+    /// preserves working-tree changes) or as the first step before
+    /// [`stage_file`][Self::stage_file].
+    pub fn write_file(&self, path: &str, content: &str) {
+        let file_path = self.repo.workdir().unwrap().join(path);
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
-
         fs::write(&file_path, content).unwrap();
+    }
 
+    /// Stage `path` by adding it to the index with `add_path`.
+    ///
+    /// Unlike [`GitRepo::stage_file`], this is a minimal test-fixture helper:
+    /// it does not refresh the index from disk first, does not handle deleted
+    /// files (those need `remove_path`), and does not clear conflict stages.
+    /// Use it only to set up pre-operation dirty state in tests, never to
+    /// simulate conflict resolution — for that call `git_repo.stage_file()`
+    /// which is the production implementation under test.
+    pub fn stage_file(&self, path: &str) {
         let mut index = self.repo.index().unwrap();
         index.add_path(std::path::Path::new(path)).unwrap();
         index.write().unwrap();
+    }
 
+    /// Commit whatever is currently staged, advancing HEAD.
+    ///
+    /// Unlike [`GitRepo`] methods, this operates via the raw `git2::Repository`
+    /// handle and is intended purely for building test histories. It always
+    /// uses the fixed "Test User / test@example.com" identity and works on
+    /// both an initial (parentless) commit and subsequent commits.
+    pub fn commit(&self, message: &str) -> git2::Oid {
+        let mut index = self.repo.index().unwrap();
         let tree_oid = index.write_tree().unwrap();
         let tree = self.repo.find_tree(tree_oid).unwrap();
-
         let sig = Signature::now("Test User", "test@example.com").unwrap();
-
         let parent_commit = if let Ok(head) = self.repo.head() {
             Some(self.repo.find_commit(head.target().unwrap()).unwrap())
         } else {
             None
         };
-
         let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
-
         self.repo
             .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
             .unwrap()
     }
 
+    pub fn commit_file(&self, path: &str, content: &str, message: &str) -> git2::Oid {
+        self.write_file(path, content);
+        self.stage_file(path);
+        self.commit(message)
+    }
+
     /// Create a single commit that writes (or overwrites) multiple files at once.
     pub fn commit_files(&self, files: &[(&str, &str)], message: &str) -> git2::Oid {
-        let repo_path = self.repo.workdir().unwrap();
-        let mut index = self.repo.index().unwrap();
-
         for (path, content) in files {
-            let file_path = repo_path.join(path);
-            if let Some(parent) = file_path.parent() {
-                fs::create_dir_all(parent).unwrap();
-            }
-            fs::write(&file_path, content).unwrap();
-            index.add_path(std::path::Path::new(path)).unwrap();
+            self.write_file(path, content);
+            self.stage_file(path);
         }
-        index.write().unwrap();
-
-        let tree_oid = index.write_tree().unwrap();
-        let tree = self.repo.find_tree(tree_oid).unwrap();
-        let sig = Signature::now("Test User", "test@example.com").unwrap();
-
-        let parent_commit = if let Ok(head) = self.repo.head() {
-            Some(self.repo.find_commit(head.target().unwrap()).unwrap())
-        } else {
-            None
-        };
-        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
-
-        self.repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
-            .unwrap()
+        self.commit(message)
     }
 
     pub fn delete_file(&self, path: &str, message: &str) -> git2::Oid {

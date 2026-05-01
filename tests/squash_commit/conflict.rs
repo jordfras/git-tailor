@@ -239,8 +239,7 @@ fn squash_finalize_after_conflict_resolution() {
         .expect("should conflict");
 
     // Step 2: simulate user resolving the conflict
-    let workdir = git_repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+    test.write_file("a.txt", "resolved\n");
     git_repo.stage_file("a.txt").unwrap();
 
     // Step 3: finalize with NO descendants so that we only test the squash

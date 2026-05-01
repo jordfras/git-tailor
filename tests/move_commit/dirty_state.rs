@@ -33,13 +33,8 @@ fn move_commit_blocked_with_staged_changes() {
     let b = test.commit_file("b.txt", "b\n", "B");
 
     // Stage a change to an unrelated file
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));
@@ -65,8 +60,7 @@ fn move_commit_blocked_with_unstaged_changes() {
     let b = test.commit_file("b.txt", "b\n", "B");
 
     // Modify a tracked file without staging
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+    test.write_file("a.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));

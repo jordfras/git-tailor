@@ -24,13 +24,8 @@ fn squash_commits_blocked_with_staged_changes() {
     let source = test.commit_file("b.txt", "source\n", "source");
 
     // Stage a change to an unrelated file
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_commits(
@@ -60,8 +55,7 @@ fn squash_commits_blocked_with_unstaged_changes() {
     let source = test.commit_file("b.txt", "source\n", "source");
 
     // Modify a tracked file without staging
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+    test.write_file("a.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_commits(
@@ -91,13 +85,8 @@ fn squash_try_combine_blocked_with_staged_changes() {
     let source = test.commit_file("b.txt", "source\n", "source");
 
     // Stage a change to an unrelated file
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
@@ -128,8 +117,7 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
     let source = test.commit_file("b.txt", "source\n", "source");
 
     // Modify a tracked file without staging
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "unstaged work\n").unwrap();
+    test.write_file("a.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(

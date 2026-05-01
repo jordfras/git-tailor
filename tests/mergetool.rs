@@ -165,8 +165,7 @@ fn stage_file_clears_conflict_entries_in_index() {
     let path = &state.conflicting_files[0];
 
     // Write a resolved version of the file to the working tree.
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join(path), "resolved content\n").unwrap();
+    test.write_file(path, "resolved content\n");
 
     // Stage it — this is the core of the bug fix.
     git_repo.stage_file(path).unwrap();
@@ -394,10 +393,7 @@ fn stage_file_and_check_content_matches_written_file() {
     let state = test.make_drop_conflict();
     let git_repo = test.git_repo();
     let path = &state.conflicting_files[0];
-    let workdir = test.repo.workdir().unwrap();
-
-    let resolved = b"fully resolved content\n";
-    std::fs::write(workdir.join(path), resolved).unwrap();
+    test.write_file(path, "fully resolved content\n");
 
     git_repo.stage_file(path).unwrap();
 

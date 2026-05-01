@@ -35,8 +35,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
     let state = expect_rebase_conflict!(result);
 
     // Simulate external editor: write resolved content but do NOT stage.
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "line1\nline3\n").unwrap();
+    test.write_file("a.txt", "line1\nline3\n");
 
     // Index still has conflict entries at this point.
     assert!(

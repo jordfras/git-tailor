@@ -24,12 +24,8 @@ fn split_per_file_preserves_staged_changes() {
 
     // Stage a change to an unrelated file before the operation
     let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
@@ -70,7 +66,7 @@ fn split_per_file_preserves_unstaged_changes() {
 
     // Write an unstaged change to c.txt (not touched by to_split)
     let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("c.txt"), "unstaged work\n").unwrap();
+    test.write_file("c.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
@@ -95,12 +91,8 @@ fn split_per_hunk_preserves_staged_changes() {
 
     // Stage a change to an unrelated file
     let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("unrelated.txt"), "staged work\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index
-        .add_path(std::path::Path::new("unrelated.txt"))
-        .unwrap();
-    index.write().unwrap();
+    test.write_file("unrelated.txt", "staged work\n");
+    test.stage_file("unrelated.txt");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
@@ -130,10 +122,10 @@ fn split_per_hunk_preserves_unstaged_changes() {
     let to_split = test.commit_file("a.txt", "LINE1\nline2\nLINE3\n", "two hunks");
 
     // Write an unstaged change to an unrelated tracked file
-    let workdir = test.repo.workdir().unwrap();
     // Use a file that won't overlap with the commit being split
     test.commit_file("other.txt", "other\n", "add other");
-    std::fs::write(workdir.join("other.txt"), "unstaged work\n").unwrap();
+    let workdir = test.repo.workdir().unwrap();
+    test.write_file("other.txt", "unstaged work\n");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();

@@ -151,11 +151,8 @@ fn split_per_file_refuses_dirty_overlap() {
     let to_split = test.commit_files(&[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")], "big change");
 
     // Stage a change to a.txt (overlaps with the commit being split)
-    let repo_path = test.repo.workdir().unwrap();
-    std::fs::write(repo_path.join("a.txt"), "DIRTY\n").unwrap();
-    let mut index = test.repo.index().unwrap();
-    index.add_path(std::path::Path::new("a.txt")).unwrap();
-    index.write().unwrap();
+    test.write_file("a.txt", "DIRTY\n");
+    test.stage_file("a.txt");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
@@ -213,8 +210,7 @@ fn split_per_file_handles_submodule_delta() {
     let obj = test.repo.find_object(to_split, None).unwrap();
     test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
     // Update the workdir file so diff_index_to_workdir has nothing to report.
-    let workdir = test.repo.workdir().unwrap().to_path_buf();
-    std::fs::write(workdir.join("a.txt"), b"alpha2\n").unwrap();
+    test.write_file("a.txt", "alpha2\n");
 
     let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();

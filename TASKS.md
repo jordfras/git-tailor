@@ -464,7 +464,7 @@ Guidelines:
   git_tailor::Oid; }` inside `tests/common.rs` (or as
   `tests/common/prelude.rs`) so each test file can write
   `use common::prelude::*;` and drop ~5 lines of repeated imports.
-- [ ] T208 P2 feat - Add `TestRepo::write_file`, `stage_file`, and `commit`
+- [X] T208 P2 feat - Add `TestRepo::write_file`, `stage_file`, and `commit`
   helpers and rename `commit_file` to reflect what it does: `commit_file(path,
   content, message)` actually writes the file to disk, stages it, and creates a
   commit — three distinct operations. (1) Add `pub fn write_file(&self, path:

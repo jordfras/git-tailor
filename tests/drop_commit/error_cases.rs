@@ -46,8 +46,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
     assert_eq!(state1.original_branch_oid, Oid::from(child2));
 
     // Fake-resolve conflict 1: write content and re-stage.
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "v1\nv3\n").unwrap();
+    test.write_file("a.txt", "v1\nv3\n");
     let mut index = test.repo.index().unwrap();
     index
         .conflict_remove(std::path::Path::new("a.txt"))

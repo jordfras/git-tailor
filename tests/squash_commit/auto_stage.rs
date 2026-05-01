@@ -44,8 +44,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         .expect("should conflict");
 
     // Simulate external editor: write resolved content but do NOT stage.
-    let workdir = git_repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+    test.write_file("a.txt", "resolved\n");
 
     // Index still has conflict entries.
     assert!(
@@ -120,8 +119,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         .expect("should conflict on a.txt");
 
     // Step 2: simulate resolving the conflict
-    let workdir = git_repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "resolved\n").unwrap();
+    test.write_file("a.txt", "resolved\n");
     git_repo.stage_file("a.txt").unwrap();
 
     // Step 3: finalize with an empty descendant list to isolate the squash

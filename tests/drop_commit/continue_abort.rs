@@ -32,8 +32,7 @@ fn drop_continue_after_resolving_conflict() {
 
     // Simulate user resolving the conflict: write the resolved content,
     // clear conflict entries, then stage the file.
-    let workdir = test.repo.workdir().unwrap();
-    std::fs::write(workdir.join("a.txt"), "line1\nline3\n").unwrap();
+    test.write_file("a.txt", "line1\nline3\n");
     let mut index = test.repo.index().unwrap();
     index
         .conflict_remove(std::path::Path::new("a.txt"))
