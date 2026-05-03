@@ -687,10 +687,10 @@ pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
 
     if let AppMode::MoveSelect {
         source_index,
-        insert_before,
+        insert_before: _,
     } = app.mode
     {
-        render_move_footer(frame, app, area, source_index, insert_before);
+        render_move_footer(frame, app, area, source_index);
         return;
     }
 
@@ -730,48 +730,41 @@ fn render_squash_footer(
     source_index: usize,
     is_fixup: bool,
 ) {
-    let source = match app.commits.get(source_index) {
-        Some(c) => c,
-        None => return,
-    };
-
-    let short_oid = source.oid.short();
-
-    let label = if is_fixup { "Fixup" } else { "Squash" };
-
-    let max_summary_len = (area.width as usize)
-        .saturating_sub(
-            format!(" {label}  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel").len(),
-        )
-        .saturating_sub(short_oid.len());
-
-    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
-        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
-    } else {
-        source.summary.clone()
-    };
-
-    let line = Line::from(vec![
-        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
-        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\" into\u{2026}"), ACTION_FOOTER_STYLE),
-        Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Enter", ACTION_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Esc", ACTION_FOOTER_ACCENT),
-        Span::styled(" cancel", ACTION_FOOTER_STYLE),
-    ]);
-
-    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
-    frame.render_widget(footer, area);
+    render_action_footer(
+        frame,
+        app,
+        area,
+        if is_fixup { "Fixup" } else { "Squash" },
+        source_index,
+        " into\u{2026}",
+        &[("Enter", " confirm \u{b7} "), ("Esc", " cancel")],
+    );
 }
 
-fn render_move_footer(
+fn render_move_footer(frame: &mut Frame, app: &AppState, area: Rect, source_index: usize) {
+    render_action_footer(
+        frame,
+        app,
+        area,
+        "Move",
+        source_index,
+        "",
+        &[
+            ("\u{2191}/\u{2193}", " pick position \u{b7} "),
+            ("Enter", " confirm \u{b7} "),
+            ("Esc", " cancel"),
+        ],
+    );
+}
+
+fn render_action_footer(
     frame: &mut Frame,
     app: &AppState,
     area: Rect,
+    label: &str,
     source_index: usize,
-    _insert_before: usize,
+    after_summary: &str,
+    hints: &[(&str, &str)],
 ) {
     let source = match app.commits.get(source_index) {
         Some(c) => c,
@@ -780,11 +773,13 @@ fn render_move_footer(
 
     let short_oid = source.oid.short();
 
+    let hints_len: usize =
+        " \u{b7} ".len() + hints.iter().map(|(k, d)| k.len() + d.len()).sum::<usize>();
     let max_summary_len = (area.width as usize)
-        .saturating_sub(
-            " Move  \"\" \u{b7} ↑/↓ pick position \u{b7} Enter confirm \u{b7} Esc cancel".len(),
-        )
-        .saturating_sub(short_oid.len());
+        .saturating_sub(label.len() + 2)
+        .saturating_sub(short_oid.len())
+        .saturating_sub(3 + after_summary.len())
+        .saturating_sub(hints_len);
 
     let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
         format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
@@ -792,20 +787,22 @@ fn render_move_footer(
         source.summary.clone()
     };
 
-    let line = Line::from(vec![
-        Span::styled(" Move ", ACTION_FOOTER_STYLE),
-        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\""), ACTION_FOOTER_STYLE),
+    let mut spans = vec![
+        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
+        Span::styled(short_oid.to_string(), ACTION_FOOTER_ACCENT),
+        Span::styled(
+            format!(" \"{summary}\"{after_summary}"),
+            ACTION_FOOTER_STYLE,
+        ),
         Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("↑/↓", ACTION_FOOTER_ACCENT),
-        Span::styled(" pick position \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Enter", ACTION_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Esc", ACTION_FOOTER_ACCENT),
-        Span::styled(" cancel", ACTION_FOOTER_STYLE),
-    ]);
+    ];
 
-    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
+    for (key, description) in hints {
+        spans.push(Span::styled(key.to_string(), ACTION_FOOTER_ACCENT));
+        spans.push(Span::styled(description.to_string(), ACTION_FOOTER_STYLE));
+    }
+
+    let footer = Paragraph::new(Line::from(spans)).style(ACTION_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 

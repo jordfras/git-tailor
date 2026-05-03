@@ -114,7 +114,7 @@ Guidelines:
   generalise its parameters to cover all four call sites, and replace the inline
   constructions. Centralises conflict-state assembly so future fields (e.g.
   operation label for the conflict dialog header) only need to be added once.
-- [ ] T171 P1 feat - Consolidate `render_squash_footer` and `render_move_footer`
+- [X] T171 P1 feat - Consolidate `render_squash_footer` and `render_move_footer`
   into a single `render_action_footer`: `src/views/commit_list.rs:726` and
   `src/views/commit_list.rs:769` are ~85% identical — both truncate the
   source-commit summary to the available width, build a `Line` with key-hint
