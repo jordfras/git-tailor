@@ -17,10 +17,10 @@
 
 use anyhow::{Context, Result};
 
-use super::super::{ConflictState, RebaseOutcome};
+use super::super::RebaseOutcome;
 use super::CherryPickResult;
 use super::Git2Repo;
-use super::conflict;
+use super::build_chain_conflict;
 use crate::Oid;
 
 pub(super) fn move_commit(
@@ -72,25 +72,15 @@ pub(super) fn move_commit(
         CherryPickResult::Conflict {
             tip,
             conflicting_idx,
-        } => {
-            let conflicting_oid = reordered[conflicting_idx];
-            let remaining: Vec<Oid> = reordered[conflicting_idx + 1..]
-                .iter()
-                .map(|&oid| Oid::from(oid))
-                .collect();
-
-            Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                operation_label: "Move".to_string(),
-                original_branch_oid,
-                new_tip_oid: Oid::from(tip),
-                conflicting_commit_oid: Oid::from(conflicting_oid),
-                remaining_oids: remaining,
-                conflicting_files: conflict::collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: Some(commit_oid.clone()),
-                squash_context: None,
-            })))
-        }
+        } => Ok(build_chain_conflict(
+            repo,
+            tip,
+            &reordered,
+            conflicting_idx,
+            "Move",
+            original_branch_oid,
+            Some(commit_oid.clone()),
+        )),
     }
 }
 

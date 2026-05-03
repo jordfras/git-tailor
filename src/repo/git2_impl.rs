@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use crate::{CommitDiff, CommitInfo, Oid};
 
-use super::GitRepo;
+use super::{ConflictState, GitRepo, RebaseOutcome};
 
 /// Convert a libgit2 OID into our domain `Oid` type.
 impl From<git2::Oid> for Oid {
@@ -514,4 +514,39 @@ enum CherryPickResult {
         tip: git2::Oid,
         conflicting_idx: usize,
     },
+}
+
+/// Build a `RebaseOutcome::Conflict` from the output of a failed
+/// `cherry_pick_chain` call.
+///
+/// All four conflict-reporting sites share the same shape: extract the
+/// conflicting OID and the remaining-OIDs tail from the `oids` slice using
+/// `conflicting_idx`, then collect conflict files from the working-tree index.
+/// Centralising this keeps future `ConflictState` field additions in one place.
+pub(super) fn build_chain_conflict(
+    repo: &Git2Repo,
+    tip: git2::Oid,
+    oids: &[git2::Oid],
+    conflicting_idx: usize,
+    operation_label: impl Into<String>,
+    original_branch_oid: Oid,
+    moved_commit_oid: Option<Oid>,
+) -> RebaseOutcome {
+    let conflicting_oid = oids[conflicting_idx];
+    let remaining: Vec<Oid> = oids[conflicting_idx + 1..]
+        .iter()
+        .map(|&oid| Oid::from(oid))
+        .collect();
+
+    RebaseOutcome::Conflict(Box::new(ConflictState {
+        operation_label: operation_label.into(),
+        original_branch_oid,
+        new_tip_oid: Oid::from(tip),
+        conflicting_commit_oid: Oid::from(conflicting_oid),
+        remaining_oids: remaining,
+        conflicting_files: conflict::collect_conflict_files(&repo.inner),
+        still_unresolved: false,
+        moved_commit_oid,
+        squash_context: None,
+    }))
 }

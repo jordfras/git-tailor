@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use super::super::{ConflictState, RebaseOutcome};
 use super::CherryPickResult;
 use super::Git2Repo;
-use crate::Oid;
+use super::build_chain_conflict;
 
 pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
@@ -39,15 +39,9 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
         // list so the dialog keeps the user informed rather than bailing
         // out and leaving the repo in a broken state.
         return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-            operation_label: state.operation_label.clone(),
-            original_branch_oid: state.original_branch_oid.clone(),
-            new_tip_oid: state.new_tip_oid.clone(),
-            conflicting_commit_oid: state.conflicting_commit_oid.clone(),
-            remaining_oids: state.remaining_oids.clone(),
             conflicting_files: collect_conflict_files(&repo.inner),
             still_unresolved: true,
-            moved_commit_oid: state.moved_commit_oid.clone(),
-            squash_context: state.squash_context.clone(),
+            ..state.clone()
         })));
     }
 
@@ -77,25 +71,15 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
         CherryPickResult::Conflict {
             tip,
             conflicting_idx,
-        } => {
-            let conflicting_oid = remaining[conflicting_idx];
-            let new_remaining: Vec<Oid> = remaining[conflicting_idx + 1..]
-                .iter()
-                .map(|&oid| Oid::from(oid))
-                .collect();
-
-            Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                operation_label: state.operation_label.clone(),
-                original_branch_oid: state.original_branch_oid.clone(),
-                new_tip_oid: Oid::from(tip),
-                conflicting_commit_oid: Oid::from(conflicting_oid),
-                remaining_oids: new_remaining,
-                conflicting_files: collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: state.moved_commit_oid.clone(),
-                squash_context: None,
-            })))
-        }
+        } => Ok(build_chain_conflict(
+            repo,
+            tip,
+            &remaining,
+            conflicting_idx,
+            state.operation_label.clone(),
+            state.original_branch_oid.clone(),
+            state.moved_commit_oid.clone(),
+        )),
     }
 }
 

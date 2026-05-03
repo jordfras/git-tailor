@@ -103,7 +103,7 @@ Guidelines:
   `Confirmed`, `Cancelled`, `Help`, or `Unhandled`; each picker then becomes a
   small wrapper that maps `Confirmed` to its mode-specific `AppAction`. Should
   remove ~100 LOC of near-duplication and make adding new pickers trivial.
-- [ ] T170 P1 feat - Reuse `build_conflict_state` across drop / move /
+- [X] T170 P1 feat - Reuse `build_conflict_state` across drop / move /
   conflict-continuation paths: `src/repo/git2_impl/squash_op.rs` already defines
   a `build_conflict_state(...)` helper, but `src/repo/git2_impl/drop_op.rs:65`,
   `src/repo/git2_impl/move_op.rs:82`, `src/repo/git2_impl/conflict.rs:41` and
