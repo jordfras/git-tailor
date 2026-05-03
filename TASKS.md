@@ -123,7 +123,7 @@ Guidelines:
   `render_action_footer(frame, app, area, label: &str, source_oid, instructions:
   &[(&str, &str)])` helper and call it from both call sites (lines 684 and 693).
   Reduces ~40 LOC and ensures squash/move footers stay visually consistent.
-- [ ] T172 P1 feat - Split `dispatch_action` in main.rs into per-AppAction
+- [X] T172 P1 feat - Split `dispatch_action` in main.rs into per-AppAction
   helper functions: `src/main.rs:248` defines `dispatch_action` as a ~290-line
   `match` over `AppAction` where each arm contains 20–40 lines of side-effect
   logic (PrepareSplit, ExecuteSplit, PrepareReword, PrepareSquash, PrepareMove,
