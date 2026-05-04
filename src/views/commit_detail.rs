@@ -20,7 +20,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use regex::RegexBuilder;
 
@@ -739,40 +739,13 @@ fn render_scrollbar(
     if area.height == 0 || total_lines == 0 {
         return;
     }
-
-    let scrollbar_height = area.height as usize;
-
-    // Calculate thumb size (proportional to visible content)
-    let thumb_size = ((visible_height as f64 / total_lines as f64) * scrollbar_height as f64)
-        .ceil()
-        .max(1.0) as usize;
-    let thumb_size = thumb_size.min(scrollbar_height);
-
-    // Calculate thumb position
-    let scrollable_height = scrollbar_height.saturating_sub(thumb_size);
-    let thumb_position = if total_lines > visible_height {
-        ((scroll_offset as f64 / (total_lines - visible_height) as f64) * scrollable_height as f64)
-            .round() as usize
-    } else {
-        0
-    };
-
-    // Build scrollbar lines
-    let mut scrollbar_lines = Vec::new();
-    for i in 0..scrollbar_height {
-        let char = if i >= thumb_position && i < thumb_position + thumb_size {
-            "█" // Solid block for thumb
-        } else {
-            "│" // Light vertical line for track
-        };
-        scrollbar_lines.push(Line::from(Span::styled(
-            char,
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
-    let scrollbar = Paragraph::new(scrollbar_lines);
-    frame.render_widget(scrollbar, area);
+    let max_scroll = total_lines.saturating_sub(visible_height);
+    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }
 
 /// Render a horizontal scrollbar indicating horizontal scroll position.
@@ -786,37 +759,11 @@ fn render_h_scrollbar(
     if area.width == 0 || max_line_width == 0 {
         return;
     }
-
-    let track_width = area.width as usize;
-
-    // Calculate thumb size (proportional to visible content)
-    let thumb_size = ((visible_width as f64 / max_line_width as f64) * track_width as f64)
-        .ceil()
-        .max(1.0) as usize;
-    let thumb_size = thumb_size.min(track_width);
-
-    // Calculate thumb position
-    let scrollable_track = track_width.saturating_sub(thumb_size);
-    let max_offset = max_line_width.saturating_sub(visible_width);
-    let thumb_position = if max_offset > 0 {
-        ((h_scroll as f64 / max_offset as f64) * scrollable_track as f64).round() as usize
-    } else {
-        0
-    };
-
-    // Build scrollbar as a single line of characters
-    let mut chars = String::new();
-    for i in 0..track_width {
-        if i >= thumb_position && i < thumb_position + thumb_size {
-            chars.push('█');
-        } else {
-            chars.push('─');
-        }
-    }
-
-    let scrollbar = Paragraph::new(Line::from(Span::styled(
-        chars,
-        Style::default().fg(Color::DarkGray),
-    )));
-    frame.render_widget(scrollbar, area);
+    let max_h_scroll = max_line_width.saturating_sub(visible_width);
+    let mut state = ScrollbarState::new(max_h_scroll).position(h_scroll);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("─"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }

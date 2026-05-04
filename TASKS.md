@@ -143,7 +143,7 @@ Guidelines:
   `KeyCommand`, `parse_key`, and `read_event` to `src/app/keymap.rs`. Re-export
   so external callers (`main.rs`, `views/*`) need no import changes. No
   behaviour change.
-- [ ] T174 P2 fix - Replace hand-rolled scrollbars in commit_detail and dialog
+- [X] T174 P2 fix - Replace hand-rolled scrollbars in commit_detail and dialog
   with ratatui's built-in `Scrollbar` widget: `src/views/commit_detail.rs`
   contains two custom `Paragraph`-based implementations — `render_scrollbar`
   (vertical, ~45 LOC) and `render_h_scrollbar` (horizontal, ~40 LOC) — that

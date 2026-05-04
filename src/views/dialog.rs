@@ -18,8 +18,10 @@ use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Color, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    text::Line,
+    widgets::{
+        Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+    },
 };
 
 /// Render a centered dialog overlay with optional vertical scrolling.
@@ -92,9 +94,6 @@ pub fn render_centered_dialog(
 }
 
 /// Draw a vertical scrollbar track+thumb inside a 1-column-wide area.
-///
-/// The thumb is sized proportionally to the visible fraction of content and
-/// positioned to reflect `scroll_offset` within the scrollable range.
 fn render_dialog_scrollbar(
     frame: &mut Frame,
     area: Rect,
@@ -105,29 +104,13 @@ fn render_dialog_scrollbar(
     if area.height == 0 || total_lines == 0 {
         return;
     }
-    let track_height = area.height as usize;
-    let thumb_size = ((visible_height as f64 / total_lines as f64) * track_height as f64)
-        .ceil()
-        .max(1.0) as usize;
-    let thumb_size = thumb_size.min(track_height);
-    let scrollable_track = track_height.saturating_sub(thumb_size);
-    let thumb_top = if total_lines > visible_height && scrollable_track > 0 {
-        ((scroll_offset as f64 / (total_lines - visible_height) as f64) * scrollable_track as f64)
-            .round() as usize
-    } else {
-        0
-    };
-    let bar_lines: Vec<Line> = (0..track_height)
-        .map(|i| {
-            let ch = if i >= thumb_top && i < thumb_top + thumb_size {
-                "█"
-            } else {
-                "│"
-            };
-            Line::from(Span::styled(ch, Style::default().fg(Color::DarkGray)))
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(bar_lines), area);
+    let max_scroll = total_lines.saturating_sub(visible_height);
+    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }
 
 /// Compute the usable inner width for content inside a dialog.
