@@ -143,15 +143,20 @@ Guidelines:
   `KeyCommand`, `parse_key`, and `read_event` to `src/app/keymap.rs`. Re-export
   so external callers (`main.rs`, `views/*`) need no import changes. No
   behaviour change.
-- [ ] T174 P2 feat - Unify scrollbar rendering into `views/scrollbar.rs`: three
-  scrollbar implementations exist today — `render_dialog_scrollbar` in
-  `src/views/dialog.rs:98`, `render_vertical_scrollbar` in
-  `src/views/commit_list.rs:812`, and `render_horizontal_scrollbar` in
-  `src/views/hunk_groups.rs` — each with its own thumb-size and offset
-  arithmetic. Create a new `src/views/scrollbar.rs` module exposing
-  `render_v_scrollbar(frame, area, content_len, viewport_len,
-  scroll_offset)` and `render_h_scrollbar(...)` and replace all three call
-  sites. Improves consistency (thumb sizing, edge cases) and saves ~60 LOC.
+- [ ] T174 P2 fix - Replace hand-rolled scrollbars in commit_detail and dialog
+  with ratatui's built-in `Scrollbar` widget: `src/views/commit_detail.rs`
+  contains two custom `Paragraph`-based implementations — `render_scrollbar`
+  (vertical, ~45 LOC) and `render_h_scrollbar` (horizontal, ~40 LOC) — that
+  manually build `"█"` / `"│"` / `"─"` character strings; `src/views/dialog.rs`
+  has a third, `render_dialog_scrollbar` (~35 LOC), with the same approach.
+  `commit_list.rs` and `hunk_groups.rs` already use
+  `ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState}`
+  correctly. Replace the three custom implementations with the same ratatui
+  widget (using `VerticalLeft`, `VerticalRight`, or `HorizontalBottom` as
+  appropriate); the two-pass layout geometry in `commit_detail.rs` that
+  determines scrollbar area sizes must be kept — only the rendering step
+  changes. Removes ~120 LOC of duplicated thumb-sizing arithmetic and aligns
+  all scrollbars on a single rendering path.
 - [ ] T175 P2 feat - Extract cherry-pick helpers from `repo/git2_impl.rs` into
   `repo/git2_impl/cherry_pick.rs`: `src/repo/git2_impl.rs` (517 lines) currently
   houses the trait impl plus `cherry_pick_chain` (line 433),
