@@ -19,9 +19,8 @@
 use anyhow::{Context, Result};
 
 use super::super::{ConflictState, RebaseOutcome};
-use super::CherryPickResult;
 use super::Git2Repo;
-use super::build_chain_conflict;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict};
 
 pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);

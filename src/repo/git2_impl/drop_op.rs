@@ -17,9 +17,8 @@
 use anyhow::Result;
 
 use super::super::RebaseOutcome;
-use super::CherryPickResult;
 use super::Git2Repo;
-use super::build_chain_conflict;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict};
 use crate::Oid;
 
 pub(super) fn drop_commit(

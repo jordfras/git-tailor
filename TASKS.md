@@ -157,7 +157,7 @@ Guidelines:
   determines scrollbar area sizes must be kept — only the rendering step
   changes. Removes ~120 LOC of duplicated thumb-sizing arithmetic and aligns
   all scrollbars on a single rendering path.
-- [ ] T175 P2 feat - Extract cherry-pick helpers from `repo/git2_impl.rs` into
+- [X] T175 P2 feat - Extract cherry-pick helpers from `repo/git2_impl.rs` into
   `repo/git2_impl/cherry_pick.rs`: `src/repo/git2_impl.rs` (517 lines) currently
   houses the trait impl plus `cherry_pick_chain` (line 433),
   `rebase_descendants` (line 333), `collect_descendants` (line 402), and the
