@@ -133,7 +133,7 @@ Guidelines:
   Use the existing `LoopAction` / `get_head_oid_or_continue!` infrastructure; do
   not change behaviour. Greatly improves navigability of the event loop and
   makes individual actions easier to reason about and test.
-- [ ] T173 P2 feat - Split `app.rs` into `app/state.rs` + `app/keymap.rs`:
+- [X] T173 P2 feat - Split `app.rs` into `app/state.rs` + `app/keymap.rs`:
   `src/app.rs` (876 lines) currently mixes three concerns — the `AppState`
   struct and its many helper methods (move_*, scroll_*, page_*, set_message, …),
   the `AppMode` state-machine enum and its transitions, and the `KeyCommand`
