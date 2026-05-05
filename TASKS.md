@@ -167,15 +167,15 @@ Guidelines:
   `src/repo/git2_impl/cherry_pick.rs`, expose them through `pub(super)` items,
   and re-export from `git2_impl.rs`. Brings `git2_impl.rs` closer to its
   trait-impl role and improves the mental model around rebase orchestration.
-- [ ] T176 P2 feat - Introduce a `DialogBuilder` to reduce drop / conflict
-  dialog boilerplate: `src/views/drop.rs:48-65` and
-  `src/views/conflict.rs:80-130` both manually build `Vec<Line>` with the same
-  patterns (header, styled body lines, footer instructions) and duplicate
-  styling/span construction. Add a `DialogBuilder` (or a small set of free
-  functions) in `src/views/dialog.rs` providing `add_title()`,
-  `add_styled_line()`, `add_wrapped_text()`, and `add_instructions()` so dialog
-  bodies are declarative. Reduces ~30 LOC and yields a uniform dialog
-  look-and-feel.
+- [x] T176 P2 feat - Introduce a `Dialog` builder to reduce dialog boilerplate:
+  Added `Dialog` struct to `src/views/dialog.rs` with a fluent builder API:
+  `blank()`, `title()`, `section()`, `styled_line()`, `plain()`, `wrapped()`,
+  `wrapped_indent()`, `wrapped_styled()`, `wrapped_styled_bold()`,
+  `key_binding()`, `instructions()`, `push_line()`, and `render()`. `title()`
+  adds surrounding blank lines implicitly; `section()` adds only a leading
+  blank; `render()` pads the border title with spaces automatically. Refactored
+  `drop.rs`, `conflict.rs`, `help.rs`, and `split_select.rs` to use it,
+  removing ~55 net lines of repetitive span/style construction.
 - [ ] T177 P3 feat - Move domain types from `lib.rs` into a `domain/` submodule
   tree: `src/lib.rs` currently mixes the public domain types (`CommitInfo`,
   `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`, `DeltaStatus`, `DiffLineKind`,

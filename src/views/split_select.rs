@@ -14,12 +14,11 @@
 
 // Split strategy selection dialog
 
-use super::dialog::render_centered_dialog;
+use super::dialog::Dialog;
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
 use ratatui::{
     Frame,
-    layout::Alignment,
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
@@ -110,28 +109,21 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         commit_summary
     };
 
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!(" {}", display_summary),
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::DIM),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Choose split strategy:",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-    ];
-
     let strategy_index = match app.mode {
         AppMode::SplitSelect { strategy_index } => strategy_index,
         _ => 0,
     };
+
+    let mut dialog = Dialog::new()
+        .blank()
+        .push_line(Line::from(Span::styled(
+            format!(" {display_summary}"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::DIM),
+        )))
+        .title(" Choose split strategy:", Color::Yellow);
+
     for (i, strategy) in SplitStrategy::ALL.iter().enumerate() {
         let selected = i == strategy_index;
         let marker = if selected { "▸ " } else { "  " };
@@ -143,40 +135,27 @@ pub fn render(app: &AppState, frame: &mut Frame) {
             Style::default().fg(Color::White)
         };
 
-        lines.push(Line::from(Span::styled(
-            format!(" {}  {}", marker, strategy.label()),
-            style,
-        )));
-
-        let desc_style = Style::default().fg(Color::DarkGray);
-        lines.push(Line::from(Span::styled(
-            format!("        {}", strategy.description()),
-            desc_style,
-        )));
-        lines.push(Line::from(""));
+        dialog = dialog
+            .push_line(Line::from(Span::styled(
+                format!(" {}  {}", marker, strategy.label()),
+                style,
+            )))
+            .styled_line(
+                format!("        {}", strategy.description()),
+                Color::DarkGray,
+            )
+            .blank();
     }
 
-    lines.push(
-        Line::from(vec![
-            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
-            Span::raw("Select   "),
-            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
-            Span::raw("Cancel"),
+    dialog = dialog
+        .instructions(&[
+            ("Enter", Color::Cyan, "Select"),
+            ("Esc", Color::Cyan, "Cancel"),
         ])
-        .alignment(Alignment::Center),
-    );
-    lines.push(Line::from(""));
+        .blank();
 
     let content_width = 50;
-
-    render_centered_dialog(
-        frame,
-        " Split Commit ",
-        Color::Cyan,
-        content_width,
-        lines,
-        0,
-    );
+    dialog.render(frame, "Split Commit", Color::Cyan, content_width, 0);
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
@@ -191,29 +170,20 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
     };
 
-    let lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
+    Dialog::new()
+        .title(
             format!(
                 " This will create {} commits ({}).",
                 pending.count, strategy_name
             ),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(Span::raw(" Do you want to proceed?")),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
-            Span::raw("Confirm   "),
-            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
-            Span::raw("Cancel"),
+            Color::Yellow,
+        )
+        .plain(" Do you want to proceed?")
+        .blank()
+        .instructions(&[
+            ("Enter", Color::Cyan, "Confirm"),
+            ("Esc", Color::Cyan, "Cancel"),
         ])
-        .alignment(Alignment::Center),
-        Line::from(""),
-    ];
-
-    render_centered_dialog(frame, " Confirm Split ", Color::Yellow, 52, lines, 0);
+        .blank()
+        .render(frame, "Confirm Split", Color::Yellow, 52, 0);
 }

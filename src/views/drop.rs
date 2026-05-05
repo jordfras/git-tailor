@@ -14,14 +14,9 @@
 
 // Drop commit confirmation dialog
 
-use super::dialog::{inner_width, render_centered_dialog, wrap_text};
+use super::dialog::{Dialog, inner_width};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
-use ratatui::{
-    Frame,
-    layout::Alignment,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::{Frame, style::Color};
 
 /// Handle an action while in DropConfirm mode.
 pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
@@ -62,45 +57,15 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 60;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    // Pre-wrap the summary so that lines.len() reflects the real rendered
-    // height and dialog_height is computed accurately.
-    let summary_chunks = wrap_text(&pending.commit_summary, iw.saturating_sub(1));
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            " Drop this commit?",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            format!(" {short_oid}"),
-            Style::default().fg(Color::Cyan),
-        )),
-    ];
-    for chunk in &summary_chunks {
-        lines.push(Line::from(Span::raw(format!(" {chunk}"))));
-    }
-    lines.push(Line::from(""));
-    lines.push(
-        Line::from(vec![
-            Span::styled("Enter ", Style::default().fg(Color::Cyan)),
-            Span::raw("Confirm   "),
-            Span::styled("Esc ", Style::default().fg(Color::Cyan)),
-            Span::raw("Cancel"),
+    Dialog::new()
+        .title(" Drop this commit?", Color::Yellow)
+        .styled_line(format!(" {short_oid}"), Color::Cyan)
+        .wrapped(&pending.commit_summary, iw.saturating_sub(1))
+        .blank()
+        .instructions(&[
+            ("Enter", Color::Cyan, "Confirm"),
+            ("Esc", Color::Cyan, "Cancel"),
         ])
-        .alignment(Alignment::Center),
-    );
-    lines.push(Line::from(""));
-
-    render_centered_dialog(
-        frame,
-        " Confirm Drop ",
-        Color::Yellow,
-        PREFERRED_WIDTH,
-        lines,
-        0,
-    );
+        .blank()
+        .render(frame, "Confirm Drop", Color::Yellow, PREFERRED_WIDTH, 0);
 }
