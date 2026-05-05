@@ -14,7 +14,7 @@
 
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
-use super::dialog::{Dialog, inner_width};
+use super::dialog::{Dialog, handle_dialog_scroll, inner_width};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
@@ -67,7 +67,10 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
                 AppAction::Handled
             }
         }
-        _ => AppAction::Handled,
+        _ => {
+            handle_dialog_scroll(action, app);
+            AppAction::Handled
+        }
     }
 }
 
@@ -76,7 +79,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
 /// Used by any operation (drop, squash, etc.) that may hit a merge conflict
 /// during cherry-pick. The dialog title and body text adapt to the
 /// `operation_label` stored in `ConflictState`.
-pub fn render_conflict(app: &AppState, frame: &mut Frame) {
+pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     let state = match &app.mode {
         AppMode::RebaseConflict(s) => s,
         _ => return,
@@ -175,5 +178,13 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         .blank();
 
     let title = format!("{label} Conflict");
-    dialog.render(frame, &title, Color::Red, PREFERRED_WIDTH, 0);
+    let (max_scroll, visible_height) = dialog.render(
+        frame,
+        &title,
+        Color::Red,
+        PREFERRED_WIDTH,
+        app.dialog_scroll_offset,
+    );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }

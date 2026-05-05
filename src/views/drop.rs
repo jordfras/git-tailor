@@ -14,7 +14,7 @@
 
 // Drop commit confirmation dialog
 
-use super::dialog::{Dialog, inner_width};
+use super::dialog::{Dialog, handle_dialog_scroll, inner_width};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{Frame, style::Color};
 
@@ -41,12 +41,15 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.cancel_drop_confirm();
             AppAction::Handled
         }
-        _ => AppAction::Handled,
+        _ => {
+            handle_dialog_scroll(action, app);
+            AppAction::Handled
+        }
     }
 }
 
 /// Render the drop confirmation dialog as a centered overlay.
-pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
+pub fn render_drop_confirm(app: &mut AppState, frame: &mut Frame) {
     let pending = match &app.mode {
         AppMode::DropConfirm(p) => p,
         _ => return,
@@ -57,7 +60,7 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 60;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    Dialog::new()
+    let (max_scroll, visible_height) = Dialog::new()
         .title(" Drop this commit?", Color::Yellow)
         .styled_line(format!(" {short_oid}"), Color::Cyan)
         .wrapped(&pending.commit_summary, iw.saturating_sub(1))
@@ -67,5 +70,13 @@ pub fn render_drop_confirm(app: &AppState, frame: &mut Frame) {
             ("Esc", Color::Cyan, "Cancel"),
         ])
         .blank()
-        .render(frame, "Confirm Drop", Color::Yellow, PREFERRED_WIDTH, 0);
+        .render(
+            frame,
+            "Confirm Drop",
+            Color::Yellow,
+            PREFERRED_WIDTH,
+            app.dialog_scroll_offset,
+        );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }

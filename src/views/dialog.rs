@@ -14,6 +14,7 @@
 
 // Shared dialog rendering utilities for centered overlay dialogs.
 
+use crate::app::{AppState, KeyCommand};
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -23,6 +24,32 @@ use ratatui::{
         Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
     },
 };
+
+/// Handle scroll keys for a scrollable dialog overlay.
+///
+/// Returns `true` if the action was consumed. Maps `MoveUp`/`MoveDown` to
+/// line scrolling and `PageUp`/`PageDown` to page scrolling.
+pub fn handle_dialog_scroll(action: KeyCommand, app: &mut AppState) -> bool {
+    match action {
+        KeyCommand::MoveUp => {
+            app.scroll_dialog_up();
+            true
+        }
+        KeyCommand::MoveDown => {
+            app.scroll_dialog_down();
+            true
+        }
+        KeyCommand::PageUp => {
+            app.scroll_dialog_page_up();
+            true
+        }
+        KeyCommand::PageDown => {
+            app.scroll_dialog_page_down();
+            true
+        }
+        _ => false,
+    }
+}
 
 /// Compute the usable inner width for content inside a dialog.
 ///

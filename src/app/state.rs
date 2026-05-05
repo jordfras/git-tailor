@@ -236,6 +236,7 @@ impl AppState {
             head_oid,
             count,
         });
+        self.dialog_scroll_offset = 0;
     }
 
     /// Cancel the large-split confirmation and return to CommitList.
@@ -250,6 +251,7 @@ impl AppState {
             commit_summary,
             head_oid,
         });
+        self.dialog_scroll_offset = 0;
     }
 
     /// Cancel the drop confirmation and return to CommitList.
@@ -260,6 +262,7 @@ impl AppState {
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
         self.mode = AppMode::RebaseConflict(Box::new(state));
+        self.dialog_scroll_offset = 0;
     }
 
     /// Enter split strategy selection mode.
@@ -272,6 +275,7 @@ impl AppState {
             return;
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
+        self.dialog_scroll_offset = 0;
     }
 
     /// Enter squash target selection mode.

@@ -14,7 +14,7 @@
 
 // Split strategy selection dialog
 
-use super::dialog::Dialog;
+use super::dialog::{Dialog, handle_dialog_scroll};
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
 use ratatui::{
@@ -38,6 +38,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.mode = AppMode::SplitSelect {
                 strategy_index: cursor,
             };
+            scroll_to_strategy(app, cursor);
             AppAction::Handled
         }
         ListNav::Confirmed => {
@@ -65,6 +66,27 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
+/// Scroll `dialog_scroll_offset` so that the strategy row at `index` is
+/// visible. The dialog layout is: 5 header lines, then 3 lines per strategy
+/// (label + description + blank). Uses the visible height from the previous
+/// render frame; does nothing if that hasn't been computed yet.
+fn scroll_to_strategy(app: &mut AppState, index: usize) {
+    const HEADER_LINES: usize = 5;
+    const ITEM_HEIGHT: usize = 3;
+    let item_top = HEADER_LINES + index * ITEM_HEIGHT;
+    let item_bottom = item_top + ITEM_HEIGHT - 1;
+    let vh = app.dialog_visible_height;
+    if vh == 0 {
+        return;
+    }
+    if item_top < app.dialog_scroll_offset {
+        app.dialog_scroll_offset = item_top;
+    } else if item_bottom >= app.dialog_scroll_offset + vh {
+        app.dialog_scroll_offset = item_bottom + 1 - vh;
+    }
+    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+}
+
 /// Handle an action while in SplitConfirm mode.
 pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     match action {
@@ -89,12 +111,15 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.cancel_split_confirm();
             AppAction::Handled
         }
-        _ => AppAction::Handled,
+        _ => {
+            handle_dialog_scroll(action, app);
+            AppAction::Handled
+        }
     }
 }
 
 /// Render the split strategy selection dialog as a centered overlay.
-pub fn render(app: &AppState, frame: &mut Frame) {
+pub fn render(app: &mut AppState, frame: &mut Frame) {
     let commit_summary = app
         .commits
         .get(app.selection_index)
@@ -155,11 +180,19 @@ pub fn render(app: &AppState, frame: &mut Frame) {
         .blank();
 
     let content_width = 50;
-    dialog.render(frame, "Split Commit", Color::Cyan, content_width, 0);
+    let (max_scroll, visible_height) = dialog.render(
+        frame,
+        "Split Commit",
+        Color::Cyan,
+        content_width,
+        app.dialog_scroll_offset,
+    );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
-pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
+pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
     let pending = match &app.mode {
         AppMode::SplitConfirm(p) => p,
         _ => return,
@@ -170,7 +203,7 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
     };
 
-    Dialog::new()
+    let (max_scroll, visible_height) = Dialog::new()
         .title(
             format!(
                 " This will create {} commits ({}).",
@@ -185,5 +218,13 @@ pub fn render_split_confirm(app: &AppState, frame: &mut Frame) {
             ("Esc", Color::Cyan, "Cancel"),
         ])
         .blank()
-        .render(frame, "Confirm Split", Color::Yellow, 52, 0);
+        .render(
+            frame,
+            "Confirm Split",
+            Color::Yellow,
+            52,
+            app.dialog_scroll_offset,
+        );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }

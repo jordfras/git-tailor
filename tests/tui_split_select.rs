@@ -39,7 +39,7 @@ fn test_split_dialog_per_file_selected() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&app, frame);
+        views::split_select::render(&mut app, frame);
     }));
 }
 
@@ -51,7 +51,7 @@ fn test_split_dialog_per_hunk_selected() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&app, frame);
+        views::split_select::render(&mut app, frame);
     }));
 }
 
@@ -63,6 +63,6 @@ fn test_split_dialog_per_hunk_group_selected() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&app, frame);
+        views::split_select::render(&mut app, frame);
     }));
 }

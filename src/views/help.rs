@@ -14,7 +14,7 @@
 
 // Help dialog view showing keybindings
 
-use super::dialog::Dialog;
+use super::dialog::{Dialog, handle_dialog_scroll};
 use crate::app::{AppAction, KeyCommand};
 use ratatui::{Frame, style::Color};
 
@@ -25,23 +25,10 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
             app.toggle_help();
             AppAction::Handled
         }
-        KeyCommand::MoveUp => {
-            app.scroll_dialog_up();
+        _ => {
+            handle_dialog_scroll(action, app);
             AppAction::Handled
         }
-        KeyCommand::MoveDown => {
-            app.scroll_dialog_down();
-            AppAction::Handled
-        }
-        KeyCommand::PageUp => {
-            app.scroll_dialog_page_up();
-            AppAction::Handled
-        }
-        KeyCommand::PageDown => {
-            app.scroll_dialog_page_down();
-            AppAction::Handled
-        }
-        _ => AppAction::Handled,
     }
 }
 

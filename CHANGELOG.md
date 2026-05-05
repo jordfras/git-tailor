@@ -12,15 +12,15 @@ The format is based on
 
 - The move-commit picker now scrolls to keep the insertion-point separator
   visible when it moves outside the current viewport.
-- Entering commit detail mode (`i`) on a narrow terminal now correctly shows
-  the commit detail panel.
+- Entering commit detail mode (`i`) on a narrow terminal now correctly shows the
+  commit detail panel.
 
 ### Added
 
 - PageUp/Down now works in the move-commit, squash, and split-strategy pickers.
-
-### Added
-
+- All dialogs (drop confirmation, rebase conflict, split confirmation, split
+  strategy picker, and help overlay) are now scrollable with Up/Down and
+  PageUp/PageDown when the content is taller than the terminal.
 - Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
   `fg` in the shell resumes the TUI exactly where it was left.
 - The footer now shows a right-aligned `Press 'h' for help` hint so new users
