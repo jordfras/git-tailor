@@ -87,7 +87,7 @@ pub trait FragmapTheme {
 ///
 /// This is the default theme, matching the original git-tailor rendering:
 /// all squares use `█`, all connectors use `│`, colored only by relation type.
-pub struct PlainTheme;
+struct PlainTheme;
 
 impl FragmapTheme for PlainTheme {
     fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {
@@ -128,7 +128,7 @@ impl FragmapTheme for PlainTheme {
 /// Dims unrelated columns (those the focus commit does not touch) to emphasize
 /// the selected commit's clusters. Related connectors use heavy `┃`, unrelated
 /// use light `│`. Squashable relations are green, conflicts are red/white.
-pub struct HighlightTheme;
+struct HighlightTheme;
 
 impl FragmapTheme for HighlightTheme {
     fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {
@@ -187,7 +187,7 @@ impl FragmapTheme for HighlightTheme {
 /// Touched squares are rendered as a space with a white background; connectors
 /// use yellow (squashable) or red (conflict) backgrounds — identical to the
 /// ANSI color output produced by `git-tailor --static`.
-pub struct ClassicTheme;
+struct ClassicTheme;
 
 impl FragmapTheme for ClassicTheme {
     fn square_symbol(&self, _role: SquareRole, _rel: SquareRelation) -> &str {

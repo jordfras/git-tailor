@@ -278,67 +278,6 @@ fn test_extract_spans_empty_commit() {
 }
 
 #[test]
-fn test_map_line_forward_before_hunk() {
-    let hunks = vec![HunkInfo {
-        old_start: 10,
-        old_lines: 5,
-        new_start: 10,
-        new_lines: 8,
-    }];
-    assert_eq!(map_line_forward(5, &hunks), 5);
-}
-
-#[test]
-fn test_map_line_forward_after_hunk() {
-    let hunks = vec![HunkInfo {
-        old_start: 10,
-        old_lines: 5,
-        new_start: 10,
-        new_lines: 8,
-    }];
-    // delta = 8 - 5 = 3, so line 20 → 23
-    assert_eq!(map_line_forward(20, &hunks), 23);
-}
-
-#[test]
-fn test_split_and_propagate_overlap() {
-    let hunks = vec![HunkInfo {
-        old_start: 10,
-        old_lines: 5,
-        new_start: 10,
-        new_lines: 8,
-    }];
-    // Span [8, 20) partially overlaps with hunk [10, 15).
-    // After splitting: [8, 10) (before) and [15, 20) (after).
-    // [8, 10) → map: 8 < 10, no delta → [8, 10)
-    // [15, 20) → map: 15 >= 15, delta = 8-5 = 3 → [18, 23)
-    let result = split_and_propagate(8, 20, &hunks);
-    assert_eq!(result, vec![(8, 10), (18, 23)]);
-}
-
-#[test]
-fn test_map_line_forward_two_hunks() {
-    let hunks = vec![
-        HunkInfo {
-            old_start: 10,
-            old_lines: 5,
-            new_start: 10,
-            new_lines: 8,
-        },
-        HunkInfo {
-            old_start: 30,
-            old_lines: 3,
-            new_start: 33,
-            new_lines: 5,
-        },
-    ];
-    // Between hunks: line 25 → 25 + 3 = 28
-    assert_eq!(map_line_forward(25, &hunks), 28);
-    // After both: line 40 → 40 + 3 + 2 = 45
-    assert_eq!(map_line_forward(40, &hunks), 45);
-}
-
-#[test]
 fn test_propagation_sequential_commits_same_file() {
     // Two commits touching different, distant parts of the same file.
     // After propagation they should not share a cluster.

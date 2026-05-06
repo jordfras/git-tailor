@@ -664,8 +664,8 @@ pub(super) fn enumerate_file_spg_paths(
 }
 
 /// Diagnostic: dump per-file SPG stats (for debugging, not used in production).
-#[doc(hidden)]
-pub fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
+#[allow(dead_code)]
+pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
     let file_commits =
         super::collect_file_commits(commit_diffs, &super::build_rename_map(commit_diffs));
 

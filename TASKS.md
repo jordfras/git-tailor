@@ -324,7 +324,7 @@ Guidelines:
   ~83 lines computing fragmap dimensions, title widths, and layout areas. Break
   into 2-3 sub-functions (`compute_fragmap_dimensions`, `split_table_areas`)
   each handling one concern, with the main function as orchestrator.
-- [ ] T196 P3 feat - Restrict unnecessary `pub` visibility in `commit_list.rs`:
+- [x] T196 P3 feat - Restrict unnecessary `pub` visibility in `commit_list.rs`:
   `build_header`, `build_constraints`, `fragmap_index` and similar helper
   functions are marked `pub` but only used within the module. Remove `pub` to
   narrow their visibility.
