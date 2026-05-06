@@ -278,7 +278,7 @@ Guidelines:
   "unstaged";` at the top of the relevant impl block (or near the `VirtualOid`
   definition) and reference them from both arms, ensuring the two methods cannot
   drift out of sync.
-- [ ] T188 P3 feat - Introduce `ORIGIN_HEAD_REF` constant in
+- [X] T188 P3 feat - Introduce `ORIGIN_HEAD_REF` constant in
   `repo/git2_impl/reads.rs`: the magic string `"refs/remotes/origin/HEAD"` is
   hardcoded inside `find_reference("refs/remotes/origin/HEAD")` at
   `src/repo/git2_impl/reads.rs:209`, while related doc comments in
