@@ -312,12 +312,14 @@ Guidelines:
   `dialog_scroll_offset` on enter, set mode to `CommitList` on cancel). Extract
   private `enter_dialog(mode)` and `exit_dialog()` helpers and delegate from all
   6+ methods.
-- [ ] T194 P3 feat - Extract squash message preparation into a pure function:
+- [-] T194 P3 feat - Extract squash message preparation into a pure function:
   `handle_prepare_squash` in `src/main.rs` is ~50 lines with 9 parameters
   (`#[allow(clippy::too_many_arguments)]`). Extract the message-construction
   logic (fixup vs squash, editor invocation decision) into a testable pure
   function
-  `fn build_squash_message(is_fixup, source_msg, target_msg) -> String`.
+  `fn build_squash_message(is_fixup, source_msg, target_msg) -> String`. (Flags:
+  WONT DO — after T191 the message logic is just two `keeps_target_message()`
+  one-liners; not worth extracting)
 - [ ] T195 P3 feat - Split `compute_layout` in `commit_list.rs`: the function is
   ~83 lines computing fragmap dimensions, title widths, and layout areas. Break
   into 2-3 sub-functions (`compute_fragmap_dimensions`, `split_table_areas`)
