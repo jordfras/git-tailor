@@ -69,14 +69,17 @@ pub enum VirtualOid {
     Unstaged,
 }
 
+const STAGED_LABEL: &str = "staged";
+const UNSTAGED_LABEL: &str = "unstaged";
+
 impl VirtualOid {
     /// Full string representation: hex SHA for real commits, fixed label for
     /// synthetic rows.
     pub fn long(&self) -> &str {
         match self {
             VirtualOid::Real(oid) => oid.long(),
-            VirtualOid::Staged => "staged",
-            VirtualOid::Unstaged => "unstaged",
+            VirtualOid::Staged => STAGED_LABEL,
+            VirtualOid::Unstaged => UNSTAGED_LABEL,
         }
     }
 
@@ -85,8 +88,8 @@ impl VirtualOid {
     pub fn short(&self) -> &str {
         match self {
             VirtualOid::Real(oid) => oid.short(),
-            VirtualOid::Staged => "staged",
-            VirtualOid::Unstaged => "unstaged",
+            VirtualOid::Staged => STAGED_LABEL,
+            VirtualOid::Unstaged => UNSTAGED_LABEL,
         }
     }
 

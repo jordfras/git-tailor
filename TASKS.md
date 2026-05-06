@@ -270,7 +270,7 @@ Guidelines:
   `const DIALOG_BORDER_HEIGHT: u16 = 2;` (and width if applicable) at module top
   and replace the magic `2`s. Also a good template for future per-view layout
   constants.
-- [ ] T187 P3 feat - Replace `"staged"` / `"unstaged"` string literals in
+- [X] T187 P3 feat - Replace `"staged"` / `"unstaged"` string literals in
   `VirtualOid` with named constants: the labels appear at `src/lib.rs:88` and
   `:98` (and in doc comments at lines 72-74) for `VirtualOid::Staged` /
   `VirtualOid::Unstaged` rendering. Define
