@@ -14,6 +14,11 @@
 
 // Shared dialog rendering utilities for centered overlay dialogs.
 
+/// Left + right border columns (one column each side).
+const BORDER_WIDTH: u16 = 2;
+/// Top + bottom border rows (one row each side).
+const BORDER_HEIGHT: u16 = 2;
+
 use crate::app::{AppState, KeyCommand};
 use ratatui::{
     Frame,
@@ -57,8 +62,8 @@ pub fn handle_dialog_scroll(action: KeyCommand, app: &mut AppState) -> bool {
 /// accounting for the terminal width constraint.
 pub fn inner_width(preferred_width: u16, area_width: u16) -> usize {
     preferred_width
-        .min(area_width.saturating_sub(4))
-        .saturating_sub(2) as usize
+        .min(area_width.saturating_sub(BORDER_WIDTH * 2))
+        .saturating_sub(BORDER_WIDTH) as usize
 }
 
 /// Incremental builder for a centered overlay dialog.
@@ -219,9 +224,10 @@ impl Dialog {
     ) -> (usize, usize) {
         let area = frame.area();
         let content_height = self.lines.len();
-        let dialog_width = preferred_width.min(area.width.saturating_sub(4));
-        let dialog_height = (content_height as u16 + 2).min(area.height.saturating_sub(2));
-        let inner_height = dialog_height.saturating_sub(2) as usize;
+        let dialog_width = preferred_width.min(area.width.saturating_sub(BORDER_WIDTH * 2));
+        let dialog_height =
+            (content_height as u16 + BORDER_HEIGHT).min(area.height.saturating_sub(BORDER_HEIGHT));
+        let inner_height = dialog_height.saturating_sub(BORDER_HEIGHT) as usize;
         let max_scroll = content_height.saturating_sub(inner_height);
         let scroll_offset = scroll_offset.min(max_scroll);
 
@@ -251,12 +257,12 @@ impl Dialog {
             dialog_area,
         );
 
-        if max_scroll > 0 && dialog_height > 2 {
+        if max_scroll > 0 && dialog_height > BORDER_HEIGHT {
             let scrollbar_area = Rect {
                 x: dialog_area.x + dialog_area.width.saturating_sub(1),
                 y: dialog_area.y + 1,
                 width: 1,
-                height: dialog_area.height.saturating_sub(2),
+                height: dialog_area.height.saturating_sub(BORDER_HEIGHT),
             };
             render_dialog_scrollbar(
                 frame,

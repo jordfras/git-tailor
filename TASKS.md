@@ -263,7 +263,7 @@ Guidelines:
   `+++ b/foo.rs` diff header lines. Extract `fn diff_path_with_prefix(path:
   Option<&str>, prefix: &str) -> String` and call it twice; also defines a
   single place to change the `/dev/null` sentinel if needed.
-- [ ] T186 P3 feat - Introduce `DIALOG_BORDER_HEIGHT` / `DIALOG_BORDER_WIDTH`
+- [X] T186 P3 feat - Introduce `DIALOG_BORDER_HEIGHT` / `DIALOG_BORDER_WIDTH`
   constants in `views/dialog.rs`: hardcoded `saturating_sub(2)` / `+ 2`
   arithmetic representing the top+bottom (or left+right) border occupies dialog
   inner-area calculations at `src/views/dialog.rs:45`, `:46`, `:80`. Define
