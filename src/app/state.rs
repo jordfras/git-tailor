@@ -200,39 +200,36 @@ impl AppState {
         head_oid: Oid,
         count: usize,
     ) {
-        self.mode = AppMode::SplitConfirm(PendingSplit {
+        self.enter_dialog(AppMode::SplitConfirm(PendingSplit {
             strategy,
             commit_oid,
             head_oid,
             count,
-        });
-        self.dialog_scroll_offset = 0;
+        }));
     }
 
     /// Cancel the large-split confirmation and return to CommitList.
     pub fn cancel_split_confirm(&mut self) {
-        self.mode = AppMode::CommitList;
+        self.exit_dialog();
     }
 
     /// Enter the drop confirmation dialog.
     pub fn enter_drop_confirm(&mut self, commit_oid: Oid, commit_summary: String, head_oid: Oid) {
-        self.mode = AppMode::DropConfirm(PendingDrop {
+        self.enter_dialog(AppMode::DropConfirm(PendingDrop {
             commit_oid,
             commit_summary,
             head_oid,
-        });
-        self.dialog_scroll_offset = 0;
+        }));
     }
 
     /// Cancel the drop confirmation and return to CommitList.
     pub fn cancel_drop_confirm(&mut self) {
-        self.mode = AppMode::CommitList;
+        self.exit_dialog();
     }
 
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
-        self.mode = AppMode::RebaseConflict(Box::new(state));
-        self.dialog_scroll_offset = 0;
+        self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
     }
 
     /// Returns the selected commit if it is a real (non-synthetic) commit.
@@ -255,8 +252,7 @@ impl AppState {
         if self.selected_real_commit("split").is_none() {
             return;
         }
-        self.mode = AppMode::SplitSelect { strategy_index: 0 };
-        self.dialog_scroll_offset = 0;
+        self.enter_dialog(AppMode::SplitSelect { strategy_index: 0 });
     }
 
     /// Enter squash target selection mode.
@@ -294,7 +290,7 @@ impl AppState {
 
     /// Cancel squash selection and return to CommitList.
     pub fn cancel_squash_select(&mut self) {
-        self.mode = AppMode::CommitList;
+        self.exit_dialog();
     }
 
     /// Enter move commit selection mode.
@@ -335,7 +331,7 @@ impl AppState {
 
     /// Cancel move selection and return to CommitList.
     pub fn cancel_move_select(&mut self) {
-        self.mode = AppMode::CommitList;
+        self.exit_dialog();
     }
 
     /// Set a success status message (shown with green background).
@@ -447,6 +443,15 @@ impl AppState {
         } else {
             self.show_help();
         }
+    }
+
+    fn enter_dialog(&mut self, mode: AppMode) {
+        self.mode = mode;
+        self.dialog_scroll_offset = 0;
+    }
+
+    fn exit_dialog(&mut self) {
+        self.mode = AppMode::CommitList;
     }
 }
 

@@ -305,7 +305,7 @@ Guidelines:
   `move_select.rs`. Add `AppState::guard_real_commit(&mut self, action: &str) ->
   Option<&CommitInfo>` that returns `None` (with error message set) when the
   selected commit is synthetic, replacing the boilerplate at each call site.
-- [ ] T193 P3 feat - Consolidate dialog enter/cancel helpers:
+- [x] T193 P3 feat - Consolidate dialog enter/cancel helpers:
   `enter_split_confirm`, `enter_drop_confirm`, `cancel_split_confirm`,
   `cancel_drop_confirm`, `cancel_squash_select`, `cancel_move_select` in
   `app/state.rs` all follow the same pattern (set mode + reset
