@@ -195,8 +195,9 @@ impl AppState {
 
     /// Scroll commit list up by one page (visible_height lines).
     pub fn page_up(&mut self, visible_height: usize) {
-        let page_size = visible_height.saturating_sub(1).max(1); // Keep at least one line overlap
-        self.selection_index = self.selection_index.saturating_sub(page_size);
+        self.selection_index = self
+            .selection_index
+            .saturating_sub(page_size(visible_height));
     }
 
     /// Scroll commit list down by one page (visible_height lines).
@@ -204,21 +205,24 @@ impl AppState {
         if self.commits.is_empty() {
             return;
         }
-        let page_size = visible_height.saturating_sub(1).max(1); // Keep at least one line overlap
-        let new_index = self.selection_index.saturating_add(page_size);
+        let new_index = self
+            .selection_index
+            .saturating_add(page_size(visible_height));
         self.selection_index = new_index.min(self.commits.len() - 1);
     }
 
     /// Scroll detail view up by one page (visible_height lines).
     pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
-        let page_size = visible_height.saturating_sub(1).max(1);
-        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(page_size);
+        self.detail_scroll_offset = self
+            .detail_scroll_offset
+            .saturating_sub(page_size(visible_height));
     }
 
     /// Scroll detail view down by one page (visible_height lines).
     pub fn scroll_detail_page_down(&mut self, visible_height: usize) {
-        let page_size = visible_height.saturating_sub(1).max(1);
-        let new_offset = self.detail_scroll_offset.saturating_add(page_size);
+        let new_offset = self
+            .detail_scroll_offset
+            .saturating_add(page_size(visible_height));
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
@@ -424,14 +428,16 @@ impl AppState {
 
     /// Scroll the current dialog up by one page.
     pub fn scroll_dialog_page_up(&mut self) {
-        let page = self.dialog_visible_height.saturating_sub(1).max(1);
-        self.dialog_scroll_offset = self.dialog_scroll_offset.saturating_sub(page);
+        self.dialog_scroll_offset = self
+            .dialog_scroll_offset
+            .saturating_sub(page_size(self.dialog_visible_height));
     }
 
     /// Scroll the current dialog down by one page.
     pub fn scroll_dialog_page_down(&mut self) {
-        let page = self.dialog_visible_height.saturating_sub(1).max(1);
-        let new = self.dialog_scroll_offset.saturating_add(page);
+        let new = self
+            .dialog_scroll_offset
+            .saturating_add(page_size(self.dialog_visible_height));
         self.dialog_scroll_offset = new.min(self.max_dialog_scroll);
     }
 
@@ -471,6 +477,15 @@ impl AppState {
             self.show_help();
         }
     }
+}
+
+/// Page-scroll distance for a panel of `visible_height` lines.
+///
+/// Keeps one line of overlap so the user retains context after paging — the
+/// last visible line becomes the first visible line of the next page.
+/// Always returns at least 1 so a single-line panel can still page.
+fn page_size(visible_height: usize) -> usize {
+    visible_height.saturating_sub(1).max(1)
 }
 
 #[cfg(test)]

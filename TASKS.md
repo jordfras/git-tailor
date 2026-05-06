@@ -214,7 +214,7 @@ Guidelines:
   (max_scroll, clamped_offset)` and a `ListRenderContext { selection_idx,
   scroll_offset, visible_height }` helper used by both; sets the
   pattern for any future scrolling list view. (Flags: WONT DO)
-- [ ] T180 P2 feat - Extract `compute_page_size` helper in app.rs: the idiom
+- [X] T180 P2 feat - Extract `compute_page_size` helper in app.rs: the idiom
   `visible_height.saturating_sub(1).max(1)` (keep at least one line of overlap
   when paging) is repeated at `src/app.rs:485`, `:494`, `:501`, `:507`, `:737`,
   `:743` (the dialog variant uses `dialog_visible_height` but the same
