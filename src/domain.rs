@@ -12,16 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Core library for git-tailor
-
-pub mod app;
-pub mod domain;
-pub mod editor;
-pub mod fragmap;
-pub mod mergetool;
-pub mod repo;
-pub mod static_views;
-pub mod views;
-
-pub use domain::commit::{CommitInfo, Oid, VirtualOid};
-pub use domain::diff::{CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
+pub mod commit;
+pub mod diff;

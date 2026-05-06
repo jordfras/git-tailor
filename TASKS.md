@@ -176,7 +176,7 @@ Guidelines:
   blank; `render()` pads the border title with spaces automatically. Refactored
   `drop.rs`, `conflict.rs`, `help.rs`, and `split_select.rs` to use it,
   removing ~55 net lines of repetitive span/style construction.
-- [ ] T177 P3 feat - Move domain types from `lib.rs` into a `domain/` submodule
+- [X] T177 P3 feat - Move domain types from `lib.rs` into a `domain/` submodule
   tree: `src/lib.rs` currently mixes the public domain types (`CommitInfo`,
   `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`, `DeltaStatus`, `DiffLineKind`,
   `Oid`, `VirtualOid`) with the module declarations and re-exports. Split into
