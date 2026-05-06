@@ -91,27 +91,21 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Drop => {
-            let commit = &app.commits[app.selection_index];
-            if commit.oid.is_synthetic() {
-                app.set_error_message("Cannot drop staged/unstaged changes");
-                AppAction::Handled
-            } else {
-                AppAction::PrepareDropConfirm {
-                    commit_oid: commit.oid.expect_real_oid(),
-                    commit_summary: commit.summary.clone(),
-                }
+            let Some(commit) = app.selected_real_commit("drop") else {
+                return AppAction::Handled;
+            };
+            AppAction::PrepareDropConfirm {
+                commit_oid: commit.oid.expect_real_oid(),
+                commit_summary: commit.summary.clone(),
             }
         }
         KeyCommand::Reword => {
-            let commit = &app.commits[app.selection_index];
-            if commit.oid.is_synthetic() {
-                app.set_error_message("Cannot reword staged/unstaged changes");
-                AppAction::Handled
-            } else {
-                AppAction::PrepareReword {
-                    commit_oid: commit.oid.expect_real_oid(),
-                    current_message: commit.message.clone(),
-                }
+            let Some(commit) = app.selected_real_commit("reword") else {
+                return AppAction::Handled;
+            };
+            AppAction::PrepareReword {
+                commit_oid: commit.oid.expect_real_oid(),
+                current_message: commit.message.clone(),
             }
         }
         KeyCommand::Update => AppAction::ReloadCommits,

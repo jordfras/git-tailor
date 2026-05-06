@@ -235,13 +235,24 @@ impl AppState {
         self.dialog_scroll_offset = 0;
     }
 
+    /// Returns the selected commit if it is a real (non-synthetic) commit.
+    /// Sets an error message and returns `None` for staged/unstaged rows.
+    pub fn selected_real_commit(&mut self, action: &str) -> Option<&CommitInfo> {
+        if self
+            .commits
+            .get(self.selection_index)
+            .is_some_and(|c| c.oid.is_synthetic())
+        {
+            self.set_error_message(format!("Cannot {action} staged/unstaged changes"));
+            return None;
+        }
+        self.commits.get(self.selection_index)
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
-        if let Some(commit) = self.commits.get(self.selection_index)
-            && commit.oid.is_synthetic()
-        {
-            self.set_error_message("Cannot split staged/unstaged changes");
+        if self.selected_real_commit("split").is_none() {
             return;
         }
         self.mode = AppMode::SplitSelect { strategy_index: 0 };
@@ -261,10 +272,7 @@ impl AppState {
 
     fn enter_squash_or_fixup_select(&mut self, squash_mode: SquashMode) {
         let label = squash_mode.label().to_lowercase();
-        if let Some(commit) = self.commits.get(self.selection_index)
-            && commit.oid.is_synthetic()
-        {
-            self.set_error_message(format!("Cannot {label} staged/unstaged changes"));
+        if self.selected_real_commit(&label).is_none() {
             return;
         }
         let real_count = self
@@ -294,10 +302,7 @@ impl AppState {
     /// slot earlier in the commit list, which visually means "above" in
     /// chronological order).
     pub fn enter_move_select(&mut self) {
-        if let Some(commit) = self.commits.get(self.selection_index)
-            && commit.oid.is_synthetic()
-        {
-            self.set_error_message("Cannot move staged/unstaged changes");
+        if self.selected_real_commit("move").is_none() {
             return;
         }
 

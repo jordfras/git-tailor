@@ -44,25 +44,23 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         ListNav::Confirmed => {
-            let target_index = app.selection_index;
-
-            if target_index == source_index {
+            if app.selection_index == source_index {
                 app.set_error_message("Cannot squash a commit into itself");
                 return AppAction::Handled;
             }
 
-            let target = &app.commits[target_index];
-            if target.oid.is_synthetic() {
-                app.set_error_message("Cannot squash into staged/unstaged changes");
+            let Some(target) = app.selected_real_commit("squash into") else {
                 return AppAction::Handled;
-            }
+            };
+            let target_oid = target.oid.expect_real_oid();
+            let target_message = target.message.clone();
 
             let source = &app.commits[source_index];
             let result = AppAction::PrepareSquash {
                 source_oid: source.oid.expect_real_oid(),
-                target_oid: target.oid.expect_real_oid(),
+                target_oid,
                 source_message: source.message.clone(),
-                target_message: target.message.clone(),
+                target_message,
                 squash_mode,
             };
 
