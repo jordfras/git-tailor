@@ -293,5 +293,36 @@ Guidelines:
   (returning the empty-string variant with the existing semantics) so `AppState`
   can be derived. Reduces ~30 lines of mechanical boilerplate and means new
   fields with `Default` types no longer require touching the constructor.
+- [ ] T191 P2 feat - Replace `is_fixup: bool` parameter with a `SquashMode`
+  enum: the boolean is threaded through `AppMode::SquashSelect`, `AppAction`,
+  `handle_prepare_squash`, and `enter_squash_or_fixup_select`. Define
+  `pub enum SquashMode { Squash, Fixup }` with methods `label() -> &str` and
+  `keeps_target_message() -> bool`, then replace all `is_fixup` parameters.
+  Improves type safety and makes call sites self-documenting.
+- [ ] T192 P2 feat - Extract synthetic-commit guard helper: the pattern
+  `if commit.oid.is_synthetic() { app.set_error_message("Cannot X ..."); return
+  ... }` appears 10+ times across `commit_list.rs`, `app/state.rs`,
+  `move_select.rs`. Add `AppState::guard_real_commit(&mut self, action: &str)
+  -> Option<&CommitInfo>` that returns `None` (with error message set) when the
+  selected commit is synthetic, replacing the boilerplate at each call site.
+- [ ] T193 P3 feat - Consolidate dialog enter/cancel helpers: `enter_split_confirm`,
+  `enter_drop_confirm`, `cancel_split_confirm`, `cancel_drop_confirm`,
+  `cancel_squash_select`, `cancel_move_select` in `app/state.rs` all follow the
+  same pattern (set mode + reset `dialog_scroll_offset` on enter, set mode to
+  `CommitList` on cancel). Extract private `enter_dialog(mode)` and
+  `exit_dialog()` helpers and delegate from all 6+ methods.
+- [ ] T194 P3 feat - Extract squash message preparation into a pure function:
+  `handle_prepare_squash` in `src/main.rs` is ~50 lines with 9 parameters
+  (`#[allow(clippy::too_many_arguments)]`). Extract the message-construction
+  logic (fixup vs squash, editor invocation decision) into a testable pure
+  function `fn build_squash_message(is_fixup, source_msg, target_msg) -> String`.
+- [ ] T195 P3 feat - Split `compute_layout` in `commit_list.rs`: the function is
+  ~83 lines computing fragmap dimensions, title widths, and layout areas. Break
+  into 2-3 sub-functions (`compute_fragmap_dimensions`, `split_table_areas`)
+  each handling one concern, with the main function as orchestrator.
+- [ ] T196 P3 feat - Restrict unnecessary `pub` visibility in `commit_list.rs`:
+  `build_header`, `build_constraints`, `fragmap_index` and similar helper
+  functions are marked `pub` but only used within the module. Remove `pub` to
+  narrow their visibility.
 
 ## Notes
