@@ -28,6 +28,12 @@ const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchDirection {
+    Next,
+    Prev,
+}
 use crate::repo::GitRepo;
 
 /// Transient info about the search bar, computed during render.
@@ -86,11 +92,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::SearchNext => {
-            advance_search_match(app, true);
+            advance_search_match(app, SearchDirection::Next);
             AppAction::Handled
         }
         KeyCommand::SearchPrev => {
-            advance_search_match(app, false);
+            advance_search_match(app, SearchDirection::Prev);
             AppAction::Handled
         }
         KeyCommand::Update => AppAction::ReloadCommits,
@@ -150,19 +156,25 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
 }
 
 /// Advance to the next or previous search match, wrapping around.
-fn advance_search_match(app: &mut AppState, forward: bool) {
+fn advance_search_match(app: &mut AppState, dir: SearchDirection) {
     if !app.search_active || app.search_matches.is_empty() {
         return;
     }
     let len = app.search_matches.len();
-    app.search_match_index = Some(match app.search_match_index {
-        Some(idx) if forward => (idx + 1) % len,
-        Some(0) if !forward => len - 1,
-        Some(idx) if !forward => idx - 1,
-        _ if forward => 0,
-        _ => len - 1,
-    });
+    app.search_match_index = Some(next_match_index(app.search_match_index, len, dir));
     scroll_to_current_match(app);
+}
+
+/// Return the next match index given the current index, list length, and direction.
+/// Wraps around at both ends.
+fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) -> usize {
+    match (current, dir) {
+        (Some(idx), SearchDirection::Next) => (idx + 1) % len,
+        (Some(0), SearchDirection::Prev) => len - 1,
+        (Some(idx), SearchDirection::Prev) => idx - 1,
+        (None, SearchDirection::Next) => 0,
+        (None, SearchDirection::Prev) => len - 1,
+    }
 }
 
 /// Scroll the detail view so the current search match line is visible.
@@ -766,4 +778,39 @@ fn render_h_scrollbar(
         .end_symbol(None)
         .track_symbol(Some("─"));
     frame.render_stateful_widget(scrollbar, area, &mut state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_from_none_forward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Next), 0);
+    }
+
+    #[test]
+    fn next_from_none_backward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_wraps_forward() {
+        assert_eq!(next_match_index(Some(4), 5, SearchDirection::Next), 0);
+    }
+
+    #[test]
+    fn next_wraps_backward() {
+        assert_eq!(next_match_index(Some(0), 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_advances_forward() {
+        assert_eq!(next_match_index(Some(2), 5, SearchDirection::Next), 3);
+    }
+
+    #[test]
+    fn next_advances_backward() {
+        assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
+    }
 }

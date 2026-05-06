@@ -241,7 +241,7 @@ Guidelines:
   `Oid` or panics with a clear message if the variant is synthetic. Replace all
   five call sites; provides a single, well-named audit point if
   synthetic-vs-real handling ever needs revisiting.
-- [ ] T183 P3 feat - Replace `forward: bool` parameter with a `SearchDirection`
+- [X] T183 P3 feat - Replace `forward: bool` parameter with a `SearchDirection`
   enum: `advance_search_match(app: &mut AppState, forward:
   bool)` at `src/views/commit_detail.rs:153` is called with raw `true` /
   `false`, losing meaning at the call site. Define
@@ -249,7 +249,7 @@ Guidelines:
   `views/commit_detail.rs`) and use it instead so call sites read
   `advance_search_match(app, SearchDirection::Next)`. Trivial change but
   improves grep-ability and readability.
-- [ ] T184 P3 feat - Extract `next_match_index` pure helper for search cycling:
+- [X] T184 P3 feat - Extract `next_match_index` pure helper for search cycling:
   the wrap-around modulo arithmetic in `advance_search_match` at
   `src/views/commit_detail.rs:157-166` mixes cursor cycling logic with
   `AppState` mutation. Extract `fn next_match_index(current: Option<usize>, len:
