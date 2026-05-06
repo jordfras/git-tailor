@@ -12,6 +12,21 @@ Guidelines:
 
 ## UNCATEGORIZED
 
+## Interactivity — Commit List & Operations
+- [ ] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
+  bails with "Cannot drop a merge or root commit" when `commit.parent_count()`
+  `== 0`; update `drop_op.rs` to handle the root case separately — collect all
+  descendants, make the first descendant an orphan root commit (using its
+  existing tree and metadata, reusing the `plan_move_root_to_later` pattern from
+  `move_op.rs`), then cherry-pick the rest of the chain on top; split the
+  parent-count guard into two branches: `parent_count > 1` bails with "Cannot
+  drop a merge commit", `parent_count == 0` takes the root path, `parent_count
+  == 1` is the existing fast path; also update `validate_single_parent_op` (or
+  introduce a separate `validate_non_merge_op`) if the refactored helper from
+  T178 makes the split guard awkward; add a test in
+  `tests/drop_commit/root_commit.rs` that verifies the root commit is dropped
+  and the history is correctly rewritten.
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
@@ -155,8 +170,8 @@ Guidelines:
   widget (using `VerticalLeft`, `VerticalRight`, or `HorizontalBottom` as
   appropriate); the two-pass layout geometry in `commit_detail.rs` that
   determines scrollbar area sizes must be kept — only the rendering step
-  changes. Removes ~120 LOC of duplicated thumb-sizing arithmetic and aligns
-  all scrollbars on a single rendering path.
+  changes. Removes ~120 LOC of duplicated thumb-sizing arithmetic and aligns all
+  scrollbars on a single rendering path.
 - [X] T175 P2 feat - Extract cherry-pick helpers from `repo/git2_impl.rs` into
   `repo/git2_impl/cherry_pick.rs`: `src/repo/git2_impl.rs` (517 lines) currently
   houses the trait impl plus `cherry_pick_chain` (line 433),
@@ -174,8 +189,8 @@ Guidelines:
   `key_binding()`, `instructions()`, `push_line()`, and `render()`. `title()`
   adds surrounding blank lines implicitly; `section()` adds only a leading
   blank; `render()` pads the border title with spaces automatically. Refactored
-  `drop.rs`, `conflict.rs`, `help.rs`, and `split_select.rs` to use it,
-  removing ~55 net lines of repetitive span/style construction.
+  `drop.rs`, `conflict.rs`, `help.rs`, and `split_select.rs` to use it, removing
+  ~55 net lines of repetitive span/style construction.
 - [X] T177 P3 feat - Move domain types from `lib.rs` into a `domain/` submodule
   tree: `src/lib.rs` currently mixes the public domain types (`CommitInfo`,
   `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`, `DeltaStatus`, `DiffLineKind`,
@@ -183,13 +198,13 @@ Guidelines:
   `src/domain/commit.rs` (commit + oid types) and `src/domain/diff.rs`
   (diff/hunk/line types), then re-export from `lib.rs` so external imports
   remain unchanged. Keeps `lib.rs` focused on crate-level wiring.
-- [ ] T178 P3 feat - Extract `validate_operation_preconditions` for drop / move
+- [-] T178 P3 feat - Extract `validate_operation_preconditions` for drop / move
   ops: `src/repo/git2_impl/drop_op.rs` and `src/repo/git2_impl/move_op.rs` both
   open with the same prelude — call `check_no_dirty_state`, parse the commit and
   head OIDs, look up the commit objects, validate parent count (single-parent
   only). Extract a `fn validate_single_parent_op(repo, commit_oid, head_oid) ->
   Result<(Commit, Commit)>` helper in `git2_impl.rs`. Saves ~10 LOC and removes
-  a class of copy-paste hazards.
+  a class of copy-paste hazards. (Flags: WONT DO)
 - [ ] T179 P3 feat - Extract list-view scroll/selection helpers shared by
   commit_list and commit_detail: `src/views/commit_list.rs` (832 lines)
   and `src/views/commit_detail.rs` (822 lines) both implement scroll-
