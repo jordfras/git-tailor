@@ -205,7 +205,7 @@ Guidelines:
   only). Extract a `fn validate_single_parent_op(repo, commit_oid, head_oid) ->
   Result<(Commit, Commit)>` helper in `git2_impl.rs`. Saves ~10 LOC and removes
   a class of copy-paste hazards. (Flags: WONT DO)
-- [ ] T179 P3 feat - Extract list-view scroll/selection helpers shared by
+- [-] T179 P3 feat - Extract list-view scroll/selection helpers shared by
   commit_list and commit_detail: `src/views/commit_list.rs` (832 lines)
   and `src/views/commit_detail.rs` (822 lines) both implement scroll-
   bound clamping, page-size-derived navigation, and selection /
@@ -213,7 +213,7 @@ Guidelines:
   `compute_scroll_bounds(content_height, visible_height) ->
   (max_scroll, clamped_offset)` and a `ListRenderContext { selection_idx,
   scroll_offset, visible_height }` helper used by both; sets the
-  pattern for any future scrolling list view.
+  pattern for any future scrolling list view. (Flags: WONT DO)
 - [ ] T180 P2 feat - Extract `compute_page_size` helper in app.rs: the idiom
   `visible_height.saturating_sub(1).max(1)` (keep at least one line of overlap
   when paging) is repeated at `src/app.rs:485`, `:494`, `:501`, `:507`, `:737`,
