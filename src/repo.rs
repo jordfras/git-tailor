@@ -18,7 +18,7 @@ pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
 
-use crate::{CommitDiff, CommitInfo, Oid};
+use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
@@ -86,9 +86,8 @@ pub struct SquashContext {
     pub combined_message: String,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<Oid>,
-    /// When true the operation is a fixup: the editor is skipped and
-    /// `combined_message` (the target message) is used directly.
-    pub is_fixup: bool,
+    /// Whether this is a squash (editor shown) or fixup (target message kept as-is).
+    pub squash_mode: SquashMode,
 }
 
 /// Abstraction over git repository operations.
@@ -317,7 +316,7 @@ pub trait GitRepo {
         source_oid: &Oid,
         target_oid: &Oid,
         combined_message: &str,
-        is_fixup: bool,
+        squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<ConflictState>>;
 

@@ -16,5 +16,6 @@
 // expect_rebase_conflict!, assert_history!, assert_file_contents!, etc.) so that
 // sub-modules only need `use crate::common::prelude::*;` to pull everything in.
 pub use crate::*;
+pub use git_tailor::app::SquashMode;
 pub use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome};
 pub use git_tailor::{Oid, VirtualOid};

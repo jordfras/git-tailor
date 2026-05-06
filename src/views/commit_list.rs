@@ -15,7 +15,7 @@
 // Commit list view rendering
 
 use super::hunk_groups;
-use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
 use crate::fragmap::TouchKind;
 use ratatui::{
     Frame,
@@ -678,10 +678,10 @@ pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
 
     if let AppMode::SquashSelect {
         source_index,
-        is_fixup,
+        squash_mode,
     } = app.mode
     {
-        render_squash_footer(frame, app, area, source_index, is_fixup);
+        render_squash_footer(frame, app, area, source_index, squash_mode);
         return;
     }
 
@@ -728,13 +728,13 @@ fn render_squash_footer(
     app: &AppState,
     area: Rect,
     source_index: usize,
-    is_fixup: bool,
+    squash_mode: SquashMode,
 ) {
     render_action_footer(
         frame,
         app,
         area,
-        if is_fixup { "Fixup" } else { "Squash" },
+        squash_mode.label(),
         source_index,
         " into\u{2026}",
         &[("Enter", " confirm \u{b7} "), ("Esc", " cancel")],

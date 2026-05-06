@@ -173,7 +173,7 @@ fn squash_try_combine_returns_none_when_clean() {
             &Oid::from(source),
             &Oid::from(target),
             "combined",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap();
@@ -198,7 +198,7 @@ fn squash_try_combine_returns_conflict_state() {
             &Oid::from(source),
             &Oid::from(target),
             "combined msg",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap()
@@ -214,6 +214,7 @@ fn squash_try_combine_returns_conflict_state() {
 
 #[test]
 fn squash_finalize_after_conflict_resolution() {
+    use git_tailor::app::SquashMode;
     use git_tailor::repo::SquashContext;
 
     let test = common::TestRepo::new();
@@ -232,7 +233,7 @@ fn squash_finalize_after_conflict_resolution() {
             &Oid::from(source),
             &Oid::from(target),
             "combined",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap()
@@ -252,7 +253,7 @@ fn squash_finalize_after_conflict_resolution() {
         target_oid: Oid::from(target),
         combined_message: "combined".to_string(),
         descendant_oids: vec![],
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo

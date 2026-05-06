@@ -20,6 +20,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     // Simulates the user resolving a squash-time conflict in an external
     // editor (e.g. VS Code) without explicitly staging the file. After
     // calling auto_stage_resolved_conflicts, squash_finalize should succeed.
+    use git_tailor::app::SquashMode;
     use git_tailor::repo::SquashContext;
 
     let test = common::TestRepo::new();
@@ -37,7 +38,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
             &Oid::from(source),
             &Oid::from(target),
             "combined",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap()
@@ -68,7 +69,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         target_oid: Oid::from(target),
         combined_message: "combined".to_string(),
         descendant_oids: vec![],
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
@@ -90,6 +91,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
 /// (with empty merge bases) when cherry-picking descendants.
 #[test]
 fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
+    use git_tailor::app::SquashMode;
     use git_tailor::repo::SquashContext;
 
     let test = common::TestRepo::new();
@@ -112,7 +114,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
             &Oid::from(source),
             &Oid::from(target),
             "squashed",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap()
@@ -130,7 +132,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         target_oid: Oid::from(target),
         combined_message: "squashed".to_string(),
         descendant_oids: vec![],
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
@@ -177,7 +179,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
             &Oid::from(source),
             &Oid::from(target),
             "combined",
-            true, // fixup
+            SquashMode::Fixup,
             &head,
         )
         .unwrap()

@@ -20,7 +20,7 @@ use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
-    app::{AppAction, AppMode, AppState, KeyCommand},
+    app::{AppAction, AppMode, AppState, KeyCommand, SquashMode},
     fragmap::TouchKind,
     views,
 };
@@ -34,7 +34,7 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
     app.selection_index = selection_index;
     app.mode = AppMode::SquashSelect {
         source_index,
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
     app
 }
@@ -107,7 +107,7 @@ fn test_squash_into_staged_blocked() {
     app.selection_index = 1;
     app.mode = AppMode::SquashSelect {
         source_index: 0,
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
@@ -244,7 +244,7 @@ fn test_squash_candidate_coloring_with_fragmap() {
     app.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
@@ -281,7 +281,7 @@ fn test_squash_candidate_coloring_conflicting() {
     app.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,
-        is_fixup: false,
+        squash_mode: SquashMode::Squash,
     };
 
     // All three commits touch cluster 0 → conflicting between 0 and 2
@@ -328,7 +328,7 @@ fn test_fixup_confirm_returns_prepare_fixup() {
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
-        is_fixup: true,
+        squash_mode: SquashMode::Fixup,
     };
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
@@ -336,14 +336,14 @@ fn test_fixup_confirm_returns_prepare_fixup() {
         AppAction::PrepareSquash {
             source_oid,
             target_oid,
-            is_fixup,
+            squash_mode,
             ..
         } => {
             assert_eq!(source_oid, Oid::from("333333333333"));
             assert_eq!(target_oid, Oid::from("111111111111"));
-            assert!(is_fixup);
+            assert_eq!(squash_mode, SquashMode::Fixup);
         }
-        other => panic!("Expected PrepareSquash with is_fixup, got {:?}", other),
+        other => panic!("Expected PrepareSquash with Fixup, got {:?}", other),
     }
     assert_eq!(app.mode, AppMode::CommitList);
 }
@@ -360,7 +360,7 @@ fn test_fixup_footer_renders() {
     app.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
-        is_fixup: true,
+        squash_mode: SquashMode::Fixup,
     };
 
     insta::assert_debug_snapshot!(harness.render(|frame| {

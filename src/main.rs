@@ -23,7 +23,7 @@ use clap::Parser;
 use git_tailor::repo::{ConflictState, Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
-    app::{self, AppAction, AppMode, AppState, SplitStrategy},
+    app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
     editor, fragmap,
     fragmap::SquashableScope,
     mergetool, views,
@@ -326,7 +326,7 @@ fn dispatch_action(
             target_oid,
             source_message,
             target_message,
-            is_fixup,
+            squash_mode,
         } => {
             return handle_prepare_squash(
                 git_repo,
@@ -335,7 +335,7 @@ fn dispatch_action(
                 target_oid,
                 source_message,
                 target_message,
-                is_fixup,
+                squash_mode,
                 terminal_guard,
                 kb_enhanced,
             );
@@ -435,7 +435,7 @@ fn handle_rebase_continue(
             });
             return Ok(LoopAction::Continue);
         }
-        let final_msg = if ctx.is_fixup {
+        let final_msg = if ctx.squash_mode.keeps_target_message() {
             ctx.combined_message.clone()
         } else {
             let combined = ctx.combined_message.clone();
@@ -459,10 +459,9 @@ fn handle_rebase_continue(
                 Ok(msg) => msg,
             }
         };
-        let success_msg = if ctx_clone.is_fixup {
-            "Commit fixed up"
-        } else {
-            "Commits squashed"
+        let success_msg = match ctx_clone.squash_mode {
+            SquashMode::Fixup => "Commit fixed up",
+            SquashMode::Squash => "Commits squashed",
         };
         let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
         handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
@@ -575,13 +574,13 @@ fn handle_prepare_squash(
     target_oid: Oid,
     source_message: String,
     target_message: String,
-    is_fixup: bool,
+    squash_mode: SquashMode,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let label = if is_fixup { "Fixup" } else { "Squash" };
-    let message_for_context = if is_fixup {
+    let label = squash_mode.label();
+    let message_for_context = if squash_mode.keeps_target_message() {
         target_message.clone()
     } else {
         format!("{target_message}\n\n{source_message}")
@@ -591,7 +590,7 @@ fn handle_prepare_squash(
         &source_oid,
         &target_oid,
         &message_for_context,
-        is_fixup,
+        squash_mode,
         &head_oid,
     ) {
         Ok(Some(conflict_state)) => {
@@ -604,7 +603,7 @@ fn handle_prepare_squash(
         }
         Ok(None) => {}
     }
-    let final_message = if is_fixup {
+    let final_message = if squash_mode.keeps_target_message() {
         Some(target_message)
     } else {
         let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
@@ -623,10 +622,9 @@ fn handle_prepare_squash(
         }
     };
     if let Some(msg) = final_message {
-        let success_msg = if is_fixup {
-            "Commit fixed up"
-        } else {
-            "Commits squashed"
+        let success_msg = match squash_mode {
+            SquashMode::Fixup => "Commit fixed up",
+            SquashMode::Squash => "Commits squashed",
         };
         let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
         handle_rebase_outcome(git_repo, app, outcome, label, success_msg);

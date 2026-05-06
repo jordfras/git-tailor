@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 
-use crate::{CommitDiff, CommitInfo, Oid};
+use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
 use super::GitRepo;
 
@@ -233,7 +233,7 @@ impl GitRepo for Git2Repo {
         source_oid: &Oid,
         target_oid: &Oid,
         combined_message: &str,
-        is_fixup: bool,
+        squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
         squash_op::squash_try_combine(
@@ -241,7 +241,7 @@ impl GitRepo for Git2Repo {
             source_oid,
             target_oid,
             combined_message,
-            is_fixup,
+            squash_mode,
             head_oid,
         )
     }

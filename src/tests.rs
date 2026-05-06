@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::*;
+use git_tailor::app::SquashMode;
 use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext};
 use git_tailor::{CommitDiff, CommitInfo};
 
@@ -134,7 +135,7 @@ impl GitRepo for MockRepo {
         _: &Oid,
         _: &Oid,
         _: &str,
-        _: bool,
+        _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
         unimplemented!()

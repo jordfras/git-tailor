@@ -15,6 +15,7 @@
 use anyhow::{Result, anyhow};
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
+    app::SquashMode,
     repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
 };
 
@@ -186,7 +187,7 @@ impl GitRepo for StubRepo {
         _source_oid: &Oid,
         _target_oid: &Oid,
         _combined_message: &str,
-        _is_fixup: bool,
+        _squash_mode: SquashMode,
         _head_oid: &Oid,
     ) -> Result<Option<ConflictState>> {
         unimplemented!()

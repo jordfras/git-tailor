@@ -73,13 +73,12 @@ pub enum AppAction {
         current_message: String,
     },
     /// Start the squash/fixup flow: user picked source and target.
-    /// When `is_fixup` is true the target's message is kept as-is (no editor).
     PrepareSquash {
         source_oid: Oid,
         target_oid: Oid,
         source_message: String,
         target_message: String,
-        is_fixup: bool,
+        squash_mode: SquashMode,
     },
     /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
     ExecuteMove {
@@ -120,6 +119,29 @@ impl SplitStrategy {
     }
 }
 
+/// Whether a squash operation keeps the target message (fixup) or combines both (squash).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SquashMode {
+    Squash,
+    Fixup,
+}
+
+impl SquashMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SquashMode::Squash => "Squash",
+            SquashMode::Fixup => "Fixup",
+        }
+    }
+
+    pub fn keeps_target_message(self) -> bool {
+        match self {
+            SquashMode::Squash => false,
+            SquashMode::Fixup => true,
+        }
+    }
+}
+
 /// Application display mode.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
@@ -138,8 +160,10 @@ pub enum AppMode {
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(Box<ConflictState>),
     /// Squash/fixup target selection: user picks which commit to squash the source into.
-    /// When `is_fixup` is true the target's message is kept as-is (no editor).
-    SquashSelect { source_index: usize, is_fixup: bool },
+    SquashSelect {
+        source_index: usize,
+        squash_mode: SquashMode,
+    },
     /// Move commit selection: user picks where to insert the source commit.
     /// `insert_before` is the index in the commit list where the separator row
     /// appears; the commit will be moved to that position.

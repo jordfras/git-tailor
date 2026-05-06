@@ -293,7 +293,7 @@ Guidelines:
   (returning the empty-string variant with the existing semantics) so `AppState`
   can be derived. Reduces ~30 lines of mechanical boilerplate and means new
   fields with `Default` types no longer require touching the constructor.
-- [ ] T191 P2 feat - Replace `is_fixup: bool` parameter with a `SquashMode`
+- [x] T191 P2 feat - Replace `is_fixup: bool` parameter with a `SquashMode`
   enum: the boolean is threaded through `AppMode::SquashSelect`, `AppAction`,
   `handle_prepare_squash`, and `enter_squash_or_fixup_select`. Define
   `pub enum SquashMode { Squash, Fixup }` with methods `label() -> &str` and

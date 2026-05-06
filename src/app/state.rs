@@ -14,6 +14,7 @@
 
 use crate::{
     CommitInfo, Oid,
+    app::SquashMode,
     fragmap::{FragMap, SquashableScope},
     repo::ConflictState,
     views::theme::Theme,
@@ -250,16 +251,16 @@ impl AppState {
     /// Enter squash target selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_squash_select(&mut self) {
-        self.enter_squash_or_fixup_select(false);
+        self.enter_squash_or_fixup_select(SquashMode::Squash);
     }
 
     /// Enter fixup target selection mode (same UI as squash, keeps target msg).
     pub fn enter_fixup_select(&mut self) {
-        self.enter_squash_or_fixup_select(true);
+        self.enter_squash_or_fixup_select(SquashMode::Fixup);
     }
 
-    fn enter_squash_or_fixup_select(&mut self, is_fixup: bool) {
-        let label = if is_fixup { "fixup" } else { "squash" };
+    fn enter_squash_or_fixup_select(&mut self, squash_mode: SquashMode) {
+        let label = squash_mode.label().to_lowercase();
         if let Some(commit) = self.commits.get(self.selection_index)
             && commit.oid.is_synthetic()
         {
@@ -279,7 +280,7 @@ impl AppState {
         }
         self.mode = AppMode::SquashSelect {
             source_index: self.selection_index,
-            is_fixup,
+            squash_mode,
         };
     }
 
