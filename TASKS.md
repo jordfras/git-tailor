@@ -223,14 +223,15 @@ Guidelines:
   the one-line overlap rule) and call it from all six sites; remove the inline
   `// Keep at least one line overlap` comments now that the name documents the
   intent.
-- [ ] T181 P2 feat - Extract scroll-offset clamping helper: the pattern
+- [-] T181 P2 feat - Extract scroll-offset clamping helper: the pattern
   `.min(max_scroll)` for keeping a scroll offset within bounds appears in
   `src/app.rs` and several places in `src/views/commit_detail.rs` (around lines
   179, 295, 431, 432) and dialog scroll handling. Add a
   `fn clamp_scroll(offset: usize, max: usize) -> usize` helper (or
   `AppState::clamp_*_scroll` methods that wrap the field accesses) and use at
   all clamping sites. Reduces the chance of forgetting the clamp on a new code
-  path.
+  path. (Flags: WONT DO — `.min(max)` is already idiomatic; a wrapper adds no
+  semantic value unlike page_size() which encodes a non-obvious rule)
 - [ ] T182 P2 feat - Add `VirtualOid::expect_real_oid()` (or `real_oid_cloned`)
   to eliminate `.as_oid().unwrap().clone()` chains: the pattern
   `commit.oid.as_oid().unwrap().clone()` appears at
