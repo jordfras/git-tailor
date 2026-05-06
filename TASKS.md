@@ -320,7 +320,7 @@ Guidelines:
   `fn build_squash_message(is_fixup, source_msg, target_msg) -> String`. (Flags:
   WONT DO — after T191 the message logic is just two `keeps_target_message()`
   one-liners; not worth extracting)
-- [ ] T195 P3 feat - Split `compute_layout` in `commit_list.rs`: the function is
+- [x] T195 P3 feat - Split `compute_layout` in `commit_list.rs`: the function is
   ~83 lines computing fragmap dimensions, title widths, and layout areas. Break
   into 2-3 sub-functions (`compute_fragmap_dimensions`, `split_table_areas`)
   each handling one concern, with the main function as orchestrator.
@@ -328,5 +328,11 @@ Guidelines:
   `build_header`, `build_constraints`, `fragmap_index` and similar helper
   functions are marked `pub` but only used within the module. Remove `pub` to
   narrow their visibility.
+- [ ] T197 P3 feat - Replace magic `2` literals in `commit_list.rs` layout
+  calculations with a named constant: the value represents the two column-gap
+  characters (separator after SHA + separator before fragmap) and appears ~6
+  times in `compute_column_widths` and `compute_layout`. Define
+  `const COL_GAPS: u16 = 2;` alongside the existing `SHA_COL_WIDTH` /
+  `MIN_TITLE_WIDTH` constants and replace all occurrences.
 
 ## Notes

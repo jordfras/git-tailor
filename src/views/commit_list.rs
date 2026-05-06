@@ -275,24 +275,9 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 }
 
-/// Compute all layout dimensions, scroll offsets, and visible cluster indices.
-fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
-    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
-        (0..fragmap.clusters.len())
-            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
-            .collect()
-    } else {
-        vec![]
-    };
-
-    let preliminary_fragmap_width = frame_area
-        .width
-        .saturating_sub(SHA_COL_WIDTH + 1 + MIN_TITLE_WIDTH + 1 + 1)
-        as usize;
-    let needs_h_scrollbar =
-        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
-
-    let (table_area, h_scrollbar_area, footer_area) = if needs_h_scrollbar {
+/// Split the frame into vertical areas: table, optional h-scrollbar, and footer.
+fn split_vertical_areas(frame_area: Rect, needs_h_scrollbar: bool) -> (Rect, Option<Rect>, Rect) {
+    if needs_h_scrollbar {
         let [t, hs, f] = Layout::vertical([
             Constraint::Min(0),
             Constraint::Length(1),
@@ -304,18 +289,19 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         let [t, f] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame_area);
         (t, None, f)
-    };
+    }
+}
 
-    let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
-    let effective_width = if has_v_scrollbar {
-        table_area.width.saturating_sub(1)
-    } else {
-        table_area.width
-    };
-
-    // Establish the natural (separator_offset=0) baseline using the same formula as
-    // before T117: title is whatever fits after allocating maximum fragmap space.
+/// Compute title and fragmap column widths, clamping `separator_offset` to valid bounds.
+///
+/// Returns `(title_width, fragmap_available_width)`.
+fn compute_column_widths(
+    app: &mut AppState,
+    effective_width: u16,
+    visible_clusters: &[usize],
+) -> (u16, usize) {
+    // Establish the natural (separator_offset=0) baseline: title is whatever
+    // fits after allocating maximum fragmap space.
     let natural_fragmap_w =
         effective_width.saturating_sub(SHA_COL_WIDTH + 2 + MIN_TITLE_WIDTH) as usize;
     let natural_h_scroll = app.fragmap_scroll_offset.min(
@@ -333,8 +319,8 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         .saturating_sub(SHA_COL_WIDTH + 2 + natural_frag_col_w)
         .min(MAX_TITLE_WIDTH);
 
-    // Apply separator_offset on top of the natural baseline. Clamp and write back
-    // immediately so reversing direction takes effect without delay.
+    // Apply separator_offset on top of the natural baseline. Clamp and write
+    // back immediately so reversing direction takes effect without delay.
     let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + 2 + 1) as i32;
     let min_title: i32 = 10;
     let title_width: u16 = if max_title >= min_title {
@@ -346,10 +332,44 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         0
     };
 
-    // Derive fragmap available width from the final title_width so that the
-    // table constraints (SHA + title + fragmap) always sum to effective_width.
+    // Derive fragmap width from title_width so the table constraints
+    // (SHA + title + fragmap) always sum to effective_width.
     let fragmap_available_width =
         effective_width.saturating_sub(SHA_COL_WIDTH + 2 + title_width) as usize;
+
+    (title_width, fragmap_available_width)
+}
+
+/// Compute all layout dimensions, scroll offsets, and visible cluster indices.
+fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
+    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
+        (0..fragmap.clusters.len())
+            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let preliminary_fragmap_width = frame_area
+        .width
+        .saturating_sub(SHA_COL_WIDTH + 1 + MIN_TITLE_WIDTH + 1 + 1)
+        as usize;
+    let needs_h_scrollbar =
+        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
+
+    let (table_area, h_scrollbar_area, footer_area) =
+        split_vertical_areas(frame_area, needs_h_scrollbar);
+
+    let available_height = table_area.height.saturating_sub(1) as usize;
+    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
+    let effective_width = if has_v_scrollbar {
+        table_area.width.saturating_sub(1)
+    } else {
+        table_area.width
+    };
+
+    let (title_width, fragmap_available_width) =
+        compute_column_widths(app, effective_width, &visible_clusters);
 
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
