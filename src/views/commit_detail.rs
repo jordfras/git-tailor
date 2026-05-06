@@ -575,16 +575,8 @@ fn build_diff_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
     ];
 
     for file in files {
-        let old_path = file
-            .old_path
-            .as_ref()
-            .map(|s| format!("a/{}", s))
-            .unwrap_or_else(|| "/dev/null".to_string());
-        let new_path = file
-            .new_path
-            .as_ref()
-            .map(|s| format!("b/{}", s))
-            .unwrap_or_else(|| "/dev/null".to_string());
+        let old_path = diff_path_with_prefix(file.old_path.as_deref(), "a");
+        let new_path = diff_path_with_prefix(file.new_path.as_deref(), "b");
 
         lines.push(Line::from(Span::styled(
             format!("--- {}", old_path),
@@ -778,6 +770,13 @@ fn render_h_scrollbar(
         .end_symbol(None)
         .track_symbol(Some("─"));
     frame.render_stateful_widget(scrollbar, area, &mut state);
+}
+
+/// Format a diff file path with the given prefix, falling back to `/dev/null`
+/// when the path is absent (e.g. for added or deleted files).
+fn diff_path_with_prefix(path: Option<&str>, prefix: &str) -> String {
+    path.map(|s| format!("{prefix}/{s}"))
+        .unwrap_or_else(|| "/dev/null".to_string())
 }
 
 #[cfg(test)]

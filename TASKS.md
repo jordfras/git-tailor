@@ -256,7 +256,7 @@ Guidelines:
   usize, dir: SearchDirection) -> usize` (combine with T183) as a pure function
   so the cycling logic can be unit tested independently from the AppState
   plumbing.
-- [ ] T185 P3 feat - Extract `diff_path_with_prefix` helper for diff file
+- [X] T185 P3 feat - Extract `diff_path_with_prefix` helper for diff file
   headers: `src/views/commit_detail.rs:569-575` repeats
   `path.map(|s| format!("X/{}", s)).unwrap_or_else(|| "/dev/null".to_string())`
   for both `a/` and `b/` prefixes when rendering the `--- a/foo.rs` /
