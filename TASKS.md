@@ -328,7 +328,7 @@ Guidelines:
   `build_header`, `build_constraints`, `fragmap_index` and similar helper
   functions are marked `pub` but only used within the module. Remove `pub` to
   narrow their visibility.
-- [ ] T197 P3 feat - Replace magic `2` literals in `commit_list.rs` layout
+- [x] T197 P3 feat - Replace magic `2` literals in `commit_list.rs` layout
   calculations with a named constant: the value represents the two column-gap
   characters (separator after SHA + separator before fragmap) and appears ~6
   times in `compute_column_widths` and `compute_layout`. Define

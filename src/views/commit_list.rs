@@ -149,6 +149,9 @@ const COLOR_ACTION_INSERT_BG: Color = Color::Rgb(40, 40, 100);
 /// Width of the SHA column in the commit table.
 const SHA_COL_WIDTH: u16 = 10;
 
+/// Number of single-character column gaps between SHA, title, and fragmap columns.
+const COL_GAPS: u16 = 2;
+
 /// Minimum title column width reserved when computing natural fragmap space.
 const MIN_TITLE_WIDTH: u16 = 20;
 
@@ -303,7 +306,7 @@ fn compute_column_widths(
     // Establish the natural (separator_offset=0) baseline: title is whatever
     // fits after allocating maximum fragmap space.
     let natural_fragmap_w =
-        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + MIN_TITLE_WIDTH) as usize;
+        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH) as usize;
     let natural_h_scroll = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -316,12 +319,12 @@ fn compute_column_widths(
         end.saturating_sub(natural_h_scroll) as u16
     };
     let natural_title = effective_width
-        .saturating_sub(SHA_COL_WIDTH + 2 + natural_frag_col_w)
+        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + natural_frag_col_w)
         .min(MAX_TITLE_WIDTH);
 
     // Apply separator_offset on top of the natural baseline. Clamp and write
     // back immediately so reversing direction takes effect without delay.
-    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + 2 + 1) as i32;
+    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + 1) as i32;
     let min_title: i32 = 10;
     let title_width: u16 = if max_title >= min_title {
         let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
@@ -335,7 +338,7 @@ fn compute_column_widths(
     // Derive fragmap width from title_width so the table constraints
     // (SHA + title + fragmap) always sum to effective_width.
     let fragmap_available_width =
-        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + title_width) as usize;
+        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + title_width) as usize;
 
     (title_width, fragmap_available_width)
 }
@@ -352,7 +355,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let preliminary_fragmap_width = frame_area
         .width
-        .saturating_sub(SHA_COL_WIDTH + 1 + MIN_TITLE_WIDTH + 1 + 1)
+        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH + 1)
         as usize;
     let needs_h_scrollbar =
         !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
