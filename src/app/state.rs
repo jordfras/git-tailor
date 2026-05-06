@@ -25,6 +25,7 @@ use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
 ///
 /// Manages the overall state of the interactive terminal interface,
 /// including quit flag and commit list state.
+#[derive(Default)]
 pub struct AppState {
     pub should_quit: bool,
     pub commits: Vec<CommitInfo>,
@@ -83,42 +84,6 @@ pub struct AppState {
     pub search_matches: Vec<usize>,
     /// Index into `search_matches` for the current match.
     pub search_match_index: Option<usize>,
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            should_quit: false,
-            commits: Vec::new(),
-            selection_index: 0,
-            reverse: false,
-            full_fragmap: false,
-            squashable_scope: SquashableScope::Group,
-            theme: Theme::Plain,
-            reference_oid: Oid::from(""),
-            fragmap: None,
-            fragmap_scroll_offset: 0,
-            mode: AppMode::CommitList,
-            detail_scroll_offset: 0,
-            max_detail_scroll: 0,
-            detail_h_scroll_offset: 0,
-            max_detail_h_scroll: 0,
-            commit_list_visible_height: 0,
-            detail_visible_height: 0,
-            dialog_scroll_offset: 0,
-            max_dialog_scroll: 0,
-            dialog_visible_height: 0,
-            status_message: None,
-            status_is_error: false,
-            separator_offset: 0,
-            include_reference_oid: false,
-            search_query: String::new(),
-            search_input_active: false,
-            search_active: false,
-            search_matches: Vec::new(),
-            search_match_index: None,
-        }
-    }
 }
 
 impl AppState {

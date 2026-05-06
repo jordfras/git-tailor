@@ -121,9 +121,10 @@ impl SplitStrategy {
 }
 
 /// Application display mode.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
     /// Commit list view with fragmap.
+    #[default]
     CommitList,
     /// Detailed view of a single commit.
     CommitDetail,

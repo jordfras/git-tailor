@@ -286,7 +286,7 @@ Guidelines:
   `const ORIGIN_HEAD_REF: &str = "refs/remotes/origin/HEAD";` at the top of
   `reads.rs` and use it; if the value ever needs to change (e.g. for a
   non-`origin` remote default), there is one place to update.
-- [ ] T189 P3 feat - Switch `AppState` to `#[derive(Default)]`: the hand-written
+- [X] T189 P3 feat - Switch `AppState` to `#[derive(Default)]`: the hand-written
   `impl Default for AppState` at `src/app.rs:375-410` enumerates ~25 fields,
   almost all of which already have natural zero/empty defaults. The only
   obstacle is `reference_oid: Oid::from("")` — add `impl Default for Oid`
