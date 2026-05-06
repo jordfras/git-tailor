@@ -103,6 +103,17 @@ impl VirtualOid {
             None
         }
     }
+
+    /// Returns a clone of the inner `Oid`, panicking if this is a synthetic row.
+    ///
+    /// Use at call sites that have already verified the commit is real (e.g. guarded by
+    /// `is_synthetic()` checks upstream).
+    pub fn expect_real_oid(&self) -> Oid {
+        match self {
+            VirtualOid::Real(oid) => oid.clone(),
+            _ => panic!("unexpected synthetic commit"),
+        }
+    }
 }
 
 impl From<Oid> for VirtualOid {

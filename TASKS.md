@@ -232,7 +232,7 @@ Guidelines:
   all clamping sites. Reduces the chance of forgetting the clamp on a new code
   path. (Flags: WONT DO — `.min(max)` is already idiomatic; a wrapper adds no
   semantic value unlike page_size() which encodes a non-obvious rule)
-- [ ] T182 P2 feat - Add `VirtualOid::expect_real_oid()` (or `real_oid_cloned`)
+- [X] T182 P2 feat - Add `VirtualOid::expect_real_oid()` (or `real_oid_cloned`)
   to eliminate `.as_oid().unwrap().clone()` chains: the pattern
   `commit.oid.as_oid().unwrap().clone()` appears at
   `src/views/commit_list.rs:100`, `:112`, `src/views/squash_select.rs:92`,

@@ -97,7 +97,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             } else {
                 AppAction::PrepareDropConfirm {
-                    commit_oid: commit.oid.as_oid().unwrap().clone(),
+                    commit_oid: commit.oid.expect_real_oid(),
                     commit_summary: commit.summary.clone(),
                 }
             }
@@ -109,7 +109,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             } else {
                 AppAction::PrepareReword {
-                    commit_oid: commit.oid.as_oid().unwrap().clone(),
+                    commit_oid: commit.oid.expect_real_oid(),
                     current_message: commit.message.clone(),
                 }
             }

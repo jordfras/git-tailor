@@ -115,7 +115,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             // insert_before is the commit-list index where the separator sits.
             // The source should be placed *after* the commit at insert_before - 1,
-            let source_oid = source.oid.as_oid().unwrap().clone();
+            let source_oid = source.oid.expect_real_oid();
             let insert_after_oid = if insert_before == 0 {
                 // In --all mode the reference commit (root) is itself a visible
                 // entry. Moving before position 0 means "make this the new root";

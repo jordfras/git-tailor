@@ -43,11 +43,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
-            let commit_oid = app.commits[app.selection_index]
-                .oid
-                .as_oid()
-                .unwrap()
-                .clone();
+            let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
             app.mode = AppMode::CommitList;
             AppAction::PrepareSplit {
                 strategy,
