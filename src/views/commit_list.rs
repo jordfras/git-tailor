@@ -15,7 +15,7 @@
 // Commit list view rendering
 
 use super::hunk_groups;
-use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
 use crate::fragmap::TouchKind;
 use ratatui::{
     Frame,
@@ -91,27 +91,21 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Drop => {
-            let commit = &app.commits[app.selection_index];
-            if commit.oid.is_synthetic() {
-                app.set_error_message("Cannot drop staged/unstaged changes");
-                AppAction::Handled
-            } else {
-                AppAction::PrepareDropConfirm {
-                    commit_oid: commit.oid.as_oid().unwrap().clone(),
-                    commit_summary: commit.summary.clone(),
-                }
+            let Some(commit) = app.selected_real_commit("drop") else {
+                return AppAction::Handled;
+            };
+            AppAction::PrepareDropConfirm {
+                commit_oid: commit.oid.expect_real_oid(),
+                commit_summary: commit.summary.clone(),
             }
         }
         KeyCommand::Reword => {
-            let commit = &app.commits[app.selection_index];
-            if commit.oid.is_synthetic() {
-                app.set_error_message("Cannot reword staged/unstaged changes");
-                AppAction::Handled
-            } else {
-                AppAction::PrepareReword {
-                    commit_oid: commit.oid.as_oid().unwrap().clone(),
-                    current_message: commit.message.clone(),
-                }
+            let Some(commit) = app.selected_real_commit("reword") else {
+                return AppAction::Handled;
+            };
+            AppAction::PrepareReword {
+                commit_oid: commit.oid.expect_real_oid(),
+                current_message: commit.message.clone(),
             }
         }
         KeyCommand::Update => AppAction::ReloadCommits,
@@ -154,6 +148,9 @@ const COLOR_ACTION_INSERT_BG: Color = Color::Rgb(40, 40, 100);
 
 /// Width of the SHA column in the commit table.
 const SHA_COL_WIDTH: u16 = 10;
+
+/// Number of single-character column gaps between SHA, title, and fragmap columns.
+const COL_GAPS: u16 = 2;
 
 /// Minimum title column width reserved when computing natural fragmap space.
 const MIN_TITLE_WIDTH: u16 = 20;
@@ -281,24 +278,9 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 }
 
-/// Compute all layout dimensions, scroll offsets, and visible cluster indices.
-fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
-    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
-        (0..fragmap.clusters.len())
-            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
-            .collect()
-    } else {
-        vec![]
-    };
-
-    let preliminary_fragmap_width = frame_area
-        .width
-        .saturating_sub(SHA_COL_WIDTH + 1 + MIN_TITLE_WIDTH + 1 + 1)
-        as usize;
-    let needs_h_scrollbar =
-        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
-
-    let (table_area, h_scrollbar_area, footer_area) = if needs_h_scrollbar {
+/// Split the frame into vertical areas: table, optional h-scrollbar, and footer.
+fn split_vertical_areas(frame_area: Rect, needs_h_scrollbar: bool) -> (Rect, Option<Rect>, Rect) {
+    if needs_h_scrollbar {
         let [t, hs, f] = Layout::vertical([
             Constraint::Min(0),
             Constraint::Length(1),
@@ -310,20 +292,21 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         let [t, f] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame_area);
         (t, None, f)
-    };
+    }
+}
 
-    let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
-    let effective_width = if has_v_scrollbar {
-        table_area.width.saturating_sub(1)
-    } else {
-        table_area.width
-    };
-
-    // Establish the natural (separator_offset=0) baseline using the same formula as
-    // before T117: title is whatever fits after allocating maximum fragmap space.
+/// Compute title and fragmap column widths, clamping `separator_offset` to valid bounds.
+///
+/// Returns `(title_width, fragmap_available_width)`.
+fn compute_column_widths(
+    app: &mut AppState,
+    effective_width: u16,
+    visible_clusters: &[usize],
+) -> (u16, usize) {
+    // Establish the natural (separator_offset=0) baseline: title is whatever
+    // fits after allocating maximum fragmap space.
     let natural_fragmap_w =
-        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + MIN_TITLE_WIDTH) as usize;
+        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH) as usize;
     let natural_h_scroll = app.fragmap_scroll_offset.min(
         visible_clusters
             .len()
@@ -336,12 +319,12 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         end.saturating_sub(natural_h_scroll) as u16
     };
     let natural_title = effective_width
-        .saturating_sub(SHA_COL_WIDTH + 2 + natural_frag_col_w)
+        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + natural_frag_col_w)
         .min(MAX_TITLE_WIDTH);
 
-    // Apply separator_offset on top of the natural baseline. Clamp and write back
-    // immediately so reversing direction takes effect without delay.
-    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + 2 + 1) as i32;
+    // Apply separator_offset on top of the natural baseline. Clamp and write
+    // back immediately so reversing direction takes effect without delay.
+    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + 1) as i32;
     let min_title: i32 = 10;
     let title_width: u16 = if max_title >= min_title {
         let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
@@ -352,10 +335,44 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         0
     };
 
-    // Derive fragmap available width from the final title_width so that the
-    // table constraints (SHA + title + fragmap) always sum to effective_width.
+    // Derive fragmap width from title_width so the table constraints
+    // (SHA + title + fragmap) always sum to effective_width.
     let fragmap_available_width =
-        effective_width.saturating_sub(SHA_COL_WIDTH + 2 + title_width) as usize;
+        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + title_width) as usize;
+
+    (title_width, fragmap_available_width)
+}
+
+/// Compute all layout dimensions, scroll offsets, and visible cluster indices.
+fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
+    let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
+        (0..fragmap.clusters.len())
+            .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let preliminary_fragmap_width = frame_area
+        .width
+        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH + 1)
+        as usize;
+    let needs_h_scrollbar =
+        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
+
+    let (table_area, h_scrollbar_area, footer_area) =
+        split_vertical_areas(frame_area, needs_h_scrollbar);
+
+    let available_height = table_area.height.saturating_sub(1) as usize;
+    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
+    let effective_width = if has_v_scrollbar {
+        table_area.width.saturating_sub(1)
+    } else {
+        table_area.width
+    };
+
+    let (title_width, fragmap_available_width) =
+        compute_column_widths(app, effective_width, &visible_clusters);
 
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
@@ -594,9 +611,9 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         // a subtle target-bg tint plus reversed; plain selection gets reversed.
         let text_cell_style = if is_squash_source || is_move_source {
             text_style.fg(Color::White).bg(COLOR_ACTION_SOURCE_BG)
-        } else if is_selected && (squash_source_idx.is_some() || move_info.is_some()) {
+        } else if is_selected && squash_source_idx.is_some() {
             text_style.bg(COLOR_ACTION_TARGET_BG).reversed()
-        } else if is_selected {
+        } else if is_selected && move_info.is_none() {
             text_style.reversed()
         } else {
             text_style
@@ -663,7 +680,7 @@ fn build_move_separator_row<'a>(
     Row::new(cells)
 }
 
-pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     if let Some(msg) = &app.status_message {
         let bg = if app.status_is_error {
             Color::Red
@@ -678,19 +695,19 @@ pub(crate) fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
 
     if let AppMode::SquashSelect {
         source_index,
-        is_fixup,
+        squash_mode,
     } = app.mode
     {
-        render_squash_footer(frame, app, area, source_index, is_fixup);
+        render_squash_footer(frame, app, area, source_index, squash_mode);
         return;
     }
 
     if let AppMode::MoveSelect {
         source_index,
-        insert_before,
+        insert_before: _,
     } = app.mode
     {
-        render_move_footer(frame, app, area, source_index, insert_before);
+        render_move_footer(frame, app, area, source_index);
         return;
     }
 
@@ -728,50 +745,43 @@ fn render_squash_footer(
     app: &AppState,
     area: Rect,
     source_index: usize,
-    is_fixup: bool,
+    squash_mode: SquashMode,
 ) {
-    let source = match app.commits.get(source_index) {
-        Some(c) => c,
-        None => return,
-    };
-
-    let short_oid = source.oid.short();
-
-    let label = if is_fixup { "Fixup" } else { "Squash" };
-
-    let max_summary_len = (area.width as usize)
-        .saturating_sub(
-            format!(" {label}  \"\" into\u{2026} \u{b7} Enter confirm \u{b7} Esc cancel").len(),
-        )
-        .saturating_sub(short_oid.len());
-
-    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
-        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
-    } else {
-        source.summary.clone()
-    };
-
-    let line = Line::from(vec![
-        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
-        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\" into\u{2026}"), ACTION_FOOTER_STYLE),
-        Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Enter", ACTION_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Esc", ACTION_FOOTER_ACCENT),
-        Span::styled(" cancel", ACTION_FOOTER_STYLE),
-    ]);
-
-    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
-    frame.render_widget(footer, area);
+    render_action_footer(
+        frame,
+        app,
+        area,
+        squash_mode.label(),
+        source_index,
+        " into\u{2026}",
+        &[("Enter", " confirm \u{b7} "), ("Esc", " cancel")],
+    );
 }
 
-fn render_move_footer(
+fn render_move_footer(frame: &mut Frame, app: &AppState, area: Rect, source_index: usize) {
+    render_action_footer(
+        frame,
+        app,
+        area,
+        "Move",
+        source_index,
+        "",
+        &[
+            ("\u{2191}/\u{2193}", " pick position \u{b7} "),
+            ("Enter", " confirm \u{b7} "),
+            ("Esc", " cancel"),
+        ],
+    );
+}
+
+fn render_action_footer(
     frame: &mut Frame,
     app: &AppState,
     area: Rect,
+    label: &str,
     source_index: usize,
-    _insert_before: usize,
+    after_summary: &str,
+    hints: &[(&str, &str)],
 ) {
     let source = match app.commits.get(source_index) {
         Some(c) => c,
@@ -780,11 +790,13 @@ fn render_move_footer(
 
     let short_oid = source.oid.short();
 
+    let hints_len: usize =
+        " \u{b7} ".len() + hints.iter().map(|(k, d)| k.len() + d.len()).sum::<usize>();
     let max_summary_len = (area.width as usize)
-        .saturating_sub(
-            " Move  \"\" \u{b7} ↑/↓ pick position \u{b7} Enter confirm \u{b7} Esc cancel".len(),
-        )
-        .saturating_sub(short_oid.len());
+        .saturating_sub(label.len() + 2)
+        .saturating_sub(short_oid.len())
+        .saturating_sub(3 + after_summary.len())
+        .saturating_sub(hints_len);
 
     let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
         format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
@@ -792,20 +804,22 @@ fn render_move_footer(
         source.summary.clone()
     };
 
-    let line = Line::from(vec![
-        Span::styled(" Move ", ACTION_FOOTER_STYLE),
-        Span::styled(short_oid, ACTION_FOOTER_ACCENT),
-        Span::styled(format!(" \"{summary}\""), ACTION_FOOTER_STYLE),
+    let mut spans = vec![
+        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
+        Span::styled(short_oid.to_string(), ACTION_FOOTER_ACCENT),
+        Span::styled(
+            format!(" \"{summary}\"{after_summary}"),
+            ACTION_FOOTER_STYLE,
+        ),
         Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("↑/↓", ACTION_FOOTER_ACCENT),
-        Span::styled(" pick position \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Enter", ACTION_FOOTER_ACCENT),
-        Span::styled(" confirm \u{b7} ", ACTION_FOOTER_STYLE),
-        Span::styled("Esc", ACTION_FOOTER_ACCENT),
-        Span::styled(" cancel", ACTION_FOOTER_STYLE),
-    ]);
+    ];
 
-    let footer = Paragraph::new(line).style(ACTION_FOOTER_STYLE);
+    for (key, description) in hints {
+        spans.push(Span::styled(key.to_string(), ACTION_FOOTER_ACCENT));
+        spans.push(Span::styled(description.to_string(), ACTION_FOOTER_STYLE));
+    }
+
+    let footer = Paragraph::new(Line::from(spans)).style(ACTION_FOOTER_STYLE);
     frame.render_widget(footer, area);
 }
 

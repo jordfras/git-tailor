@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 
-use crate::{CommitDiff, CommitInfo, Oid};
+use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
 use super::GitRepo;
 
@@ -33,6 +33,7 @@ impl From<&Oid> for git2::Oid {
     }
 }
 
+mod cherry_pick;
 mod conflict;
 mod drop_op;
 mod hunks;
@@ -232,7 +233,7 @@ impl GitRepo for Git2Repo {
         source_oid: &Oid,
         target_oid: &Oid,
         combined_message: &str,
-        is_fixup: bool,
+        squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
         squash_op::squash_try_combine(
@@ -240,7 +241,7 @@ impl GitRepo for Git2Repo {
             source_oid,
             target_oid,
             combined_message,
-            is_fixup,
+            squash_mode,
             head_oid,
         )
     }
@@ -328,61 +329,6 @@ impl Git2Repo {
         Ok(())
     }
 
-    /// Cherry-pick all commits strictly between `stop_oid` (exclusive) and
-    /// `head_oid` (inclusive) onto `tip`, returning the new tip OID.
-    fn rebase_descendants(
-        &self,
-        stop_oid: git2::Oid,
-        head_oid: git2::Oid,
-        mut tip: git2::Oid,
-    ) -> Result<git2::Oid> {
-        let repo = &self.inner;
-        if head_oid == stop_oid {
-            return Ok(tip);
-        }
-
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push(head_oid)?;
-
-        let mut descendants: Vec<git2::Oid> = Vec::new();
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            if oid == stop_oid {
-                break;
-            }
-            descendants.push(oid);
-        }
-        descendants.reverse();
-
-        for desc_oid in descendants {
-            let desc_commit = repo.find_commit(desc_oid)?;
-            let onto_commit = repo.find_commit(tip)?;
-
-            let mut cherry_index = repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
-            if cherry_index.has_conflicts() {
-                anyhow::bail!(
-                    "Conflict rebasing {} onto split result",
-                    &desc_oid.to_string()[..10]
-                );
-            }
-            let new_tree_oid = cherry_index.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let author = desc_commit.author();
-            let committer = desc_commit.committer();
-            tip = repo.commit(
-                None,
-                &author,
-                &committer,
-                desc_commit.message().unwrap_or(""),
-                &new_tree,
-                &[&onto_commit],
-            )?;
-        }
-
-        Ok(tip)
-    }
-
     /// Fast-forward the branch ref that HEAD currently points to.
     fn advance_branch_ref(&self, new_tip: git2::Oid, log_msg: &str) -> Result<()> {
         let repo = &self.inner;
@@ -395,91 +341,6 @@ impl Git2Repo {
             .to_string();
         repo.reference(&branch_refname, new_tip, true, log_msg)?;
         Ok(())
-    }
-
-    /// Collect OIDs strictly between `stop_oid` (exclusive) and `head_oid`
-    /// (inclusive), returned oldest-first.
-    fn collect_descendants(
-        &self,
-        stop_oid: git2::Oid,
-        head_oid: git2::Oid,
-    ) -> Result<Vec<git2::Oid>> {
-        let repo = &self.inner;
-        if head_oid == stop_oid {
-            return Ok(Vec::new());
-        }
-
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push(head_oid)?;
-
-        let mut descendants: Vec<git2::Oid> = Vec::new();
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            if oid == stop_oid {
-                break;
-            }
-            descendants.push(oid);
-        }
-        descendants.reverse();
-        Ok(descendants)
-    }
-
-    /// Cherry-pick a sequence of commits onto `tip`, returning the final tip
-    /// or the point at which a conflict was detected.
-    ///
-    /// On conflict the conflicted index is written to the working tree so the
-    /// user can resolve it. The returned `conflicting_idx` identifies which
-    /// element of `commits` conflicted.
-    fn cherry_pick_chain(
-        &self,
-        mut tip: git2::Oid,
-        commits: &[git2::Oid],
-    ) -> Result<CherryPickResult> {
-        let repo = &self.inner;
-
-        for (idx, &desc_oid) in commits.iter().enumerate() {
-            let desc_commit = repo.find_commit(desc_oid)?;
-            let onto_commit = repo.find_commit(tip)?;
-
-            // Root commits have no parent, so cherrypick_commit cannot compute
-            // a diff base. Use merge_trees with the empty tree as the common
-            // ancestor — this is the correct three-way merge equivalent of
-            // cherry-picking a commit with no parent: files already present
-            // with matching content are kept without conflict.
-            let mut cherry_index = if desc_commit.parent_count() == 0 {
-                let empty_tree_oid = repo.treebuilder(None)?.write()?;
-                let empty_tree = repo.find_tree(empty_tree_oid)?;
-                repo.merge_trees(
-                    &empty_tree,
-                    &onto_commit.tree()?,
-                    &desc_commit.tree()?,
-                    None,
-                )?
-            } else {
-                repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?
-            };
-            if cherry_index.has_conflicts() {
-                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit)?;
-                return Ok(CherryPickResult::Conflict {
-                    tip,
-                    conflicting_idx: idx,
-                });
-            }
-
-            let new_tree_oid = cherry_index.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            tip = repo.commit(
-                None,
-                &desc_commit.author(),
-                &desc_commit.committer(),
-                desc_commit.message().unwrap_or(""),
-                &new_tree,
-                &[&onto_commit],
-            )?;
-        }
-
-        Ok(CherryPickResult::Complete(tip))
     }
 
     /// Reset the working tree and index to match HEAD.
@@ -505,13 +366,4 @@ impl Git2Repo {
         repo.checkout_head(Some(&mut checkout))?;
         Ok(())
     }
-}
-
-/// Internal result from `cherry_pick_chain`.
-enum CherryPickResult {
-    Complete(git2::Oid),
-    Conflict {
-        tip: git2::Oid,
-        conflicting_idx: usize,
-    },
 }

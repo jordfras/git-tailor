@@ -16,10 +16,9 @@
 
 use anyhow::Result;
 
-use super::super::{ConflictState, RebaseOutcome};
-use super::CherryPickResult;
+use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::conflict;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict};
 use crate::Oid;
 
 pub(super) fn drop_commit(
@@ -55,24 +54,14 @@ pub(super) fn drop_commit(
         CherryPickResult::Conflict {
             tip,
             conflicting_idx,
-        } => {
-            let conflicting_oid = descendants[conflicting_idx];
-            let remaining: Vec<Oid> = descendants[conflicting_idx + 1..]
-                .iter()
-                .map(|&oid| Oid::from(oid))
-                .collect();
-
-            Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                operation_label: "Drop".to_string(),
-                original_branch_oid,
-                new_tip_oid: Oid::from(tip),
-                conflicting_commit_oid: Oid::from(conflicting_oid),
-                remaining_oids: remaining,
-                conflicting_files: conflict::collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: None,
-                squash_context: None,
-            })))
-        }
+        } => Ok(build_chain_conflict(
+            repo,
+            tip,
+            &descendants,
+            conflicting_idx,
+            "Drop",
+            original_branch_oid,
+            None,
+        )),
     }
 }

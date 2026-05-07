@@ -18,6 +18,8 @@
 use anyhow::{Context, Result};
 
 use super::Git2Repo;
+
+const ORIGIN_HEAD_REF: &str = "refs/remotes/origin/HEAD";
 use crate::{CommitDiff, CommitInfo, DiffLine, DiffLineKind, FileDiff, Hunk, Oid, VirtualOid};
 
 pub(super) fn head_oid(repo: &Git2Repo) -> Result<Oid> {
@@ -206,7 +208,7 @@ pub(super) fn get_config_string(repo: &Git2Repo, key: &str) -> Option<String> {
 }
 
 pub(super) fn default_branch(repo: &Git2Repo) -> Option<String> {
-    let reference = repo.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
+    let reference = repo.inner.find_reference(ORIGIN_HEAD_REF).ok()?;
     let target = reference.symbolic_target()?;
     // Strip the "refs/remotes/" prefix so the caller can pass the result
     // directly to find_reference_point (e.g. "origin/main").

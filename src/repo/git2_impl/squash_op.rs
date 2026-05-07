@@ -19,10 +19,11 @@
 use anyhow::Result;
 
 use super::super::{ConflictState, RebaseOutcome, SquashContext};
-use super::CherryPickResult;
 use super::Git2Repo;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict};
 use super::conflict;
 use crate::Oid;
+use crate::app::SquashMode;
 
 pub(super) fn squash_commits(
     repo: &Git2Repo,
@@ -44,7 +45,7 @@ pub(super) fn squash_commits(
             &cherry_index,
             &inputs,
             message,
-            false,
+            SquashMode::Squash,
         )?)));
     }
 
@@ -82,7 +83,7 @@ pub(super) fn squash_try_combine(
     source_oid: &Oid,
     target_oid: &Oid,
     combined_message: &str,
-    is_fixup: bool,
+    squash_mode: SquashMode,
     head_oid: &Oid,
 ) -> Result<Option<ConflictState>> {
     repo.check_no_dirty_state()?;
@@ -101,7 +102,7 @@ pub(super) fn squash_try_combine(
         &cherry_index,
         &inputs,
         combined_message,
-        is_fixup,
+        squash_mode,
     )?))
 }
 
@@ -192,7 +193,7 @@ fn build_conflict_state(
     cherry_index: &git2::Index,
     inputs: &SquashInputs<'_>,
     combined_message: &str,
-    is_fixup: bool,
+    squash_mode: SquashMode,
 ) -> Result<ConflictState> {
     let all_descendants =
         repo.collect_descendants(inputs.target_commit.id(), inputs.head_git_oid)?;
@@ -204,7 +205,7 @@ fn build_conflict_state(
 
     conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit)?;
 
-    let operation_label = if is_fixup { "Fixup" } else { "Squash" }.to_string();
+    let operation_label = squash_mode.label().to_string();
 
     Ok(ConflictState {
         operation_label,
@@ -221,7 +222,7 @@ fn build_conflict_state(
             target_oid: inputs.target_oid.clone(),
             combined_message: combined_message.to_string(),
             descendant_oids,
-            is_fixup,
+            squash_mode,
         }),
     })
 }
@@ -244,24 +245,14 @@ fn replay_and_advance(
         CherryPickResult::Conflict {
             tip,
             conflicting_idx,
-        } => {
-            let conflicting_oid = descendants[conflicting_idx];
-            let remaining: Vec<Oid> = descendants[conflicting_idx + 1..]
-                .iter()
-                .map(|&oid| Oid::from(oid))
-                .collect();
-
-            Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                operation_label: "Squash".to_string(),
-                original_branch_oid,
-                new_tip_oid: Oid::from(tip),
-                conflicting_commit_oid: Oid::from(conflicting_oid),
-                remaining_oids: remaining,
-                conflicting_files: conflict::collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: None,
-                squash_context: None,
-            })))
-        }
+        } => Ok(build_chain_conflict(
+            repo,
+            tip,
+            descendants,
+            conflicting_idx,
+            "Squash",
+            original_branch_oid,
+            None,
+        )),
     }
 }

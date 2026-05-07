@@ -48,7 +48,7 @@ fn test_drop_confirm_dialog() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::drop::render_drop_confirm(&app, frame);
+        views::drop::render_drop_confirm(&mut app, frame);
     }));
 }
 
@@ -63,7 +63,7 @@ fn test_drop_confirm_dialog_long_summary() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::drop::render_drop_confirm(&app, frame);
+        views::drop::render_drop_confirm(&mut app, frame);
     }));
 }
 
@@ -75,7 +75,7 @@ fn test_drop_confirm_dialog_narrow_terminal() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::drop::render_drop_confirm(&app, frame);
+        views::drop::render_drop_confirm(&mut app, frame);
     }));
 }
 
@@ -112,7 +112,7 @@ fn test_drop_conflict_dialog_no_remaining() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }
 
@@ -127,7 +127,7 @@ fn test_drop_conflict_dialog_with_remaining() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }
 
@@ -139,7 +139,7 @@ fn test_drop_conflict_dialog_narrow_terminal() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }
 
@@ -170,7 +170,7 @@ fn test_drop_conflict_dialog_long_summary() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }
 
@@ -202,7 +202,7 @@ fn test_drop_conflict_dialog_with_files() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }
 
@@ -230,6 +230,6 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::conflict::render_conflict(&app, frame);
+        views::conflict::render_conflict(&mut app, frame);
     }));
 }

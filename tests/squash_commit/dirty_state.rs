@@ -93,7 +93,7 @@ fn squash_try_combine_blocked_with_staged_changes() {
         &Oid::from(source),
         &Oid::from(target),
         "combined",
-        false,
+        SquashMode::Squash,
         &Oid::from(source),
     );
 
@@ -124,7 +124,7 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
         &Oid::from(source),
         &Oid::from(target),
         "combined",
-        false,
+        SquashMode::Squash,
         &Oid::from(source),
     );
 
@@ -181,7 +181,7 @@ fn squash_try_combine_allowed_with_staged_submodule() {
             &Oid::from(source),
             &Oid::from(target),
             "squashed",
-            false,
+            SquashMode::Squash,
             &Oid::from(source),
         )
         .unwrap();
@@ -233,7 +233,7 @@ fn squash_abort_leaves_clean_working_tree() {
             &Oid::from(source),
             &Oid::from(target),
             "combined",
-            false,
+            SquashMode::Squash,
             &Oid::from(_base),
         )
         .unwrap()

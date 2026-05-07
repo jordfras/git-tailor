@@ -14,12 +14,11 @@
 
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
-use super::dialog::{inner_width, render_centered_dialog, wrap_text, wrap_text_indent};
+use super::dialog::{Dialog, handle_dialog_scroll, inner_width};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
-    layout::Alignment,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 
@@ -68,7 +67,10 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
                 AppAction::Handled
             }
         }
-        _ => AppAction::Handled,
+        _ => {
+            handle_dialog_scroll(action, app);
+            AppAction::Handled
+        }
     }
 }
 
@@ -77,7 +79,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
 /// Used by any operation (drop, squash, etc.) that may hit a merge conflict
 /// during cherry-pick. The dialog title and body text adapt to the
 /// `operation_label` stored in `ConflictState`.
-pub fn render_conflict(app: &AppState, frame: &mut Frame) {
+pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     let state = match &app.mode {
         AppMode::RebaseConflict(s) => s,
         _ => return,
@@ -102,23 +104,15 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
 
     let remaining = state.remaining_oids.len();
 
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!(" Merge conflict during {label_lower}"),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(vec![
+    let mut dialog = Dialog::new()
+        .title(format!(" Merge conflict during {label_lower}"), Color::Red)
+        .push_line(Line::from(vec![
             Span::raw(" Conflict in "),
-            Span::styled(short_oid, Style::default().fg(Color::Cyan)),
-        ]),
-    ];
+            Span::styled(short_oid.to_string(), Style::default().fg(Color::Cyan)),
+        ]));
 
     if !commit_summary.is_empty() {
-        for chunk in wrap_text(commit_summary, iw.saturating_sub(1)) {
-            lines.push(Line::from(Span::raw(format!(" {chunk}"))));
-        }
+        dialog = dialog.wrapped(commit_summary, iw.saturating_sub(1));
     }
 
     // For move operations, clarify whether the moved commit itself conflicted
@@ -129,39 +123,25 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
         } else {
             " A commit being rebased on top of the moved commit conflicted."
         };
-        for chunk in wrap_text_indent(note, iw) {
-            lines.push(Line::from(Span::styled(
-                chunk,
-                Style::default().fg(Color::Yellow),
-            )));
-        }
+        dialog = dialog.wrapped_styled(note, iw, Color::Yellow);
     } else if state.operation_label == "Squash" {
         let note = if state.squash_context.is_some() {
             " The squash itself caused the conflict."
         } else {
             " A commit being rebased after the squash conflicted."
         };
-        for chunk in wrap_text_indent(note, iw) {
-            lines.push(Line::from(Span::styled(
-                chunk,
-                Style::default().fg(Color::Yellow),
-            )));
-        }
+        dialog = dialog.wrapped_styled(note, iw, Color::Yellow);
     }
 
     if remaining > 0 {
         let note = format!(" ({remaining} commit(s) still to rebase after this)");
-        for chunk in wrap_text_indent(&note, iw) {
-            lines.push(Line::from(Span::raw(chunk)));
-        }
+        dialog = dialog.wrapped_indent(&note, iw);
     }
 
     if !state.conflicting_files.is_empty() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            " Conflicting files:",
-            Style::default().fg(Color::Yellow),
-        )));
+        dialog = dialog
+            .blank()
+            .styled_line(" Conflicting files:", Color::Yellow);
         const MAX_FILES: usize = 5;
         let shown = state.conflicting_files.len().min(MAX_FILES);
         for path in &state.conflicting_files[..shown] {
@@ -170,48 +150,41 @@ pub fn render_conflict(app: &AppState, frame: &mut Frame) {
             } else {
                 format!(" {path}")
             };
-            lines.push(Line::from(Span::styled(
-                truncated,
-                Style::default().fg(Color::Red),
-            )));
+            dialog = dialog.styled_line(truncated, Color::Red);
         }
         let extra = state.conflicting_files.len().saturating_sub(MAX_FILES);
         if extra > 0 {
-            lines.push(Line::from(Span::styled(
-                format!(" ... {extra} more"),
-                Style::default().fg(Color::DarkGray),
-            )));
+            dialog = dialog.styled_line(format!(" ... {extra} more"), Color::DarkGray);
         }
     }
 
-    lines.push(Line::from(""));
+    dialog = dialog.blank();
     if state.still_unresolved {
-        for chunk in wrap_text_indent(
-            " ! Still unresolved — fix all conflicts above before continuing",
-            iw,
-        ) {
-            lines.push(Line::from(Span::styled(
-                chunk,
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            )));
-        }
-        lines.push(Line::from(""));
+        dialog = dialog
+            .wrapped_styled_bold(
+                " ! Still unresolved — fix all conflicts above before continuing",
+                iw,
+                Color::Red,
+            )
+            .blank();
     }
-    lines.push(
-        Line::from(vec![
-            Span::styled("Enter ", Style::default().fg(Color::Green)),
-            Span::raw("Continue   "),
-            Span::styled("m ", Style::default().fg(Color::Cyan)),
-            Span::raw("Mergetool   "),
-            Span::styled("e ", Style::default().fg(Color::Cyan)),
-            Span::raw("Editor   "),
-            Span::styled("Esc ", Style::default().fg(Color::Red)),
-            Span::raw("Abort"),
+    dialog = dialog
+        .instructions(&[
+            ("Enter", Color::Green, "Continue"),
+            ("m", Color::Cyan, "Mergetool"),
+            ("e", Color::Cyan, "Editor"),
+            ("Esc", Color::Red, "Abort"),
         ])
-        .alignment(Alignment::Center),
-    );
-    lines.push(Line::from(""));
+        .blank();
 
-    let title = format!(" {label} Conflict ");
-    render_centered_dialog(frame, &title, Color::Red, PREFERRED_WIDTH, lines, 0);
+    let title = format!("{label} Conflict");
+    let (max_scroll, visible_height) = dialog.render(
+        frame,
+        &title,
+        Color::Red,
+        PREFERRED_WIDTH,
+        app.dialog_scroll_offset,
+    );
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
 }

@@ -12,18 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TUI views for rendering different screens
-
-pub mod commit_detail;
-pub mod commit_list;
-pub mod conflict;
-pub mod dialog;
-pub mod drop;
-pub mod help;
-pub mod hunk_groups;
-pub mod list_nav;
-pub mod main_view;
-pub mod move_select;
-pub mod split_select;
-pub mod squash_select;
-pub mod theme;
+pub mod commit;
+pub mod diff;

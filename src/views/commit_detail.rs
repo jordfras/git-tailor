@@ -20,7 +20,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use regex::RegexBuilder;
 
@@ -28,6 +28,12 @@ const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchDirection {
+    Next,
+    Prev,
+}
 use crate::repo::GitRepo;
 
 /// Transient info about the search bar, computed during render.
@@ -86,11 +92,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::SearchNext => {
-            advance_search_match(app, true);
+            advance_search_match(app, SearchDirection::Next);
             AppAction::Handled
         }
         KeyCommand::SearchPrev => {
-            advance_search_match(app, false);
+            advance_search_match(app, SearchDirection::Prev);
             AppAction::Handled
         }
         KeyCommand::Update => AppAction::ReloadCommits,
@@ -150,19 +156,25 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
 }
 
 /// Advance to the next or previous search match, wrapping around.
-fn advance_search_match(app: &mut AppState, forward: bool) {
+fn advance_search_match(app: &mut AppState, dir: SearchDirection) {
     if !app.search_active || app.search_matches.is_empty() {
         return;
     }
     let len = app.search_matches.len();
-    app.search_match_index = Some(match app.search_match_index {
-        Some(idx) if forward => (idx + 1) % len,
-        Some(0) if !forward => len - 1,
-        Some(idx) if !forward => idx - 1,
-        _ if forward => 0,
-        _ => len - 1,
-    });
+    app.search_match_index = Some(next_match_index(app.search_match_index, len, dir));
     scroll_to_current_match(app);
+}
+
+/// Return the next match index given the current index, list length, and direction.
+/// Wraps around at both ends.
+fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) -> usize {
+    match (current, dir) {
+        (Some(idx), SearchDirection::Next) => (idx + 1) % len,
+        (Some(0), SearchDirection::Prev) => len - 1,
+        (Some(idx), SearchDirection::Prev) => idx - 1,
+        (None, SearchDirection::Next) => 0,
+        (None, SearchDirection::Prev) => len - 1,
+    }
 }
 
 /// Scroll the detail view so the current search match line is visible.
@@ -563,16 +575,8 @@ fn build_diff_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
     ];
 
     for file in files {
-        let old_path = file
-            .old_path
-            .as_ref()
-            .map(|s| format!("a/{}", s))
-            .unwrap_or_else(|| "/dev/null".to_string());
-        let new_path = file
-            .new_path
-            .as_ref()
-            .map(|s| format!("b/{}", s))
-            .unwrap_or_else(|| "/dev/null".to_string());
+        let old_path = diff_path_with_prefix(file.old_path.as_deref(), "a");
+        let new_path = diff_path_with_prefix(file.new_path.as_deref(), "b");
 
         lines.push(Line::from(Span::styled(
             format!("--- {}", old_path),
@@ -739,40 +743,13 @@ fn render_scrollbar(
     if area.height == 0 || total_lines == 0 {
         return;
     }
-
-    let scrollbar_height = area.height as usize;
-
-    // Calculate thumb size (proportional to visible content)
-    let thumb_size = ((visible_height as f64 / total_lines as f64) * scrollbar_height as f64)
-        .ceil()
-        .max(1.0) as usize;
-    let thumb_size = thumb_size.min(scrollbar_height);
-
-    // Calculate thumb position
-    let scrollable_height = scrollbar_height.saturating_sub(thumb_size);
-    let thumb_position = if total_lines > visible_height {
-        ((scroll_offset as f64 / (total_lines - visible_height) as f64) * scrollable_height as f64)
-            .round() as usize
-    } else {
-        0
-    };
-
-    // Build scrollbar lines
-    let mut scrollbar_lines = Vec::new();
-    for i in 0..scrollbar_height {
-        let char = if i >= thumb_position && i < thumb_position + thumb_size {
-            "█" // Solid block for thumb
-        } else {
-            "│" // Light vertical line for track
-        };
-        scrollbar_lines.push(Line::from(Span::styled(
-            char,
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
-    let scrollbar = Paragraph::new(scrollbar_lines);
-    frame.render_widget(scrollbar, area);
+    let max_scroll = total_lines.saturating_sub(visible_height);
+    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalLeft)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }
 
 /// Render a horizontal scrollbar indicating horizontal scroll position.
@@ -786,37 +763,53 @@ fn render_h_scrollbar(
     if area.width == 0 || max_line_width == 0 {
         return;
     }
+    let max_h_scroll = max_line_width.saturating_sub(visible_width);
+    let mut state = ScrollbarState::new(max_h_scroll).position(h_scroll);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("─"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
+}
 
-    let track_width = area.width as usize;
+/// Format a diff file path with the given prefix, falling back to `/dev/null`
+/// when the path is absent (e.g. for added or deleted files).
+fn diff_path_with_prefix(path: Option<&str>, prefix: &str) -> String {
+    path.map(|s| format!("{prefix}/{s}"))
+        .unwrap_or_else(|| "/dev/null".to_string())
+}
 
-    // Calculate thumb size (proportional to visible content)
-    let thumb_size = ((visible_width as f64 / max_line_width as f64) * track_width as f64)
-        .ceil()
-        .max(1.0) as usize;
-    let thumb_size = thumb_size.min(track_width);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Calculate thumb position
-    let scrollable_track = track_width.saturating_sub(thumb_size);
-    let max_offset = max_line_width.saturating_sub(visible_width);
-    let thumb_position = if max_offset > 0 {
-        ((h_scroll as f64 / max_offset as f64) * scrollable_track as f64).round() as usize
-    } else {
-        0
-    };
-
-    // Build scrollbar as a single line of characters
-    let mut chars = String::new();
-    for i in 0..track_width {
-        if i >= thumb_position && i < thumb_position + thumb_size {
-            chars.push('█');
-        } else {
-            chars.push('─');
-        }
+    #[test]
+    fn next_from_none_forward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Next), 0);
     }
 
-    let scrollbar = Paragraph::new(Line::from(Span::styled(
-        chars,
-        Style::default().fg(Color::DarkGray),
-    )));
-    frame.render_widget(scrollbar, area);
+    #[test]
+    fn next_from_none_backward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_wraps_forward() {
+        assert_eq!(next_match_index(Some(4), 5, SearchDirection::Next), 0);
+    }
+
+    #[test]
+    fn next_wraps_backward() {
+        assert_eq!(next_match_index(Some(0), 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_advances_forward() {
+        assert_eq!(next_match_index(Some(2), 5, SearchDirection::Next), 3);
+    }
+
+    #[test]
+    fn next_advances_backward() {
+        assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
+    }
 }

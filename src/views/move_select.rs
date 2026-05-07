@@ -32,66 +32,76 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    // Valid insertion positions: 0..=commits.len(), excluding source_index.
-    // Position N means "insert before commit N"; position commits.len() means
-    // "insert after the last commit" (i.e. move to HEAD).
     let max_insert = app.commits.len();
-
-    // Both source_index and source_index + 1 are no-op positions:
-    // "insert before self" and "insert after self" both leave the commit
-    // in the same place.
-    let is_noop = |pos: usize| pos == source_index || pos == source_index + 1;
+    let page_size = app.commit_list_visible_height.saturating_sub(1).max(1);
 
     match action {
         KeyCommand::MoveUp => {
-            let mut next = if app.reverse {
-                insert_before.saturating_add(1).min(max_insert)
-            } else {
-                insert_before.saturating_sub(1)
-            };
-            for _ in 0..2 {
-                if is_noop(next) {
-                    next = if app.reverse {
-                        next.saturating_add(1).min(max_insert)
-                    } else {
-                        next.saturating_sub(1)
-                    };
-                }
-            }
-            if is_noop(next) {
-                next = insert_before;
-            }
+            let next = advance_insert(
+                insert_before,
+                source_index,
+                max_insert,
+                1,
+                app.reverse,
+                true,
+            );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
+            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
-            let mut next = if app.reverse {
-                insert_before.saturating_sub(1)
-            } else {
-                insert_before.saturating_add(1).min(max_insert)
-            };
-            for _ in 0..2 {
-                if is_noop(next) {
-                    next = if app.reverse {
-                        next.saturating_sub(1)
-                    } else {
-                        next.saturating_add(1).min(max_insert)
-                    };
-                }
-            }
-            if is_noop(next) {
-                next = insert_before;
-            }
+            let next = advance_insert(
+                insert_before,
+                source_index,
+                max_insert,
+                1,
+                app.reverse,
+                false,
+            );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
+            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            AppAction::Handled
+        }
+        KeyCommand::PageUp => {
+            let next = advance_insert(
+                insert_before,
+                source_index,
+                max_insert,
+                page_size,
+                app.reverse,
+                true,
+            );
+            app.mode = AppMode::MoveSelect {
+                source_index,
+                insert_before: next,
+            };
+            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            AppAction::Handled
+        }
+        KeyCommand::PageDown => {
+            let next = advance_insert(
+                insert_before,
+                source_index,
+                max_insert,
+                page_size,
+                app.reverse,
+                false,
+            );
+            app.mode = AppMode::MoveSelect {
+                source_index,
+                insert_before: next,
+            };
+            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
             AppAction::Handled
         }
         KeyCommand::Confirm => {
+            let is_noop = |pos: usize| pos == source_index || pos == source_index + 1;
             if is_noop(insert_before) {
                 app.set_error_message("Commit is already at this position");
                 return AppAction::Handled;
@@ -105,7 +115,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             // insert_before is the commit-list index where the separator sits.
             // The source should be placed *after* the commit at insert_before - 1,
-            let source_oid = source.oid.as_oid().unwrap().clone();
+            let source_oid = source.oid.expect_real_oid();
             let insert_after_oid = if insert_before == 0 {
                 // In --all mode the reference commit (root) is itself a visible
                 // entry. Moving before position 0 means "make this the new root";
@@ -136,5 +146,68 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         _ => AppAction::Handled,
+    }
+}
+
+/// Advance the insertion cursor by `step` positions, skipping the two no-op
+/// slots (source_index and source_index + 1). `up` is the logical direction
+/// before `reverse` is applied.
+fn advance_insert(
+    pos: usize,
+    source_index: usize,
+    max: usize,
+    step: usize,
+    reverse: bool,
+    up: bool,
+) -> usize {
+    let is_noop = |p: usize| p == source_index || p == source_index + 1;
+    let go_lower = up ^ reverse;
+
+    let mut next = if go_lower {
+        pos.saturating_sub(step)
+    } else {
+        pos.saturating_add(step).min(max)
+    };
+
+    // Skip noop positions (at most two consecutive: source and source+1)
+    for _ in 0..2 {
+        if is_noop(next) {
+            next = if go_lower {
+                next.saturating_sub(1)
+            } else {
+                next.saturating_add(1).min(max)
+            };
+        }
+    }
+
+    // If still on a noop, no valid move exists — stay put
+    if is_noop(next) { pos } else { next }
+}
+
+/// Compute the `selection_index` value that keeps the move separator visible.
+///
+/// The scroll formula puts `selection_index` at the *bottom* of the viewport.
+/// But `build_rows` reduces `visible_commits` by one row when `separator_visible`
+/// is true, which would exclude the commit the separator must be drawn *before*.
+/// Setting `selection_index` one logical step below the separator (in visual
+/// terms) places the separator at the second-to-last row instead, so the
+/// trigger commit is always included in `visible_commits`.
+///
+/// The returned value may equal `commits.len()` when `insert_before` is the
+/// last commit index. That is intentional and safe: the footer renderer
+/// guards against it with a mode check, and the scroll math still works.
+fn viewport_selection_for_separator(
+    insert_before: usize,
+    reverse: bool,
+    _commits: &[crate::CommitInfo],
+) -> usize {
+    if reverse {
+        // In reverse mode, visual position = n - logical_index.
+        // One step "below" visually means a lower logical index.
+        insert_before.saturating_sub(1)
+    } else {
+        // One step below visually means a higher logical index.
+        // May equal commits.len() at the boundary — safe in MoveSelect mode.
+        insert_before + 1
     }
 }

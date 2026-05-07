@@ -24,7 +24,6 @@ use std::collections::HashMap;
 use crate::{CommitDiff, Oid, VirtualOid};
 
 mod spg;
-pub use spg::dump_per_file_spg_stats;
 use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
 /// Build a map from every known file path to the canonical (earliest) name for
@@ -33,7 +32,7 @@ use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate
 /// The commit diffs must be in chronological order (oldest first).  When a
 /// `FileDiff` has `old_path ≠ new_path` the old name's canonical entry is
 /// propagated to the new name.
-pub(crate) fn build_rename_map(commit_diffs: &[CommitDiff]) -> HashMap<String, String> {
+fn build_rename_map(commit_diffs: &[CommitDiff]) -> HashMap<String, String> {
     let mut canonical: HashMap<String, String> = HashMap::new();
     for diff in commit_diffs {
         for file in &diff.files {
@@ -56,9 +55,8 @@ fn canonical_path<'a>(path: &'a str, rename_map: &'a HashMap<String, String>) ->
 /// Collect per-file hunk lists grouped by canonical path.
 ///
 /// This is the shared grouping logic used by [`build_fragmap`],
-/// [`assign_hunk_groups`], [`extract_spans_propagated`], and
-/// [`dump_per_file_spg_stats`].
-pub(crate) fn collect_file_commits(
+/// [`assign_hunk_groups`], and [`dump_per_file_spg_stats`].
+fn collect_file_commits(
     commit_diffs: &[CommitDiff],
     rename_map: &HashMap<String, String>,
 ) -> HashMap<String, Vec<(usize, Vec<HunkInfo>)>> {
@@ -111,150 +109,19 @@ pub struct FileSpan {
     pub end_line: u32,
 }
 
-/// Extract FileSpans from all commit diffs with span propagation.
-///
-/// Each hunk produces a span using its full `[new_start, new_start + new_lines)`
-/// range (the region of the file occupied after the commit). That span is then
-/// propagated forward through every subsequent commit that modifies the same
-/// file, adjusting line numbers to account for insertions and deletions.
-/// The result: every span is expressed in the FINAL file version's coordinates,
-/// making overlap-based clustering correct across commits.
-pub fn extract_spans_propagated(commit_diffs: &[CommitDiff]) -> Vec<(VirtualOid, Vec<FileSpan>)> {
-    let rename_map = build_rename_map(commit_diffs);
-    let file_commits = collect_file_commits(commit_diffs, &rename_map);
-
-    // For each file, propagate every commit's spans forward to the final version.
-    let mut all_spans: Vec<(usize, FileSpan)> = Vec::new();
-
-    for (path, commits) in &file_commits {
-        for (ci, (commit_idx, hunks)) in commits.iter().enumerate() {
-            for hunk in hunks {
-                if hunk.new_lines == 0 {
-                    continue;
-                }
-
-                // Start with the hunk's new-side range [start, end) exclusive
-                let mut spans = vec![(hunk.new_start, hunk.new_start + hunk.new_lines)];
-
-                // Propagate through all subsequent commits that touch this file,
-                // splitting around each commit's hunks to avoid mapping positions
-                // that fall inside a hunk's replaced region.
-                for (_, later_hunks) in &commits[ci + 1..] {
-                    spans = spans
-                        .into_iter()
-                        .flat_map(|(s, e)| split_and_propagate(s, e, later_hunks))
-                        .collect();
-                }
-
-                // Convert exclusive end to inclusive and add to results
-                for (start, end) in spans {
-                    if end > start {
-                        all_spans.push((
-                            *commit_idx,
-                            FileSpan {
-                                path: path.clone(),
-                                start_line: start,
-                                end_line: end - 1,
-                            },
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    // Group spans by commit OID to match the expected format
-    let mut result: Vec<(VirtualOid, Vec<FileSpan>)> = commit_diffs
-        .iter()
-        .map(|d| (d.commit.oid.clone(), Vec::new()))
-        .collect();
-
-    for (commit_idx, span) in all_spans {
-        result[commit_idx].1.push(span);
-    }
-
-    result
-}
-
 /// Lightweight copy of the hunk header fields needed for propagation.
 #[derive(Debug, Clone)]
-pub(crate) struct HunkInfo {
+struct HunkInfo {
     old_start: u32,
     old_lines: u32,
     new_start: u32,
     new_lines: u32,
 }
 
-/// Map a single line number forward through a commit's hunks.
-///
-/// Given a line number in the file version *before* the commit and the
-/// commit's hunks (sorted by `old_start`), returns the corresponding
-/// line number in the file version *after* the commit.
-///
-/// IMPORTANT: only call this for positions that are OUTSIDE any hunk's
-/// `[old_start, old_start + old_lines)` range. Use `split_and_propagate`
-/// for arbitrary spans that might overlap with hunks.
-fn map_line_forward(line: u32, hunks: &[HunkInfo]) -> u32 {
-    let mut cumulative_delta: i64 = 0;
-
-    for hunk in hunks {
-        // After split_and_propagate, positions are guaranteed outside any
-        // hunk's [old_start, old_start + old_lines). A position equal to
-        // old_start is the exclusive end of a fragment before the hunk.
-        if line <= hunk.old_start {
-            return (line as i64 + cumulative_delta) as u32;
-        }
-
-        cumulative_delta += hunk.new_lines as i64 - hunk.old_lines as i64;
-    }
-
-    (line as i64 + cumulative_delta) as u32
-}
-
-/// Propagate a span `[start, end)` (exclusive end) through a commit's hunks.
-///
-/// Follows the original fragmap's "overhang" algorithm: the span is first
-/// split around each hunk's old range so that only the non-overlapping
-/// parts survive, then those parts are mapped to the new file version
-/// using the cumulative line offsets.
-///
-/// Returns zero or more spans in the post-commit file version.
-fn split_and_propagate(start: u32, end: u32, hunks: &[HunkInfo]) -> Vec<(u32, u32)> {
-    // 1. Split the span around each hunk's [old_start, old_end)
-    let mut remaining = vec![(start, end)];
-
-    for hunk in hunks {
-        let old_start = hunk.old_start;
-        let old_end = hunk.old_start + hunk.old_lines;
-
-        let mut next = Vec::new();
-        for (s, e) in remaining {
-            if e <= old_start || s >= old_end {
-                next.push((s, e));
-            } else {
-                if s < old_start {
-                    next.push((s, old_start));
-                }
-                if e > old_end {
-                    next.push((old_end, e));
-                }
-            }
-        }
-        remaining = next;
-    }
-
-    // 2. Map the remaining (non-overlapping) parts through the line offsets
-    remaining
-        .into_iter()
-        .filter(|(s, e)| e > s)
-        .map(|(s, e)| (map_line_forward(s, hunks), map_line_forward(e, hunks)))
-        .filter(|(s, e)| e > s)
-        .collect()
-}
-
 /// (legacy) Extract FileSpans from a single commit diff without propagation.
 /// Kept for tests that operate on individual commits.
-pub fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
+#[cfg(test)]
+fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
     let mut spans = Vec::new();
 
     for file in &commit_diff.files {

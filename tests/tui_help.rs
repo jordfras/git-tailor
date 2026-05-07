@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TUI snapshot tests for the split-strategy selection dialog.
+// TUI snapshot tests for the help dialog.
 
 #[allow(dead_code)]
 mod common;
@@ -23,46 +23,47 @@ use git_tailor::{
     views,
 };
 
-fn make_app_in_split_select(strategy_index: usize) -> AppState {
+fn make_app_in_help() -> AppState {
     let mut app =
         common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
     app.selection_index = 0;
-    app.mode = AppMode::SplitSelect { strategy_index };
+    app.mode = AppMode::Help(Box::new(AppMode::CommitList));
     app
 }
 
+/// Full-size terminal — all keybindings visible without scrolling.
 #[test]
-fn test_split_dialog_per_file_selected() {
+fn test_help_dialog_full_size() {
     let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(0);
+    let mut app = make_app_in_help();
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::help::render(&mut app, frame);
     }));
 }
 
+/// Short terminal — content taller than the dialog area, scrollbar visible.
 #[test]
-fn test_split_dialog_per_hunk_selected() {
-    let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(1);
+fn test_help_dialog_short_terminal_scrollbar() {
+    let mut harness = TuiTestHarness::short();
+    let mut app = make_app_in_help();
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::help::render(&mut app, frame);
     }));
 }
 
+/// Short terminal, scrolled to middle — scrollbar thumb moves down.
 #[test]
-fn test_split_dialog_per_hunk_group_selected() {
-    let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(2);
+fn test_help_dialog_scrolled() {
+    let mut harness = TuiTestHarness::short();
+    let mut app = make_app_in_help();
+    app.dialog_scroll_offset = 5;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::help::render(&mut app, frame);
     }));
 }

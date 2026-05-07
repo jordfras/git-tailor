@@ -14,14 +14,9 @@
 
 // Help dialog view showing keybindings
 
-use super::dialog::render_centered_dialog;
+use super::dialog::{Dialog, handle_dialog_scroll};
 use crate::app::{AppAction, KeyCommand};
-
-use ratatui::{
-    Frame,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::{Frame, style::Color};
 
 /// Handle an action while in Help mode.
 pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppAction {
@@ -30,148 +25,47 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
             app.toggle_help();
             AppAction::Handled
         }
-        KeyCommand::MoveUp => {
-            app.scroll_dialog_up();
+        _ => {
+            handle_dialog_scroll(action, app);
             AppAction::Handled
         }
-        KeyCommand::MoveDown => {
-            app.scroll_dialog_down();
-            AppAction::Handled
-        }
-        KeyCommand::PageUp => {
-            app.scroll_dialog_page_up();
-            AppAction::Handled
-        }
-        KeyCommand::PageDown => {
-            app.scroll_dialog_page_down();
-            AppAction::Handled
-        }
-        _ => AppAction::Handled,
     }
 }
 
 /// Render the help dialog as a centered overlay.
 pub fn render(app: &mut crate::app::AppState, frame: &mut Frame) {
-    // Build help content first to calculate required size
-    let help_lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            " Navigation",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("   ↑/↓, j/k  ", Style::default().fg(Color::Cyan)),
-            Span::raw("Move selection up/down"),
-        ]),
-        Line::from(vec![
-            Span::styled("   PgUp/PgDn ", Style::default().fg(Color::Cyan)),
-            Span::raw("Move one page up/down"),
-        ]),
-        Line::from(vec![
-            Span::styled("   ←/→       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Scroll fragmap left/right"),
-        ]),
-        Line::from(vec![
-            Span::styled("   Ctrl ←/→  ", Style::default().fg(Color::Cyan)),
-            Span::raw("Move separator bar left/right"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Operations",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("   p         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Split commit (choose strategy)"),
-        ]),
-        Line::from(vec![
-            Span::styled("   s         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Squash commit (pick target)"),
-        ]),
-        Line::from(vec![
-            Span::styled("   f         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Fixup commit (pick target)"),
-        ]),
-        Line::from(vec![
-            Span::styled("   r         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Reword commit message"),
-        ]),
-        Line::from(vec![
-            Span::styled("   d         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Drop commit"),
-        ]),
-        Line::from(vec![
-            Span::styled("   m         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Move commit (pick new position)"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Views",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("   Enter, i  ", Style::default().fg(Color::Cyan)),
-            Span::raw("Toggle commit detail view"),
-        ]),
-        Line::from(vec![
-            Span::styled("   h         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Show this help dialog"),
-        ]),
-        Line::from(vec![
-            Span::styled("   u         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Update commit list from HEAD"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Search (commit detail)",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("   /         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Search (regex)"),
-        ]),
-        Line::from(vec![
-            Span::styled("   n         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Next search match"),
-        ]),
-        Line::from(vec![
-            Span::styled("   N         ", Style::default().fg(Color::Cyan)),
-            Span::raw("Previous search match"),
-        ]),
-        Line::from(vec![
-            Span::styled("   Esc       ", Style::default().fg(Color::Cyan)),
-            Span::raw("Dismiss search"),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Other",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("   Esc, q    ", Style::default().fg(Color::Cyan)),
-            Span::raw("Close dialog / Quit application"),
-        ]),
-        Line::from(""),
-    ];
-
-    let (max_scroll, visible_height) = render_centered_dialog(
-        frame,
-        " Help - Keybindings ",
-        Color::White,
-        48,
-        help_lines,
-        app.dialog_scroll_offset,
-    );
+    let (max_scroll, visible_height) = Dialog::new()
+        .section(" Navigation")
+        .key_binding("   ↑/↓, j/k  ", "Move selection up/down")
+        .key_binding("   PgUp/PgDn ", "Move one page up/down")
+        .key_binding("   ←/→       ", "Scroll fragmap left/right")
+        .key_binding("   Ctrl ←/→  ", "Move separator bar left/right")
+        .section(" Operations")
+        .key_binding("   p         ", "Split commit (choose strategy)")
+        .key_binding("   s         ", "Squash commit (pick target)")
+        .key_binding("   f         ", "Fixup commit (pick target)")
+        .key_binding("   r         ", "Reword commit message")
+        .key_binding("   d         ", "Drop commit")
+        .key_binding("   m         ", "Move commit (pick new position)")
+        .section(" Views")
+        .key_binding("   Enter, i  ", "Toggle commit detail view")
+        .key_binding("   h         ", "Show this help dialog")
+        .key_binding("   u         ", "Update commit list from HEAD")
+        .section(" Search (commit detail)")
+        .key_binding("   /         ", "Search (regex)")
+        .key_binding("   n         ", "Next search match")
+        .key_binding("   N         ", "Previous search match")
+        .key_binding("   Esc       ", "Dismiss search")
+        .section(" Other")
+        .key_binding("   Esc, q    ", "Close dialog / Quit application")
+        .blank()
+        .render(
+            frame,
+            "Help - Keybindings",
+            Color::White,
+            48,
+            app.dialog_scroll_offset,
+        );
     app.max_dialog_scroll = max_scroll;
     app.dialog_visible_height = visible_height;
 }

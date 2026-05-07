@@ -452,7 +452,7 @@ fn stage_file_clears_conflict_for_deleted_file() {
             &Oid::from(_source),
             &Oid::from(target),
             "combined",
-            false,
+            SquashMode::Squash,
             &head,
         )
         .unwrap()
