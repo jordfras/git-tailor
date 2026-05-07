@@ -1014,3 +1014,239 @@
   the entire feature on `#[cfg(unix)]` — on Windows the key event is silently
   ignored; the teardown/restore logic should be extracted into a shared helper
   to avoid duplication with editor.rs and mergetool.rs
+
+## Refactoring — TUI Architecture
+- [X] T116 P3 feat - Review codebase for refactoring opportunities: audit
+  existing code for duplication, overly complex functions, inconsistent
+  patterns, and areas where abstractions could simplify implementation; identify
+  specific refactoring targets like extracting common dialog patterns,
+  consolidating similar error handling, reducing parameter passing, and
+  improving module boundaries; create follow-up tasks for the most impactful
+  improvements
+- [X] T169 P1 feat - Extract shared list-selector key handling for squash_select
+  / move_select / split_select: the three modal pickers in
+  `src/views/{squash_select,move_select,split_select}.rs` each implement
+  near-identical `handle_key(KeyCommand, &mut AppState) -> AppAction` bodies
+  (MoveUp/MoveDown/PageUp/PageDown with index clamping, Confirm, Quit,
+  ShowHelp). Extract a `handle_list_navigation(action, cursor: &mut usize, len:
+  usize, page_size: usize) -> ListNav` helper (or trait) in a new
+  `views/list_nav.rs` (or inside `views/dialog.rs`) that returns `Moved`,
+  `Confirmed`, `Cancelled`, `Help`, or `Unhandled`; each picker then becomes a
+  small wrapper that maps `Confirmed` to its mode-specific `AppAction`. Should
+  remove ~100 LOC of near-duplication and make adding new pickers trivial.
+- [X] T170 P1 feat - Reuse `build_conflict_state` across drop / move /
+  conflict-continuation paths: `src/repo/git2_impl/squash_op.rs` already defines
+  a `build_conflict_state(...)` helper, but `src/repo/git2_impl/drop_op.rs:65`,
+  `src/repo/git2_impl/move_op.rs:82`, `src/repo/git2_impl/conflict.rs:41` and
+  `src/repo/git2_impl/conflict.rs:87` each construct
+  `RebaseOutcome::Conflict(Box::new(ConflictState { ... }))` inline with
+  duplicated field-population logic. Promote `build_conflict_state` to
+  `src/repo/git2_impl.rs` (or a new `repo/git2_impl/conflict_builder.rs`),
+  generalise its parameters to cover all four call sites, and replace the inline
+  constructions. Centralises conflict-state assembly so future fields (e.g.
+  operation label for the conflict dialog header) only need to be added once.
+- [X] T171 P1 feat - Consolidate `render_squash_footer` and `render_move_footer`
+  into a single `render_action_footer`: `src/views/commit_list.rs:726` and
+  `src/views/commit_list.rs:769` are ~85% identical — both truncate the
+  source-commit summary to the available width, build a `Line` with key-hint
+  spans (Enter / Esc), and apply the same dim/footer styling; only the action
+  label and the instruction text differ. Replace both with a single
+  `render_action_footer(frame, app, area, label: &str, source_oid, instructions:
+  &[(&str, &str)])` helper and call it from both call sites (lines 684 and 693).
+  Reduces ~40 LOC and ensures squash/move footers stay visually consistent.
+- [X] T172 P1 feat - Split `dispatch_action` in main.rs into per-AppAction
+  helper functions: `src/main.rs:248` defines `dispatch_action` as a ~290-line
+  `match` over `AppAction` where each arm contains 20–40 lines of side-effect
+  logic (PrepareSplit, ExecuteSplit, PrepareReword, PrepareSquash, PrepareMove,
+  …). Extract each non-trivial arm into a private
+  `fn handle_<action>(...) -> Result<LoopAction>` helper so `dispatch_action`
+  becomes a thin dispatcher (~80 LOC) where each branch is one function call.
+  Use the existing `LoopAction` / `get_head_oid_or_continue!` infrastructure; do
+  not change behaviour. Greatly improves navigability of the event loop and
+  makes individual actions easier to reason about and test.
+- [X] T173 P2 feat - Split `app.rs` into `app/state.rs` + `app/keymap.rs`:
+  `src/app.rs` (876 lines) currently mixes three concerns — the `AppState`
+  struct and its many helper methods (move_*, scroll_*, page_*, set_message, …),
+  the `AppMode` state-machine enum and its transitions, and the `KeyCommand`
+  enum together with `AppMode::parse_key` / `read_event`. Convert `app.rs` to a
+  module declaration that owns `AppMode`, `AppAction`, and `SplitStrategy`, move
+  `AppState` and its inherent impls to `src/app/state.rs`, and move
+  `KeyCommand`, `parse_key`, and `read_event` to `src/app/keymap.rs`. Re-export
+  so external callers (`main.rs`, `views/*`) need no import changes. No
+  behaviour change.
+- [X] T174 P2 fix - Replace hand-rolled scrollbars in commit_detail and dialog
+  with ratatui's built-in `Scrollbar` widget: `src/views/commit_detail.rs`
+  contains two custom `Paragraph`-based implementations — `render_scrollbar`
+  (vertical, ~45 LOC) and `render_h_scrollbar` (horizontal, ~40 LOC) — that
+  manually build `"█"` / `"│"` / `"─"` character strings; `src/views/dialog.rs`
+  has a third, `render_dialog_scrollbar` (~35 LOC), with the same approach.
+  `commit_list.rs` and `hunk_groups.rs` already use
+  `ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState}`
+  correctly. Replace the three custom implementations with the same ratatui
+  widget (using `VerticalLeft`, `VerticalRight`, or `HorizontalBottom` as
+  appropriate); the two-pass layout geometry in `commit_detail.rs` that
+  determines scrollbar area sizes must be kept — only the rendering step
+  changes. Removes ~120 LOC of duplicated thumb-sizing arithmetic and aligns all
+  scrollbars on a single rendering path.
+- [X] T175 P2 feat - Extract cherry-pick helpers from `repo/git2_impl.rs` into
+  `repo/git2_impl/cherry_pick.rs`: `src/repo/git2_impl.rs` (517 lines) currently
+  houses the trait impl plus `cherry_pick_chain` (line 433),
+  `rebase_descendants` (line 333), `collect_descendants` (line 402), and the
+  internal `CherryPickResult` type (line 510). These are the shared rebase
+  primitives consumed by drop / move / squash / split ops and form a cohesive
+  sub-module of their own. Move them (plus any required helpers) to a new
+  `src/repo/git2_impl/cherry_pick.rs`, expose them through `pub(super)` items,
+  and re-export from `git2_impl.rs`. Brings `git2_impl.rs` closer to its
+  trait-impl role and improves the mental model around rebase orchestration.
+- [x] T176 P2 feat - Introduce a `Dialog` builder to reduce dialog boilerplate:
+  Added `Dialog` struct to `src/views/dialog.rs` with a fluent builder API:
+  `blank()`, `title()`, `section()`, `styled_line()`, `plain()`, `wrapped()`,
+  `wrapped_indent()`, `wrapped_styled()`, `wrapped_styled_bold()`,
+  `key_binding()`, `instructions()`, `push_line()`, and `render()`. `title()`
+  adds surrounding blank lines implicitly; `section()` adds only a leading
+  blank; `render()` pads the border title with spaces automatically. Refactored
+  `drop.rs`, `conflict.rs`, `help.rs`, and `split_select.rs` to use it, removing
+  ~55 net lines of repetitive span/style construction.
+- [X] T177 P3 feat - Move domain types from `lib.rs` into a `domain/` submodule
+  tree: `src/lib.rs` currently mixes the public domain types (`CommitInfo`,
+  `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`, `DeltaStatus`, `DiffLineKind`,
+  `Oid`, `VirtualOid`) with the module declarations and re-exports. Split into
+  `src/domain/commit.rs` (commit + oid types) and `src/domain/diff.rs`
+  (diff/hunk/line types), then re-export from `lib.rs` so external imports
+  remain unchanged. Keeps `lib.rs` focused on crate-level wiring.
+- [-] T178 P3 feat - Extract `validate_operation_preconditions` for drop / move
+  ops: `src/repo/git2_impl/drop_op.rs` and `src/repo/git2_impl/move_op.rs` both
+  open with the same prelude — call `check_no_dirty_state`, parse the commit and
+  head OIDs, look up the commit objects, validate parent count (single-parent
+  only). Extract a `fn validate_single_parent_op(repo, commit_oid, head_oid) ->
+  Result<(Commit, Commit)>` helper in `git2_impl.rs`. Saves ~10 LOC and removes
+  a class of copy-paste hazards. (Flags: WONT DO)
+- [-] T179 P3 feat - Extract list-view scroll/selection helpers shared by
+  commit_list and commit_detail: `src/views/commit_list.rs` (832 lines)
+  and `src/views/commit_detail.rs` (822 lines) both implement scroll-
+  bound clamping, page-size-derived navigation, and selection /
+  scroll-offset coupling. Introduce a small `views/list_view.rs` with
+  `compute_scroll_bounds(content_height, visible_height) ->
+  (max_scroll, clamped_offset)` and a `ListRenderContext { selection_idx,
+  scroll_offset, visible_height }` helper used by both; sets the
+  pattern for any future scrolling list view. (Flags: WONT DO)
+- [X] T180 P2 feat - Extract `compute_page_size` helper in app.rs: the idiom
+  `visible_height.saturating_sub(1).max(1)` (keep at least one line of overlap
+  when paging) is repeated at `src/app.rs:485`, `:494`, `:501`, `:507`, `:737`,
+  `:743` (the dialog variant uses `dialog_visible_height` but the same
+  arithmetic). Extract a small free function
+  `fn page_size(visible_height: usize) -> usize` (with a doc comment explaining
+  the one-line overlap rule) and call it from all six sites; remove the inline
+  `// Keep at least one line overlap` comments now that the name documents the
+  intent.
+- [-] T181 P2 feat - Extract scroll-offset clamping helper: the pattern
+  `.min(max_scroll)` for keeping a scroll offset within bounds appears in
+  `src/app.rs` and several places in `src/views/commit_detail.rs` (around lines
+  179, 295, 431, 432) and dialog scroll handling. Add a
+  `fn clamp_scroll(offset: usize, max: usize) -> usize` helper (or
+  `AppState::clamp_*_scroll` methods that wrap the field accesses) and use at
+  all clamping sites. Reduces the chance of forgetting the clamp on a new code
+  path. (Flags: WONT DO — `.min(max)` is already idiomatic; a wrapper adds no
+  semantic value unlike page_size() which encodes a non-obvious rule)
+- [X] T182 P2 feat - Add `VirtualOid::expect_real_oid()` (or `real_oid_cloned`)
+  to eliminate `.as_oid().unwrap().clone()` chains: the pattern
+  `commit.oid.as_oid().unwrap().clone()` appears at
+  `src/views/commit_list.rs:100`, `:112`, `src/views/squash_select.rs:92`,
+  `:93`, and `src/views/move_select.rs:108`. Add a method on `VirtualOid` such
+  as `pub fn expect_real_oid(&self, ctx: &str) -> Oid` that clones the inner
+  `Oid` or panics with a clear message if the variant is synthetic. Replace all
+  five call sites; provides a single, well-named audit point if
+  synthetic-vs-real handling ever needs revisiting.
+- [X] T183 P3 feat - Replace `forward: bool` parameter with a `SearchDirection`
+  enum: `advance_search_match(app: &mut AppState, forward:
+  bool)` at `src/views/commit_detail.rs:153` is called with raw `true` /
+  `false`, losing meaning at the call site. Define
+  `enum SearchDirection { Next, Prev }` (in `app.rs` or
+  `views/commit_detail.rs`) and use it instead so call sites read
+  `advance_search_match(app, SearchDirection::Next)`. Trivial change but
+  improves grep-ability and readability.
+- [X] T184 P3 feat - Extract `next_match_index` pure helper for search cycling:
+  the wrap-around modulo arithmetic in `advance_search_match` at
+  `src/views/commit_detail.rs:157-166` mixes cursor cycling logic with
+  `AppState` mutation. Extract `fn next_match_index(current: Option<usize>, len:
+  usize, dir: SearchDirection) -> usize` (combine with T183) as a pure function
+  so the cycling logic can be unit tested independently from the AppState
+  plumbing.
+- [X] T185 P3 feat - Extract `diff_path_with_prefix` helper for diff file
+  headers: `src/views/commit_detail.rs:569-575` repeats
+  `path.map(|s| format!("X/{}", s)).unwrap_or_else(|| "/dev/null".to_string())`
+  for both `a/` and `b/` prefixes when rendering the `--- a/foo.rs` /
+  `+++ b/foo.rs` diff header lines. Extract `fn diff_path_with_prefix(path:
+  Option<&str>, prefix: &str) -> String` and call it twice; also defines a
+  single place to change the `/dev/null` sentinel if needed.
+- [X] T186 P3 feat - Introduce `DIALOG_BORDER_HEIGHT` / `DIALOG_BORDER_WIDTH`
+  constants in `views/dialog.rs`: hardcoded `saturating_sub(2)` / `+ 2`
+  arithmetic representing the top+bottom (or left+right) border occupies dialog
+  inner-area calculations at `src/views/dialog.rs:45`, `:46`, `:80`. Define
+  `const DIALOG_BORDER_HEIGHT: u16 = 2;` (and width if applicable) at module top
+  and replace the magic `2`s. Also a good template for future per-view layout
+  constants.
+- [X] T187 P3 feat - Replace `"staged"` / `"unstaged"` string literals in
+  `VirtualOid` with named constants: the labels appear at `src/lib.rs:88` and
+  `:98` (and in doc comments at lines 72-74) for `VirtualOid::Staged` /
+  `VirtualOid::Unstaged` rendering. Define
+  `const STAGED_LABEL: &str = "staged";` and `const UNSTAGED_LABEL: &str =
+  "unstaged";` at the top of the relevant impl block (or near the `VirtualOid`
+  definition) and reference them from both arms, ensuring the two methods cannot
+  drift out of sync.
+- [X] T188 P3 feat - Introduce `ORIGIN_HEAD_REF` constant in
+  `repo/git2_impl/reads.rs`: the magic string `"refs/remotes/origin/HEAD"` is
+  hardcoded inside `find_reference("refs/remotes/origin/HEAD")` at
+  `src/repo/git2_impl/reads.rs:209`, while related doc comments in
+  `src/repo.rs:362-369` and `src/cli.rs:32-33` reference the same ref shape. Add
+  `const ORIGIN_HEAD_REF: &str = "refs/remotes/origin/HEAD";` at the top of
+  `reads.rs` and use it; if the value ever needs to change (e.g. for a
+  non-`origin` remote default), there is one place to update.
+- [X] T189 P3 feat - Switch `AppState` to `#[derive(Default)]`: the hand-written
+  `impl Default for AppState` at `src/app.rs:375-410` enumerates ~25 fields,
+  almost all of which already have natural zero/empty defaults. The only
+  obstacle is `reference_oid: Oid::from("")` — add `impl Default for Oid`
+  (returning the empty-string variant with the existing semantics) so `AppState`
+  can be derived. Reduces ~30 lines of mechanical boilerplate and means new
+  fields with `Default` types no longer require touching the constructor.
+- [x] T191 P2 feat - Replace `is_fixup: bool` parameter with a `SquashMode`
+  enum: the boolean is threaded through `AppMode::SquashSelect`, `AppAction`,
+  `handle_prepare_squash`, and `enter_squash_or_fixup_select`. Define
+  `pub enum SquashMode { Squash, Fixup }` with methods `label() -> &str` and
+  `keeps_target_message() -> bool`, then replace all `is_fixup` parameters.
+  Improves type safety and makes call sites self-documenting.
+- [x] T192 P2 feat - Extract synthetic-commit guard helper: the pattern `if
+  commit.oid.is_synthetic() { app.set_error_message("Cannot X ..."); return ...
+  }` appears 10+ times across `commit_list.rs`, `app/state.rs`,
+  `move_select.rs`. Add `AppState::guard_real_commit(&mut self, action: &str) ->
+  Option<&CommitInfo>` that returns `None` (with error message set) when the
+  selected commit is synthetic, replacing the boilerplate at each call site.
+- [x] T193 P3 feat - Consolidate dialog enter/cancel helpers:
+  `enter_split_confirm`, `enter_drop_confirm`, `cancel_split_confirm`,
+  `cancel_drop_confirm`, `cancel_squash_select`, `cancel_move_select` in
+  `app/state.rs` all follow the same pattern (set mode + reset
+  `dialog_scroll_offset` on enter, set mode to `CommitList` on cancel). Extract
+  private `enter_dialog(mode)` and `exit_dialog()` helpers and delegate from all
+  6+ methods.
+- [-] T194 P3 feat - Extract squash message preparation into a pure function:
+  `handle_prepare_squash` in `src/main.rs` is ~50 lines with 9 parameters
+  (`#[allow(clippy::too_many_arguments)]`). Extract the message-construction
+  logic (fixup vs squash, editor invocation decision) into a testable pure
+  function
+  `fn build_squash_message(is_fixup, source_msg, target_msg) -> String`. (Flags:
+  WONT DO — after T191 the message logic is just two `keeps_target_message()`
+  one-liners; not worth extracting)
+- [x] T195 P3 feat - Split `compute_layout` in `commit_list.rs`: the function is
+  ~83 lines computing fragmap dimensions, title widths, and layout areas. Break
+  into 2-3 sub-functions (`compute_fragmap_dimensions`, `split_table_areas`)
+  each handling one concern, with the main function as orchestrator.
+- [x] T196 P3 feat - Restrict unnecessary `pub` visibility in `commit_list.rs`:
+  `build_header`, `build_constraints`, `fragmap_index` and similar helper
+  functions are marked `pub` but only used within the module. Remove `pub` to
+  narrow their visibility.
+- [x] T197 P3 feat - Replace magic `2` literals in `commit_list.rs` layout
+  calculations with a named constant: the value represents the two column-gap
+  characters (separator after SHA + separator before fragmap) and appears ~6
+  times in `compute_column_widths` and `compute_layout`. Define
+  `const COL_GAPS: u16 = 2;` alongside the existing `SHA_COL_WIDTH` /
+  `MIN_TITLE_WIDTH` constants and replace all occurrences.
