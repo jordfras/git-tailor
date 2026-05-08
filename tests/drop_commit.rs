@@ -27,3 +27,5 @@ mod dirty_state;
 mod error_cases;
 #[path = "drop_commit/happy_path.rs"]
 mod happy_path;
+#[path = "drop_commit/root_commit.rs"]
+mod root_commit;
