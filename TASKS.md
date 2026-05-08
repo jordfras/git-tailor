@@ -39,11 +39,11 @@ Guidelines:
   startup) so highlighting is performed per-hunk on demand without re-loading
   assets; consider caching highlighted output per commit to avoid
   re-highlighting on every render
-- [ ] T209 P2 feat - Make `Space` scroll one page down in the commit detail
-  view (like `less`): bind `Space` to page-down so users coming from `less` or
-  `vi` have a familiar navigation shortcut; the scroll amount should match the
-  existing `PageDown` behaviour (one visible-area height, keeping one line of
-  overlap)
+- [ ] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
+  (vi convention) page-scroll keybindings in the commit detail view: `Space` and
+  `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
+  amount should match the existing `PageDown`/`PageUp` behaviour (one
+  visible-area height, keeping one line of overlap)
 - [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
   `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
   scroll approximately half the visible content area at a time; the scroll
