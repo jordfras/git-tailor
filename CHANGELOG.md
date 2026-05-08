@@ -18,6 +18,9 @@ The format is based on
   becomes the new orphan root, with the dropped commit's content removed via a
   three-way merge. If a descendant modified a file created by the root, the
   conflict is surfaced for manual resolution.
+- Moving the root commit to a later position in `--all` mode now correctly
+  strips the root's content from the new orphan root instead of leaking it into
+  the tree.
 
 ### Added
 
