@@ -96,3 +96,41 @@ fn drop_root_commit_single_descendant() {
     );
     assert_file_contents_at_head!(&test.repo, "b.txt", "child\n");
 }
+
+/// When a descendant modifies a file created by the root, the three-way merge
+/// (ancestor=root, ours=empty, theirs=descendant) produces a delete/modify
+/// conflict that the user must resolve.
+#[test]
+fn drop_root_commit_descendant_modifies_root_file_conflicts() {
+    let test = common::TestRepo::new();
+
+    let root = test.commit_file("readme.txt", "initial\n", "root commit");
+    let child = test.commit_file("readme.txt", "updated\n", "update readme");
+
+    let git_repo = test.git_repo();
+    let result = git_repo
+        .drop_commit(&Oid::from(root), &Oid::from(child))
+        .unwrap();
+
+    let state = expect_rebase_conflict!(result);
+    assert_eq!(state.conflicting_commit_oid, Oid::from(child));
+    assert!(state.is_orphan_root);
+    assert!(
+        state.conflicting_files.contains(&"readme.txt".to_string()),
+        "readme.txt should be conflicting: {:?}",
+        state.conflicting_files
+    );
+
+    // Resolve by keeping the descendant's content.
+    test.write_file("readme.txt", "updated\n");
+    git_repo.stage_file("readme.txt").unwrap();
+
+    let result = git_repo.rebase_continue(&state).unwrap();
+    assert_rebase_complete!(result);
+
+    let new_head = test.repo.head().unwrap().target().unwrap();
+    let new_root = test.repo.find_commit(new_head).unwrap();
+    assert_eq!(new_root.parent_count(), 0, "must be an orphan root");
+
+    assert_file_contents_at_head!(&test.repo, "readme.txt", "updated\n");
+}

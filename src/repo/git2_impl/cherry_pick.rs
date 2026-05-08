@@ -205,5 +205,6 @@ pub(super) fn build_chain_conflict(
         still_unresolved: false,
         moved_commit_oid,
         squash_context: None,
+        is_orphan_root: false,
     }))
 }

@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
-- [ ] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
+- [X] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
   bails with "Cannot drop a merge or root commit" when `commit.parent_count()`
   `== 0`; update `drop_op.rs` to handle the root case separately — collect all
   descendants, make the first descendant an orphan root commit (using its

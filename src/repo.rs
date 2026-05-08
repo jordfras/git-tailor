@@ -68,6 +68,9 @@ pub struct ConflictState {
     /// conflict the TUI should open the editor and then call
     /// `squash_finalize` instead of `rebase_continue`.
     pub squash_context: Option<SquashContext>,
+    /// True when the conflicting commit should become an orphan root (no
+    /// parents) after resolution. Used when dropping the root commit.
+    pub is_orphan_root: bool,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash

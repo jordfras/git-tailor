@@ -73,7 +73,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
 }
 
 #[test]
-fn drop_root_commit_fails() {
+fn drop_only_commit_on_branch_fails() {
     let test = common::TestRepo::new();
 
     let root = test.commit_file("a.txt", "v1\n", "root");
@@ -81,11 +81,57 @@ fn drop_root_commit_fails() {
     let git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(root), &Oid::from(root));
 
-    assert!(result.is_err(), "dropping a root commit should fail");
+    assert!(result.is_err(), "dropping the only commit should fail");
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("merge or root"),
-        "error should mention merge or root: {msg}"
+        msg.contains("only commit"),
+        "error should mention only commit: {msg}"
+    );
+}
+
+#[test]
+fn drop_merge_commit_fails() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.create_branch("side", base);
+    let main_tip = test.commit_file("b.txt", "main\n", "main change");
+
+    // Create a commit on the side branch.
+    test.checkout("refs/heads/side");
+    let side_tip = test.commit_file("c.txt", "side\n", "side change");
+
+    // Switch back to main and create a merge commit.
+    test.checkout("refs/heads/main");
+    let main_commit = test.repo.find_commit(main_tip).unwrap();
+    let side_commit = test.repo.find_commit(side_tip).unwrap();
+    let mut merge_index = test
+        .repo
+        .merge_commits(&main_commit, &side_commit, None)
+        .unwrap();
+    let merge_tree_oid = merge_index.write_tree_to(&test.repo).unwrap();
+    let merge_tree = test.repo.find_tree(merge_tree_oid).unwrap();
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let merge_oid = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "merge",
+            &merge_tree,
+            &[&main_commit, &side_commit],
+        )
+        .unwrap();
+
+    let git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(merge_oid), &Oid::from(merge_oid));
+
+    assert!(result.is_err(), "dropping a merge commit should fail");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("merge commit"),
+        "error should mention merge commit: {msg}"
     );
 }
 

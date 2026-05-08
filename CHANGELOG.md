@@ -14,6 +14,10 @@ The format is based on
   visible when it moves outside the current viewport.
 - Entering commit detail mode (`i`) on a narrow terminal now correctly shows the
   commit detail panel.
+- Dropping the root commit in `--all` mode now works. The first descendant
+  becomes the new orphan root, with the dropped commit's content removed via a
+  three-way merge. If a descendant modified a file created by the root, the
+  conflict is surfaced for manual resolution.
 
 ### Added
 

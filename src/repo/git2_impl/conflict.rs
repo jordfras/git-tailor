@@ -47,14 +47,26 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let new_tree_oid = index.write_tree()?;
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
-    let new_tip = repo.inner.commit(
-        None,
-        &conflicting_commit.author(),
-        &conflicting_commit.committer(),
-        conflicting_commit.message().unwrap_or(""),
-        &new_tree,
-        &[&onto_commit],
-    )?;
+    let new_tip = if state.is_orphan_root {
+        // The conflicting commit becomes an orphan root (no parents).
+        repo.inner.commit(
+            None,
+            &conflicting_commit.author(),
+            &conflicting_commit.committer(),
+            conflicting_commit.message().unwrap_or(""),
+            &new_tree,
+            &[],
+        )?
+    } else {
+        repo.inner.commit(
+            None,
+            &conflicting_commit.author(),
+            &conflicting_commit.committer(),
+            conflicting_commit.message().unwrap_or(""),
+            &new_tree,
+            &[&onto_commit],
+        )?
+    };
 
     // Continue cherry-picking remaining descendants.
     let remaining: Vec<git2::Oid> = state.remaining_oids.iter().map(git2::Oid::from).collect();

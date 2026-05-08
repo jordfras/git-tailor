@@ -173,6 +173,7 @@ fn make_conflict_state() -> ConflictState {
         still_unresolved: false,
         moved_commit_oid: None,
         squash_context: None,
+        is_orphan_root: false,
     }
 }
 
