@@ -50,8 +50,8 @@ Guidelines:
   amount should be derived from the current panel height so it stays
   proportional regardless of terminal size
 - [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
-  view: bind `Home` to scroll to the very first line and `End` to scroll to the
-  very last line of the diff content
+  view: bind `g` / `G` (less/vi convention) and `Home` / `End` to scroll to the
+  very first or very last line of the diff content
 - [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
   detail view: bind `0` / `$` (vi/less convention), `Ctrl-A` / `Ctrl-E` (emacs
   convention), and `Ctrl-Home` / `Ctrl-End` to scroll the diff content fully
