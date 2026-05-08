@@ -90,6 +90,15 @@ Guidelines:
   branch and tag candidates by querying `git2` for local branches,
   remote-tracking refs, and tags; degrade gracefully if the current directory is
   not inside a git repository. Same distribution requirement as T140.
+- [ ] T210 P3 feat - Add `gt completions` subcommand to generate and install
+  shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the
+  generated script to stdout; adding `--install` writes it to the conventional
+  user-local path without requiring root — bash: `~/.local/share/bash-completion/completions/gt`,
+  zsh: `~/.local/share/zsh/site-functions/_gt`, fish:
+  `~/.config/fish/completions/gt.fish`; print a hint after install explaining
+  any shell-reload step needed (e.g. `source ~/.bashrc`); this removes the
+  manual setup burden for `cargo install` users and makes T140/T141 completions
+  self-contained without depending on a package manager
 
 ## CLI Output & Compatibility
 
