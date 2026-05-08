@@ -53,9 +53,9 @@ Guidelines:
   view: bind `Home` to scroll to the very first line and `End` to scroll to the
   very last line of the diff content
 - [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
-  detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
-  `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
-  (rightmost position) respectively
+  detail view: bind `0` / `$` (vi/less convention), `Ctrl-A` / `Ctrl-E` (emacs
+  convention), and `Ctrl-Home` / `Ctrl-End` to scroll the diff content fully
+  left (column 0) or fully right (rightmost position) respectively
 - [ ] T166 P3 feat - Increase and decrease diff context lines in commit detail
   view with `+` and `-`: pressing `+` should increase the number of context
   lines shown around each hunk (default 3, matching git's default), and `-`
