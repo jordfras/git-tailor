@@ -1,6 +1,6 @@
 ---
 source: tests/tui_commit_list.rs
-expression: buffer
+expression: "harness.render(|frame| { views::commit_list::render(&mut app, frame); })"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 65, height: 5 },
@@ -9,7 +9,7 @@ Buffer {
         "abc123de   A commit                                              ",
         "                                                                 ",
         "                                                                 ",
-        " abc123def456abc123def456abc123def456abc1 1/1  Press 'h' for help",
+        " abc123def456abc123def456abc123def456abc1 1/1                    ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -18,6 +18,5 @@ Buffer {
         x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 19, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 4, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 47, y: 4, fg: White, bg: Blue, underline: Reset, modifier: DIM,
     ]
 }
