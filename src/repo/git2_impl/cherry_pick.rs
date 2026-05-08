@@ -208,3 +208,86 @@ pub(super) fn build_chain_conflict(
         is_orphan_root: false,
     }))
 }
+
+/// Strip `root_tree`'s content from `first_commit` via a three-way merge to
+/// create a new orphan root, then cherry-pick `remaining` commits on top.
+///
+/// Used by both drop-root and move-root-to-later: the caller prepares the
+/// ordered commit list and this function handles the merge_trees, conflict
+/// routing (with `is_orphan_root: true`), orphan commit creation, and the
+/// cherry-pick chain.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn replace_root_and_replay(
+    repo: &Git2Repo,
+    root_tree: &git2::Tree,
+    first_commit: &git2::Commit,
+    remaining: &[git2::Oid],
+    operation_label: &str,
+    original_branch_oid: Oid,
+    moved_commit_oid: Option<Oid>,
+    reflog_msg: &str,
+) -> Result<RebaseOutcome> {
+    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
+    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+
+    let mut cherry_index =
+        repo.inner
+            .merge_trees(root_tree, &empty_tree, &first_commit.tree()?, None)?;
+
+    if cherry_index.has_conflicts() {
+        let sig = first_commit.author();
+        let anchor_oid =
+            repo.inner
+                .commit(None, &sig, &first_commit.committer(), "", &empty_tree, &[])?;
+        let anchor_commit = repo.inner.find_commit(anchor_oid)?;
+        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit)?;
+
+        let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
+
+        return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+            operation_label: operation_label.to_string(),
+            original_branch_oid,
+            new_tip_oid: Oid::from(anchor_oid),
+            conflicting_commit_oid: Oid::from(first_commit.id()),
+            remaining_oids,
+            conflicting_files: conflict::collect_conflict_files(&repo.inner),
+            still_unresolved: false,
+            moved_commit_oid,
+            squash_context: None,
+            is_orphan_root: true,
+        })));
+    }
+
+    let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
+    let new_tree = repo.inner.find_tree(new_tree_oid)?;
+
+    let new_root_oid = repo.inner.commit(
+        None,
+        &first_commit.author(),
+        &first_commit.committer(),
+        first_commit.message().unwrap_or(""),
+        &new_tree,
+        &[],
+    )?;
+
+    let result = repo.cherry_pick_chain(new_root_oid, remaining)?;
+    match result {
+        CherryPickResult::Complete(tip) => {
+            repo.advance_branch_ref(tip, reflog_msg)?;
+            repo.checkout_head()?;
+            Ok(RebaseOutcome::Complete)
+        }
+        CherryPickResult::Conflict {
+            tip,
+            conflicting_idx,
+        } => Ok(build_chain_conflict(
+            repo,
+            tip,
+            remaining,
+            conflicting_idx,
+            operation_label,
+            original_branch_oid,
+            moved_commit_oid,
+        )),
+    }
+}

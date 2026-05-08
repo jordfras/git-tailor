@@ -19,8 +19,7 @@ use anyhow::{Context, Result};
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict};
-use super::conflict;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn move_commit(
@@ -150,10 +149,8 @@ fn plan_move_to_root(
 /// The source is the existing root (parent_count == 0). After removing it from
 /// the ordered list and inserting it at the target position, the commit that
 /// ends up first becomes the new orphan root — its tree is built via
-/// `merge_trees(root, empty, first_descendant)` to strip the root's content
-/// (which will be re-applied when the old root is cherry-picked at its new
-/// position). If the merge produces a delete/modify conflict, it is surfaced
-/// through the conflict UI with `is_orphan_root: true`.
+/// `replace_root_and_replay` which strips the root's content and handles
+/// conflicts.
 fn move_root_to_later(
     repo: &Git2Repo,
     commit_git_oid: git2::Oid,
@@ -167,7 +164,7 @@ fn move_root_to_later(
     let mut all_oids: Vec<git2::Oid> = revwalk
         .collect::<Result<Vec<_>, git2::Error>>()
         .context("Failed to walk commits for root-move")?;
-    all_oids.reverse(); // oldest first: [root, …, HEAD]
+    all_oids.reverse();
 
     let mut reordered: Vec<git2::Oid> = all_oids
         .into_iter()
@@ -181,75 +178,19 @@ fn move_root_to_later(
         + 1;
     reordered.insert(insert_pos, commit_git_oid);
 
-    let root_commit = repo.inner.find_commit(commit_git_oid)?;
-    let root_tree = root_commit.tree()?;
-    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
-    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+    let root_tree = repo.inner.find_commit(commit_git_oid)?.tree()?;
     let first_commit = repo.inner.find_commit(reordered[0])?;
 
-    let mut cherry_index =
-        repo.inner
-            .merge_trees(&root_tree, &empty_tree, &first_commit.tree()?, None)?;
-
-    if cherry_index.has_conflicts() {
-        let sig = first_commit.author();
-        let anchor_oid =
-            repo.inner
-                .commit(None, &sig, &first_commit.committer(), "", &empty_tree, &[])?;
-        let anchor_commit = repo.inner.find_commit(anchor_oid)?;
-        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit)?;
-
-        let remaining: Vec<Oid> = reordered[1..].iter().map(|&oid| Oid::from(oid)).collect();
-
-        return Ok(RebaseOutcome::Conflict(Box::new(
-            super::super::ConflictState {
-                operation_label: "Move".to_string(),
-                original_branch_oid,
-                new_tip_oid: Oid::from(anchor_oid),
-                conflicting_commit_oid: Oid::from(reordered[0]),
-                remaining_oids: remaining,
-                conflicting_files: conflict::collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: Some(moved_commit_oid),
-                squash_context: None,
-                is_orphan_root: true,
-            },
-        )));
-    }
-
-    let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
-
-    let new_root_oid = repo.inner.commit(
-        None,
-        &first_commit.author(),
-        &first_commit.committer(),
-        first_commit.message().unwrap_or(""),
-        &new_tree,
-        &[],
-    )?;
-
-    let remaining = &reordered[1..];
-    let result = repo.cherry_pick_chain(new_root_oid, remaining)?;
-    match result {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: move root commit")?;
-            repo.checkout_head()?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            remaining,
-            conflicting_idx,
-            "Move",
-            original_branch_oid,
-            Some(moved_commit_oid),
-        )),
-    }
+    replace_root_and_replay(
+        repo,
+        &root_tree,
+        &first_commit,
+        &reordered[1..],
+        "Move",
+        original_branch_oid,
+        Some(moved_commit_oid),
+        "git-tailor: move root commit",
+    )
 }
 
 /// Build the chain for a standard mid-chain reorder.

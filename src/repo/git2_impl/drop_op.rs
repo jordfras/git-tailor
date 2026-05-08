@@ -18,8 +18,7 @@ use anyhow::Result;
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict};
-use super::conflict;
+use super::cherry_pick::{CherryPickResult, build_chain_conflict, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn drop_commit(
@@ -74,10 +73,6 @@ pub(super) fn drop_commit(
 
 /// Drop the root commit (parent_count == 0) by three-way merging the first
 /// descendant onto the empty tree, then cherry-picking remaining descendants.
-///
-/// The merge uses `ancestor=root_tree, ours=empty_tree, theirs=descendant_tree`
-/// which correctly detects delete/modify conflicts for files the root created
-/// that descendants modified.
 fn drop_root_commit(
     repo: &Git2Repo,
     commit_git_oid: git2::Oid,
@@ -87,7 +82,7 @@ fn drop_root_commit(
     let mut revwalk = repo.inner.revwalk()?;
     revwalk.push(head_git_oid)?;
     let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<Vec<_>, git2::Error>>()?;
-    all_oids.reverse(); // oldest first
+    all_oids.reverse();
 
     let descendants: Vec<git2::Oid> = all_oids
         .into_iter()
@@ -99,74 +94,16 @@ fn drop_root_commit(
     }
 
     let root_tree = repo.inner.find_commit(commit_git_oid)?.tree()?;
-    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
-    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
     let first = repo.inner.find_commit(descendants[0])?;
 
-    let mut cherry_index = repo
-        .inner
-        .merge_trees(&root_tree, &empty_tree, &first.tree()?, None)?;
-
-    if cherry_index.has_conflicts() {
-        // Create a temporary empty-tree orphan commit as the "tip" anchor.
-        // rebase_continue will create the real orphan root from the resolved
-        // index (is_orphan_root flag).
-        let sig = first.author();
-        let anchor_oid = repo
-            .inner
-            .commit(None, &sig, &first.committer(), "", &empty_tree, &[])?;
-        let anchor_commit = repo.inner.find_commit(anchor_oid)?;
-        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit)?;
-
-        let remaining: Vec<Oid> = descendants[1..].iter().map(|&oid| Oid::from(oid)).collect();
-
-        return Ok(RebaseOutcome::Conflict(Box::new(
-            super::super::ConflictState {
-                operation_label: "Drop".to_string(),
-                original_branch_oid,
-                new_tip_oid: Oid::from(anchor_oid),
-                conflicting_commit_oid: Oid::from(descendants[0]),
-                remaining_oids: remaining,
-                conflicting_files: conflict::collect_conflict_files(&repo.inner),
-                still_unresolved: false,
-                moved_commit_oid: None,
-                squash_context: None,
-                is_orphan_root: true,
-            },
-        )));
-    }
-
-    let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
-
-    let new_root_oid = repo.inner.commit(
+    replace_root_and_replay(
+        repo,
+        &root_tree,
+        &first,
+        &descendants[1..],
+        "Drop",
+        original_branch_oid,
         None,
-        &first.author(),
-        &first.committer(),
-        first.message().unwrap_or(""),
-        &new_tree,
-        &[], // orphan — no parents
-    )?;
-
-    let remaining = &descendants[1..];
-    let result = repo.cherry_pick_chain(new_root_oid, remaining)?;
-    match result {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: drop root commit")?;
-            repo.checkout_head()?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            remaining,
-            conflicting_idx,
-            "Drop",
-            original_branch_oid,
-            None,
-        )),
-    }
+        "git-tailor: drop root commit",
+    )
 }
