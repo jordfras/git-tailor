@@ -93,14 +93,26 @@ Guidelines:
 - [ ] T210 P3 feat - Add `gt completions` subcommand to generate and install
   shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the
   generated script to stdout; adding `--install` writes it to the conventional
-  user-local path without requiring root — bash: `~/.local/share/bash-completion/completions/gt`,
-  zsh: `~/.local/share/zsh/site-functions/_gt`, fish:
+  user-local path without requiring root — bash:
+  `~/.local/share/bash-completion/completions/gt`, zsh:
+  `~/.local/share/zsh/site-functions/_gt`, fish:
   `~/.config/fish/completions/gt.fish`; print a hint after install explaining
   any shell-reload step needed (e.g. `source ~/.bashrc`); this removes the
   manual setup burden for `cargo install` users and makes T140/T141 completions
   self-contained without depending on a package manager
 
-## CLI Output & Compatibility
+## Startup & Performance
+- [ ] T211 P2 feat - Start the TUI immediately and load commits in a background
+  thread, showing a loading screen while work is in progress: add a
+  `Loading { count: usize }` variant to `AppMode`; in `main.rs`, initialise the
+  terminal and enter the event loop before fetching any commits; spawn a
+  background thread that opens its own `Git2Repo` handle (since
+  `git2::Repository` is not `Send`) and sends commits one-by-one via
+  `std::sync::mpsc`; the event loop polls the channel each tick and increments
+  the displayed counter until all commits arrive, then transitions to
+  `CommitList`; add a `views::loading` module that renders the counter and a
+  brief status message; Ctrl-C exits cleanly via the normal event loop quit
+  path, so no separate signal handler is needed
 
 ## Build & CI
 - [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
