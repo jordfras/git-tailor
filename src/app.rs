@@ -145,6 +145,12 @@ impl SquashMode {
 /// Application display mode.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
+    /// Loading screen shown while commits are streamed and the fragmap is built.
+    Loading {
+        title: &'static str,
+        message: &'static str,
+        count: Option<usize>,
+    },
     /// Commit list view with fragmap.
     #[default]
     CommitList,
@@ -180,7 +186,7 @@ impl AppMode {
     /// underneath. Returns `None` for base views (CommitList, CommitDetail).
     pub fn background(&self) -> Option<AppMode> {
         match self {
-            AppMode::CommitList | AppMode::CommitDetail => None,
+            AppMode::Loading { .. } | AppMode::CommitList | AppMode::CommitDetail => None,
             AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)

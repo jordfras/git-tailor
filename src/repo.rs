@@ -371,6 +371,17 @@ pub trait GitRepo {
     /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
     /// never set).
     fn default_branch(&self) -> Option<String>;
+
+    /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
+    ///
+    /// Unlike `list_commits`, this streams one `CommitInfo` per `.next()` call
+    /// so callers can render progress between iterations. The OID range and
+    /// result ordering are identical to `list_commits`.
+    fn commit_walker<'a>(
+        &'a self,
+        from_oid: &Oid,
+        to_oid: &Oid,
+    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
 }
 
 impl ConflictState {

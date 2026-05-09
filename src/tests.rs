@@ -160,6 +160,13 @@ impl GitRepo for MockRepo {
     fn root_commit_oid(&self) -> anyhow::Result<Oid> {
         unimplemented!()
     }
+    fn commit_walker<'a>(
+        &'a self,
+        _from_oid: &Oid,
+        _to_oid: &Oid,
+    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
+        unimplemented!()
+    }
 }
 
 fn make_conflict_state() -> ConflictState {
@@ -187,7 +194,7 @@ fn execute_drop_complete_sets_success_message() {
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
     );
-    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status_message.as_deref(), Some("Commit dropped"));
     assert!(!app.status_is_error);
 }
@@ -219,7 +226,7 @@ fn execute_move_complete_sets_success_message() {
     let repo = MockRepo::default();
     let mut app = AppState::default();
     let result = handle_execute_move(&repo, &mut app, Oid::from("a".repeat(40)), None);
-    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status_message.as_deref(), Some("Commit moved"));
     assert!(!app.status_is_error);
 }
@@ -242,7 +249,7 @@ fn rebase_abort_success_sets_success_message() {
     let mut app = AppState::default();
     let state = make_conflict_state();
     let result = handle_rebase_abort(&repo, &mut app, state);
-    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(matches!(result, Ok(LoopAction::Reload)));
     assert!(!app.status_is_error);
     assert!(
         app.status_message

@@ -62,7 +62,7 @@ pub fn render(app: &mut crate::app::AppState, frame: &mut Frame) {
         .render(
             frame,
             "Help - Keybindings",
-            Color::White,
+            Color::Cyan,
             48,
             app.dialog_scroll_offset,
         );

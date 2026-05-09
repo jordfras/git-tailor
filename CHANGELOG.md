@@ -34,6 +34,13 @@ The format is based on
   can discover key bindings without prior knowledge. The hint is shown only when
   there is enough space and is suppressed whenever a status or error message
   occupies the footer.
+- The TUI now starts immediately and shows a live commit counter while loading.
+  Previously the application blocked until all commits were read before showing
+  anything. Ctrl-C during loading exits cleanly.
+- For branches with more than 100 commits, a confirmation dialog is shown before
+  computing the hunk group matrix (which can be slow for large histories).
+  Answering `n` skips the matrix; the rest of the TUI is fully functional
+  without it.
 
 ### Internals
 

@@ -254,6 +254,14 @@ impl GitRepo for Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         squash_op::squash_finalize(self, ctx, message, original_branch_oid)
     }
+
+    fn commit_walker<'a>(
+        &'a self,
+        from_oid: &Oid,
+        to_oid: &Oid,
+    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
+        reads::commit_walker(self, from_oid, to_oid)
+    }
 }
 
 impl Git2Repo {

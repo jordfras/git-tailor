@@ -212,4 +212,11 @@ impl GitRepo for StubRepo {
     fn root_commit_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
+    fn commit_walker<'a>(
+        &'a self,
+        _from_oid: &Oid,
+        _to_oid: &Oid,
+    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
+        unimplemented!()
+    }
 }

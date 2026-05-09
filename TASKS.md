@@ -102,39 +102,20 @@ Guidelines:
   self-contained without depending on a package manager
 
 ## Startup & Performance
-- [ ] T211 P2 feat - Start the TUI immediately and stream commits one-by-one,
-  showing a loading screen with an incrementing counter while the commit walk
-  is in progress: add a `Loading { count: usize }` variant to `AppMode`; in
-  `main.rs`, initialise the terminal and enter the event loop before fetching
-  any commits; add a `views::loading` module that renders the counter and a
-  brief status message; Ctrl-C exits cleanly via the normal event loop quit
-  path, so no separate signal handler is needed.
-
-  A genuine per-commit progress indicator requires the `GitRepo` trait to yield
-  commits incrementally rather than returning a `Vec` all at once — otherwise
-  the counter stays at 0 until the entire walk completes and jumps to N at the
-  end, which is no better than today.
-
-  **Preferred approach — boxed iterator (no background thread):** add a
-  `commit_walker` method to `GitRepo` that returns
-  `Box<dyn Iterator<Item = Result<CommitInfo>> + '_>`; the `Git2Repo` impl
-  wraps the existing `git2::Revwalk` loop directly (it already yields one OID
-  at a time); the loading-phase event loop calls `.next()` once per iteration,
-  renders between calls, and polls for Ctrl-C with
-  `crossterm::event::poll(Duration::ZERO)`; no thread, channel, or `Send`
-  requirement needed; `load_initial_commits` is replaced by a setup function
-  that resolves the OID bounds and returns the walker; the fake/mock
-  `GitRepo` implementations gain a straightforward iterator wrapper over their
-  existing commit lists.
-
-  **Alternative — background thread + mpsc:** keep `list_commits` unchanged on
-  the trait; spawn a background thread that opens its own `Git2Repo` handle
-  (since `git2::Repository` is not `Send`) and iterates the revwalk, sending
-  each `CommitInfo` down a `std::sync::mpsc` channel; the loading-phase loop
-  drains the channel with `try_recv()` each tick and updates the counter;
-  `anyhow::Error` is `Send` so errors can be forwarded via the same channel;
-  requires no trait change but adds threading complexity and still needs an
-  internal streaming loop in the thread to send commits one-by-one.
+- [x] T211 P2 feat - Start the TUI immediately and stream commits one-by-one
+  with a live counter dialog: added `commit_walker` to `GitRepo` returning a
+  boxed iterator so `Git2Repo` yields one commit at a time from the underlying
+  `git2::Revwalk`; added `AppMode::Loading { title, message, count }` rendered
+  by a new `views::loading` module as a centred dialog overlay; the loading loop
+  in the new `src/loader.rs` module renders at ~60 fps and polls for Ctrl-C with
+  `crossterm::event::poll(Duration::ZERO)` between commits — no background
+  thread needed; split `load_with_progress` into three private helpers:
+  `walk_commits` (iterator loop), `confirm_matrix_build` (Y/N dialog for large
+  repos), `build_hunk_group_matrix` (fragmap computation with progress title);
+  loading dialog shows `"Loading Commits"` title during the walk and
+  `"Hunk Group Matrix"` during matrix computation; dialog border colour changed
+  from `DarkGray` to `Cyan` to match other info dialogs; Y/N matrix confirm
+  labels changed from `Compute`/`Skip` to `Yes`/`No`.
 
 ## UI — Theming & Dialogs
 - [ ] T212 P3 feat - Introduce semantic dialog kinds and text roles to eliminate
