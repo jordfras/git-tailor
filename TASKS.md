@@ -136,6 +136,21 @@ Guidelines:
   requires no trait change but adds threading complexity and still needs an
   internal streaming loop in the thread to send commits one-by-one.
 
+## UI — Theming & Dialogs
+- [ ] T212 P3 feat - Introduce semantic dialog kinds and text roles to eliminate
+  scattered `Color` literals from dialog call sites: add a `DialogKind` enum
+  (`Info`, `Confirm`, `Danger`) whose variants map to a fixed border color
+  (`Cyan`, `Yellow`, `Red` respectively — matching the existing conventions);
+  change `Dialog::render` to accept `DialogKind` instead of a raw `Color` for
+  the border; add a `TextRole` enum (`Normal`, `Highlight`, `Muted`, `Key`,
+  `Danger`) and corresponding `Dialog` builder methods (`role_line`,
+  `role_wrapped`, etc.) that resolve the role to a `Color` internally; update
+  all call sites in `views/` (`drop.rs`, `conflict.rs`, `split_select.rs`,
+  `help.rs`, `loading.rs`, `squash_select.rs`, `move_select.rs`) to use the
+  new API; the `theme.rs` module (or a new `dialog_theme.rs` sibling) owns the
+  `DialogKind → Color` and `TextRole → Color` mappings so a future theme
+  switch only needs to touch one place.
+
 ## Build & CI
 - [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
   `.github/workflows/release.yml` that triggers on version tags (`v*`), builds
