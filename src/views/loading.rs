@@ -15,7 +15,10 @@
 use ratatui::{Frame, style::Color};
 
 use crate::app::{AppMode, AppState};
-use crate::views::{commit_list, dialog::Dialog};
+use crate::views::{
+    commit_list,
+    dialog::{Dialog, DialogKind, TextRole},
+};
 
 fn render_background(app: &mut AppState, frame: &mut Frame) {
     if !app.commits.is_empty() {
@@ -40,7 +43,9 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         Some((n, t)) => format!(" {message} {n}/{t}"),
         None => format!(" {message}"),
     };
-    let mut dialog = Dialog::new().blank().styled_line(text, Color::White);
+    let mut dialog = Dialog::new(DialogKind::Info)
+        .blank()
+        .styled_line(text, TextRole::Normal);
     let hint = if skippable {
         Some(("s", Color::Cyan, " to skip"))
     } else if progress.is_some() {
@@ -51,5 +56,5 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     if let Some((key, color, label)) = hint {
         dialog = dialog.blank().instructions(&[(key, color, label)]);
     }
-    dialog.blank().render(frame, title, Color::Cyan, 60, 0);
+    dialog.blank().render(frame, title, 60, 0);
 }

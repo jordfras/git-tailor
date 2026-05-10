@@ -14,9 +14,9 @@
 
 // Help dialog view showing keybindings
 
-use super::dialog::{Dialog, handle_dialog_scroll};
+use super::dialog::{Dialog, DialogKind, handle_dialog_scroll};
 use crate::app::{AppAction, KeyCommand};
-use ratatui::{Frame, style::Color};
+use ratatui::Frame;
 
 /// Handle an action while in Help mode.
 pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppAction {
@@ -34,7 +34,7 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
 
 /// Render the help dialog as a centered overlay.
 pub fn render(app: &mut crate::app::AppState, frame: &mut Frame) {
-    let (max_scroll, visible_height) = Dialog::new()
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Info)
         .section(" Navigation")
         .key_binding("   ↑/↓, j/k  ", "Move selection up/down")
         .key_binding("   PgUp/PgDn ", "Move one page up/down")
@@ -59,13 +59,7 @@ pub fn render(app: &mut crate::app::AppState, frame: &mut Frame) {
         .section(" Other")
         .key_binding("   Esc, q    ", "Close dialog / Quit application")
         .blank()
-        .render(
-            frame,
-            "Help - Keybindings",
-            Color::Cyan,
-            48,
-            app.dialog_scroll_offset,
-        );
+        .render(frame, "Help - Keybindings", 48, app.dialog_scroll_offset);
     app.max_dialog_scroll = max_scroll;
     app.dialog_visible_height = visible_height;
 }

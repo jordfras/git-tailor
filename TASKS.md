@@ -118,7 +118,7 @@ Guidelines:
   labels changed from `Compute`/`Skip` to `Yes`/`No`.
 
 ## UI — Theming & Dialogs
-- [ ] T212 P3 feat - Introduce semantic dialog kinds and text roles to eliminate
+- [x] T212 P3 feat - Introduce semantic dialog kinds and text roles to eliminate
   scattered `Color` literals from dialog call sites: add a `DialogKind` enum
   (`Info`, `Confirm`, `Danger`) whose variants map to a fixed border color
   (`Cyan`, `Yellow`, `Red` respectively — matching the existing conventions);
