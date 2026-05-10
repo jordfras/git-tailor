@@ -1,6 +1,6 @@
 ---
 source: tests/tui_drop_confirm.rs
-expression: buffer
+expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::conflict::render_conflict(&mut app, frame);\n})"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 24 },
@@ -28,7 +28,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " abc123def456 2/2                                             Press 'h' for help",
+        " abc123def456 2/2                                            Press 'h' for help ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -92,6 +92,7 @@ Buffer {
         x: 9, y: 17, fg: Red, bg: Black, underline: Reset, modifier: NONE,
         x: 71, y: 17, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 62, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 61, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 79, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

@@ -50,6 +50,65 @@ pub(super) fn find_reference_point(repo: &Git2Repo, commit_ish: &str) -> Result<
     Ok(Oid::from(reference_oid))
 }
 
+pub(super) fn commit_walker<'a>(
+    repo: &'a Git2Repo,
+    from_oid: &Oid,
+    to_oid: &Oid,
+) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
+    let from_object = repo
+        .inner
+        .revparse_single(from_oid.long())
+        .context(format!("Failed to resolve '{}'", from_oid))?;
+    let from_commit_oid = from_object.id();
+
+    let to_object = repo
+        .inner
+        .revparse_single(to_oid.long())
+        .context(format!("Failed to resolve '{}'", to_oid))?;
+    let to_commit_oid = to_object.id();
+
+    let mut revwalk = repo.inner.revwalk()?;
+    revwalk.push(from_commit_oid)?;
+
+    Ok(Box::new(CommitWalkerIter {
+        repo: &repo.inner,
+        revwalk,
+        to_commit_oid,
+        done: false,
+    }))
+}
+
+struct CommitWalkerIter<'a> {
+    repo: &'a git2::Repository,
+    revwalk: git2::Revwalk<'a>,
+    to_commit_oid: git2::Oid,
+    done: bool,
+}
+
+impl<'a> Iterator for CommitWalkerIter<'a> {
+    type Item = Result<CommitInfo>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let oid = match self.revwalk.next() {
+            None => return None,
+            Some(Err(e)) => return Some(Err(anyhow::Error::from(e))),
+            Some(Ok(oid)) => oid,
+        };
+        if oid == self.to_commit_oid {
+            self.done = true;
+        }
+        Some(
+            self.repo
+                .find_commit(oid)
+                .map(|c| commit_info_from(&c))
+                .map_err(anyhow::Error::from),
+        )
+    }
+}
+
 pub(super) fn list_commits(
     repo: &Git2Repo,
     from_oid: &Oid,

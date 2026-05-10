@@ -723,12 +723,15 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let width = area.width as usize;
     let left_len = left.len();
     let hint_len = HINT.len();
-    let line = if left_len + 2 + hint_len <= width {
-        let padding = width - left_len - hint_len;
+    const MIN_GAP: usize = 2;
+    const RIGHT_PAD: usize = 1;
+    let line = if left_len + MIN_GAP + hint_len + RIGHT_PAD <= width {
+        let padding = width - left_len - hint_len - RIGHT_PAD;
         Line::from(vec![
             Span::styled(left, FOOTER_STYLE),
             Span::styled(" ".repeat(padding), FOOTER_STYLE),
             Span::styled(HINT, hint_style),
+            Span::styled(" ".repeat(RIGHT_PAD), FOOTER_STYLE),
         ])
     } else {
         Line::from(Span::styled(left, FOOTER_STYLE))

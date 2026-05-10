@@ -216,6 +216,7 @@ fn build_conflict_state(
         conflicting_files: conflict::collect_conflict_files(&repo.inner),
         still_unresolved: false,
         moved_commit_oid: None,
+        is_orphan_root: false,
         squash_context: Some(SquashContext {
             base_oid: Oid::from(inputs.base_oid),
             source_oid: inputs.source_oid.clone(),

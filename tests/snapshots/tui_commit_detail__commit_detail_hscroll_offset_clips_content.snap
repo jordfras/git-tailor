@@ -29,7 +29,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "────────█████████████████████████████████████████████████████████████████───────",
-        " abc123def456 1/1                                             Press 'h' for help",
+        " abc123def456 1/1                                            Press 'h' for help ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -43,6 +43,7 @@ Buffer {
         x: 0, y: 10, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 3, y: 10, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 62, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 61, y: 23, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 79, y: 23, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

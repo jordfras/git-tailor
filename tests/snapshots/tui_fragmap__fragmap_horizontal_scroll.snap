@@ -19,7 +19,7 @@ Buffer {
         "                               │        ",
         "                               │        ",
         "                               │──██████",
-        " aaa1 3/3             Press 'h' for help",
+        " aaa1 3/3            Press 'h' for help ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -72,6 +72,7 @@ Buffer {
         x: 31, y: 13, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 32, y: 13, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 22, y: 14, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 21, y: 14, fg: White, bg: Blue, underline: Reset, modifier: DIM,
+        x: 39, y: 14, fg: White, bg: Blue, underline: Reset, modifier: NONE,
     ]
 }

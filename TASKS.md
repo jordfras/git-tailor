@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
-- [ ] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
+- [X] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
   bails with "Cannot drop a merge or root commit" when `commit.parent_count()`
   `== 0`; update `drop_op.rs` to handle the root case separately — collect all
   descendants, make the first descendant an orphan root commit (using its
@@ -39,23 +39,23 @@ Guidelines:
   startup) so highlighting is performed per-hunk on demand without re-loading
   assets; consider caching highlighted output per commit to avoid
   re-highlighting on every render
-- [ ] T209 P2 feat - Make `Space` scroll one page down in the commit detail
-  view (like `less`): bind `Space` to page-down so users coming from `less` or
-  `vi` have a familiar navigation shortcut; the scroll amount should match the
-  existing `PageDown` behaviour (one visible-area height, keeping one line of
-  overlap)
+- [ ] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
+  (vi convention) page-scroll keybindings in the commit detail view: `Space` and
+  `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
+  amount should match the existing `PageDown`/`PageUp` behaviour (one
+  visible-area height, keeping one line of overlap)
 - [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
   `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
   scroll approximately half the visible content area at a time; the scroll
   amount should be derived from the current panel height so it stays
   proportional regardless of terminal size
 - [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
-  view: bind `Home` to scroll to the very first line and `End` to scroll to the
-  very last line of the diff content
+  view: bind `g` / `G` (less/vi convention) and `Home` / `End` to scroll to the
+  very first or very last line of the diff content
 - [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
-  detail view: bind `Ctrl-A` / `Ctrl-E` (emacs convention) and `Ctrl-Home` /
-  `Ctrl-End` to scroll the diff content fully left (column 0) or fully right
-  (rightmost position) respectively
+  detail view: bind `0` / `$` (vi/less convention), `Ctrl-A` / `Ctrl-E` (emacs
+  convention), and `Ctrl-Home` / `Ctrl-End` to scroll the diff content fully
+  left (column 0) or fully right (rightmost position) respectively
 - [ ] T166 P3 feat - Increase and decrease diff context lines in commit detail
   view with `+` and `-`: pressing `+` should increase the number of context
   lines shown around each hunk (default 3, matching git's default), and `-`
@@ -90,8 +90,47 @@ Guidelines:
   branch and tag candidates by querying `git2` for local branches,
   remote-tracking refs, and tags; degrade gracefully if the current directory is
   not inside a git repository. Same distribution requirement as T140.
+- [ ] T210 P3 feat - Add `gt completions` subcommand to generate and install
+  shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the
+  generated script to stdout; adding `--install` writes it to the conventional
+  user-local path without requiring root — bash:
+  `~/.local/share/bash-completion/completions/gt`, zsh:
+  `~/.local/share/zsh/site-functions/_gt`, fish:
+  `~/.config/fish/completions/gt.fish`; print a hint after install explaining
+  any shell-reload step needed (e.g. `source ~/.bashrc`); this removes the
+  manual setup burden for `cargo install` users and makes T140/T141 completions
+  self-contained without depending on a package manager
 
-## CLI Output & Compatibility
+## Startup & Performance
+- [x] T211 P2 feat - Start the TUI immediately and stream commits one-by-one
+  with a live counter dialog: added `commit_walker` to `GitRepo` returning a
+  boxed iterator so `Git2Repo` yields one commit at a time from the underlying
+  `git2::Revwalk`; added `AppMode::Loading { title, message, count }` rendered
+  by a new `views::loading` module as a centred dialog overlay; the loading loop
+  in the new `src/loader.rs` module renders at ~60 fps and polls for Ctrl-C with
+  `crossterm::event::poll(Duration::ZERO)` between commits — no background
+  thread needed; split `load_with_progress` into three private helpers:
+  `walk_commits` (iterator loop), `confirm_matrix_build` (Y/N dialog for large
+  repos), `build_hunk_group_matrix` (fragmap computation with progress title);
+  loading dialog shows `"Loading Commits"` title during the walk and
+  `"Hunk Group Matrix"` during matrix computation; dialog border colour changed
+  from `DarkGray` to `Cyan` to match other info dialogs; Y/N matrix confirm
+  labels changed from `Compute`/`Skip` to `Yes`/`No`.
+
+## UI — Theming & Dialogs
+- [x] T212 P3 feat - Introduce semantic dialog kinds and text roles to eliminate
+  scattered `Color` literals from dialog call sites: add a `DialogKind` enum
+  (`Info`, `Confirm`, `Danger`) whose variants map to a fixed border color
+  (`Cyan`, `Yellow`, `Red` respectively — matching the existing conventions);
+  change `Dialog::render` to accept `DialogKind` instead of a raw `Color` for
+  the border; add a `TextRole` enum (`Normal`, `Highlight`, `Muted`, `Key`,
+  `Danger`) and corresponding `Dialog` builder methods (`role_line`,
+  `role_wrapped`, etc.) that resolve the role to a `Color` internally; update
+  all call sites in `views/` (`drop.rs`, `conflict.rs`, `split_select.rs`,
+  `help.rs`, `loading.rs`, `squash_select.rs`, `move_select.rs`) to use the
+  new API; the `theme.rs` module (or a new `dialog_theme.rs` sibling) owns the
+  `DialogKind → Color` and `TextRole → Color` mappings so a future theme
+  switch only needs to touch one place.
 
 ## Build & CI
 - [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create

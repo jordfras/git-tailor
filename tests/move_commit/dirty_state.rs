@@ -172,6 +172,14 @@ fn move_root_commit_to_later_position() {
     let new_root = test.repo.find_commit(all_oids[0]).unwrap();
     assert_eq!(new_root.parent_count(), 0, "new root should be orphan");
 
+    // The new root (originally "A") must NOT contain root.txt — the original
+    // root's content is stripped and re-applied when it is cherry-picked later.
+    let new_root_tree = new_root.tree().unwrap();
+    assert!(
+        new_root_tree.get_name("root.txt").is_none(),
+        "new root tree should NOT contain root.txt (was leaked from original root)"
+    );
+
     let messages: Vec<String> = all_oids
         .iter()
         .map(|&oid| commit_message(&test.repo, oid))
@@ -213,4 +221,31 @@ fn move_commit_allowed_with_staged_submodule() {
         .unwrap();
 
     assert_rebase_complete!(result);
+}
+
+/// When the root commit creates a file that a descendant modifies, moving the
+/// root to a later position should detect the delete/modify conflict on the
+/// new root tree and surface it through the conflict UI.
+#[test]
+fn move_root_to_later_descendant_modifies_root_file_conflicts() {
+    let test = common::TestRepo::new();
+
+    // root creates shared.txt; A modifies it; B is independent.
+    let _root = test.commit_file("shared.txt", "root content\n", "root");
+    let _a = test.commit_file("shared.txt", "modified by A\n", "A");
+    let b = test.commit_file("b.txt", "b\n", "B");
+
+    let git_repo = test.git_repo();
+    let root_oid = git_repo.root_commit_oid().unwrap();
+
+    let result = git_repo
+        .move_commit(&root_oid, Some(&Oid::from(b)), &Oid::from(b))
+        .unwrap();
+
+    // The merge_trees(root, empty, A) detects a delete/modify conflict on
+    // shared.txt: "ours" deletes it, "theirs" (A's tree) modifies it.
+    assert!(
+        matches!(result, RebaseOutcome::Conflict(_)),
+        "expected conflict when descendant modifies a file created by the root"
+    );
 }

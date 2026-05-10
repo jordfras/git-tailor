@@ -14,7 +14,7 @@
 
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
-use super::dialog::{Dialog, handle_dialog_scroll, inner_width};
+use super::dialog::{Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
@@ -104,8 +104,11 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
 
     let remaining = state.remaining_oids.len();
 
-    let mut dialog = Dialog::new()
-        .title(format!(" Merge conflict during {label_lower}"), Color::Red)
+    let mut dialog = Dialog::new(DialogKind::Danger)
+        .heading(
+            format!("Merge conflict during {label_lower}"),
+            TextRole::Danger,
+        )
         .push_line(Line::from(vec![
             Span::raw(" Conflict in "),
             Span::styled(short_oid.to_string(), Style::default().fg(Color::Cyan)),
@@ -123,14 +126,14 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         } else {
             " A commit being rebased on top of the moved commit conflicted."
         };
-        dialog = dialog.wrapped_styled(note, iw, Color::Yellow);
+        dialog = dialog.wrapped_styled(note, iw, TextRole::Highlight);
     } else if state.operation_label == "Squash" {
         let note = if state.squash_context.is_some() {
             " The squash itself caused the conflict."
         } else {
             " A commit being rebased after the squash conflicted."
         };
-        dialog = dialog.wrapped_styled(note, iw, Color::Yellow);
+        dialog = dialog.wrapped_styled(note, iw, TextRole::Highlight);
     }
 
     if remaining > 0 {
@@ -141,20 +144,20 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     if !state.conflicting_files.is_empty() {
         dialog = dialog
             .blank()
-            .styled_line(" Conflicting files:", Color::Yellow);
+            .styled_line("Conflicting files:", TextRole::Highlight);
         const MAX_FILES: usize = 5;
         let shown = state.conflicting_files.len().min(MAX_FILES);
         for path in &state.conflicting_files[..shown] {
             let truncated = if path.len() + 3 > iw {
                 format!(" \u{2026}{}", &path[path.len().saturating_sub(iw - 3)..])
             } else {
-                format!(" {path}")
+                path.to_string()
             };
-            dialog = dialog.styled_line(truncated, Color::Red);
+            dialog = dialog.styled_line(truncated, TextRole::Danger);
         }
         let extra = state.conflicting_files.len().saturating_sub(MAX_FILES);
         if extra > 0 {
-            dialog = dialog.styled_line(format!(" ... {extra} more"), Color::DarkGray);
+            dialog = dialog.styled_line(format!("... {extra} more"), TextRole::Muted);
         }
     }
 
@@ -164,7 +167,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
             .wrapped_styled_bold(
                 " ! Still unresolved — fix all conflicts above before continuing",
                 iw,
-                Color::Red,
+                TextRole::Danger,
             )
             .blank();
     }
@@ -178,13 +181,8 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         .blank();
 
     let title = format!("{label} Conflict");
-    let (max_scroll, visible_height) = dialog.render(
-        frame,
-        &title,
-        Color::Red,
-        PREFERRED_WIDTH,
-        app.dialog_scroll_offset,
-    );
+    let (max_scroll, visible_height) =
+        dialog.render(frame, &title, PREFERRED_WIDTH, app.dialog_scroll_offset);
     app.max_dialog_scroll = max_scroll;
     app.dialog_visible_height = visible_height;
 }

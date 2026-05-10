@@ -14,7 +14,7 @@
 
 // Split strategy selection dialog
 
-use super::dialog::{Dialog, handle_dialog_scroll};
+use super::dialog::{Dialog, DialogKind, TextRole, handle_dialog_scroll};
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
 use ratatui::{
@@ -135,7 +135,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         _ => 0,
     };
 
-    let mut dialog = Dialog::new()
+    let mut dialog = Dialog::new(DialogKind::Info)
         .blank()
         .push_line(Line::from(Span::styled(
             format!(" {display_summary}"),
@@ -143,7 +143,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
                 .fg(Color::White)
                 .add_modifier(Modifier::DIM),
         )))
-        .title(" Choose split strategy:", Color::Yellow);
+        .heading("Choose split strategy:", TextRole::Highlight);
 
     for (i, strategy) in SplitStrategy::ALL.iter().enumerate() {
         let selected = i == strategy_index;
@@ -162,8 +162,8 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
                 style,
             )))
             .styled_line(
-                format!("        {}", strategy.description()),
-                Color::DarkGray,
+                format!("       {}", strategy.description()),
+                TextRole::Muted,
             )
             .blank();
     }
@@ -179,7 +179,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let (max_scroll, visible_height) = dialog.render(
         frame,
         "Split Commit",
-        Color::Cyan,
         content_width,
         app.dialog_scroll_offset,
     );
@@ -199,13 +198,13 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
     };
 
-    let (max_scroll, visible_height) = Dialog::new()
-        .title(
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm)
+        .heading(
             format!(
-                " This will create {} commits ({}).",
+                "This will create {} commits ({}).",
                 pending.count, strategy_name
             ),
-            Color::Yellow,
+            TextRole::Highlight,
         )
         .plain(" Do you want to proceed?")
         .blank()
@@ -214,13 +213,7 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
             ("Esc", Color::Cyan, "Cancel"),
         ])
         .blank()
-        .render(
-            frame,
-            "Confirm Split",
-            Color::Yellow,
-            52,
-            app.dialog_scroll_offset,
-        );
+        .render(frame, "Confirm Split", 52, app.dialog_scroll_offset);
     app.max_dialog_scroll = max_scroll;
     app.dialog_visible_height = visible_height;
 }

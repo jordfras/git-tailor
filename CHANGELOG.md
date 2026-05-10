@@ -14,6 +14,13 @@ The format is based on
   visible when it moves outside the current viewport.
 - Entering commit detail mode (`i`) on a narrow terminal now correctly shows the
   commit detail panel.
+- Dropping the root commit in `--all` mode now works. The first descendant
+  becomes the new orphan root, with the dropped commit's content removed via a
+  three-way merge. If a descendant modified a file created by the root, the
+  conflict is surfaced for manual resolution.
+- Moving the root commit to a later position in `--all` mode now correctly
+  strips the root's content from the new orphan root instead of leaking it into
+  the tree.
 
 ### Added
 
@@ -27,6 +34,13 @@ The format is based on
   can discover key bindings without prior knowledge. The hint is shown only when
   there is enough space and is suppressed whenever a status or error message
   occupies the footer.
+- The TUI now starts immediately and shows a live commit counter while loading.
+  Previously the application blocked until all commits were read before showing
+  anything. Ctrl-C during loading exits cleanly.
+- Hunk group matrix computation is now interruptible. A progress dialog shows
+  how many files have been clustered; pressing `s` skips the remaining work and
+  opens the TUI without a matrix. The rest of the TUI is fully functional
+  without it.
 
 ### Internals
 

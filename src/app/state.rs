@@ -366,7 +366,8 @@ impl AppState {
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
             | AppMode::SquashSelect { .. }
-            | AppMode::MoveSelect { .. } => return,
+            | AppMode::MoveSelect { .. }
+            | AppMode::Loading { .. } => return,
         };
         self.mode = new_mode;
         self.detail_scroll_offset = 0;

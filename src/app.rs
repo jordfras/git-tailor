@@ -145,6 +145,16 @@ impl SquashMode {
 /// Application display mode.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
+    /// Loading screen shown while commits are streamed and the fragmap is built.
+    Loading {
+        title: &'static str,
+        message: &'static str,
+        /// `Some((done, total))` when progress is known, `None` for indeterminate phases.
+        progress: Option<(usize, usize)>,
+        /// When `true`, pressing `s` skips the current phase. When `false`,
+        /// Ctrl-C is the quit key and is shown as the hint instead.
+        skippable: bool,
+    },
     /// Commit list view with fragmap.
     #[default]
     CommitList,
@@ -180,7 +190,7 @@ impl AppMode {
     /// underneath. Returns `None` for base views (CommitList, CommitDetail).
     pub fn background(&self) -> Option<AppMode> {
         match self {
-            AppMode::CommitList | AppMode::CommitDetail => None,
+            AppMode::Loading { .. } | AppMode::CommitList | AppMode::CommitDetail => None,
             AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::SplitSelect { .. }
             | AppMode::SplitConfirm(_)

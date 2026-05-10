@@ -14,6 +14,58 @@
 
 // Shared dialog rendering utilities for centered overlay dialogs.
 
+/// Semantic dialog kind that determines the border color.
+///
+/// Centralises the border-color convention so all overlay dialogs are
+/// consistent and a single edit here changes every dialog of that kind.
+pub enum DialogKind {
+    /// Informational / status dialog — Cyan border.
+    Info,
+    /// Confirmation dialog before a non-destructive action — Yellow border.
+    Confirm,
+    /// Destructive or error dialog — Red border.
+    Danger,
+}
+
+impl DialogKind {
+    pub fn border_color(&self) -> Color {
+        match self {
+            DialogKind::Info => Color::Cyan,
+            DialogKind::Confirm => Color::Yellow,
+            DialogKind::Danger => Color::Red,
+        }
+    }
+}
+
+/// Semantic text role for dialog content lines.
+///
+/// All role → color mappings live here so a future theme change only needs to
+/// touch `TextRole::color`.
+pub enum TextRole {
+    /// Default text — White.
+    Normal,
+    /// Highlighted / emphasized text — Yellow.
+    Highlight,
+    /// Muted / secondary text — DarkGray.
+    Muted,
+    /// Key name or short identifier — Cyan.
+    Key,
+    /// Error or destructive text — Red.
+    Danger,
+}
+
+impl TextRole {
+    pub fn color(&self) -> Color {
+        match self {
+            TextRole::Normal => Color::White,
+            TextRole::Highlight => Color::Yellow,
+            TextRole::Muted => Color::DarkGray,
+            TextRole::Key => Color::Cyan,
+            TextRole::Danger => Color::Red,
+        }
+    }
+}
+
 /// Left + right border columns (one column each side).
 const BORDER_WIDTH: u16 = 2;
 /// Top + bottom border rows (one row each side).
@@ -74,21 +126,24 @@ pub fn inner_width(preferred_width: u16, area_width: u16) -> usize {
 /// # Example
 ///
 /// ```ignore
-/// Dialog::new()
-///     .title(" Drop this commit?", Color::Yellow)
-///     .styled_line(format!(" {short_oid}"), Color::Cyan)
+/// Dialog::new(DialogKind::Confirm)
+///     .heading("Drop this commit?", TextRole::Highlight)
+///     .styled_line(format!("{short_oid}"), TextRole::Key)
 ///     .instructions(&[("Enter", Color::Cyan, "Confirm"), ("Esc", Color::Cyan, "Cancel")])
 ///     .blank()
-///     .render(frame, "Confirm Drop", Color::Yellow, 60, 0);
+///     .render(frame, "Confirm Drop", 60, 0);
 /// ```
-#[derive(Default)]
 pub struct Dialog {
+    kind: DialogKind,
     lines: Vec<Line<'static>>,
 }
 
 impl Dialog {
-    pub fn new() -> Self {
-        Self { lines: Vec::new() }
+    pub fn new(kind: DialogKind) -> Self {
+        Self {
+            kind,
+            lines: Vec::new(),
+        }
     }
 
     /// Push an empty blank line.
@@ -97,12 +152,16 @@ impl Dialog {
         self
     }
 
-    /// Push a bold line in `color` surrounded by blank lines above and below.
-    pub fn title(mut self, text: impl Into<String>, color: Color) -> Self {
+    /// Push a bold heading line colored by `role`, surrounded by blank lines above and below.
+    ///
+    /// The leading space is added automatically — pass the text without it.
+    pub fn heading(mut self, text: impl Into<String>, role: TextRole) -> Self {
         self.lines.push(Line::from(""));
         self.lines.push(Line::from(Span::styled(
-            text.into(),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
+            format!(" {}", text.into()),
+            Style::default()
+                .fg(role.color())
+                .add_modifier(Modifier::BOLD),
         )));
         self.lines.push(Line::from(""));
         self
@@ -110,7 +169,7 @@ impl Dialog {
 
     /// Push a bold yellow section header preceded by a blank line.
     ///
-    /// Unlike [`title`][Dialog::title], no blank is added after — the
+    /// Unlike [`heading`][Dialog::heading], no blank is added after — the
     /// content lines follow immediately.
     pub fn section(mut self, text: impl Into<String>) -> Self {
         self.lines.push(Line::from(""));
@@ -123,11 +182,13 @@ impl Dialog {
         self
     }
 
-    /// Push a line styled with `color` (no bold).
-    pub fn styled_line(mut self, text: impl Into<String>, color: Color) -> Self {
+    /// Push a line with the color resolved from `role` (no bold).
+    ///
+    /// A single leading space is added automatically as a left margin.
+    pub fn styled_line(mut self, text: impl Into<String>, role: TextRole) -> Self {
         self.lines.push(Line::from(Span::styled(
-            text.into(),
-            Style::default().fg(color),
+            format!(" {}", text.into()),
+            Style::default().fg(role.color()),
         )));
         self
     }
@@ -155,22 +216,25 @@ impl Dialog {
         self
     }
 
-    /// Wrap `text` with indent preservation and push each chunk styled with
-    /// `color`.
-    pub fn wrapped_styled(mut self, text: &str, width: usize, color: Color) -> Self {
+    /// Wrap `text` with indent preservation and push each chunk with the color resolved from `role`.
+    pub fn wrapped_styled(mut self, text: &str, width: usize, role: TextRole) -> Self {
         for chunk in wrap_text_indent(text, width) {
-            self.lines
-                .push(Line::from(Span::styled(chunk, Style::default().fg(color))));
+            self.lines.push(Line::from(Span::styled(
+                chunk,
+                Style::default().fg(role.color()),
+            )));
         }
         self
     }
 
     /// Like [`wrapped_styled`][Dialog::wrapped_styled] but also applies the `BOLD` modifier.
-    pub fn wrapped_styled_bold(mut self, text: &str, width: usize, color: Color) -> Self {
+    pub fn wrapped_styled_bold(mut self, text: &str, width: usize, role: TextRole) -> Self {
         for chunk in wrap_text_indent(text, width) {
             self.lines.push(Line::from(Span::styled(
                 chunk,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(role.color())
+                    .add_modifier(Modifier::BOLD),
             )));
         }
         self
@@ -218,10 +282,10 @@ impl Dialog {
         self,
         frame: &mut Frame,
         title: &str,
-        border_color: Color,
         preferred_width: u16,
         scroll_offset: usize,
     ) -> (usize, usize) {
+        let border_color = self.kind.border_color();
         let area = frame.area();
         let content_height = self.lines.len();
         let dialog_width = preferred_width.min(area.width.saturating_sub(BORDER_WIDTH * 2));

@@ -202,30 +202,100 @@ pub struct FragMap {
 /// `false` to keep every raw hunk cluster as its own column, which is useful
 /// for debugging the cluster layout.
 pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap {
-    let rename_map = build_rename_map(commit_diffs);
-    let file_commits = collect_file_commits(commit_diffs, &rename_map);
+    let mut builder = FragMapBuilder::new(commit_diffs.to_vec(), deduplicate);
+    while !builder.step() {}
+    builder.run_dedup();
+    builder.finish_matrix()
+}
 
-    let mut clusters: Vec<SpanCluster> = Vec::new();
+/// Incremental builder for a [`FragMap`].
+///
+/// Allows the caller to process one file at a time (phase 1), then run
+/// deduplication (phase 2) and matrix construction (phase 3) as separate
+/// steps. This enables progress reporting and Ctrl-C interruption between
+/// files during the slow clustering phase.
+pub struct FragMapBuilder {
+    commit_diffs: Vec<CommitDiff>,
+    rename_map: HashMap<String, String>,
+    file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>>,
+    sorted_paths: Vec<String>,
+    clusters: Vec<SpanCluster>,
+    next_path_idx: usize,
+    deduplicate: bool,
+}
 
-    let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
-    sorted_paths.sort();
-
-    for path in sorted_paths {
-        let commits_for_file = &file_commits[path];
-        clusters.extend(build_file_clusters(path, commits_for_file, commit_diffs));
+impl FragMapBuilder {
+    /// Create a new builder. Preprocessing (rename map + file grouping) runs
+    /// eagerly in `new`, so the per-file loop in [`step`](Self::step) is pure
+    /// SPG work.
+    pub fn new(commit_diffs: Vec<CommitDiff>, deduplicate: bool) -> Self {
+        let rename_map = build_rename_map(&commit_diffs);
+        let file_commits = collect_file_commits(&commit_diffs, &rename_map);
+        let mut sorted_paths: Vec<String> = file_commits.keys().cloned().collect();
+        sorted_paths.sort();
+        Self {
+            commit_diffs,
+            rename_map,
+            file_commits,
+            sorted_paths,
+            clusters: Vec::new(),
+            next_path_idx: 0,
+            deduplicate,
+        }
     }
 
-    if deduplicate {
-        deduplicate_clusters(&mut clusters);
+    /// Total number of unique files to process in phase 1.
+    pub fn total_files(&self) -> usize {
+        self.sorted_paths.len()
     }
 
-    let commits: Vec<VirtualOid> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
-    let matrix = build_matrix(&commits, &clusters, commit_diffs, &rename_map);
+    /// Number of files whose clusters have been computed so far.
+    pub fn files_done(&self) -> usize {
+        self.next_path_idx
+    }
 
-    FragMap {
-        commits,
-        clusters,
-        matrix,
+    /// Compute clusters for one file. Returns `true` when all files are done.
+    ///
+    /// Safe to call again after returning `true` — it is a no-op.
+    pub fn step(&mut self) -> bool {
+        if self.next_path_idx >= self.sorted_paths.len() {
+            return true;
+        }
+        let path = &self.sorted_paths[self.next_path_idx];
+        let commits_for_file = &self.file_commits[path];
+        let new_clusters = build_file_clusters(path, commits_for_file, &self.commit_diffs);
+        self.clusters.extend(new_clusters);
+        self.next_path_idx += 1;
+        self.next_path_idx >= self.sorted_paths.len()
+    }
+
+    /// Deduplicate clusters (phase 2). Call after all [`step`](Self::step)
+    /// calls complete.
+    pub fn run_dedup(&mut self) {
+        if self.deduplicate {
+            deduplicate_clusters(&mut self.clusters);
+        }
+    }
+
+    /// Build the touch-kind matrix and return the completed [`FragMap`] (phase
+    /// 3). Consumes `self`. Call after [`run_dedup`](Self::run_dedup).
+    pub fn finish_matrix(self) -> FragMap {
+        let commits: Vec<VirtualOid> = self
+            .commit_diffs
+            .iter()
+            .map(|d| d.commit.oid.clone())
+            .collect();
+        let matrix = build_matrix(
+            &commits,
+            &self.clusters,
+            &self.commit_diffs,
+            &self.rename_map,
+        );
+        FragMap {
+            commits,
+            clusters: self.clusters,
+            matrix,
+        }
     }
 }
 

@@ -196,6 +196,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         still_unresolved: state.still_unresolved,
         moved_commit_oid: state.moved_commit_oid,
         squash_context: state.squash_context,
+        is_orphan_root: state.is_orphan_root,
     };
     git_repo.rebase_abort(&conflict_state).unwrap();
 
