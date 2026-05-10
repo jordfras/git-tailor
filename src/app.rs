@@ -149,7 +149,11 @@ pub enum AppMode {
     Loading {
         title: &'static str,
         message: &'static str,
-        count: Option<usize>,
+        /// `Some((done, total))` when progress is known, `None` for indeterminate phases.
+        progress: Option<(usize, usize)>,
+        /// When `true`, pressing `s` skips the current phase. When `false`,
+        /// Ctrl-C is the quit key and is shown as the hint instead.
+        skippable: bool,
     },
     /// Commit list view with fragmap.
     #[default]

@@ -27,7 +27,8 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let AppMode::Loading {
         title,
         message,
-        count,
+        progress,
+        skippable,
     } = app.mode
     else {
         return;
@@ -35,27 +36,20 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
     render_background(app, frame);
 
-    let text = match count {
-        Some(n) => format!(" {message} {n}"),
+    let text = match progress {
+        Some((n, t)) => format!(" {message} {n}/{t}"),
         None => format!(" {message}"),
     };
     let mut dialog = Dialog::new().blank().styled_line(text, Color::White);
-    if count.is_some() {
-        dialog = dialog
-            .blank()
-            .instructions(&[("Ctrl-C", Color::Cyan, " to quit")]);
+    let hint = if skippable {
+        Some(("s", Color::Cyan, " to skip"))
+    } else if progress.is_some() {
+        Some(("Ctrl-C", Color::Cyan, " to quit"))
+    } else {
+        None
+    };
+    if let Some((key, color, label)) = hint {
+        dialog = dialog.blank().instructions(&[(key, color, label)]);
     }
     dialog.blank().render(frame, title, Color::Cyan, 60, 0);
-}
-
-pub fn render_matrix_confirm(app: &mut AppState, frame: &mut Frame, n: usize) {
-    render_background(app, frame);
-    Dialog::new()
-        .blank()
-        .styled_line(format!(" This branch has {n} commits."), Color::White)
-        .plain(" Compute hunk group matrix?")
-        .blank()
-        .instructions(&[("y", Color::Cyan, " Yes   "), ("n", Color::Cyan, " No")])
-        .blank()
-        .render(frame, "Hunk Group Matrix", Color::Cyan, 60, 0);
 }

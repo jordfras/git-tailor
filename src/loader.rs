@@ -26,6 +26,10 @@ use git_tailor::{
 use crate::cli::Cli;
 use crate::terminal_guard::TerminalGuard;
 
+/// Commits as loaded from git, before synthetic working-tree rows and virtual
+/// OIDs are added to produce the final `app.commits` list.
+type CommitsWithDiffs = Vec<(CommitInfo, Option<CommitDiff>)>;
+
 pub fn load_initial_commits(
     git_repo: &impl GitRepo,
     cli: &Cli,
@@ -114,19 +118,29 @@ pub fn load_with_progress(
     include_reference_oid: bool,
     full: bool,
 ) -> Result<bool> {
+    let total = git_repo.commit_walker(from_oid, reference_oid)?.count();
     let saved_mode = std::mem::replace(
         &mut app.mode,
         AppMode::Loading {
             title: "Loading Commits",
             message: "Loading commits\u{2026}",
-            count: Some(0),
+            progress: Some((0, total)),
+            skippable: false,
         },
     );
     terminal_guard
         .terminal()
         .draw(|frame| views::loading::render(app, frame))?;
 
-    let Some(raw) = walk_commits(git_repo, terminal_guard, app, from_oid, reference_oid)? else {
+    let Some(raw) = walk_commits(
+        git_repo,
+        terminal_guard,
+        app,
+        from_oid,
+        reference_oid,
+        total,
+    )?
+    else {
         app.mode = saved_mode;
         return Ok(false);
     };
@@ -147,18 +161,12 @@ pub fn load_with_progress(
         return Ok(true);
     }
 
-    let build_matrix = confirm_matrix_build(terminal_guard, app, commits.len())?;
-
     let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff(), git_repo.unstaged_diff()]
         .into_iter()
         .flatten()
         .collect();
 
-    let matrix = if build_matrix {
-        build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?
-    } else {
-        None
-    };
+    let matrix = build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?;
 
     let mut all_commits = commits;
     for d in &extra_diffs {
@@ -186,7 +194,8 @@ fn walk_commits(
     app: &mut AppState,
     from_oid: &Oid,
     reference_oid: &Oid,
-) -> Result<Option<Vec<(CommitInfo, Option<CommitDiff>)>>> {
+    total: usize,
+) -> Result<Option<CommitsWithDiffs>> {
     let walker = git_repo.commit_walker(from_oid, reference_oid)?;
     let mut raw: Vec<(CommitInfo, Option<CommitDiff>)> = Vec::new();
 
@@ -209,7 +218,8 @@ fn walk_commits(
             app.mode = AppMode::Loading {
                 title: "Loading Commits",
                 message: "Loading commits\u{2026}",
-                count: Some(raw.len()),
+                progress: Some((raw.len(), total)),
+                skippable: false,
             };
             terminal_guard
                 .terminal()
@@ -235,52 +245,9 @@ fn walk_commits(
 /// If `count` exceeds the threshold, drain buffered events, render the Y/N
 /// confirmation dialog, and wait for the user's answer. Returns `true` if the
 /// matrix should be built.
-fn confirm_matrix_build(
-    terminal_guard: &mut TerminalGuard,
-    app: &mut AppState,
-    count: usize,
-) -> Result<bool> {
-    const MATRIX_CONFIRM_THRESHOLD: usize = 100;
-    if count <= MATRIX_CONFIRM_THRESHOLD {
-        return Ok(true);
-    }
-
-    // Drain buffered events so loading-phase keypresses cannot accidentally
-    // answer the prompt.
-    while crossterm::event::poll(std::time::Duration::ZERO)? {
-        let _ = crossterm::event::read();
-    }
-
-    terminal_guard
-        .terminal()
-        .draw(|frame| views::loading::render_matrix_confirm(app, frame, count))?;
-
-    loop {
-        match crossterm::event::read()? {
-            Event::Key(KeyEvent {
-                kind: KeyEventKind::Release,
-                ..
-            }) => {}
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('y') | KeyCode::Char('Y'),
-                ..
-            }) => break Ok(true),
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc,
-                ..
-            }) => break Ok(false),
-            Event::Key(KeyEvent {
-                code: KeyCode::Char('c'),
-                modifiers,
-                ..
-            }) if modifiers.contains(KeyModifiers::CONTROL) => break Ok(false),
-            _ => {}
-        }
-    }
-}
-
-/// Show the "Computing hunk group matrix…" dialog, build the fragmap from
-/// `diff_opts` merged with `extra_diffs`, and return it.
+/// Build the fragmap incrementally in three phases, showing a progress dialog
+/// for each phase. Returns `Ok(None)` when any diff is missing (matrix skipped)
+/// or when the user presses Ctrl-C during file clustering (phase 1).
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
@@ -288,22 +255,72 @@ fn build_hunk_group_matrix(
     extra_diffs: &[CommitDiff],
     full: bool,
 ) -> Result<Option<git_tailor::fragmap::FragMap>> {
+    let Some(mut diffs) = diff_opts.into_iter().collect::<Option<Vec<CommitDiff>>>() else {
+        return Ok(None);
+    };
+    diffs.extend_from_slice(extra_diffs);
+
+    let mut builder = fragmap::FragMapBuilder::new(diffs, !full);
+    let total = builder.total_files();
+
+    // Phase 1: cluster files (interruptible with Ctrl-C).
+    let render_interval = std::time::Duration::from_millis(16);
+    let mut last_render = std::time::Instant::now()
+        .checked_sub(render_interval)
+        .unwrap_or_else(std::time::Instant::now);
+    loop {
+        let done = builder.step();
+        let now = std::time::Instant::now();
+        if now.duration_since(last_render) >= render_interval || done {
+            last_render = now;
+            app.mode = AppMode::Loading {
+                title: "Hunk Group Matrix",
+                message: "Clustering files\u{2026}",
+                progress: Some((builder.files_done(), total)),
+                skippable: true,
+            };
+            terminal_guard
+                .terminal()
+                .draw(|frame| views::loading::render(app, frame))?;
+            if !done
+                && crossterm::event::poll(std::time::Duration::ZERO)?
+                && let Ok(Event::Key(KeyEvent {
+                    code: KeyCode::Char('s') | KeyCode::Char('S'),
+                    kind: KeyEventKind::Press,
+                    ..
+                })) = crossterm::event::read()
+            {
+                return Ok(None);
+            }
+        }
+        if done {
+            break;
+        }
+    }
+
+    // Phase 2: deduplicate clusters.
     app.mode = AppMode::Loading {
         title: "Hunk Group Matrix",
-        message: "Computing hunk group matrix\u{2026}",
-        count: None,
+        message: "Deduplicating clusters\u{2026}",
+        progress: None,
+        skippable: false,
     };
     terminal_guard
         .terminal()
         .draw(|frame| views::loading::render(app, frame))?;
+    builder.run_dedup();
 
-    Ok(diff_opts
-        .into_iter()
-        .collect::<Option<Vec<CommitDiff>>>()
-        .map(|mut diffs| {
-            diffs.extend_from_slice(extra_diffs);
-            fragmap::build_fragmap(&diffs, !full)
-        }))
+    // Phase 3: build matrix.
+    app.mode = AppMode::Loading {
+        title: "Hunk Group Matrix",
+        message: "Building matrix\u{2026}",
+        progress: None,
+        skippable: false,
+    };
+    terminal_guard
+        .terminal()
+        .draw(|frame| views::loading::render(app, frame))?;
+    Ok(Some(builder.finish_matrix()))
 }
 
 /// Choose the initial selection index for a commit list:
