@@ -242,12 +242,9 @@ fn walk_commits(
     Ok(Some(raw))
 }
 
-/// If `count` exceeds the threshold, drain buffered events, render the Y/N
-/// confirmation dialog, and wait for the user's answer. Returns `true` if the
-/// matrix should be built.
-/// Build the fragmap incrementally in three phases, showing a progress dialog
-/// for each phase. Returns `Ok(None)` when any diff is missing (matrix skipped)
-/// or when the user presses Ctrl-C during file clustering (phase 1).
+/// Build the fragmap with a live progress dialog for each phase. Returns
+/// `Ok(None)` when any diff is missing (matrix skipped) or when the user
+/// presses `s`/`S` during file clustering.
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
@@ -260,67 +257,104 @@ fn build_hunk_group_matrix(
     };
     diffs.extend_from_slice(extra_diffs);
 
-    let mut builder = fragmap::FragMapBuilder::new(diffs, !full);
-    let total = builder.total_files();
-
-    // Phase 1: cluster files (interruptible with Ctrl-C).
     let render_interval = std::time::Duration::from_millis(16);
     let mut last_render = std::time::Instant::now()
         .checked_sub(render_interval)
         .unwrap_or_else(std::time::Instant::now);
-    loop {
-        let done = builder.step();
+    let mut render_error: Option<anyhow::Error> = None;
+
+    let result = fragmap::build_fragmap(&diffs, !full, &mut |phase| {
+        use fragmap::FragMapProgress;
         let now = std::time::Instant::now();
-        if now.duration_since(last_render) >= render_interval || done {
-            last_render = now;
-            app.mode = AppMode::Loading {
-                title: "Hunk Group Matrix",
-                message: "Clustering files\u{2026}",
-                progress: Some((builder.files_done(), total)),
-                skippable: true,
-            };
-            terminal_guard
-                .terminal()
-                .draw(|frame| views::loading::render(app, frame))?;
-            if !done
-                && crossterm::event::poll(std::time::Duration::ZERO)?
-                && let Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('s') | KeyCode::Char('S'),
-                    kind: KeyEventKind::Press,
-                    ..
-                })) = crossterm::event::read()
-            {
-                return Ok(None);
+
+        match phase {
+            FragMapProgress::ClusteringFile {
+                files_done,
+                files_total,
+            } => {
+                if now.duration_since(last_render) < render_interval {
+                    return true;
+                }
+                last_render = now;
+                app.mode = AppMode::Loading {
+                    title: "Hunk Group Matrix",
+                    message: "Clustering files\u{2026}",
+                    progress: Some((files_done, files_total)),
+                    skippable: true,
+                };
+                if let Err(e) = terminal_guard
+                    .terminal()
+                    .draw(|frame| views::loading::render(app, frame))
+                {
+                    render_error = Some(e.into());
+                    return false;
+                }
+                if crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
+                    && let Ok(Event::Key(KeyEvent {
+                        code: KeyCode::Char('s') | KeyCode::Char('S'),
+                        kind: KeyEventKind::Press,
+                        ..
+                    })) = crossterm::event::read()
+                {
+                    return false;
+                }
+                true
+            }
+            FragMapProgress::Deduplicating => {
+                app.mode = AppMode::Loading {
+                    title: "Hunk Group Matrix",
+                    message: "Deduplicating clusters\u{2026}",
+                    progress: None,
+                    skippable: false,
+                };
+                if let Err(e) = terminal_guard
+                    .terminal()
+                    .draw(|frame| views::loading::render(app, frame))
+                {
+                    render_error = Some(e.into());
+                    return false;
+                }
+                true
+            }
+            FragMapProgress::BuildingMatrix {
+                commits_done,
+                commits_total,
+            } => {
+                if now.duration_since(last_render) < render_interval {
+                    return true;
+                }
+                last_render = now;
+                app.mode = AppMode::Loading {
+                    title: "Hunk Group Matrix",
+                    message: "Building matrix\u{2026}",
+                    progress: Some((commits_done, commits_total)),
+                    skippable: true,
+                };
+                if let Err(e) = terminal_guard
+                    .terminal()
+                    .draw(|frame| views::loading::render(app, frame))
+                {
+                    render_error = Some(e.into());
+                    return false;
+                }
+                if crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
+                    && let Ok(Event::Key(KeyEvent {
+                        code: KeyCode::Char('s') | KeyCode::Char('S'),
+                        kind: KeyEventKind::Press,
+                        ..
+                    })) = crossterm::event::read()
+                {
+                    return false;
+                }
+                true
             }
         }
-        if done {
-            break;
-        }
+    });
+
+    if let Some(e) = render_error {
+        return Err(e);
     }
-
-    // Phase 2: deduplicate clusters.
-    app.mode = AppMode::Loading {
-        title: "Hunk Group Matrix",
-        message: "Deduplicating clusters\u{2026}",
-        progress: None,
-        skippable: false,
-    };
-    terminal_guard
-        .terminal()
-        .draw(|frame| views::loading::render(app, frame))?;
-    builder.run_dedup();
-
-    // Phase 3: build matrix.
-    app.mode = AppMode::Loading {
-        title: "Hunk Group Matrix",
-        message: "Building matrix\u{2026}",
-        progress: None,
-        skippable: false,
-    };
-    terminal_guard
-        .terminal()
-        .draw(|frame| views::loading::render(app, frame))?;
-    Ok(Some(builder.finish_matrix()))
+    Ok(result)
 }
 
 /// Choose the initial selection index for a commit list:

@@ -100,7 +100,8 @@ pub fn render(
         &PLAIN
     };
 
-    let fmap = fm::build_fragmap(commit_diffs, !full);
+    let fmap = fm::build_fragmap(commit_diffs, !full, &mut |_| true)
+        .expect("no-op callback never cancels");
     let n_clusters = fmap.clusters.len();
 
     // Compute the title column width following the original fragmap tool's

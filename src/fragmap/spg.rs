@@ -401,14 +401,15 @@ fn spg_enumerate_paths(
     graph: &HashMap<SpgNode, Vec<SpgNode>>,
     source: &SpgNode,
     sink: &SpgNode,
-) -> Vec<Vec<SpgNode>> {
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<Vec<SpgNode>>> {
     if source == sink {
-        return vec![vec![sink.clone()]];
+        return Some(vec![vec![sink.clone()]]);
     }
 
     let succs = match graph.get(source) {
         Some(s) => s,
-        None => return vec![],
+        None => return Some(vec![]),
     };
 
     let mut sorted_succs = succs.clone();
@@ -423,23 +424,26 @@ fn spg_enumerate_paths(
 
     let mut paths = Vec::new();
     for succ in &sorted_succs {
-        for mut sub_path in spg_enumerate_paths(graph, succ, sink) {
+        if !poll() {
+            return None;
+        }
+        for mut sub_path in spg_enumerate_paths(graph, succ, sink, poll)? {
             sub_path.insert(0, source.clone());
             paths.push(sub_path);
         }
     }
 
-    paths
+    Some(paths)
 }
 
 /// Enumerate all unique paths through an SPG, deduplicated by active-node
 /// signature and filtered to exclude empty paths (no active nodes).
 /// Output is sorted by earliest active node position for deterministic ordering.
-fn spg_all_paths(spg: &Spg) -> Vec<Vec<SpgNode>> {
+fn spg_all_paths(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<Vec<SpgNode>>> {
     let source = source_node();
     let sink = sink_node();
 
-    let raw_paths = spg_enumerate_paths(&spg.graph, &source, &sink);
+    let raw_paths = spg_enumerate_paths(&spg.graph, &source, &sink, poll)?;
 
     let mut seen: HashSet<Vec<(i32, SpgSpan)>> = HashSet::new();
     let mut result = Vec::new();
@@ -469,11 +473,17 @@ fn spg_all_paths(spg: &Spg) -> Vec<Vec<SpgNode>> {
         a_key.cmp(&b_key)
     });
 
-    result
+    Some(result)
 }
 
 /// Build the SPG for a single file from its commits and hunks.
-fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
+///
+/// `poll` is called after each commit generation. Return `false` from `poll`
+/// to interrupt early; in that case the function returns `None`.
+fn build_file_spg(
+    commits: &[(usize, Vec<HunkInfo>)],
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Spg> {
     let mut spg = Spg::empty();
 
     for (commit_idx, hunks) in commits {
@@ -528,12 +538,19 @@ fn build_file_spg(commits: &[(usize, Vec<HunkInfo>)]) -> Spg {
 
         for cur_node in &all_new_nodes {
             spg_add_on_top_of(&mut spg, &prev_nodes, cur_node);
+            if !poll() {
+                return None;
+            }
         }
 
         spg_update_dangling(&mut spg, &prev_nodes, commit_gen);
+
+        if !poll() {
+            return None;
+        }
     }
 
-    spg
+    Some(spg)
 }
 
 /// Deduplicate clusters by activation pattern (BriefFragmap equivalent).
@@ -555,14 +572,20 @@ pub(super) fn deduplicate_clusters(clusters: &mut Vec<SpanCluster>) {
 ///
 /// Runs the SPG for the given file and converts each unique path through the
 /// DAG into a `SpanCluster` that records which commits touch it.
+///
+/// `poll` is forwarded to the SPG builder and called after each commit
+/// generation. Return `false` from `poll` to interrupt; `None` is returned
+/// in that case.
 pub(super) fn build_file_clusters(
     path: &str,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
-) -> Vec<SpanCluster> {
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<SpanCluster>> {
     // usize::MAX as target → gen wraps to -1, never matches any active node, so
     // the assignment output is all-usize::MAX and can be discarded.
-    build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, usize::MAX).0
+    build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, usize::MAX, poll)
+        .map(|(clusters, _)| clusters)
 }
 
 /// Build all `SpanCluster` entries for a single file path and simultaneously
@@ -578,12 +601,17 @@ pub(super) fn build_file_clusters(
 /// (`build_file_clusters` + `file_hunk_path_indices`) was wrong because
 /// `file_hunk_path_indices` returned raw path indices while `build_file_clusters`
 /// silently drops empty paths, causing an index mismatch.
+///
+/// `poll` is forwarded to the SPG builder and called after each commit
+/// generation. Return `false` from `poll` to interrupt; `None` is returned
+/// in that case.
 pub(super) fn build_file_clusters_and_assign_hunks(
     path: &str,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     target_commit_idx: usize,
-) -> (Vec<SpanCluster>, Vec<Vec<usize>>) {
+    poll: &mut impl FnMut() -> bool,
+) -> Option<(Vec<SpanCluster>, Vec<Vec<usize>>)> {
     let k_hunks = commits_for_file
         .iter()
         .find(|(idx, _)| *idx == target_commit_idx)
@@ -591,8 +619,8 @@ pub(super) fn build_file_clusters_and_assign_hunks(
         .unwrap_or(&[]);
     let commit_gen = target_commit_idx as i32;
 
-    let spg = build_file_spg(commits_for_file);
-    let paths = spg_all_paths(&spg);
+    let spg = build_file_spg(commits_for_file, poll)?;
+    let paths = spg_all_paths(&spg, poll)?;
 
     let mut clusters: Vec<SpanCluster> = Vec::new();
     // hunk_to_clusters[h] = all cluster indices that K's hunk h appears in.
@@ -648,7 +676,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
         }
     }
 
-    (clusters, hunk_to_clusters)
+    Some((clusters, hunk_to_clusters))
 }
 
 /// Enumerate all SPG paths for each file and the raw path count.
@@ -656,10 +684,11 @@ pub(super) fn build_file_clusters_and_assign_hunks(
 pub(super) fn enumerate_file_spg_paths(
     commits: &[(usize, Vec<HunkInfo>)],
 ) -> (usize, usize, usize) {
-    let spg = build_file_spg(commits);
+    let spg = build_file_spg(commits, &mut || true).expect("no-op poll never interrupts");
     let node_count = spg.graph.len();
-    let raw_paths = spg_enumerate_paths(&spg.graph, &source_node(), &sink_node());
-    let deduped_paths = spg_all_paths(&spg);
+    let raw_paths = spg_enumerate_paths(&spg.graph, &source_node(), &sink_node(), &mut || true)
+        .expect("no-op poll never interrupts");
+    let deduped_paths = spg_all_paths(&spg, &mut || true).expect("no-op poll never interrupts");
     (node_count, raw_paths.len(), deduped_paths.len())
 }
 

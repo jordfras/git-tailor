@@ -102,7 +102,7 @@ Guidelines:
   self-contained without depending on a package manager
 
 ## Startup & Performance
-- [ ] T213 P2 fix - Replace `FragMapBuilder` step loop with a single-callback
+- [x] T213 P2 fix - Replace `FragMapBuilder` step loop with a single-callback
   `build_fragmap()` to fix unresponsiveness when one file's SPG takes too long:
   remove `FragMapBuilder` and its `step()` / `run_dedup()` / `finish_matrix()`
   methods; add a `FragMapProgress` enum with variants `ClusteringFile {

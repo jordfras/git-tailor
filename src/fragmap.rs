@@ -188,115 +188,76 @@ pub struct FragMap {
     pub matrix: Vec<Vec<TouchKind>>,
 }
 
-/// Build a fragmap from a collection of commits and their diffs.
-///
-/// Implements the Span Propagation Graph (SPG) algorithm from the original
-/// fragmap tool. For each file, a DAG is built where active nodes (hunks)
-/// and inactive nodes (propagated surviving spans) are connected by overlap
-/// edges. Columns correspond to unique paths through the DAG, with each
-/// path's active nodes determining which commits have CHANGE in that column.
+/// Progress event emitted by [`build_fragmap`] to the caller's callback.
+#[derive(Debug)]
+pub enum FragMapProgress {
+    /// Phase 1: clustering files. `files_done` files fully processed so far
+    /// out of `files_total`. Called after each commit generation within a file
+    /// so the caller can poll for interrupts even when one file is large.
+    ClusteringFile {
+        files_done: usize,
+        files_total: usize,
+    },
+    /// Phase 2: deduplicating clusters (called once, before dedup runs).
+    Deduplicating,
+    /// Phase 3: building the touch-kind matrix. Called once per commit row so
+    /// the caller can poll for interrupts during large repos.
+    BuildingMatrix {
+        commits_done: usize,
+        commits_total: usize,
+    },
+}
+
 /// Build a fragmap from a list of commit diffs.
 ///
 /// When `deduplicate` is `true` (the normal view), columns whose set of touching
 /// commits is identical are merged into one, producing a compact matrix. Pass
 /// `false` to keep every raw hunk cluster as its own column, which is useful
 /// for debugging the cluster layout.
-pub fn build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool) -> FragMap {
-    let mut builder = FragMapBuilder::new(commit_diffs.to_vec(), deduplicate);
-    while !builder.step() {}
-    builder.run_dedup();
-    builder.finish_matrix()
-}
-
-/// Incremental builder for a [`FragMap`].
 ///
-/// Allows the caller to process one file at a time (phase 1), then run
-/// deduplication (phase 2) and matrix construction (phase 3) as separate
-/// steps. This enables progress reporting and Ctrl-C interruption between
-/// files during the slow clustering phase.
-pub struct FragMapBuilder {
-    commit_diffs: Vec<CommitDiff>,
-    rename_map: HashMap<String, String>,
-    file_commits: HashMap<String, Vec<(usize, Vec<HunkInfo>)>>,
-    sorted_paths: Vec<String>,
-    clusters: Vec<SpanCluster>,
-    next_path_idx: usize,
+/// `progress` is called at key points during computation (see [`FragMapProgress`]).
+/// Return `false` from the callback to interrupt and return `None`. Return `true`
+/// to continue. The callback is called at fine granularity — once per commit
+/// generation inside each file's SPG — so a single slow file remains responsive.
+pub fn build_fragmap(
+    commit_diffs: &[CommitDiff],
     deduplicate: bool,
-}
+    progress: &mut impl FnMut(FragMapProgress) -> bool,
+) -> Option<FragMap> {
+    let rename_map = build_rename_map(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &rename_map);
+    let mut sorted_paths: Vec<String> = file_commits.keys().cloned().collect();
+    sorted_paths.sort();
 
-impl FragMapBuilder {
-    /// Create a new builder. Preprocessing (rename map + file grouping) runs
-    /// eagerly in `new`, so the per-file loop in [`step`](Self::step) is pure
-    /// SPG work.
-    pub fn new(commit_diffs: Vec<CommitDiff>, deduplicate: bool) -> Self {
-        let rename_map = build_rename_map(&commit_diffs);
-        let file_commits = collect_file_commits(&commit_diffs, &rename_map);
-        let mut sorted_paths: Vec<String> = file_commits.keys().cloned().collect();
-        sorted_paths.sort();
-        Self {
-            commit_diffs,
-            rename_map,
-            file_commits,
-            sorted_paths,
-            clusters: Vec::new(),
-            next_path_idx: 0,
-            deduplicate,
-        }
+    let total = sorted_paths.len();
+    let mut clusters = Vec::new();
+
+    for (i, path) in sorted_paths.iter().enumerate() {
+        let commits_for_file = &file_commits[path];
+        let mut poll = || {
+            progress(FragMapProgress::ClusteringFile {
+                files_done: i,
+                files_total: total,
+            })
+        };
+        let new_clusters = build_file_clusters(path, commits_for_file, commit_diffs, &mut poll)?;
+        clusters.extend(new_clusters);
     }
 
-    /// Total number of unique files to process in phase 1.
-    pub fn total_files(&self) -> usize {
-        self.sorted_paths.len()
+    if !progress(FragMapProgress::Deduplicating) {
+        return None;
+    }
+    if deduplicate {
+        deduplicate_clusters(&mut clusters);
     }
 
-    /// Number of files whose clusters have been computed so far.
-    pub fn files_done(&self) -> usize {
-        self.next_path_idx
-    }
-
-    /// Compute clusters for one file. Returns `true` when all files are done.
-    ///
-    /// Safe to call again after returning `true` — it is a no-op.
-    pub fn step(&mut self) -> bool {
-        if self.next_path_idx >= self.sorted_paths.len() {
-            return true;
-        }
-        let path = &self.sorted_paths[self.next_path_idx];
-        let commits_for_file = &self.file_commits[path];
-        let new_clusters = build_file_clusters(path, commits_for_file, &self.commit_diffs);
-        self.clusters.extend(new_clusters);
-        self.next_path_idx += 1;
-        self.next_path_idx >= self.sorted_paths.len()
-    }
-
-    /// Deduplicate clusters (phase 2). Call after all [`step`](Self::step)
-    /// calls complete.
-    pub fn run_dedup(&mut self) {
-        if self.deduplicate {
-            deduplicate_clusters(&mut self.clusters);
-        }
-    }
-
-    /// Build the touch-kind matrix and return the completed [`FragMap`] (phase
-    /// 3). Consumes `self`. Call after [`run_dedup`](Self::run_dedup).
-    pub fn finish_matrix(self) -> FragMap {
-        let commits: Vec<VirtualOid> = self
-            .commit_diffs
-            .iter()
-            .map(|d| d.commit.oid.clone())
-            .collect();
-        let matrix = build_matrix(
-            &commits,
-            &self.clusters,
-            &self.commit_diffs,
-            &self.rename_map,
-        );
-        FragMap {
-            commits,
-            clusters: self.clusters,
-            matrix,
-        }
-    }
+    let commits: Vec<VirtualOid> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
+    let matrix = build_matrix(&commits, &clusters, commit_diffs, &rename_map, progress)?;
+    Some(FragMap {
+        commits,
+        clusters,
+        matrix,
+    })
 }
 
 /// Compute the fragmap-based hunk group assignment for commit `commit_oid`.
@@ -341,10 +302,18 @@ pub fn assign_hunk_groups(
 
         let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
         let (file_clusters, hunk_to_local) = if has_k {
-            build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, k_idx)
+            build_file_clusters_and_assign_hunks(
+                path,
+                commits_for_file,
+                commit_diffs,
+                k_idx,
+                &mut || true,
+            )
+            .expect("no-op poll never interrupts")
         } else {
             (
-                build_file_clusters(path, commits_for_file, commit_diffs),
+                build_file_clusters(path, commits_for_file, commit_diffs, &mut || true)
+                    .expect("no-op poll never interrupts"),
                 vec![],
             )
         };
@@ -622,10 +591,18 @@ fn build_matrix(
     clusters: &[SpanCluster],
     commit_diffs: &[CommitDiff],
     rename_map: &HashMap<String, String>,
-) -> Vec<Vec<TouchKind>> {
-    let mut matrix = vec![vec![TouchKind::None; clusters.len()]; commits.len()];
+    progress: &mut impl FnMut(FragMapProgress) -> bool,
+) -> Option<Vec<Vec<TouchKind>>> {
+    let total = commits.len();
+    let mut matrix = vec![vec![TouchKind::None; clusters.len()]; total];
 
     for (commit_idx, commit_oid) in commits.iter().enumerate() {
+        if !progress(FragMapProgress::BuildingMatrix {
+            commits_done: commit_idx,
+            commits_total: total,
+        }) {
+            return None;
+        }
         let commit_diff = &commit_diffs[commit_idx];
 
         for (cluster_idx, cluster) in clusters.iter().enumerate() {
@@ -636,7 +613,7 @@ fn build_matrix(
         }
     }
 
-    matrix
+    Some(matrix)
 }
 
 /// Determine how a commit touches a cluster (Added/Modified/Deleted).
