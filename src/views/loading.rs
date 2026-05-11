@@ -49,7 +49,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let hint = if skippable {
         Some(("s", Color::Cyan, " to skip"))
     } else if progress.is_some() {
-        Some(("Ctrl-C", Color::Cyan, " to quit"))
+        Some(("Ctrl-c", Color::Cyan, " to quit"))
     } else {
         None
     };
