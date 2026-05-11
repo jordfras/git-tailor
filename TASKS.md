@@ -102,6 +102,31 @@ Guidelines:
   self-contained without depending on a package manager
 
 ## Startup & Performance
+- [x] T213 P2 fix - Replace `FragMapBuilder` step loop with a single-callback
+  `build_fragmap()` to fix unresponsiveness when one file's SPG takes too long:
+  remove `FragMapBuilder` and its `step()` / `run_dedup()` / `finish_matrix()`
+  methods; add a `FragMapProgress` enum with variants `ClusteringFile {
+  files_done: usize, files_total: usize }`, `Deduplicating`, and
+  `BuildingMatrix`; change `build_fragmap` signature to
+  `build_fragmap(commit_diffs: &[CommitDiff], deduplicate: bool, progress: &mut
+  impl FnMut(FragMapProgress) -> bool) -> Option<FragMap>` where the callback
+  returns `true` to continue and `false` to interrupt (returning `None` from
+  `build_fragmap`); thread the callback down through `build_file_clusters` →
+  `build_file_clusters_and_assign_hunks` → `build_file_spg` (in `spg.rs`),
+  calling it after each commit generation is processed inside `build_file_spg`'s
+  main loop to ensure responsiveness even for a single large file; also call it
+  at the outer file-loop boundary (updating `files_done`), before deduplication,
+  and before matrix construction; update `build_hunk_group_matrix` in
+  `loader.rs` to call `build_fragmap` with a closure that renders the loading
+  view, polls crossterm for `s`/`S` (skip), and updates `app.mode` with the
+  appropriate `AppMode::Loading` variant for each phase — the closure captures
+  `terminal_guard` and `app` by mutable reference; `build_hunk_group_matrix`
+  stays `Result<Option<FragMap>>` (the `Result` wraps terminal I/O errors from
+  rendering); `build_fragmap` itself stays `Option<FragMap>` with no `Result`
+  since it has no I/O; update `assign_hunk_groups` (used by split) to keep its
+  current internal structure but accept an optional no-op progress callback if
+  needed for consistency; add or update any tests that directly used
+  `FragMapBuilder`.
 - [x] T211 P2 feat - Start the TUI immediately and stream commits one-by-one
   with a live counter dialog: added `commit_walker` to `GitRepo` returning a
   boxed iterator so `Git2Repo` yields one commit at a time from the underlying

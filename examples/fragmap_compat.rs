@@ -69,7 +69,8 @@ fn main() {
         commit_diffs.push(d);
     }
 
-    let fmap = fragmap::build_fragmap(&commit_diffs, true);
+    let fmap = fragmap::build_fragmap(&commit_diffs, true, &mut |_| true)
+        .expect("no-op callback never cancels");
     let gt_output = static_views::fragmap::render(
         &commit_diffs,
         false,

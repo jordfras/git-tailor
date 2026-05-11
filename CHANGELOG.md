@@ -37,10 +37,11 @@ The format is based on
 - The TUI now starts immediately and shows a live commit counter while loading.
   Previously the application blocked until all commits were read before showing
   anything. Ctrl-C during loading exits cleanly.
-- Hunk group matrix computation is now interruptible. A progress dialog shows
-  how many files have been clustered; pressing `s` skips the remaining work and
-  opens the TUI without a matrix. The rest of the TUI is fully functional
-  without it.
+- Hunk group matrix computation is now interruptible throughout all phases
+  (file clustering, deduplication, and matrix building). A progress dialog shows
+  how many files have been clustered or how many commits have been processed;
+  pressing `s` at any point skips the remaining work and opens the TUI without
+  a matrix. The rest of the TUI is fully functional without it.
 
 ### Internals
 
