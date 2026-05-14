@@ -12,6 +12,11 @@ The format is based on
 
 - Adjacent insertions in the same file now correctly cluster in the fragmap when
   non-touching commits create a generation gap between them.
+- A chain of commits all touching the same cluster now correctly shows each
+  adjacent pair as squashable. Previously the bottom commit was compared against
+  the earliest ancestor rather than its direct predecessor, causing the chain to
+  appear as conflicting even though no intermediate touches existed between
+  adjacent pairs.
 - The move-commit picker now scrolls to keep the insertion-point separator
   visible when it moves outside the current viewport.
 - Entering commit detail mode (`i`) on a narrow terminal now correctly shows the
