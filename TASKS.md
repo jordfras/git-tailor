@@ -46,6 +46,29 @@ Guidelines:
   `tests/drop_commit/root_commit.rs` that verifies the root commit is dropped
   and the history is correctly rewritten.
 
+## Architecture & Robustness
+- [ ] T216 P2 refactor - Replace manual cherry-pick chain engine with
+  `git2::Rebase` for move, drop, squash, and reword operations: the current
+  `cherry_pick_chain` / `commit_and_replay` helpers in `cherry_pick.rs` and the
+  per-operation files (`move_op.rs`, `drop_op.rs`, `squash_op.rs`,
+  `reword_op.rs`) re-implement what `git2::Rebase` (libgit2's rebase engine)
+  already provides — advantages of switching: (1) **crash/kill recovery** —
+  libgit2 writes rebase state to `.git/rebase-merge/` so if git-tailor is
+  killed mid-operation the user can run `git rebase --abort` to return to a
+  clean state, whereas the current approach leaves the index in an unknown
+  state requiring `git reset --hard`; (2) **free `--continue` / `--abort`** —
+  conflict resolution could delegate to the existing libgit2 rebase state
+  machine instead of the custom `ConflictState` serialisation; non-adjacent
+  squash is expressible as reorder-then-squash (two steps in the todo list),
+  matching what a user would write in `git rebase -i`; note: rename detection
+  (T215) is a libgit2 issue that affects both our current cherry-pick calls and
+  `git2::Rebase` equally — it is not fixed by this refactor; split operations
+  still require custom tree surgery (`apply_to_tree` per file / per hunk) but
+  the *replay* of subsequent commits can use the rebase engine; the refactor
+  should be done operation by operation behind the `GitRepo` trait so tests
+  stay green throughout; keep the `GitRepo` trait interface unchanged so the
+  TUI and tests are unaffected.
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
