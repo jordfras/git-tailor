@@ -23,3 +23,5 @@ mod conflict;
 mod dirty_state;
 #[path = "squash_commit/happy_path.rs"]
 mod happy_path;
+#[path = "squash_commit/root_commit.rs"]
+mod root_commit;
