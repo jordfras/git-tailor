@@ -485,9 +485,41 @@ fn build_file_spg(
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Spg> {
     let mut spg = Spg::empty();
+    let mut last_gen: Option<i32> = None;
 
     for (commit_idx, hunks) in commits {
         let commit_gen = *commit_idx as i32;
+
+        // When there is a gap of non-touching generations between the
+        // previous file-touching commit and this one, the original fragmap
+        // runs update_unchanged_file() at every intermediate generation.
+        // That converts surviving active nodes into inactive propagated
+        // copies.  The active/inactive distinction matters in
+        // spg_add_on_top_of level 3 which accepts Point-on-border overlap
+        // to inactive nodes but rejects it for active ones.
+        //
+        // Simulate this by propagating all sink-connected nodes once at
+        // (commit_gen - 1).  Span values are unchanged through the gap so
+        // a single propagation step is equivalent to the full chain.
+        let prev_gen = last_gen.unwrap_or(commit_gen - 1);
+        if commit_gen > prev_gen + 1 {
+            let gap_nodes = spg.sink_connected_nodes();
+            let gap_gen = commit_gen - 1;
+            for node in &gap_nodes {
+                if node.new_span.is_empty() {
+                    continue;
+                }
+                let propagated = SpgNode {
+                    generation: gap_gen,
+                    is_active: false,
+                    old_span: node.new_span,
+                    new_span: node.new_span,
+                };
+                spg.register(node, &propagated);
+                spg.register(&propagated, &sink_node());
+            }
+        }
+        last_gen = Some(commit_gen);
 
         let mut prev_nodes = spg.sink_connected_nodes();
         prev_nodes.retain(|n| !n.new_span.is_empty());
