@@ -34,13 +34,13 @@ Requires Rust 1.85 or later.
 gt [base]
 ```
 
-`<base>` identifies the branch or point you forked from — typically the target
+`[base]` identifies the branch or point you forked from — typically the target
 branch of your pull request (e.g. `main` or `origin/main`). It does not need to
 be a direct ancestor of `HEAD`: the **merge-base** (common ancestor) between
-`<base>` and `HEAD` is used as the reference point. All commits between that
+`[base]` and `HEAD` is used as the reference point. All commits between that
 merge-base and `HEAD` are shown.
 
-When `<base>` is omitted, `gt` automatically uses the repository's default
+When `[base]` is omitted, `gt` automatically uses the repository's default
 upstream branch by resolving `origin/HEAD`. If that is not configured it falls
 back to `main`.
 
