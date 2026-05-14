@@ -13,6 +13,13 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
+- [ ] T214 P2 feat - Allow squash/fixup into the root commit: currently
+  `squash_commits` (and fixup) bail when the target commit has no parent because
+  the cherry-pick chain requires a base tree; handle the root case by squashing
+  the source commit's diff directly onto the root's tree, then creating a new
+  root commit (no parents) with the combined tree and message; the source commit
+  should then be removed from the chain using the existing rebase logic; add
+  tests in `tests/squash_commit/` covering squash-into-root and fixup-into-root.
 - [X] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
   bails with "Cannot drop a merge or root commit" when `commit.parent_count()`
   `== 0`; update `drop_op.rs` to handle the root case separately — collect all
