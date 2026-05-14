@@ -13,6 +13,18 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
+- [ ] T215 P1 bug - Fix spurious conflict when squashing across a rename: when
+  squashing commit B into an earlier commit A where a file touched by both was
+  renamed in a commit between them, the tool incorrectly reports a conflict and
+  leaves both the old and new filename to resolve — even though `git rebase
+  -i` completes cleanly; investigate how `squash_op.rs` builds the cherry-pick
+  chain across renames (the intermediate rename commit changes the path, so the
+  cherry-pick of A's diff onto the post-rename tree likely applies to the wrong
+  path); compare with how `move_op.rs` handles rename tracking; the fix should
+  make the squash cherry-pick chain path-aware — either by detecting the rename
+  and rewriting the diff path before applying, or by using the post-rename path
+  consistently throughout the chain; add a regression test in
+  `tests/squash_commit/` with a rename between the squash source and target.
 - [ ] T214 P2 feat - Allow squash/fixup into the root commit: currently
   `squash_commits` (and fixup) bail when the target commit has no parent because
   the cherry-pick chain requires a base tree; handle the root case by squashing
