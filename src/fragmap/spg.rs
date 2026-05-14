@@ -490,17 +490,21 @@ fn build_file_spg(
     for (commit_idx, hunks) in commits {
         let commit_gen = *commit_idx as i32;
 
-        // When there is a gap of non-touching generations between the
-        // previous file-touching commit and this one, the original fragmap
-        // runs update_unchanged_file() at every intermediate generation.
-        // That converts surviving active nodes into inactive propagated
-        // copies.  The active/inactive distinction matters in
-        // spg_add_on_top_of level 3 which accepts Point-on-border overlap
-        // to inactive nodes but rejects it for active ones.
+        // When commits that touch this file are non-consecutive (e.g.
+        // generations 0 and 5, with 1–4 not touching the file), the
+        // original fragmap calls update_unchanged_file() at every
+        // intermediate generation.  That converts active frontier nodes
+        // into inactive propagated copies.
         //
-        // Simulate this by propagating all sink-connected nodes once at
-        // (commit_gen - 1).  Span values are unchanged through the gap so
-        // a single propagation step is equivalent to the full chain.
+        // This matters because spg_add_on_top_of rejects a
+        // point-on-border overlap with active nodes but accepts it for
+        // inactive ones — so without this step, the wrong predecessor
+        // gets chosen when the gap is followed by a commit whose hunk
+        // starts or ends exactly at a surviving span boundary.
+        //
+        // One propagation step at (commit_gen - 1) is enough: spans
+        // don't change across a gap (no hunks), so it is equivalent to
+        // the full chain.
         let prev_gen = last_gen.unwrap_or(commit_gen - 1);
         if commit_gen > prev_gen + 1 {
             let gap_nodes = spg.sink_connected_nodes();
