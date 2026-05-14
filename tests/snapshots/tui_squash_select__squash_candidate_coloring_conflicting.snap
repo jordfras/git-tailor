@@ -1,6 +1,6 @@
 ---
 source: tests/tui_squash_select.rs
-expression: buffer
+expression: "harness.render(|frame| views::commit_list::render(&mut app, frame))"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 10 },
@@ -27,9 +27,9 @@ Buffer {
         x: 71, y: 1, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 1, fg: White, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
         x: 73, y: 1, fg: Reset, bg: Rgb(60, 60, 80), underline: Reset, modifier: NONE,
-        x: 0, y: 2, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 8, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 11, y: 2, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
+        x: 11, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
         x: 26, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 2, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 2, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,

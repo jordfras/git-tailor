@@ -103,12 +103,13 @@ fn test_squashable_connector() {
     insta::assert_snapshot!(output);
 }
 
-/// Commits 0, 1, and 3 all touch the same cluster; commit 2 is a connector
-/// row.  Because commit 1 sits between the "earliest" (0) and commit 3, the
-/// connector on row 2 is conflicting `│`. Both `│` symbols are the same glyph
-/// in plain mode; the test verifies the connector is present (not `.`).
+/// Three commits all touch the same cluster; commit 2 (unrelated to lib.rs) is
+/// a connector row between commit 1 and commit 3. Because commit 1 is the
+/// *nearest* earlier touch for commit 3, the connector is squashable `^`
+/// (no intervening touch between them). Commit 0 also touches the cluster but
+/// is further away — each adjacent pair is independently squashable.
 #[test]
-fn test_conflicting_connector() {
+fn test_three_commit_chain_squashable_connectors() {
     let diffs = vec![
         common::create_test_commit_diff("aaaa00001111", "Touch 1", "src/lib.rs", (1, 10)),
         common::create_test_commit_diff("bbbb22223333", "Touch 2", "src/lib.rs", (5, 12)),
@@ -118,14 +119,13 @@ fn test_conflicting_connector() {
     let output = plain(&diffs);
     insta::assert_snapshot!(output);
 
-    // The connector row (index 2) should have a connector, not a dot, for
-    // the first cluster column.
+    // The connector row (index 2) should have a squashable connector `^` for
+    // the lib.rs cluster column.
     let row2 = output.lines().nth(2).unwrap();
-    // After SHA (8) + space + title (26) there should be a `│` connector.
     let matrix_part = &row2[8 + 1 + 26..];
     assert!(
-        matrix_part.contains('|'),
-        "expected conflicting connector | in: {matrix_part:?}"
+        matrix_part.contains('^'),
+        "expected squashable connector ^ in: {matrix_part:?}"
     );
 }
 

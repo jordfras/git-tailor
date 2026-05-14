@@ -1249,10 +1249,11 @@ fn squash_target_with_gap() {
 }
 
 #[test]
-fn squash_target_conflicting_returns_none() {
-    // c0, c1, c2 all touch cluster 0 — c2 blocked by c1
+fn squash_target_chain_squashable_into_predecessor() {
+    // c0, c1, c2 all touch cluster 0 — c2's nearest earlier is c1, so it
+    // squashes into c1 (not blocked by c1 being "in between" c0 and c2).
     let fm = make_fragmap(&["c0", "c1", "c2"], 1, &[(0, 0), (1, 0), (2, 0)]);
-    assert_eq!(fm.squash_target(2), None);
+    assert_eq!(fm.squash_target(2), Some(1));
 }
 
 #[test]
@@ -1318,10 +1319,10 @@ fn is_fully_squashable_multiple_clusters_different_targets() {
 }
 
 #[test]
-fn is_fully_squashable_conflicting_cluster() {
-    // c0, c1, c2 all touch cluster 0 — c2 has c1 in between
+fn is_fully_squashable_chain_middle_is_squashable() {
+    // c0, c1, c2 all touch cluster 0 — c2 squashes into c1 (nearest), so IS squashable
     let fm = make_fragmap(&["c0", "c1", "c2"], 1, &[(0, 0), (1, 0), (2, 0)]);
-    assert!(!fm.is_fully_squashable(2));
+    assert!(fm.is_fully_squashable(2));
 }
 
 #[test]

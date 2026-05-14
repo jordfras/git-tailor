@@ -450,7 +450,9 @@ impl FragMap {
                 continue;
             }
 
-            let earlier = (0..commit_idx).find(|&i| self.matrix[i][cluster_idx] != TouchKind::None);
+            let earlier = (0..commit_idx)
+                .rev()
+                .find(|&i| self.matrix[i][cluster_idx] != TouchKind::None);
 
             let earlier_idx = earlier?;
 
@@ -568,7 +570,9 @@ impl FragMap {
         cluster_idx: usize,
         scope: SquashableScope,
     ) -> Option<bool> {
-        let earlier = (0..commit_idx).find(|&i| self.matrix[i][cluster_idx] != TouchKind::None)?;
+        let earlier = (0..commit_idx)
+            .rev()
+            .find(|&i| self.matrix[i][cluster_idx] != TouchKind::None)?;
 
         match scope {
             SquashableScope::Group => Some(
