@@ -13,6 +13,25 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
+- [X] T215 P1 bug - Fix spurious conflict when squashing across a rename: when
+  squashing commit B into an earlier commit A where a file touched by both was
+  renamed in a commit between them, the tool incorrectly reports a conflict and
+  leaves both the old and new filename to resolve — even though `git rebase
+  -i` completes cleanly; investigate how `squash_op.rs` builds the cherry-pick
+  chain across renames (the intermediate rename commit changes the path, so the
+  cherry-pick of A's diff onto the post-rename tree likely applies to the wrong
+  path); compare with how `move_op.rs` handles rename tracking; the fix should
+  make the squash cherry-pick chain path-aware — either by detecting the rename
+  and rewriting the diff path before applying, or by using the post-rename path
+  consistently throughout the chain; add a regression test in
+  `tests/squash_commit/` with a rename between the squash source and target.
+- [X] T214 P2 feat - Allow squash/fixup into the root commit: currently
+  `squash_commits` (and fixup) bail when the target commit has no parent because
+  the cherry-pick chain requires a base tree; handle the root case by squashing
+  the source commit's diff directly onto the root's tree, then creating a new
+  root commit (no parents) with the combined tree and message; the source commit
+  should then be removed from the chain using the existing rebase logic; add
+  tests in `tests/squash_commit/` covering squash-into-root and fixup-into-root.
 - [X] T190 P2 feat - Support dropping the root commit: currently `drop_commit`
   bails with "Cannot drop a merge or root commit" when `commit.parent_count()`
   `== 0`; update `drop_op.rs` to handle the root case separately — collect all
@@ -26,6 +45,29 @@ Guidelines:
   T178 makes the split guard awkward; add a test in
   `tests/drop_commit/root_commit.rs` that verifies the root commit is dropped
   and the history is correctly rewritten.
+
+## Architecture & Robustness
+- [ ] T216 P2 refactor - Replace manual cherry-pick chain engine with
+  `git2::Rebase` for move, drop, squash, and reword operations: the current
+  `cherry_pick_chain` / `commit_and_replay` helpers in `cherry_pick.rs` and the
+  per-operation files (`move_op.rs`, `drop_op.rs`, `squash_op.rs`,
+  `reword_op.rs`) re-implement what `git2::Rebase` (libgit2's rebase engine)
+  already provides — advantages of switching: (1) **crash/kill recovery** —
+  libgit2 writes rebase state to `.git/rebase-merge/` so if git-tailor is
+  killed mid-operation the user can run `git rebase --abort` to return to a
+  clean state, whereas the current approach leaves the index in an unknown
+  state requiring `git reset --hard`; (2) **free `--continue` / `--abort`** —
+  conflict resolution could delegate to the existing libgit2 rebase state
+  machine instead of the custom `ConflictState` serialisation; non-adjacent
+  squash is expressible as reorder-then-squash (two steps in the todo list),
+  matching what a user would write in `git rebase -i`; note: rename detection
+  (T215) is a libgit2 issue that affects both our current cherry-pick calls and
+  `git2::Rebase` equally — it is not fixed by this refactor; split operations
+  still require custom tree surgery (`apply_to_tree` per file / per hunk) but
+  the *replay* of subsequent commits can use the rebase engine; the refactor
+  should be done operation by operation behind the `GitRepo` trait so tests
+  stay green throughout; keep the `GitRepo` trait interface unchanged so the
+  TUI and tests are unaffected.
 
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:

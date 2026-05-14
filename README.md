@@ -34,13 +34,13 @@ Requires Rust 1.85 or later.
 gt [base]
 ```
 
-`<base>` identifies the branch or point you forked from — typically the target
+`[base]` identifies the branch or point you forked from — typically the target
 branch of your pull request (e.g. `main` or `origin/main`). It does not need to
 be a direct ancestor of `HEAD`: the **merge-base** (common ancestor) between
-`<base>` and `HEAD` is used as the reference point. All commits between that
+`[base]` and `HEAD` is used as the reference point. All commits between that
 merge-base and `HEAD` are shown.
 
-When `<base>` is omitted, `gt` automatically uses the repository's default
+When `[base]` is omitted, `gt` automatically uses the repository's default
 upstream branch by resolving `origin/HEAD`. If that is not configured it falls
 back to `main`.
 
@@ -62,6 +62,16 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 | `--no-color`         | Disable colors in `--static` output                                                |
 | `--squashable-scope` | Controls whether yellow connectors mean per-hunk-group or per-commit squashability |
 | `--theme <THEME>`    | Hunk group matrix rendering theme: `plain` (default), `highlight`, or `classic`    |
+
+Some flags can be persisted via environment variables so you don't have to pass
+them every time:
+
+| Environment variable              | Equivalent flag                     |
+|-----------------------------------|-------------------------------------|
+| `GT_REVERSE=1`                    | `--reverse`                         |
+| `GT_FULL=1`                       | `--full`                            |
+| `GT_SQUASHABLE_SCOPE=hunk-group`  | `--squashable-scope hunk-group`     |
+| `GT_THEME=highlight`              | `--theme highlight`                 |
 
 
 ## The interface

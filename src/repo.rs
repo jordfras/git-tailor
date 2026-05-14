@@ -78,7 +78,8 @@ pub struct ConflictState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SquashContext {
     /// OID of the target commit's parent (the base for the squash commit).
-    pub base_oid: Oid,
+    /// `None` when the target is the repository root (squash commit is an orphan).
+    pub base_oid: Option<Oid>,
     /// OID of the source commit (removed after squash).
     pub source_oid: Oid,
     /// OID of the target commit (author/committer are taken from here).
