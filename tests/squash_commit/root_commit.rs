@@ -41,7 +41,11 @@ fn squash_into_root_commit() {
     let mut revwalk = test.repo.revwalk().unwrap();
     revwalk.push(new_head).unwrap();
     let all_oids: Vec<git2::Oid> = revwalk.collect::<Result<_, _>>().unwrap();
-    assert_eq!(all_oids.len(), 1, "expected exactly one commit after squash");
+    assert_eq!(
+        all_oids.len(),
+        1,
+        "expected exactly one commit after squash"
+    );
 
     // The new commit must be an orphan.
     let new_root = test.repo.find_commit(new_head).unwrap();

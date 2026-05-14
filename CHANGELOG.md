@@ -23,6 +23,8 @@ The format is based on
 - Moving the root commit to a later position in `--all` mode now correctly
   strips the root's content from the new orphan root instead of leaking it into
   the tree.
+- Squashing or fixing up a commit into the root commit now works. Previously the
+  operation was rejected with an error.
 
 ### Added
 

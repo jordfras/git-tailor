@@ -25,7 +25,7 @@ Guidelines:
   and rewriting the diff path before applying, or by using the post-rename path
   consistently throughout the chain; add a regression test in
   `tests/squash_commit/` with a rename between the squash source and target.
-- [ ] T214 P2 feat - Allow squash/fixup into the root commit: currently
+- [X] T214 P2 feat - Allow squash/fixup into the root commit: currently
   `squash_commits` (and fixup) bail when the target commit has no parent because
   the cherry-pick chain requires a base tree; handle the root case by squashing
   the source commit's diff directly onto the root's tree, then creating a new

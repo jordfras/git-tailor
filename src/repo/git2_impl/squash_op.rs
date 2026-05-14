@@ -49,17 +49,21 @@ pub(super) fn squash_commits(
         )?)));
     }
 
-    let base_commit = repo.inner.find_commit(inputs.base_oid)?;
     let combined_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
     let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
 
+    let base_commit = inputs
+        .base_oid
+        .map(|oid| repo.inner.find_commit(oid))
+        .transpose()?;
+    let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
     let squash_oid = repo.inner.commit(
         None,
         &inputs.target_commit.author(),
         &inputs.target_commit.committer(),
         message,
         &combined_tree,
-        &[&base_commit],
+        &parents,
     )?;
 
     let all_descendants =
@@ -118,21 +122,25 @@ pub(super) fn squash_finalize(
         anyhow::bail!("Cannot finalize squash: index still has unresolved conflicts");
     }
 
-    let base_git_oid = git2::Oid::from(&ctx.base_oid);
     let target_git_oid = git2::Oid::from(&ctx.target_oid);
-    let base_commit = repo.inner.find_commit(base_git_oid)?;
     let target_commit = repo.inner.find_commit(target_git_oid)?;
 
     let combined_tree_oid = index.write_tree()?;
     let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
 
+    let base_commit = ctx
+        .base_oid
+        .as_ref()
+        .map(|oid| repo.inner.find_commit(git2::Oid::from(oid)))
+        .transpose()?;
+    let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
     let squash_oid = repo.inner.commit(
         None,
         &target_commit.author(),
         &target_commit.committer(),
         message,
         &combined_tree,
-        &[&base_commit],
+        &parents,
     )?;
 
     let descendants: Vec<git2::Oid> = ctx.descendant_oids.iter().map(git2::Oid::from).collect();
@@ -153,7 +161,8 @@ struct SquashInputs<'a> {
     head_oid: &'a Oid,
     source_commit: git2::Commit<'a>,
     target_commit: git2::Commit<'a>,
-    base_oid: git2::Oid,
+    /// Parent of the target commit. `None` when target is root.
+    base_oid: Option<git2::Oid>,
     head_git_oid: git2::Oid,
 }
 
@@ -170,10 +179,14 @@ fn parse_squash_inputs<'a>(
     let source_commit = repo.inner.find_commit(source_git_oid)?;
     let target_commit = repo.inner.find_commit(target_git_oid)?;
 
-    if target_commit.parent_count() != 1 {
-        anyhow::bail!("Cannot squash into a merge or root commit");
+    if target_commit.parent_count() > 1 {
+        anyhow::bail!("Cannot squash into a merge commit");
     }
-    let base_oid = target_commit.parent_id(0)?;
+    let base_oid = if target_commit.parent_count() == 0 {
+        None
+    } else {
+        Some(target_commit.parent_id(0)?)
+    };
 
     Ok(SquashInputs {
         source_oid,
@@ -218,7 +231,7 @@ fn build_conflict_state(
         moved_commit_oid: None,
         is_orphan_root: false,
         squash_context: Some(SquashContext {
-            base_oid: Oid::from(inputs.base_oid),
+            base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
             target_oid: inputs.target_oid.clone(),
             combined_message: combined_message.to_string(),
