@@ -1574,3 +1574,120 @@ fn build_fragmap_empty_span_does_not_panic() {
     let fm = build_fragmap(&commits, true, &mut |_| true).unwrap();
     assert_eq!(fm.commits.len(), 2);
 }
+
+#[test]
+fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
+    // Reproduces a bug where adjacent insertions in the same file failed to
+    // cluster when non-touching commits created a generation gap.
+    //
+    // Setup:
+    //   c0: creates f.rs by inserting 182 lines (@@ -0,0 +1,182 @@)
+    //   c1..c7: touch DIFFERENT files only (generation gap for f.rs)
+    //   c8: inserts 1 line in f.rs (@@ -29,0 +31,1 @@)
+    //   c9..c21: touch DIFFERENT files only (another generation gap)
+    //   c22: inserts 1 line adjacent to c8's insertion (@@ -31,0 +32,1 @@)
+    //
+    // c0, c8, and c22 all insert at adjacent positions in f.rs, so they must
+    // share a cluster.  Before the fix, c8's active node stayed active across
+    // the gap (c9-c21), causing spg_add_on_top_of level 3 to reject the
+    // Point-on-border overlap that would connect c22 back to c8's lineage.
+    let mut commits = Vec::new();
+
+    // c0 (gen 0): create f.rs with 182 lines
+    commits.push(make_commit_diff(
+        "c0",
+        vec![FileDiff {
+            old_path: None,
+            new_path: Some("f.rs".to_string()),
+            status: crate::DeltaStatus::Added,
+            hunks: vec![Hunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 182,
+                lines: vec![],
+            }],
+        }],
+    ));
+
+    // c1..c7 (gen 1-7): only touch other files
+    for i in 1..=7 {
+        commits.push(make_commit_diff(
+            &format!("c{i}"),
+            vec![make_file_diff(
+                Some("other.rs"),
+                Some("other.rs"),
+                i as u32,
+                1,
+                i as u32,
+                2,
+            )],
+        ));
+    }
+
+    // c8 (gen 8): insert 1 line in f.rs
+    commits.push(make_commit_diff(
+        "c8",
+        vec![FileDiff {
+            old_path: Some("f.rs".to_string()),
+            new_path: Some("f.rs".to_string()),
+            status: crate::DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 29,
+                old_lines: 0,
+                new_start: 31,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }],
+    ));
+
+    // c9..c21 (gen 9-21): only touch other files
+    for i in 9..=21 {
+        commits.push(make_commit_diff(
+            &format!("c{i}"),
+            vec![make_file_diff(
+                Some("other.rs"),
+                Some("other.rs"),
+                i as u32,
+                1,
+                i as u32,
+                2,
+            )],
+        ));
+    }
+
+    // c22 (gen 22): insert 1 line adjacent to c8's insertion
+    commits.push(make_commit_diff(
+        "c22",
+        vec![FileDiff {
+            old_path: Some("f.rs".to_string()),
+            new_path: Some("f.rs".to_string()),
+            status: crate::DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 31,
+                old_lines: 0,
+                new_start: 32,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }],
+    ));
+
+    let fm = build_fragmap(&commits, true, &mut |_| true).unwrap();
+
+    // c0 (index 0), c8 (index 8), and c22 (index 22) insert at adjacent
+    // positions in f.rs — they must all share a cluster.
+    assert!(
+        fm.shares_cluster_with(0, 8),
+        "c0 and c8 should share a cluster"
+    );
+    assert!(
+        fm.shares_cluster_with(8, 22),
+        "c8 and c22 should share a cluster (adjacent insertions despite generation gap)"
+    );
+    assert!(
+        fm.shares_cluster_with(0, 22),
+        "c0 and c22 should share a cluster"
+    );
+}

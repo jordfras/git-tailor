@@ -35,12 +35,62 @@ use git_tailor::{CommitInfo, VirtualOid};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let commit_ish = args
-        .get(1)
-        .expect("Usage: cargo run --example fragmap_compat -- <commit-ish>");
 
-    // Build git-tailor Fragmap for the same commit range used by `gt --static`.
+    if args.get(1).map(|s| s.as_str()) == Some("--sweep") {
+        let max_depth: usize = args
+            .get(2)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(usize::MAX);
+        run_sweep(max_depth);
+    } else {
+        let commit_ish = args
+            .get(1)
+            .expect("Usage: fragmap_compat <commit-ish> | fragmap_compat --sweep [max-depth]");
+        let git_repo = Git2Repo::open(std::env::current_dir().unwrap()).expect("open repo");
+        let result = check_commit_ish(&git_repo, commit_ish);
+        if result.ok {
+            println!("OK");
+        } else {
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_sweep(max_depth: usize) {
     let git_repo = Git2Repo::open(std::env::current_dir().unwrap()).expect("open repo");
+    let mut passed = 0usize;
+
+    for depth in 1..=max_depth {
+        let commit_ish = format!("HEAD~{depth}");
+        // Stop when the commit-ish can't be resolved (e.g. past root).
+        if git_repo.find_reference_point(&commit_ish).is_err() {
+            break;
+        }
+        let result = check_commit_ish(&git_repo, &commit_ish);
+        if result.ok {
+            passed += 1;
+            println!("HEAD~{depth} ({} commits): OK", result.n_commits);
+        } else {
+            eprintln!(
+                "HEAD~{depth} ({} commits): MISMATCH ({} differ)",
+                result.n_commits, result.n_mismatches
+            );
+            println!("\n{passed} passed, 1 failed");
+            std::process::exit(1);
+        }
+    }
+
+    println!("\n{passed} passed, 0 failed");
+}
+
+struct CheckResult {
+    ok: bool,
+    n_commits: usize,
+    n_mismatches: usize,
+}
+
+fn check_commit_ish(git_repo: &Git2Repo, commit_ish: &str) -> CheckResult {
+    // Build git-tailor Fragmap for the same commit range used by `gt --static`.
     let reference_oid = git_repo
         .find_reference_point(commit_ish)
         .expect("find reference point");
@@ -52,6 +102,7 @@ fn main() {
         .into_iter()
         .filter(|c| c.oid != VirtualOid::Real(reference_oid.clone()))
         .collect();
+    let n_commits = commits.len();
     let mut commit_diffs: Vec<_> = commits
         .iter()
         .filter_map(|c| {
@@ -71,14 +122,6 @@ fn main() {
 
     let fmap = fragmap::build_fragmap(&commit_diffs, true, &mut |_| true)
         .expect("no-op callback never cancels");
-    let gt_output = static_views::fragmap::render(
-        &commit_diffs,
-        false,
-        false,
-        false,
-        SquashableScope::Commit,
-        None,
-    );
 
     // Run original fragmap binary.
     // Pass `--no-color` so touched cells render as '#' (not ANSI-colored spaces).
@@ -109,21 +152,38 @@ fn main() {
     fm_profiles.sort();
 
     if gt_profiles == fm_profiles {
-        println!("OK");
-        return;
+        return CheckResult {
+            ok: true,
+            n_commits,
+            n_mismatches: 0,
+        };
     }
+
+    let gt_output = static_views::fragmap::render(
+        &commit_diffs,
+        false,
+        false,
+        false,
+        SquashableScope::Commit,
+        None,
+    );
     println!("=== fragmap output ===");
     print!("{fm_output}");
     println!("\n=== git-tailor output ===");
     print!("{gt_output}");
     println!("\n=== diff ===");
-    report_diff(
+    let n_mismatches = report_diff(
         &gt_profiles,
         &fm_profiles,
         &gt_profiles_indexed,
         &fm_profiles_indexed,
         &commit_diffs,
     );
+    CheckResult {
+        ok: false,
+        n_commits,
+        n_mismatches,
+    }
 }
 
 fn run_fragmap(since_oid: &str) -> String {
@@ -286,7 +346,7 @@ fn report_diff(
     gt_indexed: &[Profile],
     fm_indexed: &[Profile],
     commit_diffs: &[git_tailor::CommitDiff],
-) {
+) -> usize {
     // Build sha8 -> short summary lookup from our own commit diffs.
     let summaries: std::collections::HashMap<String, &str> = commit_diffs
         .iter()
@@ -412,4 +472,6 @@ fn report_diff(
             &gt_cols,
         );
     }
+
+    n_mismatches
 }

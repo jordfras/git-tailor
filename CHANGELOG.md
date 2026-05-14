@@ -10,6 +10,8 @@ The format is based on
 
 ### Fixed
 
+- Adjacent insertions in the same file now correctly cluster in the fragmap when
+  non-touching commits create a generation gap between them.
 - The move-commit picker now scrolls to keep the insertion-point separator
   visible when it moves outside the current viewport.
 - Entering commit detail mode (`i`) on a narrow terminal now correctly shows the
