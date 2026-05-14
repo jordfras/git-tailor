@@ -25,6 +25,10 @@ The format is based on
   the tree.
 - Squashing or fixing up a commit into the root commit now works. Previously the
   operation was rejected with an error.
+- Squashing or fixing up across a rename no longer produces a spurious conflict.
+  Previously, if a file was renamed in a commit between the squash source and
+  target, the operation would report a conflict on the old filename even though
+  `git rebase -i` would complete cleanly.
 
 ### Added
 

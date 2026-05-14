@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
-- [ ] T215 P1 bug - Fix spurious conflict when squashing across a rename: when
+- [X] T215 P1 bug - Fix spurious conflict when squashing across a rename: when
   squashing commit B into an earlier commit A where a file touched by both was
   renamed in a commit between them, the tool incorrectly reports a conflict and
   leaves both the old and new filename to resolve — even though `git rebase
