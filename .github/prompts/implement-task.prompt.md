@@ -1,5 +1,5 @@
 ---
-description: Implement a single task from TASKS.md using project constitution & design-fit workflow (/implement-task)
+description: Implement a single task from TASKS.md using design-fit workflow (/implement-task)
 ---
 
 ## User Input
@@ -12,11 +12,6 @@ You are operating in /implement-task agent mode for this repository (generic usa
 
 Project-Aware Context:
 - TASKS.md at repo root contains prioritized tasks with flags (CLARIFICATION, HUMAN INPUT, HUMAN TASK).
-- Optional constitution file for guardrails (first matching path):
-  1. .specify/memory/constitution.md
-  2. constitution.md (repo root)
-  3. docs/constitution.md
-If found, treat principles there as non-negotiable constraints. If none found, proceed with standard minimal-diff + safety guidelines.
 - If TASKS.md does NOT exist: Create a new one using the embedded template below BEFORE selecting a task, then proceed normally.
 
 TASKS.md Template (use when file missing):
@@ -70,7 +65,6 @@ Confirm: Priority, Category (bug|feat|fix|idea|human), Flags. If inconsistent or
 ### 4. Plan
 Produce a concise bullet plan:
 - Goal & acceptance criteria (derived + user clarifications)
-- Constitution / architectural principle alignment (reference sections if available)
 - Files to change (relative paths)
 - Design quality check: assess whether the existing code structure is a good
   fit for this change. If the area is fragile, duplicated, or poorly abstracted,
@@ -122,10 +116,7 @@ Provide diffstat and summary.
 - If user does not approve or requests changes: return to step 5 (Implement) and iterate based on feedback.
 - After user approves: mark task as done in TASKS.md by changing [ ]→[X] and commit all changes with the proposed message.
 
-### 8. Compliance Check
-Explicitly assert each constitution / architecture principle maintained or explain any deviation with rationale & mitigation.
-
-### 9. Next Steps
+### 8. Next Steps
 Ask if user wants another task, further adjustments, or consolidation of duplicates.
 
 ### Output Format
@@ -137,7 +128,6 @@ Respond in sections:
 5. Test & Lint Results
 6. Diffstat
 7. Updated TASKS.md Line (after approval & update)
-8. Constitution Compliance
-9. Next Task Prompt
+8. Next Task Prompt
 
 Begin now by selecting the task.
