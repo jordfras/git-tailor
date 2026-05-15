@@ -100,43 +100,6 @@ types, and the rebase engine with a **binary** (src/main.rs) providing the TUI
 interface. The library is independently testable and can be used for future
 non-TUI frontends (CLI batch mode, CI tooling, etc.).
 
-### Library Modules
-
-Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
-`DeltaStatus`, `DiffLineKind`) are defined in `domain/commit.rs` and
-`domain/diff.rs`, and re-exported from `lib.rs`.
-
-| Module         | Responsibility                                                            |
-|----------------|---------------------------------------------------------------------------|
-| `domain`       | Domain types: `CommitInfo`, `Oid`, `VirtualOid`, `FileDiff`, `Hunk`, etc. |
-| `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)                 |
-| `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation             |
-| `editor`       | External editor integration (commit message editing)                      |
-| `mergetool`    | External merge tool integration (conflict resolution)                     |
-| `static_views` | Non-interactive CLI output (fragmap rendering)                            |
-
-### TUI Modules
-
-| Module                 | Responsibility                                        |
-|------------------------|-------------------------------------------------------|
-| `app`                  | Application state machine, key parsing, event reading |
-| `app::keymap`          | `KeyCommand` enum + `read_event()`                    |
-| `app::state`           | `AppState` struct                                     |
-| `views::main_view`     | Shared layout (commit list + fragmap + detail pane)   |
-| `views::commit_list`   | Scrollable one-line-per-commit log with fragmap       |
-| `views::commit_detail` | Commit metadata + scrollable colored diff             |
-| `views::squash_select` | Squash/fixup target picker                            |
-| `views::move_select`   | Move commit target selection                          |
-| `views::split_select`  | Split strategy selection dialog                       |
-| `views::drop`          | Drop commit confirmation dialog                       |
-| `views::conflict`      | Rebase conflict resolution dialog                     |
-| `views::help`          | Help overlay                                          |
-| `views::hunk_groups`   | Hunk group detail rendering                           |
-| `views::list_nav`      | Shared navigation helper for list-picker dialogs      |
-| `views::loading`       | Loading screen rendering                              |
-| `views::dialog`        | Shared dialog rendering helpers                       |
-| `views::theme`         | Fragmap rendering theme trait and built-in themes     |
-
 ### Module Organization Convention
 
 **Never use `mod.rs` files** in `src/` — follow Rust 2018+ module style:
@@ -226,8 +189,6 @@ entry:
 
 Internal-only changes (refactors, test additions, CI tweaks, doc corrections)
 generally do **not** need a changelog entry — confirm with the user if unsure.
-
-
 
 ### Commit & Diff Types
 
@@ -364,24 +325,9 @@ behind a trait boundary, integration tested with real temporary repos.
 
 ### Trait-based abstraction over git2
 
-Don't call `git2` directly from business logic. Define traits in the library:
+Don't call `git2` directly from business logic. All git operations go through
+the `GitRepo` trait (defined in `repo.rs`). Two implementations exist:
 
-```rust
-pub trait GitRepo {
-    fn head_oid(&self) -> Result<String>;
-    fn find_reference_point(&self, commit_ish: &str) -> Result<String>;
-    fn list_commits(&self, from_oid: &str, to_oid: &str) -> Result<Vec<CommitInfo>>;
-    fn commit_diff(&self, oid: &str) -> Result<CommitDiff>;
-    fn drop_commit(&self, commit_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
-    fn move_commit(&self, commit_oid: &str, insert_after_oid: &str, head_oid: &str) -> Result<RebaseOutcome>;
-    fn squash_commits(&self, source_oid: &str, target_oid: &str, message: &str, head_oid: &str) -> Result<RebaseOutcome>;
-    fn reword_commit(&self, commit_oid: &str, new_message: &str, head_oid: &str) -> Result<()>;
-    fn split_commit_per_file(&self, commit_oid: &str, head_oid: &str) -> Result<()>;
-    // ...
-}
-```
-
-Two implementations:
 - `Git2Repo` — the real one wrapping `git2::Repository`
 - Mock/fake implementations for unit tests of higher-level logic
 
