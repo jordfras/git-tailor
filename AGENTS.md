@@ -40,14 +40,36 @@ Every source file (`.rs`) must begin with the Apache-2.0 license header:
 git-tailor/
 ├── Cargo.toml              # package manifest
 ├── src/
-│   ├── lib.rs              # Library root (domain types + module declarations)
-│   ├── main.rs             # Binary entry point (CLI, event loop, side effects)
-│   ├── app.rs              # TUI state machine (AppMode, AppState, key parsing)
+│   ├── lib.rs              # Library root (re-exports domain types, module declarations)
+│   ├── main.rs             # Binary entry point (event loop, side effects)
+│   ├── cli.rs              # Command-line argument definitions (clap)
+│   ├── loader.rs           # Startup loading: commit walking, progress display
+│   ├── terminal_guard.rs   # RAII guard owning TUI terminal setup / teardown
+│   ├── external_tool.rs    # Suspend/restore TUI around external processes
+│   ├── tests.rs            # In-library unit tests (MockRepo stubs)
+│   ├── app.rs              # AppMode enum, AppAction enum, SquashMode
+│   ├── app/
+│   │   ├── keymap.rs       # KeyCommand enum + read_event()
+│   │   └── state.rs        # AppState struct
+│   ├── domain.rs           # Domain module declarations
+│   ├── domain/
+│   │   ├── commit.rs       # CommitInfo, Oid, VirtualOid
+│   │   └── diff.rs         # FileDiff, Hunk, DiffLine, CommitDiff, DeltaStatus, DiffLineKind
 │   ├── editor.rs           # External editor integration (commit message editing)
 │   ├── mergetool.rs        # External merge tool integration
 │   ├── repo.rs             # GitRepo trait definition
 │   ├── repo/
-│   │   └── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
+│   │   ├── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
+│   │   └── git2_impl/
+│   │       ├── cherry_pick.rs  # Cherry-pick chain helpers
+│   │       ├── conflict.rs     # Conflict detection and state
+│   │       ├── drop_op.rs      # Drop commit operation
+│   │       ├── hunks.rs        # Hunk extraction and patch building
+│   │       ├── move_op.rs      # Move commit operation
+│   │       ├── reads.rs        # Read-only git operations
+│   │       ├── reword_op.rs    # Reword commit operation
+│   │       ├── split_op.rs     # Split commit operation
+│   │       └── squash_op.rs    # Squash/fixup operation
 │   ├── fragmap.rs          # Span extraction, clustering, matrix generation
 │   ├── fragmap/
 │   │   └── spg.rs          # Span Propagation Graph algorithm
@@ -60,10 +82,13 @@ git-tailor/
 │   │   ├── drop.rs         # Drop commit confirmation
 │   │   ├── help.rs         # Help overlay
 │   │   ├── hunk_groups.rs  # Hunk group detail rendering
+│   │   ├── list_nav.rs     # Shared navigation helper for list-picker dialogs
+│   │   ├── loading.rs      # Loading screen rendering
 │   │   ├── main_view.rs    # Shared layout (commit list + fragmap + detail)
 │   │   ├── move_select.rs  # Move commit target selection
 │   │   ├── split_select.rs # Split strategy selection dialog
-│   │   └── squash_select.rs # Squash/fixup target selection
+│   │   ├── squash_select.rs # Squash/fixup target selection
+│   │   └── theme.rs        # Fragmap rendering theme trait and built-in themes
 │   ├── static_views.rs     # Static (non-interactive) view module declarations
 │   └── static_views/
 │       └── fragmap.rs      # CLI fragmap output (non-TUI)
@@ -78,32 +103,39 @@ non-TUI frontends (CLI batch mode, CI tooling, etc.).
 ### Library Modules
 
 Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
-`DeltaStatus`, `DiffLineKind`) are defined directly in `lib.rs`.
+`DeltaStatus`, `DiffLineKind`) are defined in `domain/commit.rs` and
+`domain/diff.rs`, and re-exported from `lib.rs`.
 
-| Module         | Responsibility                                                |
-|----------------|---------------------------------------------------------------|
-| `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)     |
-| `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation |
-| `editor`       | External editor integration (commit message editing)          |
-| `mergetool`    | External merge tool integration (conflict resolution)         |
-| `static_views` | Non-interactive CLI output (fragmap rendering)                |
+| Module         | Responsibility                                                           |
+|----------------|-------------------------------------------------------------------------|
+| `domain`       | Domain types: `CommitInfo`, `Oid`, `VirtualOid`, `FileDiff`, `Hunk`, etc. |
+| `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)                 |
+| `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation             |
+| `editor`       | External editor integration (commit message editing)                      |
+| `mergetool`    | External merge tool integration (conflict resolution)                     |
+| `static_views` | Non-interactive CLI output (fragmap rendering)                            |
 
 ### TUI Modules
 
-| Module                    | Responsibility                                      |
-|---------------------------|-----------------------------------------------------|
-| `app`                     | Application state machine, key parsing, event reading |
-| `views::main_view`        | Shared layout (commit list + fragmap + detail pane) |
-| `views::commit_list`      | Scrollable one-line-per-commit log with fragmap     |
-| `views::commit_detail`    | Commit metadata + scrollable colored diff           |
-| `views::squash_select`    | Squash/fixup target picker                          |
-| `views::move_select`      | Move commit target selection                        |
-| `views::split_select`     | Split strategy selection dialog                     |
-| `views::drop`             | Drop commit confirmation dialog                     |
-| `views::conflict`         | Rebase conflict resolution dialog                   |
-| `views::help`             | Help overlay                                        |
-| `views::hunk_groups`      | Hunk group detail rendering                         |
-| `views::dialog`           | Shared dialog rendering helpers                     |
+| Module                 | Responsibility                                        |
+|------------------------|-------------------------------------------------------|
+| `app`                  | Application state machine, key parsing, event reading |
+| `app::keymap`          | `KeyCommand` enum + `read_event()`                    |
+| `app::state`           | `AppState` struct                                     |
+| `views::main_view`     | Shared layout (commit list + fragmap + detail pane)   |
+| `views::commit_list`   | Scrollable one-line-per-commit log with fragmap       |
+| `views::commit_detail` | Commit metadata + scrollable colored diff             |
+| `views::squash_select` | Squash/fixup target picker                            |
+| `views::move_select`   | Move commit target selection                          |
+| `views::split_select`  | Split strategy selection dialog                       |
+| `views::drop`          | Drop commit confirmation dialog                       |
+| `views::conflict`      | Rebase conflict resolution dialog                     |
+| `views::help`          | Help overlay                                          |
+| `views::hunk_groups`   | Hunk group detail rendering                           |
+| `views::list_nav`      | Shared navigation helper for list-picker dialogs      |
+| `views::loading`       | Loading screen rendering                              |
+| `views::dialog`        | Shared dialog rendering helpers                       |
+| `views::theme`         | Fragmap rendering theme trait and built-in themes     |
 
 ### Module Organization Convention
 
@@ -200,11 +232,13 @@ generally do **not** need a changelog entry — confirm with the user if unsure.
 ### Commit & Diff Types
 
 ```
-CommitInfo   { oid, summary, author, date, parent_oids, message,
+CommitInfo   { oid: VirtualOid, summary, author, date, parent_oids, message,
                author_email, author_date, committer, committer_email, commit_date }
 FileDiff     { old_path, new_path, status: DeltaStatus, hunks: Vec<Hunk> }
 Hunk         { old_start, old_lines, new_start, new_lines, lines: Vec<DiffLine> }
 CommitDiff   { commit: CommitInfo, files: Vec<FileDiff> }
+Oid          — newtype wrapper around a 40-hex-char SHA string
+VirtualOid   ∈ { Real(Oid), Staged, Unstaged }  — unifies real commits and synthetic working-tree rows
 ```
 
 ### Fragmap (chunk clustering)
@@ -266,13 +300,14 @@ can be passed to browse the complete repository history down to the root commit.
 
 The application uses a modal state machine (`AppMode` enum) with these modes:
 
+- `Loading { title, message, progress, skippable }` — startup loading screen
 - `CommitList` — default view, scrollable commit log with fragmap
 - `CommitDetail` — diff + metadata for the selected commit
 - `SplitSelect { strategy_index }` — per-file / per-hunk / per-hunk-group picker
 - `SplitConfirm(PendingSplit)` — confirmation for large splits
 - `DropConfirm(PendingDrop)` — drop commit confirmation
 - `RebaseConflict(Box<ConflictState>)` — merge conflict resolution dialog
-- `SquashSelect { source_index, is_fixup }` — squash/fixup target picker
+- `SquashSelect { source_index, squash_mode: SquashMode }` — squash/fixup target picker
 - `MoveSelect { source_index, insert_before }` — move commit target selection
 - `Help(Box<AppMode>)` — help overlay (wraps previous mode)
 
