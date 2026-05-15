@@ -106,8 +106,8 @@ Domain types (`CommitInfo`, `FileDiff`, `Hunk`, `DiffLine`, `CommitDiff`,
 `DeltaStatus`, `DiffLineKind`) are defined in `domain/commit.rs` and
 `domain/diff.rs`, and re-exported from `lib.rs`.
 
-| Module         | Responsibility                                                           |
-|----------------|-------------------------------------------------------------------------|
+| Module         | Responsibility                                                            |
+|----------------|---------------------------------------------------------------------------|
 | `domain`       | Domain types: `CommitInfo`, `Oid`, `VirtualOid`, `FileDiff`, `Hunk`, etc. |
 | `repo`         | `GitRepo` trait + `Git2Repo` implementation (all git ops)                 |
 | `fragmap`      | Span extraction, SPG algorithm, clustering, matrix generation             |
@@ -333,17 +333,6 @@ loop {
     if app.should_quit { break; }
 }
 ```
-
-## Open Design Decisions
-
-These are not yet resolved and should be decided during implementation:
-
-1. **Undo model**: Simplest approach is saving the original branch ref before
-   mutation and offering a single "undo". Alternative: full undo stack.
-
-2. **Performance for large repos**: The fragmap matrix can grow large. May need
-   lazy computation (only analyze visible commits) or a configurable depth
-   limit.
 
 ## Testing Strategy
 
