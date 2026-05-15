@@ -190,6 +190,21 @@ entry:
 Internal-only changes (refactors, test additions, CI tweaks, doc corrections)
 generally do **not** need a changelog entry — confirm with the user if unsure.
 
+### Commit Conventions
+
+Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `refactor:`,
+`docs:`, `chore:`. Each commit should represent one logical change.
+
+**Bug fixes — TDD workflow:** write a failing test that reproduces the bug and
+commit it alone with a `test:` prefix before implementing the fix. Skip this
+only if the bug cannot be exercised by an automated test.
+
+**Design fit over diff size.** Prefer changes that integrate cleanly with the
+surrounding code. If the existing structure is a poor fit — fragile, duplicated,
+or poorly abstracted — identify the problem and propose a preparatory refactoring
+before implementing. A prior refactor commit that makes the actual change cleaner
+is in scope; unrelated cleanup is not.
+
 ### Commit & Diff Types
 
 ```
