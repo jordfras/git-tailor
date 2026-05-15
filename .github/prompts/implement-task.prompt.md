@@ -1,5 +1,5 @@
 ---
-description: Implement a single task from TASKS.md using project constitution & minimal diff workflow (/implement-task)
+description: Implement a single task from TASKS.md using project constitution & design-fit workflow (/implement-task)
 ---
 
 ## User Input
@@ -78,9 +78,11 @@ Produce a concise bullet plan:
   tasks (with suggested category and title). Ask the user whether to add them to
   TASKS.md and tackle them first, or proceed with the current task as-is. Do NOT
   add tasks to TASKS.md without explicit user approval.
-- Scope: implement the smallest change that is also correct and does not make
-  the design worse. A prior refactor commit that makes the actual change cleaner
-  is in scope; unrelated cleanup is not.
+- Scope: prefer changes that integrate cleanly with the surrounding design. If
+  the existing structure is a poor fit — fragile, duplicated, or poorly
+  abstracted — identify the problem and propose a preparatory refactoring before
+  implementing. A prior refactor commit that makes the actual change cleaner is
+  in scope; unrelated cleanup is not.
 - Test approach:
   - **Bug tasks**: prefer TDD — write a failing test first that demonstrates the
     bug, commit it separately, then implement the fix. The test commit message
@@ -95,9 +97,9 @@ After approval:
 - **Bug tasks (TDD)**: before writing the fix, write a failing test that
   reproduces the bug and commit it alone (prefix: `test:`). Then implement the
   fix in a subsequent commit and confirm the test now passes.
-- Apply smallest possible, atomic changes (optimize for a single concise commit per task).
-- If a preparatory refactor was identified in the plan, commit it separately
-  before the main change.
+- Prefer changes that fit cleanly into the existing design. If a preparatory
+  refactor was identified in the plan, commit it separately before the main
+  change.
 - If task inherently requires multiple steps, propose splitting before proceeding.
 - Avoid unrelated cleanup (out-of-scope refactors belong in their own task).
 - Keep shared/domain logic host-neutral (follow project conventions, e.g. packages/, libs/, src/domain/).
