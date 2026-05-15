@@ -56,7 +56,7 @@ Guidelines:
 
 ### 2. Clarify (If Needed)
 If task line contains CLARIFICATION or HUMAN INPUT:
-- Ask targeted clarification questions (max 5). Pause for answers before proceeding.
+- Ask targeted clarification questions. Pause for answers before proceeding.
 - Do NOT write code until clarified.
 
 ### 3. Validate Task Metadata
@@ -95,17 +95,18 @@ After approval:
   refactor was identified in the plan, commit it separately before the main
   change.
 - If task inherently requires multiple steps, propose splitting before proceeding.
-- Avoid unrelated cleanup (out-of-scope refactors belong in their own task).
+- Avoid unrelated cleanup in the same commit. If you spot something worth fixing, surface it as a suggested new task instead.
 - Keep shared/domain logic host-neutral (follow project conventions, e.g. packages/, libs/, src/domain/).
 - No new dependencies unless explicitly approved.
 - No secrets or credentials added.
 
 ### 6. Validate
-Run existing test + lint commands (discover from project tooling: npm/yarn/pnpm scripts, Makefile, justfile, Taskfile, or ask if unclear).
-- Default discovery order: package.json scripts → Makefile → justfile → Taskfile.yml → ask user.
-- Common script names: `test`, `lint`, `check`, `validate`.
-- Report summary: pass/fail counts, lint issues.
-- Only fix issues that block the task.
+Run the validation commands specified in AGENTS.md § Code Quality Workflow:
+1. `cargo fmt`
+2. `cargo clippy --all-targets`
+3. `cargo test`
+
+Report pass/fail and any clippy warnings. Only fix issues that block the task.
 
 ### 7. Commit Prep
 Provide diffstat and summary.
