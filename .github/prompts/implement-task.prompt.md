@@ -1,5 +1,5 @@
 ---
-description: Implement a single task from TASKS.md using project constitution & minimal diff workflow (/implement-task)
+description: Implement a single task from TASKS.md using design-fit workflow (/implement-task)
 ---
 
 ## User Input
@@ -12,11 +12,6 @@ You are operating in /implement-task agent mode for this repository (generic usa
 
 Project-Aware Context:
 - TASKS.md at repo root contains prioritized tasks with flags (CLARIFICATION, HUMAN INPUT, HUMAN TASK).
-- Optional constitution file for guardrails (first matching path):
-  1. .specify/memory/constitution.md
-  2. constitution.md (repo root)
-  3. docs/constitution.md
-If found, treat principles there as non-negotiable constraints. If none found, proceed with standard minimal-diff + safety guidelines.
 - If TASKS.md does NOT exist: Create a new one using the embedded template below BEFORE selecting a task, then proceed normally.
 
 TASKS.md Template (use when file missing):
@@ -61,7 +56,7 @@ Guidelines:
 
 ### 2. Clarify (If Needed)
 If task line contains CLARIFICATION or HUMAN INPUT:
-- Ask targeted clarification questions (max 5). Pause for answers before proceeding.
+- Ask targeted clarification questions. Pause for answers before proceeding.
 - Do NOT write code until clarified.
 
 ### 3. Validate Task Metadata
@@ -70,7 +65,6 @@ Confirm: Priority, Category (bug|feat|fix|idea|human), Flags. If inconsistent or
 ### 4. Plan
 Produce a concise bullet plan:
 - Goal & acceptance criteria (derived + user clarifications)
-- Constitution / architectural principle alignment (reference sections if available)
 - Files to change (relative paths)
 - Design quality check: assess whether the existing code structure is a good
   fit for this change. If the area is fragile, duplicated, or poorly abstracted,
@@ -78,9 +72,11 @@ Produce a concise bullet plan:
   tasks (with suggested category and title). Ask the user whether to add them to
   TASKS.md and tackle them first, or proceed with the current task as-is. Do NOT
   add tasks to TASKS.md without explicit user approval.
-- Scope: implement the smallest change that is also correct and does not make
-  the design worse. A prior refactor commit that makes the actual change cleaner
-  is in scope; unrelated cleanup is not.
+- Scope: prefer changes that integrate cleanly with the surrounding design. If
+  the existing structure is a poor fit — fragile, duplicated, or poorly
+  abstracted — identify the problem and propose a preparatory refactoring before
+  implementing. A prior refactor commit that makes the actual change cleaner is
+  in scope; unrelated cleanup is not.
 - Test approach:
   - **Bug tasks**: prefer TDD — write a failing test first that demonstrates the
     bug, commit it separately, then implement the fix. The test commit message
@@ -95,21 +91,22 @@ After approval:
 - **Bug tasks (TDD)**: before writing the fix, write a failing test that
   reproduces the bug and commit it alone (prefix: `test:`). Then implement the
   fix in a subsequent commit and confirm the test now passes.
-- Apply smallest possible, atomic changes (optimize for a single concise commit per task).
-- If a preparatory refactor was identified in the plan, commit it separately
-  before the main change.
+- Prefer changes that fit cleanly into the existing design. If a preparatory
+  refactor was identified in the plan, commit it separately before the main
+  change.
 - If task inherently requires multiple steps, propose splitting before proceeding.
-- Avoid unrelated cleanup (out-of-scope refactors belong in their own task).
+- Avoid unrelated cleanup in the same commit. If you spot something worth fixing, surface it as a suggested new task instead.
 - Keep shared/domain logic host-neutral (follow project conventions, e.g. packages/, libs/, src/domain/).
 - No new dependencies unless explicitly approved.
 - No secrets or credentials added.
 
 ### 6. Validate
-Run existing test + lint commands (discover from project tooling: npm/yarn/pnpm scripts, Makefile, justfile, Taskfile, or ask if unclear).
-- Default discovery order: package.json scripts → Makefile → justfile → Taskfile.yml → ask user.
-- Common script names: `test`, `lint`, `check`, `validate`.
-- Report summary: pass/fail counts, lint issues.
-- Only fix issues that block the task.
+Run the validation commands specified in AGENTS.md § Code Quality Workflow:
+1. `cargo fmt`
+2. `cargo clippy --all-targets`
+3. `cargo test`
+
+Report pass/fail and any clippy warnings. Only fix issues that block the task.
 
 ### 7. Commit Prep
 Provide diffstat and summary.
@@ -120,10 +117,7 @@ Provide diffstat and summary.
 - If user does not approve or requests changes: return to step 5 (Implement) and iterate based on feedback.
 - After user approves: mark task as done in TASKS.md by changing [ ]→[X] and commit all changes with the proposed message.
 
-### 8. Compliance Check
-Explicitly assert each constitution / architecture principle maintained or explain any deviation with rationale & mitigation.
-
-### 9. Next Steps
+### 8. Next Steps
 Ask if user wants another task, further adjustments, or consolidation of duplicates.
 
 ### Output Format
@@ -135,7 +129,6 @@ Respond in sections:
 5. Test & Lint Results
 6. Diffstat
 7. Updated TASKS.md Line (after approval & update)
-8. Constitution Compliance
-9. Next Task Prompt
+8. Next Task Prompt
 
 Begin now by selecting the task.
