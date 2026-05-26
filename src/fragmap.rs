@@ -561,7 +561,8 @@ impl FragMap {
     /// Returns `Some(true)` for squashable, `Some(false)` for conflicting.
     ///
     /// `scope` controls the rule used:
-    /// - `Cluster`: per-cluster pair only (fine-grained).
+    /// - `Group`: the pair of commits connected in this cluster must be
+    ///   pairwise squashable across all their shared clusters.
     /// - `Commit`: the entire lower commit must be fully squashable into the
     ///   same single upper commit (strict, matching the original fragmap tool).
     pub fn connector_squashable(
@@ -576,7 +577,7 @@ impl FragMap {
 
         match scope {
             SquashableScope::Group => Some(
-                self.cluster_relation(earlier, commit_idx, cluster_idx)
+                self.pairwise_squash_relation(earlier, commit_idx)
                     == SquashRelation::Squashable,
             ),
             SquashableScope::Commit => {
@@ -657,9 +658,9 @@ fn determine_touch_kind(
 /// Determines what the yellow-connector symbol means in the fragmap matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum SquashableScope {
-    /// A connector is squashable when *that specific hunk group pair alone* has
-    /// no intervening touches. This is the granular per-group rule, and is
-    /// the default for the interactive TUI.
+    /// A connector is squashable when the pair of commits it connects are
+    /// pairwise squashable (no intervening touches in any shared cluster).
+    /// This is the per-pair rule, and is the default for the interactive TUI.
     #[default]
     Group,
     /// A connector is squashable only when the *entire later commit* is fully

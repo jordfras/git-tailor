@@ -32,31 +32,11 @@ use ratatui::{
 // Background applied to the fragmap matrix columns of the selected row.
 const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 
-/// Determine a commit's relationship to the earliest earlier commit in a cluster.
-///
-/// Returns None if the commit doesn't touch the cluster or no earlier commit does.
-fn cluster_relation(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    cluster_idx: usize,
-) -> Option<fragmap::SquashRelation> {
-    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
-        return None;
-    }
-    for earlier_idx in (0..commit_idx).rev() {
-        if fragmap.matrix[earlier_idx][cluster_idx] != TouchKind::None {
-            return Some(fragmap.cluster_relation(earlier_idx, commit_idx, cluster_idx));
-        }
-    }
-    None
-}
-
 /// Determine cell content and style for a commit-cluster intersection.
 ///
 /// Returns None if the commit doesn't touch the cluster.
-/// With `Group` scope a square is grey when that group pair is squashable.
-/// With `Commit` scope a square is grey only when the entire commit is fully
-/// squashable into a single target commit.
+/// Uses `connector_squashable` to determine the relationship so that squares
+/// and connectors always agree on squashable vs conflicting coloring.
 fn fragmap_cell_content(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
@@ -69,24 +49,10 @@ fn fragmap_cell_content(
         return None;
     }
 
-    let has_earlier = (0..commit_idx).any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
-
-    let rel = if !has_earlier {
-        SquareRelation::Origin
-    } else {
-        match scope {
-            SquashableScope::Group => match cluster_relation(fragmap, commit_idx, cluster_idx) {
-                Some(fragmap::SquashRelation::Squashable) => SquareRelation::Squashable,
-                _ => SquareRelation::Conflict,
-            },
-            SquashableScope::Commit => {
-                if fragmap.is_fully_squashable(commit_idx) {
-                    SquareRelation::Squashable
-                } else {
-                    SquareRelation::Conflict
-                }
-            }
-        }
+    let rel = match fragmap.connector_squashable(commit_idx, cluster_idx, scope) {
+        None => SquareRelation::Origin,
+        Some(true) => SquareRelation::Squashable,
+        Some(false) => SquareRelation::Conflict,
     };
     Some((
         theme.square_symbol(role, rel).to_owned(),

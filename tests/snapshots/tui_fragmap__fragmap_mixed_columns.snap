@@ -1,5 +1,6 @@
 ---
 source: tests/tui_fragmap.rs
+assertion_line: 142
 expression: "harness.render(|frame| views::commit_list::render(&mut app, frame))"
 ---
 Buffer {
@@ -33,7 +34,7 @@ Buffer {
         x: 27, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 2, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 2, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
-        x: 73, y: 2, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
+        x: 73, y: 2, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 74, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 3, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 8, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
@@ -41,7 +42,7 @@ Buffer {
         x: 24, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 3, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 3, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
-        x: 73, y: 3, fg: Yellow, bg: Reset, underline: Reset, modifier: NONE,
+        x: 73, y: 3, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 74, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 4, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 8, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
@@ -49,6 +50,7 @@ Buffer {
         x: 27, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 4, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 4, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
+        x: 73, y: 4, fg: White, bg: Reset, underline: Reset, modifier: NONE,
         x: 74, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 5, fg: White, bg: Blue, underline: Reset, modifier: NONE,
         x: 72, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
