@@ -28,7 +28,7 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-use git_tailor::fragmap::{self, FragMap, SquashableScope};
+use git_tailor::fragmap::{self, FragMap};
 use git_tailor::repo::{Git2Repo, GitRepo};
 use git_tailor::static_views;
 use git_tailor::{CommitInfo, VirtualOid};
@@ -159,14 +159,7 @@ fn check_commit_ish(git_repo: &Git2Repo, commit_ish: &str) -> CheckResult {
         };
     }
 
-    let gt_output = static_views::fragmap::render(
-        &commit_diffs,
-        false,
-        false,
-        false,
-        SquashableScope::Commit,
-        None,
-    );
+    let gt_output = static_views::fragmap::render(&commit_diffs, false, false, false, None);
     println!("=== fragmap output ===");
     print!("{fm_output}");
     println!("\n=== git-tailor output ===");

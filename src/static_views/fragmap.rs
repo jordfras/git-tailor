@@ -26,7 +26,7 @@
 
 use crate::{
     CommitDiff,
-    fragmap::{self as fm, SquashableScope},
+    fragmap::{self as fm},
 };
 
 /// Symbol set used when rendering a row.
@@ -80,7 +80,6 @@ const PLAIN_REVERSE: Symbols = Symbols {
 /// `colors` selects ANSI color output (matching the original fragmap tool)
 /// versus plain Unicode output (suitable for tests and `--no-color` piping).
 /// `reverse` prints rows oldest-first (highest matrix index first).
-/// `scope` controls what the squashable connector indicator means.
 /// `term_width` is the terminal column count used to compute the title column
 /// width dynamically (matching the original fragmap tool's layout algorithm).
 /// When `None` a fixed 26-character title width is used.
@@ -89,7 +88,6 @@ pub fn render(
     full: bool,
     colors: bool,
     reverse: bool,
-    scope: SquashableScope,
     term_width: Option<u16>,
 ) -> String {
     let s = if colors {
@@ -174,7 +172,7 @@ pub fn render(
                     .find(|&i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None);
 
                 if has_above && let Some(below_idx) = below {
-                    match fmap.connector_squashable(below_idx, cluster_idx, scope) {
+                    match fmap.connector_squashable(below_idx, cluster_idx) {
                         Some(true) => out.push_str(s.cell_squashable),
                         Some(false) => out.push_str(s.cell_conflicting),
                         None => out.push_str(s.cell_empty),

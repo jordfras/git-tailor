@@ -42,12 +42,7 @@
 mod common;
 use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
-use git_tailor::{
-    app::AppState,
-    fragmap::{SquashableScope, TouchKind},
-    views,
-    views::theme::Theme,
-};
+use git_tailor::{app::AppState, fragmap::TouchKind, views, views::theme::Theme};
 
 fn make_fragmap() -> git_tailor::fragmap::FragMap {
     create_fragmap(
@@ -76,7 +71,6 @@ fn make_app(theme: Theme, focus: usize) -> AppState {
         common::create_test_commit("ccc3", "Fix config, parser, unique"),
     ];
     app.selection_index = focus;
-    app.squashable_scope = SquashableScope::Commit;
     app.fragmap = Some(make_fragmap());
     app.theme = theme;
     app

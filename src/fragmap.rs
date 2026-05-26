@@ -483,39 +483,6 @@ impl FragMap {
             .any(|c| self.matrix[a][c] != TouchKind::None && self.matrix[b][c] != TouchKind::None)
     }
 
-    /// Determine the overall squash relationship between two commits.
-    ///
-    /// Examines every cluster both commits touch:
-    /// - `NoRelation` if they share no clusters at all.
-    /// - `Squashable` if every shared cluster is squashable (no interfering
-    ///   commits in between).
-    /// - `Conflicting` if any shared cluster has interfering commits.
-    pub fn pairwise_squash_relation(&self, a: usize, b: usize) -> SquashRelation {
-        if a == b || a >= self.commits.len() || b >= self.commits.len() {
-            return SquashRelation::NoRelation;
-        }
-        let (earlier, later) = if a < b { (a, b) } else { (b, a) };
-
-        let mut has_shared = false;
-        for c in 0..self.clusters.len() {
-            if self.matrix[earlier][c] == TouchKind::None
-                || self.matrix[later][c] == TouchKind::None
-            {
-                continue;
-            }
-            has_shared = true;
-            if self.cluster_relation(earlier, later, c) == SquashRelation::Conflicting {
-                return SquashRelation::Conflicting;
-            }
-        }
-
-        if has_shared {
-            SquashRelation::Squashable
-        } else {
-            SquashRelation::NoRelation
-        }
-    }
-
     /// Determine the relationship between two commits for a specific cluster.
     ///
     /// Returns `NoRelation` if one or both commits don't touch the cluster,
@@ -554,35 +521,18 @@ impl FragMap {
         SquashRelation::Squashable
     }
 
-    /// Determine whether a connector between `below_idx` and its earliest
+    /// Determine whether a connector between `commit_idx` and its earliest
     /// earlier neighbour in `cluster_idx` should be rendered as squashable.
     ///
-    /// Returns `None` if there is no connector (no touch above or no `below`).
-    /// Returns `Some(true)` for squashable, `Some(false)` for conflicting.
-    ///
-    /// `scope` controls the rule used:
-    /// - `Cluster`: per-cluster pair only (fine-grained).
-    /// - `Commit`: the entire lower commit must be fully squashable into the
-    ///   same single upper commit (strict, matching the original fragmap tool).
-    pub fn connector_squashable(
-        &self,
-        commit_idx: usize,
-        cluster_idx: usize,
-        scope: SquashableScope,
-    ) -> Option<bool> {
+    /// Returns `None` if there is no earlier touch in the cluster.
+    /// Returns `Some(true)` when the entire commit is fully squashable into
+    /// that specific earlier commit, `Some(false)` otherwise.
+    pub fn connector_squashable(&self, commit_idx: usize, cluster_idx: usize) -> Option<bool> {
         let earlier = (0..commit_idx)
             .rev()
             .find(|&i| self.matrix[i][cluster_idx] != TouchKind::None)?;
 
-        match scope {
-            SquashableScope::Group => Some(
-                self.cluster_relation(earlier, commit_idx, cluster_idx)
-                    == SquashRelation::Squashable,
-            ),
-            SquashableScope::Commit => {
-                Some(self.squash_target(commit_idx).is_some_and(|t| t == earlier))
-            }
-        }
+        Some(self.squash_target(commit_idx).is_some_and(|t| t == earlier))
     }
 }
 
@@ -650,23 +600,6 @@ fn determine_touch_kind(
     }
 
     TouchKind::None
-}
-
-/// Controls how the squashable connector indicator is computed.
-///
-/// Determines what the yellow-connector symbol means in the fragmap matrix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
-pub enum SquashableScope {
-    /// A connector is squashable when *that specific hunk group pair alone* has
-    /// no intervening touches. This is the granular per-group rule, and is
-    /// the default for the interactive TUI.
-    #[default]
-    Group,
-    /// A connector is squashable only when the *entire later commit* is fully
-    /// squashable into the same single earlier commit. This is a stricter
-    /// whole-commit rule, matching the original fragmap tool, and is
-    /// the default for `--static` output.
-    Commit,
 }
 
 /// The relationship between two commits within a specific cluster.

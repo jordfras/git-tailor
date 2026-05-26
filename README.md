@@ -60,7 +60,6 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 | `--all`              | Browse the complete repository history from HEAD down to the root commit           |
 | `--static` / `-s`    | Print the hunk group matrix to stdout and exit (no TUI)                            |
 | `--no-color`         | Disable colors in `--static` output                                                |
-| `--squashable-scope` | Controls whether yellow connectors mean per-hunk-group or per-commit squashability |
 | `--theme <THEME>`    | Hunk group matrix rendering theme: `plain` (default), `highlight`, or `classic`    |
 
 Some flags can be persisted via environment variables so you don't have to pass
@@ -70,7 +69,6 @@ them every time:
 |-----------------------------------|-------------------------------------|
 | `GT_REVERSE=1`                    | `--reverse`                         |
 | `GT_FULL=1`                       | `--full`                            |
-| `GT_SQUASHABLE_SCOPE=hunk-group`  | `--squashable-scope hunk-group`     |
 | `GT_THEME=highlight`              | `--theme highlight`                 |
 
 

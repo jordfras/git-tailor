@@ -25,9 +25,7 @@ use git_tailor::repo::{ConflictState, Git2Repo, GitRepo, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
     app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
-    editor,
-    fragmap::SquashableScope,
-    mergetool, views,
+    editor, mergetool, views,
     views::theme::Theme,
 };
 
@@ -91,7 +89,6 @@ fn main() -> Result<()> {
 
     let mut app = AppState::new();
     app.reverse = cli.reverse;
-    app.squashable_scope = cli.squashable_scope.unwrap_or(SquashableScope::Group);
     app.theme = cli.theme.unwrap_or(Theme::Plain);
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
@@ -652,7 +649,6 @@ fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli)
             cli.full,
             !cli.no_color,
             cli.reverse,
-            cli.squashable_scope.unwrap_or(SquashableScope::Commit),
             crossterm::terminal::size().ok().map(|(w, _)| w),
         )
     );

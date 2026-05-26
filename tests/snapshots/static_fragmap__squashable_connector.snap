@@ -1,7 +1,8 @@
 ---
 source: tests/static_fragmap.rs
+assertion_line: 95
 expression: output
 ---
-aaaa0000 Touch A                   .##.
-bbbb2222 Unrelated                 #.^.
-cccc4444 Touch A again             ..##
+aaaa0000 Touch A                   .#
+bbbb2222 Unrelated                 #^
+cccc4444 Touch A again             .#

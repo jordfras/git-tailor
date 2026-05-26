@@ -17,7 +17,7 @@
 // These functions build the third column of the commit table — the
 // cluster-matrix visualization — plus its horizontal scrollbar.
 
-use crate::fragmap::{self, SquashableScope, TouchKind};
+use crate::fragmap::{self, TouchKind};
 use crate::views::theme::{
     CommitRowRole, ConnectorRelation, ConnectorRole, FragmapTheme, SquareRelation, SquareRole,
 };
@@ -32,36 +32,15 @@ use ratatui::{
 // Background applied to the fragmap matrix columns of the selected row.
 const COLOR_SELECTED_FRAGMAP_BG: Color = Color::Rgb(60, 60, 80);
 
-/// Determine a commit's relationship to the earliest earlier commit in a cluster.
-///
-/// Returns None if the commit doesn't touch the cluster or no earlier commit does.
-fn cluster_relation(
-    fragmap: &fragmap::FragMap,
-    commit_idx: usize,
-    cluster_idx: usize,
-) -> Option<fragmap::SquashRelation> {
-    if fragmap.matrix[commit_idx][cluster_idx] == TouchKind::None {
-        return None;
-    }
-    for earlier_idx in (0..commit_idx).rev() {
-        if fragmap.matrix[earlier_idx][cluster_idx] != TouchKind::None {
-            return Some(fragmap.cluster_relation(earlier_idx, commit_idx, cluster_idx));
-        }
-    }
-    None
-}
-
 /// Determine cell content and style for a commit-cluster intersection.
 ///
 /// Returns None if the commit doesn't touch the cluster.
-/// With `Group` scope a square is grey when that group pair is squashable.
-/// With `Commit` scope a square is grey only when the entire commit is fully
-/// squashable into a single target commit.
+/// Uses `connector_squashable` to determine the relationship so that squares
+/// and connectors always agree on squashable vs conflicting coloring.
 fn fragmap_cell_content(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
     cluster_idx: usize,
-    scope: SquashableScope,
     role: SquareRole,
     theme: &dyn FragmapTheme,
 ) -> Option<(String, Style)> {
@@ -69,24 +48,10 @@ fn fragmap_cell_content(
         return None;
     }
 
-    let has_earlier = (0..commit_idx).any(|i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
-
-    let rel = if !has_earlier {
-        SquareRelation::Origin
-    } else {
-        match scope {
-            SquashableScope::Group => match cluster_relation(fragmap, commit_idx, cluster_idx) {
-                Some(fragmap::SquashRelation::Squashable) => SquareRelation::Squashable,
-                _ => SquareRelation::Conflict,
-            },
-            SquashableScope::Commit => {
-                if fragmap.is_fully_squashable(commit_idx) {
-                    SquareRelation::Squashable
-                } else {
-                    SquareRelation::Conflict
-                }
-            }
-        }
+    let rel = match fragmap.connector_squashable(commit_idx, cluster_idx) {
+        None => SquareRelation::Origin,
+        Some(true) => SquareRelation::Squashable,
+        Some(false) => SquareRelation::Conflict,
     };
     Some((
         theme.square_symbol(role, rel).to_owned(),
@@ -103,7 +68,6 @@ fn fragmap_connector_content(
     fragmap: &fragmap::FragMap,
     commit_idx: usize,
     cluster_idx: usize,
-    scope: SquashableScope,
     role: ConnectorRole,
     theme: &dyn FragmapTheme,
 ) -> Option<(String, Style)> {
@@ -115,23 +79,21 @@ fn fragmap_connector_content(
         .find(|&i| fragmap.matrix[i][cluster_idx] != TouchKind::None);
 
     match (has_above, below) {
-        (true, Some(below_idx)) => {
-            match fragmap.connector_squashable(below_idx, cluster_idx, scope) {
-                Some(true) => Some((
-                    theme
-                        .connector_symbol(role, ConnectorRelation::Squashable)
-                        .to_owned(),
-                    theme.connector_style(role, ConnectorRelation::Squashable),
-                )),
-                Some(false) => Some((
-                    theme
-                        .connector_symbol(role, ConnectorRelation::Conflict)
-                        .to_owned(),
-                    theme.connector_style(role, ConnectorRelation::Conflict),
-                )),
-                None => None,
-            }
-        }
+        (true, Some(below_idx)) => match fragmap.connector_squashable(below_idx, cluster_idx) {
+            Some(true) => Some((
+                theme
+                    .connector_symbol(role, ConnectorRelation::Squashable)
+                    .to_owned(),
+                theme.connector_style(role, ConnectorRelation::Squashable),
+            )),
+            Some(false) => Some((
+                theme
+                    .connector_symbol(role, ConnectorRelation::Conflict)
+                    .to_owned(),
+                theme.connector_style(role, ConnectorRelation::Conflict),
+            )),
+            None => None,
+        },
         _ => None,
     }
 }
@@ -183,7 +145,6 @@ pub fn build_fragmap_cell<'a>(
     focus_idx: usize,
     display_clusters: &[usize],
     is_selected: bool,
-    scope: SquashableScope,
     theme: &dyn FragmapTheme,
 ) -> Cell<'a> {
     let spans: Vec<Span> = display_clusters
@@ -209,17 +170,12 @@ pub fn build_fragmap_cell<'a>(
                 Style::new()
             };
             if let Some((symbol, style)) =
-                fragmap_cell_content(fragmap, commit_idx, cluster_idx, scope, square_role, theme)
+                fragmap_cell_content(fragmap, commit_idx, cluster_idx, square_role, theme)
             {
                 Span::styled(symbol, base_style.patch(style))
-            } else if let Some((symbol, style)) = fragmap_connector_content(
-                fragmap,
-                commit_idx,
-                cluster_idx,
-                scope,
-                connector_role,
-                theme,
-            ) {
+            } else if let Some((symbol, style)) =
+                fragmap_connector_content(fragmap, commit_idx, cluster_idx, connector_role, theme)
+            {
                 Span::styled(symbol, base_style.patch(style))
             } else {
                 Span::styled(" ", base_style)
