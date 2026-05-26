@@ -16,7 +16,6 @@
 
 use clap::Parser;
 
-use git_tailor::fragmap::SquashableScope;
 use git_tailor::views::theme::Theme;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
@@ -58,10 +57,6 @@ pub struct Cli {
     ///  connector, '^' for a conflicting connector, '.' for an empty cell.
     #[arg(long = "no-color", requires = "static_output")]
     pub no_color: bool,
-
-    /// Controls what the yellow squashable-connector indicator means.
-    #[arg(long = "squashable-scope", value_enum, env = "GT_SQUASHABLE_SCOPE")]
-    pub squashable_scope: Option<SquashableScope>,
 
     /// Show the complete repository history from HEAD down to the first commit.
     ///

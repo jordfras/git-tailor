@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CommitInfo, Oid,
-    app::SquashMode,
-    fragmap::{FragMap, SquashableScope},
-    repo::ConflictState,
-    views::theme::Theme,
+    CommitInfo, Oid, app::SquashMode, fragmap::FragMap, repo::ConflictState, views::theme::Theme,
 };
 
 use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
@@ -34,8 +30,6 @@ pub struct AppState {
     pub reverse: bool,
     /// Show all hunk-group columns without deduplication (--full flag).
     pub full_fragmap: bool,
-    /// Controls what the squashable connector symbol means in the fragmap.
-    pub squashable_scope: SquashableScope,
     /// Active fragmap rendering theme.
     pub theme: Theme,
     /// The reference OID (merge-base) used when the session started.

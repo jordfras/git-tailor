@@ -633,7 +633,6 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 focus_idx_in_fragmap,
                 &layout.display_clusters,
                 is_selected,
-                app.squashable_scope,
                 app.theme.as_theme(),
             ));
         }

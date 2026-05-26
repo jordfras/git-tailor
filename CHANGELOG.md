@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Removed
+
+- `--squashable-scope` CLI flag and `GT_SQUASHABLE_SCOPE` environment variable.
+  The per-hunk-group scope was tautologically always squashable and did not
+  provide useful information. The tool now always uses per-commit squashability
+  (the stricter rule matching the original fragmap tool).
+
+
 ## [0.5.0] - 2026-05-14
 
 ### Fixed
