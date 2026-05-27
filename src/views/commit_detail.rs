@@ -440,11 +440,19 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                     None
                 }
             },
-            VirtualOid::Real(ref real_oid) => repo.commit_diff(real_oid).ok(),
+            VirtualOid::Real(ref real_oid) => match repo.commit_diff(real_oid) {
+                Ok(diff) => Some(diff),
+                Err(err) => {
+                    app.set_error_message(format!("Failed to load commit diff: {err}"));
+                    None
+                }
+            },
         };
 
         let mut content = build_metadata_lines(&selected);
-        if let Some(ref diff) = diff_opt {
+        if let Some(ref diff) = diff_opt
+            && !diff.files.is_empty()
+        {
             content.extend(build_file_list_lines(&diff.files));
             let (diff_lines, file_offsets) = build_diff_lines(&diff.files);
             let diff_start = content.len();
