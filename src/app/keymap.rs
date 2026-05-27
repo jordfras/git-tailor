@@ -95,6 +95,9 @@ impl AppMode {
                     KeyCode::Char('z') => return KeyCommand::Suspend,
                     KeyCode::Left => return KeyCommand::SeparatorLeft,
                     KeyCode::Right => return KeyCommand::SeparatorRight,
+                    // Ctrl-F / Ctrl-B: page scroll (less/vi convention).
+                    KeyCode::Char('f') => return KeyCommand::PageDown,
+                    KeyCode::Char('b') => return KeyCommand::PageUp,
                     _ => {}
                 }
             }
@@ -134,6 +137,9 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::SearchPrev,
                     _ => KeyCommand::None,
                 },
+                // Space / b: page scroll (less convention).
+                KeyCode::Char(' ') => KeyCommand::PageDown,
+                KeyCode::Char('b') => KeyCommand::PageUp,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };

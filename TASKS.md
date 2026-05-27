@@ -90,7 +90,7 @@ Guidelines:
   startup) so highlighting is performed per-hunk on demand without re-loading
   assets; consider caching highlighted output per commit to avoid
   re-highlighting on every render
-- [ ] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
+- [X] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
   (vi convention) page-scroll keybindings in the commit detail view: `Space` and
   `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
   amount should match the existing `PageDown`/`PageUp` behaviour (one
