@@ -107,11 +107,11 @@ impl GitRepo for StubRepo {
     fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
         unimplemented!()
     }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        self.staged_diff.clone()
+    fn staged_diff(&self) -> Result<Option<CommitDiff>> {
+        Ok(self.staged_diff.clone())
     }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        self.unstaged_diff.clone()
+    fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
+        Ok(self.unstaged_diff.clone())
     }
     fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
@@ -144,7 +144,7 @@ impl GitRepo for StubRepo {
     fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
         unimplemented!()
     }
-    fn get_config_string(&self, _key: &str) -> Option<String> {
+    fn get_config_string(&self, _key: &str) -> Result<Option<String>> {
         unimplemented!()
     }
     fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
@@ -206,8 +206,8 @@ impl GitRepo for StubRepo {
     fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
         unimplemented!()
     }
-    fn default_branch(&self) -> Option<String> {
-        None
+    fn default_branch(&self) -> Result<Option<String>> {
+        Ok(None)
     }
     fn root_commit_oid(&self) -> Result<Oid> {
         unimplemented!()

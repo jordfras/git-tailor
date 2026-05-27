@@ -113,7 +113,7 @@ fn move_commit_to_root_position() {
     // New root must be C and must have no parent.
     let new_root = test.repo.find_commit(all_oids[0]).unwrap();
     assert_eq!(new_root.parent_count(), 0, "new root should be an orphan");
-    assert_eq!(new_root.summary().unwrap_or(""), "C");
+    assert_eq!(new_root.summary().ok().flatten().unwrap_or(""), "C");
 
     // Remaining order: root, A, B.
     let messages: Vec<String> = all_oids

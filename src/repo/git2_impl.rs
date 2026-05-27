@@ -119,11 +119,11 @@ impl GitRepo for Git2Repo {
         reads::commit_diff_for_fragmap(self, oid)
     }
 
-    fn staged_diff(&self) -> Option<CommitDiff> {
+    fn staged_diff(&self) -> Result<Option<CommitDiff>> {
         reads::staged_diff(self)
     }
 
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
+    fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
         reads::unstaged_diff(self)
     }
 
@@ -165,7 +165,7 @@ impl GitRepo for Git2Repo {
         reword_op::reword_commit(self, commit_oid, new_message, head_oid)
     }
 
-    fn get_config_string(&self, key: &str) -> Option<String> {
+    fn get_config_string(&self, key: &str) -> Result<Option<String>> {
         reads::get_config_string(self, key)
     }
 
@@ -220,7 +220,7 @@ impl GitRepo for Git2Repo {
         conflict::auto_stage_resolved_conflicts(self, files)
     }
 
-    fn default_branch(&self) -> Option<String> {
+    fn default_branch(&self) -> Result<Option<String>> {
         reads::default_branch(self)
     }
 
@@ -280,7 +280,18 @@ impl Git2Repo {
         opts.context_lines(0);
         opts.interhunk_lines(0);
 
-        let head_tree = self.inner.head().ok().and_then(|h| h.peel_to_tree().ok());
+        let head_tree = match self.inner.head() {
+            Ok(head) => Some(head.peel_to_tree()?),
+            Err(err)
+                if matches!(
+                    err.code(),
+                    git2::ErrorCode::NotFound | git2::ErrorCode::UnbornBranch
+                ) =>
+            {
+                None
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         // Returns true only when the delta is a real file change, not a gitlink.
         let is_real = |delta: git2::DiffDelta| {
@@ -290,15 +301,15 @@ impl Git2Repo {
 
         let has_staged = self
             .inner
-            .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
-            .map(|d| d.deltas().any(is_real))
-            .unwrap_or(false);
+            .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?
+            .deltas()
+            .any(is_real);
 
         let has_unstaged = self
             .inner
-            .diff_index_to_workdir(None, Some(&mut opts))
-            .map(|d| d.deltas().any(is_real))
-            .unwrap_or(false);
+            .diff_index_to_workdir(None, Some(&mut opts))?
+            .deltas()
+            .any(is_real);
 
         if has_staged || has_unstaged {
             anyhow::bail!(
@@ -312,7 +323,7 @@ impl Git2Repo {
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
     fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
         let mut overlapping: Vec<String> = Vec::new();
-        for synthetic_diff in [self.staged_diff(), self.unstaged_diff()]
+        for synthetic_diff in [self.staged_diff()?, self.unstaged_diff()?]
             .into_iter()
             .flatten()
         {

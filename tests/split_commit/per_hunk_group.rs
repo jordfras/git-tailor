@@ -45,14 +45,24 @@ fn split_per_hunk_group_two_groups_shared_context() {
     let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
     let split2 = test.repo.find_commit(commits_above_base[2]).unwrap();
     assert!(
-        split1.summary().unwrap_or("").contains("(1/2)"),
+        split1
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(1/2)"),
         "expected (1/2) in: {}",
-        split1.summary().unwrap_or("")
+        split1.summary().ok().flatten().unwrap_or("")
     );
     assert!(
-        split2.summary().unwrap_or("").contains("(2/2)"),
+        split2
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(2/2)"),
         "expected (2/2) in: {}",
-        split2.summary().unwrap_or("")
+        split2.summary().ok().flatten().unwrap_or("")
     );
 
     // Intermediate commit (K-part1) should have applied a.txt but not b.txt.
@@ -97,14 +107,24 @@ fn split_per_hunk_group_three_commits_two_groups() {
     let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
     let split2 = test.repo.find_commit(commits_above_base[2]).unwrap();
     assert!(
-        split1.summary().unwrap_or("").contains("(1/2)"),
+        split1
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(1/2)"),
         "expected (1/2) in: {}",
-        split1.summary().unwrap_or("")
+        split1.summary().ok().flatten().unwrap_or("")
     );
     assert!(
-        split2.summary().unwrap_or("").contains("(2/2)"),
+        split2
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(2/2)"),
         "expected (2/2) in: {}",
-        split2.summary().unwrap_or("")
+        split2.summary().ok().flatten().unwrap_or("")
     );
 
     // K-part1 should have applied only the a.txt group.

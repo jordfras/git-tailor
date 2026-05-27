@@ -52,14 +52,24 @@ fn split_root_commit_per_file() {
     assert_eq!(split2.parent_id(0).unwrap(), all_oids[0]);
 
     assert!(
-        split1.summary().unwrap_or("").contains("(1/2)"),
+        split1
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(1/2)"),
         "got: {}",
-        split1.summary().unwrap_or("")
+        split1.summary().ok().flatten().unwrap_or("")
     );
     assert!(
-        split2.summary().unwrap_or("").contains("(2/2)"),
+        split2
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("")
+            .contains("(2/2)"),
         "got: {}",
-        split2.summary().unwrap_or("")
+        split2.summary().ok().flatten().unwrap_or("")
     );
 
     assert_file_contents_at_head!(&test.repo, "a.txt", "alpha\n");

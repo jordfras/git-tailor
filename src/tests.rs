@@ -51,11 +51,11 @@ impl GitRepo for MockRepo {
     fn list_commits(&self, _: &Oid, _: &Oid) -> anyhow::Result<Vec<CommitInfo>> {
         Ok(vec![])
     }
-    fn staged_diff(&self) -> Option<CommitDiff> {
-        None
+    fn staged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
+        Ok(None)
     }
-    fn unstaged_diff(&self) -> Option<CommitDiff> {
-        None
+    fn unstaged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
+        Ok(None)
     }
     fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.drop_ok {
@@ -112,7 +112,7 @@ impl GitRepo for MockRepo {
     fn reword_commit(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn get_config_string(&self, _: &str) -> Option<String> {
+    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
         unimplemented!()
     }
     fn rebase_continue(&self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
@@ -154,8 +154,8 @@ impl GitRepo for MockRepo {
     fn auto_stage_resolved_conflicts(&self, _: &[String]) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn default_branch(&self) -> Option<String> {
-        None
+    fn default_branch(&self) -> anyhow::Result<Option<String>> {
+        Ok(None)
     }
     fn root_commit_oid(&self) -> anyhow::Result<Oid> {
         unimplemented!()

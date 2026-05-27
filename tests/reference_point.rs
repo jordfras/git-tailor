@@ -163,7 +163,10 @@ fn default_branch_returns_origin_head_when_set() {
     set_origin_head(&test.repo, "main");
 
     let git_repo = test.git_repo();
-    assert_eq!(git_repo.default_branch(), Some("origin/main".to_string()));
+    assert_eq!(
+        git_repo.default_branch().unwrap(),
+        Some("origin/main".to_string())
+    );
 }
 
 #[test]
@@ -172,7 +175,7 @@ fn default_branch_returns_none_when_origin_head_absent() {
     test.commit_file("a.txt", "content", "initial");
     // No remote configured at all.
     let git_repo = test.git_repo();
-    assert_eq!(git_repo.default_branch(), None);
+    assert_eq!(git_repo.default_branch().unwrap(), None);
 }
 
 #[test]
@@ -182,5 +185,8 @@ fn default_branch_reflects_non_main_default() {
     set_origin_head(&test.repo, "master");
 
     let git_repo = test.git_repo();
-    assert_eq!(git_repo.default_branch(), Some("origin/master".to_string()));
+    assert_eq!(
+        git_repo.default_branch().unwrap(),
+        Some("origin/master".to_string())
+    );
 }

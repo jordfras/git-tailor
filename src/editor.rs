@@ -24,22 +24,22 @@ use anyhow::Context as _;
 /// 3. `VISUAL` environment variable
 /// 4. `EDITOR` environment variable
 /// 5. Fallback: `"vi"`
-fn resolve_editor(repo: &impl GitRepo) -> String {
+fn resolve_editor(repo: &impl GitRepo) -> anyhow::Result<String> {
     if let Ok(e) = std::env::var("GIT_EDITOR") {
-        return e.trim().to_string();
+        return Ok(e.trim().to_string());
     }
 
-    if let Some(e) = repo.get_config_string("core.editor") {
-        return e.trim().to_string();
+    if let Some(e) = repo.get_config_string("core.editor")? {
+        return Ok(e.trim().to_string());
     }
 
     for var in ["VISUAL", "EDITOR"] {
         if let Ok(e) = std::env::var(var) {
-            return e.trim().to_string();
+            return Ok(e.trim().to_string());
         }
     }
 
-    "vi".to_string()
+    Ok("vi".to_string())
 }
 
 /// Suspend the TUI, open `path` in the configured editor, then restore the TUI.
@@ -50,7 +50,7 @@ fn resolve_editor(repo: &impl GitRepo) -> String {
 /// (e.g. `code --wait`).  The TUI is restored unconditionally so the app is
 /// never left in a broken state.
 fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
-    let editor_cmd = resolve_editor(repo);
+    let editor_cmd = resolve_editor(repo)?;
     let mut parts = shell_words::split(&editor_cmd)
         .with_context(|| format!("failed to parse editor command `{editor_cmd}`"))?;
     if parts.is_empty() {

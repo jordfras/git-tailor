@@ -39,18 +39,20 @@ use std::path::Path;
 ///
 /// Returns `None` when no merge tool is configured or the named tool is not
 /// recognised and has no custom cmd.
-pub fn resolve_merge_tool_cmd(repo: &impl GitRepo) -> Option<String> {
-    let name = repo.get_config_string("merge.tool")?;
+pub fn resolve_merge_tool_cmd(repo: &impl GitRepo) -> Result<Option<String>> {
+    let Some(name) = repo.get_config_string("merge.tool")? else {
+        return Ok(None);
+    };
     let name = name.trim().to_string();
 
-    if let Some(cmd) = repo.get_config_string(&format!("mergetool.{name}.cmd")) {
+    if let Some(cmd) = repo.get_config_string(&format!("mergetool.{name}.cmd"))? {
         let cmd = cmd.trim().to_string();
         if !cmd.is_empty() {
-            return Some(cmd);
+            return Ok(Some(cmd));
         }
     }
 
-    builtin_cmd(&name)
+    Ok(builtin_cmd(&name))
 }
 
 /// Shell command for well-known built-in merge tools.
@@ -80,7 +82,7 @@ fn builtin_cmd(name: &str) -> Option<String> {
 /// Returns `true` when the tool was invoked for at least one file, or `false`
 /// when no merge tool is configured (so the caller can show a hint).
 pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Result<bool> {
-    let Some(cmd) = resolve_merge_tool_cmd(repo) else {
+    let Some(cmd) = resolve_merge_tool_cmd(repo)? else {
         return Ok(false);
     };
 

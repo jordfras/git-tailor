@@ -49,6 +49,8 @@ pub fn load_initial_commits(
     let base = cli.base.clone().unwrap_or_else(|| {
         git_repo
             .default_branch()
+            .ok()
+            .flatten()
             .unwrap_or_else(|| "main".to_string())
     });
     let reference_oid = git_repo.find_reference_point(&base)?;
@@ -84,6 +86,8 @@ pub fn resolve_oid_bounds(git_repo: &impl GitRepo, cli: &Cli) -> Result<Option<(
     let base = cli.base.clone().unwrap_or_else(|| {
         git_repo
             .default_branch()
+            .ok()
+            .flatten()
             .unwrap_or_else(|| "main".to_string())
     });
     let reference_oid = git_repo.find_reference_point(&base)?;
@@ -161,7 +165,7 @@ pub fn load_with_progress(
         return Ok(true);
     }
 
-    let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff(), git_repo.unstaged_diff()]
+    let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff()?, git_repo.unstaged_diff()?]
         .into_iter()
         .flatten()
         .collect();
@@ -209,7 +213,8 @@ fn walk_commits(
         let diff = commit
             .oid
             .as_oid()
-            .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok());
+            .map(|oid| git_repo.commit_diff_for_fragmap(oid))
+            .transpose()?;
         raw.push((commit, diff));
 
         let now = std::time::Instant::now();
