@@ -27,6 +27,8 @@ The format is based on
 - `0` / `$`, `Ctrl-a` / `Ctrl-e`, and `Ctrl-Home` / `Ctrl-End` scroll the
   hunk group matrix or commit detail view fully left or right in both the commit
   list and the commit detail view.
+- `f` / `F` in the commit detail view jump to the next / previous file's diff
+  block, wrapping cyclically.
 - The help overlay (`h`) is now context-sensitive: pressing it in the commit
   list shows commit-list keybindings (navigation, operations, fragmap scroll),
   while pressing it in the commit detail view shows only the relevant subset

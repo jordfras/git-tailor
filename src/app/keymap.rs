@@ -32,6 +32,8 @@ pub enum KeyCommand {
     ScrollToRightEdge,
     ScrollLeft,
     ScrollRight,
+    NavFileNext,
+    NavFilePrev,
     ToggleDetail,
     ShowHelp,
     Split,
@@ -132,7 +134,14 @@ impl AppMode {
                 KeyCode::Char('h') => KeyCommand::ShowHelp,
                 KeyCode::Char('p') => KeyCommand::Split,
                 KeyCode::Char('s') => KeyCommand::Squash,
-                KeyCode::Char('f') => KeyCommand::Fixup,
+                KeyCode::Char('f') => match self {
+                    AppMode::CommitDetail => KeyCommand::NavFileNext,
+                    _ => KeyCommand::Fixup,
+                },
+                KeyCode::Char('F') => match self {
+                    AppMode::CommitDetail => KeyCommand::NavFilePrev,
+                    _ => KeyCommand::None,
+                },
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {

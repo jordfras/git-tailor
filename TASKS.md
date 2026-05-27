@@ -115,7 +115,7 @@ Guidelines:
   context); changing the value should trigger a re-fetch or re-render of the
   diff so the change is immediately visible; show the current context line count
   in the footer or status line so the user knows the active value
-- [ ] T165 P3 feat - Navigate between files in commit detail view by pressing
+- [X] T165 P3 feat - Navigate between files in commit detail view by pressing
   `f`: pressing `f` should jump the scroll position to the start of the next
   file's diff block in the commit detail view; pressing `F` (shift) should jump
   to the previous file; the file boundary can be detected from the rendered line

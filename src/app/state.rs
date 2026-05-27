@@ -79,6 +79,8 @@ pub struct AppState {
     pub search_matches: Vec<usize>,
     /// Index into `search_matches` for the current match.
     pub search_match_index: Option<usize>,
+    /// Line indices of file-diff headers in the detail view content (updated during render).
+    pub file_start_lines: Vec<usize>,
 }
 
 impl AppState {
@@ -143,6 +145,42 @@ impl AppState {
     /// Scroll detail view right to the last column.
     pub fn scroll_detail_to_right_edge(&mut self) {
         self.detail_h_scroll_offset = self.max_detail_h_scroll;
+    }
+
+    /// Jump to the next file header in the detail view (wraps cyclically).
+    pub fn jump_to_next_file(&mut self) {
+        if self.file_start_lines.is_empty() {
+            return;
+        }
+        let target = self
+            .file_start_lines
+            .iter()
+            .find(|&&l| l > self.detail_scroll_offset)
+            .copied()
+            .unwrap_or(self.file_start_lines[0]);
+        let clamped = target.min(self.max_detail_scroll);
+        // If clamping produces no forward movement (last file is beyond max
+        // scroll and we're already there), wrap to the first file.
+        if clamped <= self.detail_scroll_offset {
+            self.detail_scroll_offset = self.file_start_lines[0];
+        } else {
+            self.detail_scroll_offset = clamped;
+        }
+    }
+
+    /// Jump to the previous file header in the detail view (wraps cyclically).
+    pub fn jump_to_prev_file(&mut self) {
+        if self.file_start_lines.is_empty() {
+            return;
+        }
+        let target = self
+            .file_start_lines
+            .iter()
+            .rev()
+            .find(|&&l| l < self.detail_scroll_offset)
+            .copied()
+            .unwrap_or_else(|| *self.file_start_lines.last().unwrap());
+        self.detail_scroll_offset = target.min(self.max_detail_scroll);
     }
 
     /// Scroll detail view up (decrease offset).

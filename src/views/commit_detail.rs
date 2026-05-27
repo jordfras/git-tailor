@@ -103,6 +103,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.scroll_detail_to_right_edge();
             AppAction::Handled
         }
+        KeyCommand::NavFileNext => {
+            app.jump_to_next_file();
+            AppAction::Handled
+        }
+        KeyCommand::NavFilePrev => {
+            app.jump_to_prev_file();
+            AppAction::Handled
+        }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
             app.toggle_detail_view();
             AppAction::Handled
@@ -426,7 +434,12 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         let mut content = build_metadata_lines(selected);
         if let Some(ref diff) = diff_opt {
             content.extend(build_file_list_lines(&diff.files));
-            content.extend(build_diff_lines(&diff.files));
+            let (diff_lines, file_offsets) = build_diff_lines(&diff.files);
+            let diff_start = content.len();
+            app.file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
+            content.extend(diff_lines);
+        } else {
+            app.file_start_lines.clear();
         }
 
         let layout = compute_scroll_layout(content_area, &content);
@@ -591,17 +604,22 @@ fn build_file_list_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
 }
 
 /// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
-fn build_diff_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
+/// Returns the lines and a vec of indices (within the returned vec) where each
+/// file's `--- ` header starts.
+fn build_diff_lines(files: &[crate::FileDiff]) -> (Vec<Line<'static>>, Vec<usize>) {
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled("Diff:", Style::default().fg(Color::Yellow))),
         Line::from(""),
     ];
 
+    let mut file_header_indices: Vec<usize> = Vec::new();
+
     for file in files {
         let old_path = diff_path_with_prefix(file.old_path.as_deref(), "a");
         let new_path = diff_path_with_prefix(file.new_path.as_deref(), "b");
 
+        file_header_indices.push(lines.len());
         lines.push(Line::from(Span::styled(
             format!("--- {}", old_path),
             Style::default().fg(Color::White),
@@ -638,7 +656,7 @@ fn build_diff_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
     }
 
-    lines
+    (lines, file_header_indices)
 }
 
 /// Geometry produced by [`compute_scroll_layout`].
