@@ -24,6 +24,9 @@ The format is based on
   detail view; the scroll amount is half the current panel height.
 - `g` / `G` and `Home` / `End` jump to the first/last entry in both the commit
   list and the commit detail view.
+- `0` / `$`, `Ctrl-a` / `Ctrl-e`, and `Ctrl-Home` / `Ctrl-End` scroll the
+  hunk group matrix or commit detail view fully left or right in both the commit
+  list and the commit detail view.
 - The help overlay (`h`) is now context-sensitive: pressing it in the commit
   list shows commit-list keybindings (navigation, operations, fragmap scroll),
   while pressing it in the commit detail view shows only the relevant subset

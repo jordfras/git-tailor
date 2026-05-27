@@ -103,7 +103,7 @@ Guidelines:
 - [X] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
   view: bind `g` / `G` (less/vi convention) and `Home` / `End` to scroll to the
   very first or very last line of the diff content
-- [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
+- [X] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
   detail view: bind `0` / `$` (vi/less convention), `Ctrl-A` / `Ctrl-E` (emacs
   convention), and `Ctrl-Home` / `Ctrl-End` to scroll the diff content fully
   left (column 0) or fully right (rightmost position) respectively

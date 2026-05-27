@@ -125,6 +125,26 @@ impl AppState {
         self.fragmap_scroll_offset += 1;
     }
 
+    /// Scroll fragmap grid to the leftmost column.
+    pub fn scroll_fragmap_to_left(&mut self) {
+        self.fragmap_scroll_offset = 0;
+    }
+
+    /// Scroll fragmap grid to the rightmost column (render will clamp).
+    pub fn scroll_fragmap_to_right(&mut self) {
+        self.fragmap_scroll_offset = usize::MAX;
+    }
+
+    /// Scroll detail view left to column 0.
+    pub fn scroll_detail_to_left_edge(&mut self) {
+        self.detail_h_scroll_offset = 0;
+    }
+
+    /// Scroll detail view right to the last column.
+    pub fn scroll_detail_to_right_edge(&mut self) {
+        self.detail_h_scroll_offset = self.max_detail_h_scroll;
+    }
+
     /// Scroll detail view up (decrease offset).
     pub fn scroll_detail_up(&mut self) {
         if self.detail_scroll_offset > 0 {

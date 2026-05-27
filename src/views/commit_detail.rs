@@ -95,6 +95,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.scroll_detail_right();
             AppAction::Handled
         }
+        KeyCommand::ScrollToLeftEdge => {
+            app.scroll_detail_to_left_edge();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollToRightEdge => {
+            app.scroll_detail_to_right_edge();
+            AppAction::Handled
+        }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
             app.toggle_detail_view();
             AppAction::Handled

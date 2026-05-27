@@ -28,6 +28,8 @@ pub enum KeyCommand {
     HalfPageDown,
     JumpToTop,
     JumpToBottom,
+    ScrollToLeftEdge,
+    ScrollToRightEdge,
     ScrollLeft,
     ScrollRight,
     ToggleDetail,
@@ -107,7 +109,12 @@ impl AppMode {
                     KeyCode::Char('u') => return KeyCommand::HalfPageUp,
                     // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
                     KeyCode::PageDown => return KeyCommand::HalfPageDown,
-                    KeyCode::PageUp => return KeyCommand::HalfPageUp,
+                    KeyCode::PageUp => return KeyCommand::HalfPageUp, // Ctrl-a / Ctrl-e: scroll to left/right edge (emacs convention).
+                    KeyCode::Char('a') => return KeyCommand::ScrollToLeftEdge,
+                    KeyCode::Char('e') => return KeyCommand::ScrollToRightEdge,
+                    // Ctrl-Home / Ctrl-End: scroll to left/right edge.
+                    KeyCode::Home => return KeyCommand::ScrollToLeftEdge,
+                    KeyCode::End => return KeyCommand::ScrollToRightEdge,
                     _ => {}
                 }
             }
@@ -152,6 +159,9 @@ impl AppMode {
                 // Space / b: page scroll (less convention).
                 KeyCode::Char(' ') => KeyCommand::PageDown,
                 KeyCode::Char('b') => KeyCommand::PageUp,
+                // 0 / $: scroll to left/right edge (vi/less convention).
+                KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
+                KeyCode::Char('$') => KeyCommand::ScrollToRightEdge,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };
