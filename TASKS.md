@@ -95,7 +95,7 @@ Guidelines:
   `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
   amount should match the existing `PageDown`/`PageUp` behaviour (one
   visible-area height, keeping one line of overlap)
-- [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
+- [X] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
   `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
   scroll approximately half the visible content area at a time; the scroll
   amount should be derived from the current panel height so it stays

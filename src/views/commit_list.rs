@@ -62,6 +62,24 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
             AppAction::Handled
         }
+        KeyCommand::HalfPageUp => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.half_page_down(h);
+            } else {
+                app.half_page_up(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::HalfPageDown => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.half_page_up(h);
+            } else {
+                app.half_page_down(h);
+            }
+            AppAction::Handled
+        }
         KeyCommand::ScrollLeft => {
             app.scroll_fragmap_left();
             AppAction::Handled

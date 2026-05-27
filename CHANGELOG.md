@@ -19,6 +19,9 @@ The format is based on
 - `Space` / `Ctrl-F` and `b` / `Ctrl-B` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
   mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
+- `Ctrl-D` / `Ctrl-U` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
+  keybindings (vim convention) work in both the commit list and the commit
+  detail view; the scroll amount is half the current panel height.
 - The help overlay (`h`) is now context-sensitive: pressing it in the commit
   list shows commit-list keybindings (navigation, operations, fragmap scroll),
   while pressing it in the commit detail view shows only the relevant subset

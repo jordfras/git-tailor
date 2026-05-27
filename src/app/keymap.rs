@@ -24,6 +24,8 @@ pub enum KeyCommand {
     MoveDown,
     PageUp,
     PageDown,
+    HalfPageUp,
+    HalfPageDown,
     ScrollLeft,
     ScrollRight,
     ToggleDetail,
@@ -98,6 +100,12 @@ impl AppMode {
                     // Ctrl-F / Ctrl-B: page scroll (less/vi convention).
                     KeyCode::Char('f') => return KeyCommand::PageDown,
                     KeyCode::Char('b') => return KeyCommand::PageUp,
+                    // Ctrl-D / Ctrl-U: half-page scroll (vim convention).
+                    KeyCode::Char('d') => return KeyCommand::HalfPageDown,
+                    KeyCode::Char('u') => return KeyCommand::HalfPageUp,
+                    // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
+                    KeyCode::PageDown => return KeyCommand::HalfPageDown,
+                    KeyCode::PageUp => return KeyCommand::HalfPageUp,
                     _ => {}
                 }
             }

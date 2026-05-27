@@ -171,6 +171,24 @@ impl AppState {
         self.selection_index = new_index.min(self.commits.len() - 1);
     }
 
+    /// Scroll commit list up by half a page (visible_height lines).
+    pub fn half_page_up(&mut self, visible_height: usize) {
+        self.selection_index = self
+            .selection_index
+            .saturating_sub(half_page_size(visible_height));
+    }
+
+    /// Scroll commit list down by half a page (visible_height lines).
+    pub fn half_page_down(&mut self, visible_height: usize) {
+        if self.commits.is_empty() {
+            return;
+        }
+        let new_index = self
+            .selection_index
+            .saturating_add(half_page_size(visible_height));
+        self.selection_index = new_index.min(self.commits.len() - 1);
+    }
+
     /// Scroll detail view up by one page (visible_height lines).
     pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
         self.detail_scroll_offset = self
@@ -183,6 +201,21 @@ impl AppState {
         let new_offset = self
             .detail_scroll_offset
             .saturating_add(page_size(visible_height));
+        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
+    }
+
+    /// Scroll detail view up by half a page (visible_height lines).
+    pub fn scroll_detail_half_page_up(&mut self, visible_height: usize) {
+        self.detail_scroll_offset = self
+            .detail_scroll_offset
+            .saturating_sub(half_page_size(visible_height));
+    }
+
+    /// Scroll detail view down by half a page (visible_height lines).
+    pub fn scroll_detail_half_page_down(&mut self, visible_height: usize) {
+        let new_offset = self
+            .detail_scroll_offset
+            .saturating_add(half_page_size(visible_height));
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
@@ -457,6 +490,11 @@ impl AppState {
 /// Always returns at least 1 so a single-line panel can still page.
 fn page_size(visible_height: usize) -> usize {
     visible_height.saturating_sub(1).max(1)
+}
+
+/// Half-page step: approximately half the visible height, at least 1.
+fn half_page_size(visible_height: usize) -> usize {
+    (visible_height / 2).max(1)
 }
 
 #[cfg(test)]
