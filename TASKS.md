@@ -121,7 +121,7 @@ Guidelines:
   to the previous file; the file boundary can be detected from the rendered line
   list (each `FileDiff` entry starts with a file header line); wrap around when
   reaching the end/beginning of the file list so the navigation is cyclic
-- [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
+- [X] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
   `h`) in the commit detail view should show only the keybindings relevant to
   that view (scrolling, search, navigation back), while pressing it in the
   commit list shows only commit-list bindings; the current single monolithic

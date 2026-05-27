@@ -1,14 +1,14 @@
 ---
 source: tests/tui_help.rs
-expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::help::render(&mut app, frame);\n})"
+expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::help::render(&AppMode::CommitList, &mut app, frame);\n})"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 10 },
     content: [
         "SHA        Title                                                                ",
-        "11111111   Refac┌ Help - Keybindings ──────────────────────────┐                ",
+        "11111111   Refac┌ Help — Commit List ──────────────────────────┐                ",
         "22222222   Add f│                                              █                ",
-        "                │ Navigation                                   │                ",
+        "                │ Navigation                                   █                ",
         "                │   ↑/↓, j/k  Move selection up/down           │                ",
         "                │   PgUp/PgDn Move one page up/down            │                ",
         "                │   ←/→       Scroll fragmap left/right        │                ",

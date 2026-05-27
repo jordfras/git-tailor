@@ -31,6 +31,14 @@ fn make_app_in_help() -> AppState {
     app
 }
 
+fn make_app_in_detail_help() -> AppState {
+    let mut app =
+        common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
+    app.selection_index = 0;
+    app.mode = AppMode::Help(Box::new(AppMode::CommitDetail));
+    app
+}
+
 /// Full-size terminal — all keybindings visible without scrolling.
 #[test]
 fn test_help_dialog_full_size() {
@@ -39,7 +47,7 @@ fn test_help_dialog_full_size() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::help::render(&mut app, frame);
+        views::help::render(&AppMode::CommitList, &mut app, frame);
     }));
 }
 
@@ -51,7 +59,7 @@ fn test_help_dialog_short_terminal_scrollbar() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::help::render(&mut app, frame);
+        views::help::render(&AppMode::CommitList, &mut app, frame);
     }));
 }
 
@@ -64,6 +72,18 @@ fn test_help_dialog_scrolled() {
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::help::render(&mut app, frame);
+        views::help::render(&AppMode::CommitList, &mut app, frame);
+    }));
+}
+
+/// Commit detail context — shows only detail-view keybindings.
+#[test]
+fn test_help_dialog_commit_detail_context() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_detail_help();
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::help::render(&AppMode::CommitDetail, &mut app, frame);
     }));
 }

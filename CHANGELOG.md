@@ -14,6 +14,13 @@ The format is based on
   picker (`m`) is open. Previously the fragmap selection highlight appeared two
   rows below the "▶ move here" separator instead of on the separator row itself.
 
+### Added
+
+- The help overlay (`h`) is now context-sensitive: pressing it in the commit
+  list shows commit-list keybindings (navigation, operations, fragmap scroll),
+  while pressing it in the commit detail view shows only the relevant subset
+  (diff scroll, search, navigation back).
+
 ### Removed
 
 - `--squashable-scope` CLI flag and `GT_SQUASHABLE_SCOPE` environment variable.
