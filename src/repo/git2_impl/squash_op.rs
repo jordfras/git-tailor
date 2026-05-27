@@ -340,7 +340,11 @@ fn rename_aware_squash_tree(
 ) -> Result<Option<git2::Oid>> {
     let source_tree = source.tree()?;
     let target_tree = target.tree()?;
-    let base_tree = source.parent(0).ok().map(|p| p.tree()).transpose()?;
+    let base_tree = match source.parent(0) {
+        Ok(parent) => Some(parent.tree()?),
+        Err(err) if err.code() == git2::ErrorCode::NotFound => None,
+        Err(err) => return Err(err.into()),
+    };
     let base_tree_ref = base_tree.as_ref();
 
     let rename_map = build_rename_map(repo, base_tree_ref, &target_tree)?;
@@ -377,10 +381,13 @@ fn rename_aware_squash_tree(
             if target_path.contains('/') {
                 continue;
             }
-            let base_entry =
-                base_tree_ref.and_then(|t| t.get_path(std::path::Path::new(&old_path)).ok());
-            let target_entry = target_tree.get_path(std::path::Path::new(target_path)).ok();
-            let source_entry = source_tree.get_path(std::path::Path::new(&old_path)).ok();
+            let base_entry = if let Some(tree) = base_tree_ref {
+                tree_entry_optional(tree, &old_path)?
+            } else {
+                None
+            };
+            let target_entry = tree_entry_optional(&target_tree, target_path)?;
+            let source_entry = tree_entry_optional(&source_tree, &old_path)?;
             if let (Some(be), Some(te), Some(se)) = (base_entry, target_entry, source_entry) {
                 edits.push(RenameEdit {
                     base_path: old_path,
@@ -424,6 +431,17 @@ fn rename_aware_squash_tree(
     }
 
     Ok(Some(builder.write()?))
+}
+
+fn tree_entry_optional<'repo>(
+    tree: &git2::Tree<'repo>,
+    path: &str,
+) -> Result<Option<git2::TreeEntry<'repo>>> {
+    match tree.get_path(std::path::Path::new(path)) {
+        Ok(entry) => Ok(Some(entry)),
+        Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
 
 /// Detect renames between `base_tree` and `target_tree` by content similarity.
