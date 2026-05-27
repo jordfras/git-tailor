@@ -7,8 +7,8 @@ Buffer {
     content: [
         "SHA        Title                                                                ",
         "11111111   Ref┌ Help — Commit List ──────────────────────────────┐              ",
-        "22222222   Add│   Ctrl-F/B       Move one page down/up           │              ",
-        "              │   Ctrl-D/U       Move half page down/up          █              ",
+        "22222222   Add│   Ctrl-f/b       Move one page down/up           │              ",
+        "              │   Ctrl-d/u       Move half page down/up          █              ",
         "              │   Ctrl-PgDn/PgUp Move half page down/up          █              ",
         "              │   Ctrl ←/→       Move separator bar left/right   │              ",
         "              │                                                  │              ",

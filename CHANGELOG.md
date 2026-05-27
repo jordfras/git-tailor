@@ -16,10 +16,10 @@ The format is based on
 
 ### Added
 
-- `Space` / `Ctrl-F` and `b` / `Ctrl-B` page-scroll keybindings (less/vi
+- `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
   mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
-- `Ctrl-D` / `Ctrl-U` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
+- `Ctrl-d` / `Ctrl-u` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
   keybindings (vim convention) work in both the commit list and the commit
   detail view; the scroll amount is half the current panel height.
 - The help overlay (`h`) is now context-sensitive: pressing it in the commit
@@ -70,7 +70,7 @@ The format is based on
 - All dialogs (drop confirmation, rebase conflict, split confirmation, split
   strategy picker, and help overlay) are now scrollable with Up/Down and
   PageUp/PageDown when the content is taller than the terminal.
-- Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
+- Ctrl-z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
   `fg` in the shell resumes the TUI exactly where it was left.
 - The footer now shows a right-aligned `Press 'h' for help` hint so new users
   can discover key bindings without prior knowledge. The hint is shown only when
@@ -78,7 +78,7 @@ The format is based on
   occupies the footer.
 - The TUI now starts immediately and shows a live commit counter while loading.
   Previously the application blocked until all commits were read before showing
-  anything. Ctrl-C during loading exits cleanly.
+  anything. Ctrl-c during loading exits cleanly.
 - Hunk group matrix computation is now interruptible throughout all phases
   (file clustering, deduplication, and matrix building). A progress dialog shows
   how many files have been clustered or how many commits have been processed;
