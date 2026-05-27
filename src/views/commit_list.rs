@@ -62,6 +62,40 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
             AppAction::Handled
         }
+        KeyCommand::HalfPageUp => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.half_page_down(h);
+            } else {
+                app.half_page_up(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::HalfPageDown => {
+            let h = app.commit_list_visible_height;
+            if app.reverse {
+                app.half_page_up(h);
+            } else {
+                app.half_page_down(h);
+            }
+            AppAction::Handled
+        }
+        KeyCommand::JumpToTop => {
+            if app.reverse {
+                app.jump_to_last();
+            } else {
+                app.jump_to_first();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::JumpToBottom => {
+            if app.reverse {
+                app.jump_to_first();
+            } else {
+                app.jump_to_last();
+            }
+            AppAction::Handled
+        }
         KeyCommand::ScrollLeft => {
             app.scroll_fragmap_left();
             AppAction::Handled
@@ -70,6 +104,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.scroll_fragmap_right();
             AppAction::Handled
         }
+        KeyCommand::ScrollToLeftEdge => {
+            app.scroll_fragmap_to_left();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollToRightEdge => {
+            app.scroll_fragmap_to_right();
+            AppAction::Handled
+        }
+        KeyCommand::NavFileNext | KeyCommand::NavFilePrev => AppAction::Handled,
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
             app.toggle_detail_view();
             AppAction::Handled
@@ -595,7 +638,10 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         let short_sha = commit.oid.short().to_string();
 
         let is_synthetic = commit.oid.is_synthetic();
-        let is_selected = visual_index == layout.visual_selection;
+        // In MoveSelect mode the separator row is the visual "selection"; commit
+        // rows must never receive is_selected so the fragmap cell highlight
+        // tracks the separator, not the scroll anchor.
+        let is_selected = move_info.is_none() && visual_index == layout.visual_selection;
         let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
         let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);
 
@@ -673,7 +719,7 @@ fn build_move_separator_row<'a>(
     ];
 
     if !layout.display_clusters.is_empty() {
-        cells.push(Cell::from(Span::styled("", style)));
+        cells.push(Cell::from(Span::styled("", style)).style(style));
     }
 
     Row::new(cells)

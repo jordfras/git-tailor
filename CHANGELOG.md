@@ -8,6 +8,32 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The hunk group matrix no longer highlights the wrong row when the move-commit
+  picker (`m`) is open. Previously the fragmap selection highlight appeared two
+  rows below the "▶ move here" separator instead of on the separator row itself.
+
+### Added
+
+- `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
+  convention) now work in both the commit list and the commit detail view,
+  mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
+- `Ctrl-d` / `Ctrl-u` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
+  keybindings (vim convention) work in both the commit list and the commit
+  detail view; the scroll amount is half the current panel height.
+- `g` / `G` and `Home` / `End` jump to the first/last entry in both the commit
+  list and the commit detail view.
+- `0` / `$`, `Ctrl-a` / `Ctrl-e`, and `Ctrl-Home` / `Ctrl-End` scroll the
+  hunk group matrix or commit detail view fully left or right in both the commit
+  list and the commit detail view.
+- `f` / `F` in the commit detail view jump to the next / previous file's diff
+  block, wrapping cyclically.
+- The help overlay (`h`) is now context-sensitive: pressing it in the commit
+  list shows commit-list keybindings (navigation, operations, fragmap scroll),
+  while pressing it in the commit detail view shows only the relevant subset
+  (diff scroll, search, navigation back).
+
 ### Removed
 
 - `--squashable-scope` CLI flag and `GT_SQUASHABLE_SCOPE` environment variable.
@@ -51,7 +77,7 @@ The format is based on
 - All dialogs (drop confirmation, rebase conflict, split confirmation, split
   strategy picker, and help overlay) are now scrollable with Up/Down and
   PageUp/PageDown when the content is taller than the terminal.
-- Ctrl-Z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
+- Ctrl-z suspends the TUI and returns to the shell on Unix (SIGTSTP). Pressing
   `fg` in the shell resumes the TUI exactly where it was left.
 - The footer now shows a right-aligned `Press 'h' for help` hint so new users
   can discover key bindings without prior knowledge. The hint is shown only when
@@ -59,7 +85,7 @@ The format is based on
   occupies the footer.
 - The TUI now starts immediately and shows a live commit counter while loading.
   Previously the application blocked until all commits were read before showing
-  anything. Ctrl-C during loading exits cleanly.
+  anything. Ctrl-c during loading exits cleanly.
 - Hunk group matrix computation is now interruptible throughout all phases
   (file clustering, deduplication, and matrix building). A progress dialog shows
   how many files have been clustered or how many commits have been processed;

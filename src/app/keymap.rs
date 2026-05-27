@@ -24,8 +24,16 @@ pub enum KeyCommand {
     MoveDown,
     PageUp,
     PageDown,
+    HalfPageUp,
+    HalfPageDown,
+    JumpToTop,
+    JumpToBottom,
+    ScrollToLeftEdge,
+    ScrollToRightEdge,
     ScrollLeft,
     ScrollRight,
+    NavFileNext,
+    NavFilePrev,
     ToggleDetail,
     ShowHelp,
     Split,
@@ -95,6 +103,20 @@ impl AppMode {
                     KeyCode::Char('z') => return KeyCommand::Suspend,
                     KeyCode::Left => return KeyCommand::SeparatorLeft,
                     KeyCode::Right => return KeyCommand::SeparatorRight,
+                    // Ctrl-F / Ctrl-B: page scroll (less/vi convention).
+                    KeyCode::Char('f') => return KeyCommand::PageDown,
+                    KeyCode::Char('b') => return KeyCommand::PageUp,
+                    // Ctrl-D / Ctrl-U: half-page scroll (vim convention).
+                    KeyCode::Char('d') => return KeyCommand::HalfPageDown,
+                    KeyCode::Char('u') => return KeyCommand::HalfPageUp,
+                    // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
+                    KeyCode::PageDown => return KeyCommand::HalfPageDown,
+                    KeyCode::PageUp => return KeyCommand::HalfPageUp, // Ctrl-a / Ctrl-e: scroll to left/right edge (emacs convention).
+                    KeyCode::Char('a') => return KeyCommand::ScrollToLeftEdge,
+                    KeyCode::Char('e') => return KeyCommand::ScrollToRightEdge,
+                    // Ctrl-Home / Ctrl-End: scroll to left/right edge.
+                    KeyCode::Home => return KeyCommand::ScrollToLeftEdge,
+                    KeyCode::End => return KeyCommand::ScrollToRightEdge,
                     _ => {}
                 }
             }
@@ -103,6 +125,8 @@ impl AppMode {
                 KeyCode::Down | KeyCode::Char('j') => KeyCommand::MoveDown,
                 KeyCode::PageUp => KeyCommand::PageUp,
                 KeyCode::PageDown => KeyCommand::PageDown,
+                KeyCode::Home | KeyCode::Char('g') => KeyCommand::JumpToTop,
+                KeyCode::End | KeyCode::Char('G') => KeyCommand::JumpToBottom,
                 KeyCode::Left => KeyCommand::ScrollLeft,
                 KeyCode::Right => KeyCommand::ScrollRight,
                 KeyCode::Enter => KeyCommand::Confirm,
@@ -110,7 +134,14 @@ impl AppMode {
                 KeyCode::Char('h') => KeyCommand::ShowHelp,
                 KeyCode::Char('p') => KeyCommand::Split,
                 KeyCode::Char('s') => KeyCommand::Squash,
-                KeyCode::Char('f') => KeyCommand::Fixup,
+                KeyCode::Char('f') => match self {
+                    AppMode::CommitDetail => KeyCommand::NavFileNext,
+                    _ => KeyCommand::Fixup,
+                },
+                KeyCode::Char('F') => match self {
+                    AppMode::CommitDetail => KeyCommand::NavFilePrev,
+                    _ => KeyCommand::None,
+                },
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {
@@ -134,6 +165,12 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::SearchPrev,
                     _ => KeyCommand::None,
                 },
+                // Space / b: page scroll (less convention).
+                KeyCode::Char(' ') => KeyCommand::PageDown,
+                KeyCode::Char('b') => KeyCommand::PageUp,
+                // 0 / $: scroll to left/right edge (vi/less convention).
+                KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
+                KeyCode::Char('$') => KeyCommand::ScrollToRightEdge,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };

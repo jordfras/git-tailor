@@ -45,6 +45,15 @@ Guidelines:
   T178 makes the split guard awkward; add a test in
   `tests/drop_commit/root_commit.rs` that verifies the root commit is dropped
   and the history is correctly rewritten.
+- [X] T217 P1 bug - Fix wrong highlight row in hunk group matrix during move
+  commit (`m`): when the move-select dialog is open, the highlighted row in the
+  fragmap / hunk group matrix is always two rows below the empty placeholder
+  line that marks the insertion point; investigate how `move_select.rs` (or
+  `main_view.rs`) computes the highlighted matrix row from `insert_before` and
+  trace back to where the off-by-two offset originates; fix the index
+  calculation so the highlighted row tracks the insertion-point placeholder
+  exactly; add or update the `tui_move_select` snapshot tests to cover the
+  highlighted-row position.
 
 ## Architecture & Robustness
 - [ ] T216 P2 refactor - Replace manual cherry-pick chain engine with
@@ -81,20 +90,20 @@ Guidelines:
   startup) so highlighting is performed per-hunk on demand without re-loading
   assets; consider caching highlighted output per commit to avoid
   re-highlighting on every render
-- [ ] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
+- [X] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
   (vi convention) page-scroll keybindings in the commit detail view: `Space` and
   `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
   amount should match the existing `PageDown`/`PageUp` behaviour (one
   visible-area height, keeping one line of overlap)
-- [ ] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
+- [X] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
   `Ctrl-D` / `Ctrl-U` (vim convention) and `Ctrl-PageDown` / `Ctrl-PageUp` to
   scroll approximately half the visible content area at a time; the scroll
   amount should be derived from the current panel height so it stays
   proportional regardless of terminal size
-- [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
+- [X] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
   view: bind `g` / `G` (less/vi convention) and `Home` / `End` to scroll to the
   very first or very last line of the diff content
-- [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
+- [X] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit
   detail view: bind `0` / `$` (vi/less convention), `Ctrl-A` / `Ctrl-E` (emacs
   convention), and `Ctrl-Home` / `Ctrl-End` to scroll the diff content fully
   left (column 0) or fully right (rightmost position) respectively
@@ -106,13 +115,13 @@ Guidelines:
   context); changing the value should trigger a re-fetch or re-render of the
   diff so the change is immediately visible; show the current context line count
   in the footer or status line so the user knows the active value
-- [ ] T165 P3 feat - Navigate between files in commit detail view by pressing
+- [X] T165 P3 feat - Navigate between files in commit detail view by pressing
   `f`: pressing `f` should jump the scroll position to the start of the next
   file's diff block in the commit detail view; pressing `F` (shift) should jump
   to the previous file; the file boundary can be detected from the rendered line
   list (each `FileDiff` entry starts with a file header line); wrap around when
   reaching the end/beginning of the file list so the navigation is cyclic
-- [ ] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
+- [X] T146 P3 feat - Make the help overlay context-sensitive: pressing `?` (or
   `h`) in the commit detail view should show only the keybindings relevant to
   that view (scrolling, search, navigation back), while pressing it in the
   commit list shows only commit-list bindings; the current single monolithic

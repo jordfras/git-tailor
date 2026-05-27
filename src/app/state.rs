@@ -79,6 +79,8 @@ pub struct AppState {
     pub search_matches: Vec<usize>,
     /// Index into `search_matches` for the current match.
     pub search_match_index: Option<usize>,
+    /// Line indices of file-diff headers in the detail view content (updated during render).
+    pub file_start_lines: Vec<usize>,
 }
 
 impl AppState {
@@ -123,6 +125,62 @@ impl AppState {
     /// Scroll fragmap grid right.
     pub fn scroll_fragmap_right(&mut self) {
         self.fragmap_scroll_offset += 1;
+    }
+
+    /// Scroll fragmap grid to the leftmost column.
+    pub fn scroll_fragmap_to_left(&mut self) {
+        self.fragmap_scroll_offset = 0;
+    }
+
+    /// Scroll fragmap grid to the rightmost column (render will clamp).
+    pub fn scroll_fragmap_to_right(&mut self) {
+        self.fragmap_scroll_offset = usize::MAX;
+    }
+
+    /// Scroll detail view left to column 0.
+    pub fn scroll_detail_to_left_edge(&mut self) {
+        self.detail_h_scroll_offset = 0;
+    }
+
+    /// Scroll detail view right to the last column.
+    pub fn scroll_detail_to_right_edge(&mut self) {
+        self.detail_h_scroll_offset = self.max_detail_h_scroll;
+    }
+
+    /// Jump to the next file header in the detail view (wraps cyclically).
+    pub fn jump_to_next_file(&mut self) {
+        if self.file_start_lines.is_empty() {
+            return;
+        }
+        let target = self
+            .file_start_lines
+            .iter()
+            .find(|&&l| l > self.detail_scroll_offset)
+            .copied()
+            .unwrap_or(self.file_start_lines[0]);
+        let clamped = target.min(self.max_detail_scroll);
+        // If clamping produces no forward movement (last file is beyond max
+        // scroll and we're already there), wrap to the first file.
+        if clamped <= self.detail_scroll_offset {
+            self.detail_scroll_offset = self.file_start_lines[0];
+        } else {
+            self.detail_scroll_offset = clamped;
+        }
+    }
+
+    /// Jump to the previous file header in the detail view (wraps cyclically).
+    pub fn jump_to_prev_file(&mut self) {
+        if self.file_start_lines.is_empty() {
+            return;
+        }
+        let target = self
+            .file_start_lines
+            .iter()
+            .rev()
+            .find(|&&l| l < self.detail_scroll_offset)
+            .copied()
+            .unwrap_or_else(|| *self.file_start_lines.last().unwrap());
+        self.detail_scroll_offset = target.min(self.max_detail_scroll);
     }
 
     /// Scroll detail view up (decrease offset).
@@ -171,6 +229,24 @@ impl AppState {
         self.selection_index = new_index.min(self.commits.len() - 1);
     }
 
+    /// Scroll commit list up by half a page (visible_height lines).
+    pub fn half_page_up(&mut self, visible_height: usize) {
+        self.selection_index = self
+            .selection_index
+            .saturating_sub(half_page_size(visible_height));
+    }
+
+    /// Scroll commit list down by half a page (visible_height lines).
+    pub fn half_page_down(&mut self, visible_height: usize) {
+        if self.commits.is_empty() {
+            return;
+        }
+        let new_index = self
+            .selection_index
+            .saturating_add(half_page_size(visible_height));
+        self.selection_index = new_index.min(self.commits.len() - 1);
+    }
+
     /// Scroll detail view up by one page (visible_height lines).
     pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
         self.detail_scroll_offset = self
@@ -184,6 +260,41 @@ impl AppState {
             .detail_scroll_offset
             .saturating_add(page_size(visible_height));
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
+    }
+
+    /// Scroll detail view up by half a page (visible_height lines).
+    pub fn scroll_detail_half_page_up(&mut self, visible_height: usize) {
+        self.detail_scroll_offset = self
+            .detail_scroll_offset
+            .saturating_sub(half_page_size(visible_height));
+    }
+
+    /// Scroll detail view down by half a page (visible_height lines).
+    pub fn scroll_detail_half_page_down(&mut self, visible_height: usize) {
+        let new_offset = self
+            .detail_scroll_offset
+            .saturating_add(half_page_size(visible_height));
+        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
+    }
+
+    /// Jump to the first commit in the list.
+    pub fn jump_to_first(&mut self) {
+        self.selection_index = 0;
+    }
+
+    /// Jump to the last commit in the list.
+    pub fn jump_to_last(&mut self) {
+        self.selection_index = self.commits.len().saturating_sub(1);
+    }
+
+    /// Scroll detail view to the very top.
+    pub fn scroll_detail_to_top(&mut self) {
+        self.detail_scroll_offset = 0;
+    }
+
+    /// Scroll detail view to the very bottom.
+    pub fn scroll_detail_to_bottom(&mut self) {
+        self.detail_scroll_offset = self.max_detail_scroll;
     }
 
     /// Enter the large-split confirmation dialog.
@@ -457,6 +568,11 @@ impl AppState {
 /// Always returns at least 1 so a single-line panel can still page.
 fn page_size(visible_height: usize) -> usize {
     visible_height.saturating_sub(1).max(1)
+}
+
+/// Half-page step: approximately half the visible height, at least 1.
+fn half_page_size(visible_height: usize) -> usize {
+    (visible_height / 2).max(1)
 }
 
 #[cfg(test)]
