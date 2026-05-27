@@ -219,6 +219,26 @@ impl AppState {
         self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
     }
 
+    /// Jump to the first commit in the list.
+    pub fn jump_to_first(&mut self) {
+        self.selection_index = 0;
+    }
+
+    /// Jump to the last commit in the list.
+    pub fn jump_to_last(&mut self) {
+        self.selection_index = self.commits.len().saturating_sub(1);
+    }
+
+    /// Scroll detail view to the very top.
+    pub fn scroll_detail_to_top(&mut self) {
+        self.detail_scroll_offset = 0;
+    }
+
+    /// Scroll detail view to the very bottom.
+    pub fn scroll_detail_to_bottom(&mut self) {
+        self.detail_scroll_offset = self.max_detail_scroll;
+    }
+
     /// Enter the large-split confirmation dialog.
     pub fn enter_split_confirm(
         &mut self,

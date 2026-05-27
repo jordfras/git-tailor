@@ -100,7 +100,7 @@ Guidelines:
   scroll approximately half the visible content area at a time; the scroll
   amount should be derived from the current panel height so it stays
   proportional regardless of terminal size
-- [ ] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
+- [X] T144 P3 feat - Add jump-to-top/bottom keybindings in the commit detail
   view: bind `g` / `G` (less/vi convention) and `Home` / `End` to scroll to the
   very first or very last line of the diff content
 - [ ] T145 P3 feat - Add horizontal scroll-to-edge keybindings in the commit

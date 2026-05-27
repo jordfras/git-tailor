@@ -79,6 +79,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.scroll_detail_half_page_down(app.detail_visible_height);
             AppAction::Handled
         }
+        KeyCommand::JumpToTop => {
+            app.scroll_detail_to_top();
+            AppAction::Handled
+        }
+        KeyCommand::JumpToBottom => {
+            app.scroll_detail_to_bottom();
+            AppAction::Handled
+        }
         KeyCommand::ScrollLeft => {
             app.scroll_detail_left();
             AppAction::Handled

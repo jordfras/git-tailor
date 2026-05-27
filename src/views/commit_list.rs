@@ -80,6 +80,22 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
             AppAction::Handled
         }
+        KeyCommand::JumpToTop => {
+            if app.reverse {
+                app.jump_to_last();
+            } else {
+                app.jump_to_first();
+            }
+            AppAction::Handled
+        }
+        KeyCommand::JumpToBottom => {
+            if app.reverse {
+                app.jump_to_first();
+            } else {
+                app.jump_to_last();
+            }
+            AppAction::Handled
+        }
         KeyCommand::ScrollLeft => {
             app.scroll_fragmap_left();
             AppAction::Handled
