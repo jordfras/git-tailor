@@ -16,11 +16,12 @@
 
 #[allow(dead_code)]
 mod common;
-use common::TuiTestHarness;
+use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
     app::{AppAction, AppMode, AppState, KeyCommand},
+    fragmap::TouchKind,
     views,
 };
 
@@ -298,4 +299,91 @@ fn test_enter_move_select_single_commit_blocked() {
 
     assert_eq!(app.mode, AppMode::CommitList);
     assert!(app.status_is_error);
+}
+
+#[test]
+fn test_move_select_fragmap_highlight_tracks_separator() {
+    // Regression for T217: the highlighted row in the hunk group matrix must be
+    // the separator row (the "▶ move here" placeholder), not a commit row two
+    // positions below it.
+    //
+    // After navigation, `viewport_selection_for_separator` sets
+    // `selection_index = insert_before + 1` as a scroll anchor.  The fragmap
+    // highlight must NOT blindly follow this scroll anchor — the separator row
+    // is already visually distinct via COLOR_ACTION_INSERT_BG, and no commit
+    // row should receive COLOR_SELECTED_FRAGMAP_BG.
+    let mut harness = TuiTestHarness::short(); // 80×10
+
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
+
+    // All three commits touch the same cluster so the Hunk groups column renders.
+    app.fragmap = Some(create_fragmap(
+        vec!["111111111111", "222222222222", "333333333333"],
+        vec![simple_cluster(
+            "file.rs",
+            1,
+            10,
+            &["111111111111", "222222222222", "333333333333"],
+        )],
+        vec![
+            vec![TouchKind::Added],
+            vec![TouchKind::Modified],
+            vec![TouchKind::Modified],
+        ],
+    ));
+
+    // source=2 (newest), insert_before=0 (top-of-list insertion).
+    // `viewport_selection_for_separator(0, reverse=false)` returns 0+1=1.
+    // That value is the scroll anchor written to `selection_index` after each
+    // navigation key; we set it here to reproduce the live state.
+    app.selection_index = 1;
+    app.mode = AppMode::MoveSelect {
+        source_index: 2,
+        insert_before: 0,
+    };
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    });
+
+    // Expected visual layout (header at y=0, footer at y=9):
+    //   y=1: ▶ move here  (separator, insert_before=0) ← this is the "selected" row
+    //   y=2: commit 0     (Oldest commit on branch)
+    //   y=3: commit 1     (Middle commit)
+    //   y=4: commit 2     (source commit, teal bg)
+    //
+    // The separator row is the visual indicator for the insertion point; it
+    // already carries COLOR_ACTION_INSERT_BG (Rgb(40,40,100)) across all
+    // columns.  No commit row should receive COLOR_SELECTED_FRAGMAP_BG
+    // (Rgb(60,60,80)) — that was the bug: the fragmap highlight was
+    // incorrectly landing on y=3 (two rows below the separator) because
+    // `is_selected` was derived from the scroll anchor rather than from the
+    // insertion-point row.
+    //
+    // The fragmap column begins at x=72 (x=71 is the │ separator).
+    let fragmap_x: u16 = 72;
+    let insert_bg = ratatui::style::Color::Rgb(40, 40, 100);
+    let selection_bg = ratatui::style::Color::Rgb(60, 60, 80);
+
+    // The separator row's fragmap cell must carry the insert indicator colour.
+    assert_eq!(
+        buffer.cell((fragmap_x, 1)).unwrap().bg,
+        insert_bg,
+        "fragmap cell on the separator row (y=1) should have the insert indicator colour"
+    );
+    // No commit row should be highlighted with the selection colour.
+    assert_ne!(
+        buffer.cell((fragmap_x, 2)).unwrap().bg,
+        selection_bg,
+        "fragmap row y=2 (commit 0) must not carry the selection highlight"
+    );
+    assert_ne!(
+        buffer.cell((fragmap_x, 3)).unwrap().bg,
+        selection_bg,
+        "fragmap row y=3 (commit 1, previously wrong highlight) must not carry the selection highlight"
+    );
 }
