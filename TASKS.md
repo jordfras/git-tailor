@@ -45,6 +45,15 @@ Guidelines:
   T178 makes the split guard awkward; add a test in
   `tests/drop_commit/root_commit.rs` that verifies the root commit is dropped
   and the history is correctly rewritten.
+- [X] T217 P1 bug - Fix wrong highlight row in hunk group matrix during move
+  commit (`m`): when the move-select dialog is open, the highlighted row in the
+  fragmap / hunk group matrix is always two rows below the empty placeholder
+  line that marks the insertion point; investigate how `move_select.rs` (or
+  `main_view.rs`) computes the highlighted matrix row from `insert_before` and
+  trace back to where the off-by-two offset originates; fix the index
+  calculation so the highlighted row tracks the insertion-point placeholder
+  exactly; add or update the `tui_move_select` snapshot tests to cover the
+  highlighted-row position.
 
 ## Architecture & Robustness
 - [ ] T216 P2 refactor - Replace manual cherry-pick chain engine with

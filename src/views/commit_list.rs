@@ -595,7 +595,10 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         let short_sha = commit.oid.short().to_string();
 
         let is_synthetic = commit.oid.is_synthetic();
-        let is_selected = visual_index == layout.visual_selection;
+        // In MoveSelect mode the separator row is the visual "selection"; commit
+        // rows must never receive is_selected so the fragmap cell highlight
+        // tracks the separator, not the scroll anchor.
+        let is_selected = move_info.is_none() && visual_index == layout.visual_selection;
         let is_squash_source = squash_source_idx.is_some_and(|si| commit_idx_in_fragmap == si);
         let is_move_source = move_info.is_some_and(|(si, _)| commit_idx_in_fragmap == si);
 
@@ -673,7 +676,7 @@ fn build_move_separator_row<'a>(
     ];
 
     if !layout.display_clusters.is_empty() {
-        cells.push(Cell::from(Span::styled("", style)));
+        cells.push(Cell::from(Span::styled("", style)).style(style));
     }
 
     Row::new(cells)

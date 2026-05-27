@@ -8,6 +8,12 @@ The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- The hunk group matrix no longer highlights the wrong row when the move-commit
+  picker (`m`) is open. Previously the fragmap selection highlight appeared two
+  rows below the "▶ move here" separator instead of on the separator row itself.
+
 ### Removed
 
 - `--squashable-scope` CLI flag and `GT_SQUASHABLE_SCOPE` environment variable.
