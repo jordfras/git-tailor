@@ -548,7 +548,12 @@ fn handle_prepare_reword(
     })?;
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
-        Ok(new_message) if new_message == current_message => {}
+        Ok(new_message) if new_message.trim().is_empty() => {
+            app.set_success_message("Reword cancelled: message is empty");
+        }
+        Ok(new_message) if new_message == current_message => {
+            app.set_success_message("No changes made");
+        }
         Ok(new_message) => match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
             Ok(()) => return Ok(LoopAction::ReloadPreserving),
             Err(e) => app.set_error_message(format!("Reword failed: {e}")),
