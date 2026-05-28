@@ -16,6 +16,9 @@ The format is based on
 
 ### Added
 
+- In the commit detail view, pressing `Enter` to confirm a search now
+  automatically scrolls to the first match at or after the current scroll
+  position (wrapping to the first match overall if all matches lie above).
 - `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
   mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.

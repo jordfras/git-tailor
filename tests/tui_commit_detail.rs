@@ -333,6 +333,58 @@ fn test_search_event_enter_confirms() {
     assert_eq!(app.search_query, "foo");
 }
 
+/// Enter jumps to the first match at or after the current scroll position.
+#[test]
+fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+    app.search_matches = vec![5, 20, 30];
+    app.search_match_index = Some(0);
+    app.detail_scroll_offset = 12;
+    app.detail_visible_height = 50;
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
+
+    // First match at or after scroll offset 12 is line 20 (index 1).
+    assert_eq!(app.search_match_index, Some(1));
+}
+
+/// Enter wraps to match 0 when all matches lie above the current scroll position.
+#[test]
+fn test_search_event_enter_wraps_when_past_all_matches() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+    app.search_matches = vec![5, 8];
+    app.search_match_index = Some(1);
+    app.detail_scroll_offset = 20;
+    app.detail_visible_height = 50;
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
+
+    // All matches are above scroll offset 20; wraps to first match.
+    assert_eq!(app.search_match_index, Some(0));
+}
+
+/// Enter is a no-op (for navigation) when there are no matches.
+#[test]
+fn test_search_event_enter_no_op_when_no_matches() {
+    let mut app = AppState::new();
+    app.mode = AppMode::CommitDetail;
+    app.activate_search();
+    app.search_query = "foo".to_string();
+    // search_matches is empty (default)
+
+    views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
+
+    assert!(!app.search_input_active);
+    assert!(app.search_active);
+    assert_eq!(app.search_match_index, None);
+}
+
 /// Escape dismisses the search entirely.
 #[test]
 fn test_search_event_escape_dismisses() {

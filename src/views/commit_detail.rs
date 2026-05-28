@@ -174,6 +174,18 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
             }
             KeyCode::Enter => {
                 app.search_input_active = false;
+                // Jump to the first match at or after the current scroll
+                // position, wrapping to match 0 when all matches lie above —
+                // the same behaviour as `less`.
+                if !app.search_matches.is_empty() {
+                    let next_idx = app
+                        .search_matches
+                        .iter()
+                        .position(|&line| line >= app.detail_scroll_offset)
+                        .unwrap_or(0);
+                    app.search_match_index = Some(next_idx);
+                    scroll_to_current_match(app);
+                }
             }
             KeyCode::Backspace => {
                 app.search_query.pop();
@@ -476,12 +488,14 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                     let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
                     search_info = info;
                     if !app.search_matches.is_empty() {
-                        auto_scroll_to_new_match(
-                            app,
-                            prev_match_index,
-                            layout.visible_height,
-                            layout.max_scroll,
-                        );
+                        if !app.search_input_active {
+                            auto_scroll_to_new_match(
+                                app,
+                                prev_match_index,
+                                layout.visible_height,
+                                layout.max_scroll,
+                            );
+                        }
                         content = apply_search_highlighting(content, app, &regex);
                     }
                 }
