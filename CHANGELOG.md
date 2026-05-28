@@ -10,12 +10,19 @@ The format is based on
 
 ### Fixed
 
+- Rewording a commit without changing the message now shows a "No changes made"
+  status message instead of silently doing nothing. Saving an empty message
+  cancels the reword with a status message instead of committing an invalid
+  commit message.
 - The hunk group matrix no longer highlights the wrong row when the move-commit
   picker (`m`) is open. Previously the fragmap selection highlight appeared two
   rows below the "▶ move here" separator instead of on the separator row itself.
 
 ### Added
 
+- In the commit detail view, pressing `Enter` to confirm a search now
+  automatically scrolls to the first match at or after the current scroll
+  position (wrapping to the first match overall if all matches lie above).
 - `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
   mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
