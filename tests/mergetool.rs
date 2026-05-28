@@ -30,7 +30,11 @@ fn resolve_merge_tool_cmd_returns_none_when_no_config() {
     // mergetool..cmd, so the function must return None.
     test.set_config("merge.tool", "");
     let git_repo = test.git_repo();
-    assert!(mergetool::resolve_merge_tool_cmd(&git_repo).is_none());
+    assert!(
+        mergetool::resolve_merge_tool_cmd(&git_repo)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -39,7 +43,9 @@ fn resolve_merge_tool_cmd_returns_builtin_for_vimdiff() {
     test.set_config("merge.tool", "vimdiff");
     test.set_config("mergetool.vimdiff.cmd", "");
     let git_repo = test.git_repo();
-    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
+    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo)
+        .unwrap()
+        .unwrap();
     assert!(
         cmd.contains("vimdiff"),
         "expected vimdiff in cmd, got: {cmd}"
@@ -57,7 +63,9 @@ fn resolve_merge_tool_cmd_returns_builtin_for_kdiff3() {
     test.set_config("merge.tool", "kdiff3");
     test.set_config("mergetool.kdiff3.cmd", "");
     let git_repo = test.git_repo();
-    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
+    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo)
+        .unwrap()
+        .unwrap();
     assert!(
         cmd.starts_with("kdiff3"),
         "expected kdiff3 command, got: {cmd}"
@@ -74,7 +82,9 @@ fn resolve_merge_tool_cmd_returns_builtin_for_meld() {
     test.set_config("merge.tool", "meld");
     test.set_config("mergetool.meld.cmd", "");
     let git_repo = test.git_repo();
-    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
+    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo)
+        .unwrap()
+        .unwrap();
     assert_eq!(cmd, "meld $LOCAL $MERGED $REMOTE");
 }
 
@@ -84,7 +94,9 @@ fn resolve_merge_tool_cmd_prefers_custom_cmd_over_builtin() {
     test.set_config("merge.tool", "vimdiff");
     test.set_config("mergetool.vimdiff.cmd", "my-special-vimdiff $MERGED");
     let git_repo = test.git_repo();
-    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
+    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo)
+        .unwrap()
+        .unwrap();
     assert_eq!(cmd, "my-special-vimdiff $MERGED");
 }
 
@@ -97,7 +109,9 @@ fn resolve_merge_tool_cmd_returns_custom_cmd_for_unknown_tool() {
         "fancy $LOCAL $REMOTE $MERGED",
     );
     let git_repo = test.git_repo();
-    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo).unwrap();
+    let cmd = mergetool::resolve_merge_tool_cmd(&git_repo)
+        .unwrap()
+        .unwrap();
     assert_eq!(cmd, "fancy $LOCAL $REMOTE $MERGED");
 }
 
@@ -107,7 +121,11 @@ fn resolve_merge_tool_cmd_returns_none_for_unknown_tool_without_cmd() {
     test.set_config("merge.tool", "totally-unknown-tool-xyz");
     let git_repo = test.git_repo();
     // No mergetool.<name>.cmd set and not a known builtin → None.
-    assert!(mergetool::resolve_merge_tool_cmd(&git_repo).is_none());
+    assert!(
+        mergetool::resolve_merge_tool_cmd(&git_repo)
+            .unwrap()
+            .is_none()
+    );
 }
 
 // ---------------------------------------------------------------------------

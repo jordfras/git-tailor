@@ -46,8 +46,8 @@ fn split_per_file_creates_two_commits() {
     // Commit messages should carry (n/total) numbering
     let split1 = test.repo.find_commit(split1_oid).unwrap();
     let split2 = test.repo.find_commit(split2_oid).unwrap();
-    let msg1 = split1.summary().unwrap_or("");
-    let msg2 = split2.summary().unwrap_or("");
+    let msg1 = split1.summary().ok().flatten().unwrap_or("");
+    let msg2 = split2.summary().ok().flatten().unwrap_or("");
     assert!(msg1.contains("(1/2)"), "expected (1/2) in: {}", msg1);
     assert!(msg2.contains("(2/2)"), "expected (2/2) in: {}", msg2);
 

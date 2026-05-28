@@ -413,11 +413,15 @@ fn compute_hunk_group_assignment(
             };
             keep && !c.oid.is_synthetic()
         })
-        .filter_map(|c| {
+        .map(|c| {
             c.oid
                 .as_oid()
-                .and_then(|oid| reads::commit_diff_for_fragmap(repo, oid).ok())
+                .map(|oid| reads::commit_diff_for_fragmap(repo, oid))
+                .transpose()
         })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
         .collect();
 
     let (_, assignment) = fragmap::assign_hunk_groups(&branch_diffs, commit_oid)

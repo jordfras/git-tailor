@@ -100,12 +100,10 @@ impl<'a> Iterator for CommitWalkerIter<'a> {
         if oid == self.to_commit_oid {
             self.done = true;
         }
-        Some(
-            self.repo
-                .find_commit(oid)
-                .map(|c| commit_info_from(&c))
-                .map_err(anyhow::Error::from),
-        )
+        Some(match self.repo.find_commit(oid) {
+            Ok(commit) => commit_info_from(&commit),
+            Err(err) => Err(anyhow::Error::from(err)),
+        })
     }
 }
 
@@ -134,7 +132,7 @@ pub(super) fn list_commits(
     for oid_result in revwalk {
         let oid = oid_result?;
         let commit = repo.inner.find_commit(oid)?;
-        commits.push(commit_info_from(&commit));
+        commits.push(commit_info_from(&commit)?);
 
         if oid == to_commit_oid {
             break;
@@ -199,8 +197,19 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
     extract_commit_diff(&diff, &commit)
 }
 
-pub(super) fn staged_diff(repo: &Git2Repo) -> Option<CommitDiff> {
-    let head = repo.inner.head().ok()?.peel_to_tree().ok();
+pub(super) fn staged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let head = match repo.inner.head() {
+        Ok(head) => Some(head.peel_to_tree()?),
+        Err(err)
+            if matches!(
+                err.code(),
+                git2::ErrorCode::NotFound | git2::ErrorCode::UnbornBranch
+            ) =>
+        {
+            None
+        }
+        Err(err) => return Err(err.into()),
+    };
 
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(0);
@@ -208,39 +217,35 @@ pub(super) fn staged_diff(repo: &Git2Repo) -> Option<CommitDiff> {
 
     let diff = repo
         .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))
-        .ok()?;
+        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
 
-    let files = extract_files_from_diff(&diff).ok()?;
+    let files = extract_files_from_diff(&diff)?;
     if files.iter().all(|f| f.hunks.is_empty()) {
-        return None;
+        return Ok(None);
     }
 
-    Some(CommitDiff {
+    Ok(Some(CommitDiff {
         commit: synthetic_commit_info(VirtualOid::Staged, "(staged changes)"),
         files,
-    })
+    }))
 }
 
-pub(super) fn unstaged_diff(repo: &Git2Repo) -> Option<CommitDiff> {
+pub(super) fn unstaged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(0);
     opts.interhunk_lines(0);
 
-    let diff = repo
-        .inner
-        .diff_index_to_workdir(None, Some(&mut opts))
-        .ok()?;
+    let diff = repo.inner.diff_index_to_workdir(None, Some(&mut opts))?;
 
-    let files = extract_files_from_diff(&diff).ok()?;
+    let files = extract_files_from_diff(&diff)?;
     if files.iter().all(|f| f.hunks.is_empty()) {
-        return None;
+        return Ok(None);
     }
 
-    Some(CommitDiff {
+    Ok(Some(CommitDiff {
         commit: synthetic_commit_info(VirtualOid::Unstaged, "(unstaged changes)"),
         files,
-    })
+    }))
 }
 
 pub(super) fn workdir(repo: &Git2Repo) -> Option<std::path::PathBuf> {
@@ -262,16 +267,25 @@ pub(super) fn read_index_stage(repo: &Git2Repo, path: &str, stage: i32) -> Resul
     Ok(Some(blob.content().to_vec()))
 }
 
-pub(super) fn get_config_string(repo: &Git2Repo, key: &str) -> Option<String> {
-    repo.inner.config().ok()?.get_string(key).ok()
+pub(super) fn get_config_string(repo: &Git2Repo, key: &str) -> Result<Option<String>> {
+    let config = repo.inner.config()?;
+    match config.get_string(key) {
+        Ok(value) => Ok(Some(value)),
+        Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
 
-pub(super) fn default_branch(repo: &Git2Repo) -> Option<String> {
-    let reference = repo.inner.find_reference(ORIGIN_HEAD_REF).ok()?;
+pub(super) fn default_branch(repo: &Git2Repo) -> Result<Option<String>> {
+    let reference = match repo.inner.find_reference(ORIGIN_HEAD_REF) {
+        Ok(reference) => reference,
+        Err(err) if err.code() == git2::ErrorCode::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
     let target = reference.symbolic_target()?;
     // Strip the "refs/remotes/" prefix so the caller can pass the result
     // directly to find_reference_point (e.g. "origin/main").
-    target.strip_prefix("refs/remotes/").map(str::to_string)
+    Ok(target.and_then(|value| value.strip_prefix("refs/remotes/").map(str::to_string)))
 }
 
 pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<Oid> {
@@ -287,23 +301,25 @@ pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<Oid> {
     anyhow::bail!("No root commit found reachable from HEAD")
 }
 
-pub(super) fn commit_info_from(commit: &git2::Commit) -> CommitInfo {
+pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author_time = commit.author().when();
     let commit_time = commit.time();
+    let author = commit.author();
+    let committer = commit.committer();
 
-    CommitInfo {
+    Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: commit.summary().unwrap_or("").to_string(),
-        author: commit.author().name().map(|s| s.to_string()),
+        summary: commit.summary()?.unwrap_or("").to_string(),
+        author: Some(author.name()?.to_string()),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
-        message: commit.message().unwrap_or("").to_string(),
-        author_email: commit.author().email().map(|s| s.to_string()),
+        message: commit.message()?.to_string(),
+        author_email: Some(author.email()?.to_string()),
         author_date: Some(git_time_to_offset_datetime(author_time)),
-        committer: commit.committer().name().map(|s| s.to_string()),
-        committer_email: commit.committer().email().map(|s| s.to_string()),
+        committer: Some(committer.name()?.to_string()),
+        committer_email: Some(committer.email()?.to_string()),
         commit_date: Some(git_time_to_offset_datetime(commit_time)),
-    }
+    })
 }
 
 pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInfo {
@@ -324,7 +340,7 @@ pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInf
 
 fn extract_commit_diff(diff: &git2::Diff, commit: &git2::Commit) -> Result<CommitDiff> {
     Ok(CommitDiff {
-        commit: commit_info_from(commit),
+        commit: commit_info_from(commit)?,
         files: extract_files_from_diff(diff)?,
     })
 }

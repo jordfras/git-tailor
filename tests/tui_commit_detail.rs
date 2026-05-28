@@ -22,12 +22,20 @@ use git_tailor::{
     CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, app::AppState, views,
 };
 
-use common::{StubRepo, StubRepoBuilder, TuiTestHarness};
+use common::{StubRepoBuilder, TuiTestHarness};
+
+fn make_repo_with_empty_diff(oid: &str, summary: &str) -> common::StubRepo {
+    let diff = CommitDiff {
+        commit: common::create_test_commit(oid, summary),
+        files: vec![],
+    };
+    StubRepoBuilder::new().with_commit_diff(diff).build()
+}
 
 /// Short message: all content lines fit within 80 columns — no horizontal scrollbar.
 #[test]
 fn test_commit_detail_short_lines_no_hscroll() {
-    let repo = StubRepo::default();
+    let repo = make_repo_with_empty_diff("abc123def456", "Short commit");
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
@@ -44,11 +52,11 @@ fn test_commit_detail_short_lines_no_hscroll() {
 /// horizontal scrollbar row must appear at the bottom of the content area.
 #[test]
 fn test_commit_detail_long_lines_hscroll_visible() {
-    let repo = StubRepo::default();
+    let long_message = "A".repeat(100);
+    let repo = make_repo_with_empty_diff("abc123def456", &long_message);
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    let long_message = "A".repeat(100);
     app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.selection_index = 0;
 
@@ -63,11 +71,11 @@ fn test_commit_detail_long_lines_hscroll_visible() {
 /// are clipped out of view.
 #[test]
 fn test_commit_detail_hscroll_offset_clips_content() {
-    let repo = StubRepo::default();
+    let long_message = "A".repeat(100);
+    let repo = make_repo_with_empty_diff("abc123def456", &long_message);
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    let long_message = "A".repeat(100);
     app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.selection_index = 0;
     app.detail_h_scroll_offset = 10;

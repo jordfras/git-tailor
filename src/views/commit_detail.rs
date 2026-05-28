@@ -422,17 +422,37 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         let placeholder = Paragraph::new("No commits").style(Style::default().fg(Color::DarkGray));
         frame.render_widget(placeholder, content_area);
     } else {
-        let selected = &app.commits[app.selection_index];
+        let selected = app.commits[app.selection_index].clone();
         let oid = selected.oid.clone();
 
         let diff_opt = match oid {
-            VirtualOid::Staged => repo.staged_diff(),
-            VirtualOid::Unstaged => repo.unstaged_diff(),
-            VirtualOid::Real(ref real_oid) => repo.commit_diff(real_oid).ok(),
+            VirtualOid::Staged => match repo.staged_diff() {
+                Ok(diff_opt) => diff_opt,
+                Err(err) => {
+                    app.set_error_message(format!("Failed to load staged diff: {err}"));
+                    None
+                }
+            },
+            VirtualOid::Unstaged => match repo.unstaged_diff() {
+                Ok(diff_opt) => diff_opt,
+                Err(err) => {
+                    app.set_error_message(format!("Failed to load unstaged diff: {err}"));
+                    None
+                }
+            },
+            VirtualOid::Real(ref real_oid) => match repo.commit_diff(real_oid) {
+                Ok(diff) => Some(diff),
+                Err(err) => {
+                    app.set_error_message(format!("Failed to load commit diff: {err}"));
+                    None
+                }
+            },
         };
 
-        let mut content = build_metadata_lines(selected);
-        if let Some(ref diff) = diff_opt {
+        let mut content = build_metadata_lines(&selected);
+        if let Some(ref diff) = diff_opt
+            && !diff.files.is_empty()
+        {
             content.extend(build_file_list_lines(&diff.files));
             let (diff_lines, file_offsets) = build_diff_lines(&diff.files);
             let diff_start = content.len();

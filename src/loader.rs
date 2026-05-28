@@ -46,11 +46,7 @@ pub fn load_initial_commits(
         return Ok(Some((all_commits, root_oid, true)));
     }
 
-    let base = cli.base.clone().unwrap_or_else(|| {
-        git_repo
-            .default_branch()
-            .unwrap_or_else(|| "main".to_string())
-    });
+    let base = resolve_base_branch(git_repo, cli)?;
     let reference_oid = git_repo.find_reference_point(&base)?;
     let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
     // Exclude the merge-base commit — it's shared with the target branch
@@ -81,11 +77,7 @@ pub fn resolve_oid_bounds(git_repo: &impl GitRepo, cli: &Cli) -> Result<Option<(
         let root_oid = git_repo.root_commit_oid()?;
         return Ok(Some((head_oid, root_oid, true)));
     }
-    let base = cli.base.clone().unwrap_or_else(|| {
-        git_repo
-            .default_branch()
-            .unwrap_or_else(|| "main".to_string())
-    });
+    let base = resolve_base_branch(git_repo, cli)?;
     let reference_oid = git_repo.find_reference_point(&base)?;
 
     // Fast empty-branch check: if HEAD equals the merge-base, no branch commits exist.
@@ -99,6 +91,18 @@ pub fn resolve_oid_bounds(git_repo: &impl GitRepo, cli: &Cli) -> Result<Option<(
     }
 
     Ok(Some((head_oid, reference_oid, false)))
+}
+
+fn resolve_base_branch(git_repo: &impl GitRepo, cli: &Cli) -> Result<String> {
+    if let Some(base) = &cli.base {
+        return Ok(base.clone());
+    }
+
+    match git_repo.default_branch() {
+        Ok(Some(base)) => Ok(base),
+        Ok(None) => Ok("main".to_string()),
+        Err(err) => Err(err.context("failed to resolve default branch from origin/HEAD")),
+    }
 }
 
 /// Load commits and diffs with a live counter dialog, then optionally build the
@@ -161,7 +165,7 @@ pub fn load_with_progress(
         return Ok(true);
     }
 
-    let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff(), git_repo.unstaged_diff()]
+    let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff()?, git_repo.unstaged_diff()?]
         .into_iter()
         .flatten()
         .collect();
@@ -209,7 +213,8 @@ fn walk_commits(
         let diff = commit
             .oid
             .as_oid()
-            .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok());
+            .map(|oid| git_repo.commit_diff_for_fragmap(oid))
+            .transpose()?;
         raw.push((commit, diff));
 
         let now = std::time::Instant::now();

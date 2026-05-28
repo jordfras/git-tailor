@@ -142,13 +142,13 @@ pub trait GitRepo {
 
     /// Return a synthetic `CommitDiff` for changes staged in the index (index vs HEAD).
     ///
-    /// Returns `None` when the index is clean (no staged changes).
-    fn staged_diff(&self) -> Option<CommitDiff>;
+    /// Returns `Ok(None)` when the index is clean (no staged changes).
+    fn staged_diff(&self) -> Result<Option<CommitDiff>>;
 
     /// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir vs index).
     ///
-    /// Returns `None` when the working tree is clean relative to the index.
-    fn unstaged_diff(&self) -> Option<CommitDiff>;
+    /// Returns `Ok(None)` when the working tree is clean relative to the index.
+    fn unstaged_diff(&self) -> Result<Option<CommitDiff>>;
 
     /// Split a commit into one commit per changed file.
     ///
@@ -224,8 +224,8 @@ pub trait GitRepo {
 
     /// Read a string value from the repository's git configuration.
     ///
-    /// Returns `None` when the key does not exist or is not valid UTF-8.
-    fn get_config_string(&self, key: &str) -> Option<String>;
+    /// Returns `Ok(None)` when the key does not exist.
+    fn get_config_string(&self, key: &str) -> Result<Option<String>>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
     /// its parent.
@@ -368,10 +368,10 @@ pub trait GitRepo {
     /// `find_reference_point`.  For example when `origin/HEAD` points to
     /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
     ///
-    /// Returns `None` when the remote tracking ref is absent or has no symbolic
+    /// Returns `Ok(None)` when the remote tracking ref is absent or has no symbolic
     /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
     /// never set).
-    fn default_branch(&self) -> Option<String>;
+    fn default_branch(&self) -> Result<Option<String>>;
 
     /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
     ///

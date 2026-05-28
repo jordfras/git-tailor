@@ -627,19 +627,23 @@ fn handle_prepare_squash(
 fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli) -> Result<()> {
     let mut commit_diffs: Vec<CommitDiff> = commits
         .iter()
-        .filter_map(|c| {
+        .map(|c| {
             c.oid
                 .as_oid()
-                .and_then(|oid| git_repo.commit_diff_for_fragmap(oid).ok())
+                .map(|oid| git_repo.commit_diff_for_fragmap(oid))
+                .transpose()
         })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
         .collect();
     if commit_diffs.len() != commits.len() {
         anyhow::bail!("Failed to load diffs for all commits");
     }
-    if let Some(d) = git_repo.staged_diff() {
+    if let Some(d) = git_repo.staged_diff()? {
         commit_diffs.push(d);
     }
-    if let Some(d) = git_repo.unstaged_diff() {
+    if let Some(d) = git_repo.unstaged_diff()? {
         commit_diffs.push(d);
     }
     print!(

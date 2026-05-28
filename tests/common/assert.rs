@@ -57,7 +57,7 @@ macro_rules! assert_history {
         );
         for (i, (oid, exp)) in oids.iter().zip(expected.iter()).enumerate() {
             let commit = $test.repo.find_commit(*oid).unwrap();
-            let summary = commit.summary().unwrap_or("");
+            let summary = commit.summary().ok().flatten().unwrap_or("");
             assert_eq!(
                 summary, *exp,
                 "commit[{i}] (oldest-first): expected summary {:?}, got {:?}",
