@@ -13,6 +13,17 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
+- [ ] T218 P2 feat - Add a "split out file" split option for multi-file commits:
+  extend the split strategy menu with an additional option that applies when a
+  commit touches multiple files and allows the user to peel one file's changes
+  out into its own commit while keeping the remaining file changes together in
+  the original commit's replacement; selecting this option from the split menu
+  should open a second dialog listing the changed files in the selected commit,
+  let the user choose which file to split out, then execute the rewrite as a
+  two-commit split (chosen file first or otherwise consistently ordered);
+  update the split TUI state/mode flow, add the backend split operation and
+  validation/counting logic, and cover the new menu/dialog flow with TUI tests
+  plus repository tests in `tests/split_commit/`.
 - [X] T215 P1 bug - Fix spurious conflict when squashing across a rename: when
   squashing commit B into an earlier commit A where a file touched by both was
   renamed in a commit between them, the tool incorrectly reports a conflict and
