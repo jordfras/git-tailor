@@ -10,6 +10,11 @@ The format is based on
 
 ### Fixed
 
+- Overlay dialogs now size themselves and scroll by wrapped rows rather than
+  logical lines. Previously a line wider than the dialog wrapped onto extra
+  rows that were not counted, so the dialog rendered one or more rows too short
+  — clipping content against the bottom border and leaving it unreachable by
+  scrolling (most visible in narrow terminals).
 - Rewording a commit without changing the message now shows a "No changes made"
   status message instead of silently doing nothing. Saving an empty message
   cancels the reword with a status message instead of committing an invalid
