@@ -1,6 +1,6 @@
 ---
 source: tests/tui_split_select.rs
-assertion_line: 64
+assertion_line: 52
 expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::split_select::render(&mut app, frame);\n})"
 ---
 Buffer {
@@ -16,10 +16,10 @@ Buffer {
         "               │     Per file                                   │               ",
         "               │        Create one commit per changed file      │               ",
         "               │                                                │               ",
-        "               │     Split out file                             │               ",
+        "               │ ▸   Split out file                             │               ",
         "               │        Peel one file into its own commit       │               ",
         "               │                                                │               ",
-        "               │ ▸   Per hunk                                   │               ",
+        "               │     Per hunk                                   │               ",
         "               │        Create one commit per diff hunk         │               ",
         "               │                                                │               ",
         "               │     Per hunk group                             │               ",
@@ -75,7 +75,7 @@ Buffer {
         x: 64, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 65, y: 9, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 15, y: 10, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 16, y: 10, fg: White, bg: Black, underline: Reset, modifier: NONE,
+        x: 16, y: 10, fg: Cyan, bg: Black, underline: Reset, modifier: BOLD,
         x: 35, y: 10, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 64, y: 10, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 65, y: 10, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
@@ -89,7 +89,7 @@ Buffer {
         x: 64, y: 12, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 65, y: 12, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 15, y: 13, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 16, y: 13, fg: Cyan, bg: Black, underline: Reset, modifier: BOLD,
+        x: 16, y: 13, fg: White, bg: Black, underline: Reset, modifier: NONE,
         x: 29, y: 13, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 64, y: 13, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 65, y: 13, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,

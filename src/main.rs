@@ -167,6 +167,9 @@ fn main() -> Result<()> {
             AppMode::CommitList => views::commit_list::handle_key(action, &mut app),
             AppMode::CommitDetail => views::commit_detail::handle_key(action, &mut app),
             AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
+            AppMode::SplitFileSelect { .. } => {
+                views::split_file_select::handle_key(action, &mut app)
+            }
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
             AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
@@ -252,6 +255,13 @@ fn dispatch_action(
                 return Ok(LoopAction::Reload);
             }
         }
+        AppAction::PrepareSplitOutFile { commit_oid } => {
+            return handle_prepare_split_out_file(git_repo, app, commit_oid);
+        }
+        AppAction::ExecuteSplitOutFile {
+            commit_oid,
+            file_path,
+        } => return handle_execute_split_out_file(git_repo, app, commit_oid, file_path),
         AppAction::PrepareDropConfirm {
             commit_oid,
             commit_summary,
@@ -346,6 +356,8 @@ fn handle_prepare_split(
         SplitStrategy::PerHunkGroup => {
             git_repo.count_split_per_hunk_group(&commit_oid, &head_oid, &app.reference_oid)
         }
+        // "Split out file" is dispatched to its own flow before reaching here.
+        SplitStrategy::OutFile => unreachable!("OutFile uses PrepareSplitOutFile"),
     };
     match count_result {
         Err(e) => app.set_error_message(e.to_string()),
@@ -359,6 +371,37 @@ fn handle_prepare_split(
         }
     }
     Ok(LoopAction::Proceed)
+}
+
+fn handle_prepare_split_out_file(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    commit_oid: Oid,
+) -> Result<LoopAction> {
+    match git_repo.list_commit_files(&commit_oid) {
+        Err(e) => app.set_error_message(e.to_string()),
+        Ok(files) if files.len() < 2 => {
+            app.set_error_message("Commit touches fewer than 2 files — nothing to split out");
+        }
+        Ok(files) => app.enter_split_file_select(commit_oid, files),
+    }
+    Ok(LoopAction::Proceed)
+}
+
+fn handle_execute_split_out_file(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    commit_oid: Oid,
+    file_path: String,
+) -> Result<LoopAction> {
+    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    match git_repo.split_commit_out_file(&commit_oid, &file_path, &head_oid) {
+        Ok(()) => Ok(LoopAction::Reload),
+        Err(e) => {
+            app.set_error_message(format!("Split failed: {e}"));
+            Ok(LoopAction::Proceed)
+        }
+    }
 }
 
 fn handle_execute_drop(
@@ -726,6 +769,8 @@ fn execute_split(
                 }
             }
         }
+        // "Split out file" is executed via handle_execute_split_out_file.
+        SplitStrategy::OutFile => unreachable!("OutFile uses ExecuteSplitOutFile"),
     }
 }
 
@@ -745,6 +790,7 @@ fn render_mode(
         AppMode::CommitList => views::commit_list::render(app, frame),
         AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
+        AppMode::SplitFileSelect { .. } => views::split_file_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),

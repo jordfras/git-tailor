@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit List & Operations
-- [ ] T218 P2 feat - Add a "split out file" split option for multi-file commits:
+- [X] T218 P2 feat - Add a "split out file" split option for multi-file commits:
   extend the split strategy menu with an additional option that applies when a
   commit touches multiple files and allows the user to peel one file's changes
   out into its own commit while keeping the remaining file changes together in

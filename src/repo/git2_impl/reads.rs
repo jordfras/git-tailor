@@ -248,6 +248,38 @@ pub(super) fn unstaged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
     }))
 }
 
+pub(super) fn list_commit_files(repo: &Git2Repo, oid: &Oid) -> Result<Vec<String>> {
+    let object = repo
+        .inner
+        .revparse_single(oid.long())
+        .context(format!("Failed to resolve '{}'", oid))?;
+    let commit = object
+        .peel_to_commit()
+        .context("Resolved object is not a commit")?;
+
+    let new_tree = commit.tree().context("Failed to get commit tree")?;
+    let parent_tree = if commit.parent_count() > 0 {
+        Some(commit.parent(0)?.tree()?)
+    } else {
+        None
+    };
+
+    let diff = repo
+        .inner
+        .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
+
+    Ok((0..diff.deltas().len())
+        .filter_map(|i| {
+            let delta = diff.get_delta(i)?;
+            delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .map(|p| p.to_string_lossy().into_owned())
+        })
+        .collect())
+}
+
 pub(super) fn workdir(repo: &Git2Repo) -> Option<std::path::PathBuf> {
     repo.inner.workdir().map(|p| p.to_path_buf())
 }

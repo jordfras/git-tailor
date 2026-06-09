@@ -20,6 +20,11 @@ The format is based on
 
 ### Added
 
+- The split menu (`p`) has a new "Split out file" option for commits that touch
+  multiple files. It opens a file picker; choosing a file rewrites the commit
+  into two: the first keeps every other file's changes under the original
+  message, and the second contains only the chosen file's changes (its summary
+  suffixed with the file name).
 - In the commit detail view, pressing `Enter` to confirm a search now
   automatically scrolls to the first match at or after the current scroll
   position (wrapping to the first match overall if all matches lie above).

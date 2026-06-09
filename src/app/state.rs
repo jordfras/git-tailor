@@ -360,6 +360,20 @@ impl AppState {
         self.enter_dialog(AppMode::SplitSelect { strategy_index: 0 });
     }
 
+    /// Enter the "split out file" file picker with the commit's changed files.
+    pub fn enter_split_file_select(&mut self, commit_oid: Oid, files: Vec<String>) {
+        self.enter_dialog(AppMode::SplitFileSelect {
+            commit_oid,
+            files,
+            file_index: 0,
+        });
+    }
+
+    /// Cancel the "split out file" file picker and return to CommitList.
+    pub fn cancel_split_file_select(&mut self) {
+        self.exit_dialog();
+    }
+
     /// Enter squash target selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_squash_select(&mut self) {
@@ -467,6 +481,7 @@ impl AppState {
             }
             AppMode::Help(_)
             | AppMode::SplitSelect { .. }
+            | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)

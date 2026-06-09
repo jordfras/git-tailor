@@ -37,6 +37,20 @@ pub(super) fn split_message(original: &str, n: usize, total: usize) -> String {
     }
 }
 
+/// Append a parenthesised `suffix` to the summary line of `original`, keeping
+/// the body intact.  Used by the "split out file" operation to mark the
+/// peeled-out commit with the file name.
+pub(super) fn summary_suffix_message(original: &str, suffix: &str) -> String {
+    let mut lines = original.splitn(2, '\n');
+    let first = lines.next().unwrap_or("split").trim_end();
+    let rest = lines.next().unwrap_or("");
+    if rest.trim().is_empty() {
+        format!("{} ({})", first, suffix)
+    } else {
+        format!("{} ({})\n{}", first, suffix, rest)
+    }
+}
+
 /// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
 /// updated tree OID.
 ///
@@ -348,7 +362,30 @@ fn apply_multiple_hunks_to_content(
 
 #[cfg(test)]
 mod tests {
-    use super::split_message;
+    use super::{split_message, summary_suffix_message};
+
+    #[test]
+    fn summary_suffix_message_summary_only() {
+        assert_eq!(
+            summary_suffix_message("my fix", "src/a.rs"),
+            "my fix (src/a.rs)"
+        );
+    }
+
+    #[test]
+    fn summary_suffix_message_preserves_body() {
+        let original = "my fix\n\nBody line 1.\nBody line 2.";
+        let result = summary_suffix_message(original, "src/a.rs");
+        assert_eq!(result, "my fix (src/a.rs)\n\nBody line 1.\nBody line 2.");
+    }
+
+    #[test]
+    fn summary_suffix_message_trailing_newline_on_summary() {
+        assert_eq!(
+            summary_suffix_message("my fix\n", "src/a.rs"),
+            "my fix (src/a.rs)"
+        );
+    }
 
     #[test]
     fn split_message_summary_only() {

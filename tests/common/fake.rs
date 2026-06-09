@@ -127,6 +127,17 @@ impl GitRepo for StubRepo {
     ) -> Result<()> {
         unimplemented!()
     }
+    fn list_commit_files(&self, _commit_oid: &Oid) -> Result<Vec<String>> {
+        unimplemented!()
+    }
+    fn split_commit_out_file(
+        &self,
+        _commit_oid: &Oid,
+        _file_path: &str,
+        _head_oid: &Oid,
+    ) -> Result<()> {
+        unimplemented!()
+    }
     fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }

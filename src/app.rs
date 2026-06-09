@@ -46,6 +46,11 @@ pub enum AppAction {
         commit_oid: Oid,
         head_oid: Oid,
     },
+    /// Open the file picker for the "split out file" strategy: look up the
+    /// changed files in the commit, then show the second dialog.
+    PrepareSplitOutFile { commit_oid: Oid },
+    /// Execute a "split out file" rewrite: peel `file_path` into its own commit.
+    ExecuteSplitOutFile { commit_oid: Oid, file_path: String },
     /// Begin the drop flow: get head_oid from repo, then show confirmation.
     PrepareDropConfirm {
         commit_oid: Oid,
@@ -91,13 +96,15 @@ pub enum AppAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitStrategy {
     PerFile,
+    OutFile,
     PerHunk,
     PerHunkGroup,
 }
 
 impl SplitStrategy {
-    pub const ALL: [SplitStrategy; 3] = [
+    pub const ALL: [SplitStrategy; 4] = [
         SplitStrategy::PerFile,
+        SplitStrategy::OutFile,
         SplitStrategy::PerHunk,
         SplitStrategy::PerHunkGroup,
     ];
@@ -105,6 +112,7 @@ impl SplitStrategy {
     pub fn label(self) -> &'static str {
         match self {
             SplitStrategy::PerFile => "Per file",
+            SplitStrategy::OutFile => "Split out file",
             SplitStrategy::PerHunk => "Per hunk",
             SplitStrategy::PerHunkGroup => "Per hunk group",
         }
@@ -113,6 +121,7 @@ impl SplitStrategy {
     pub fn description(self) -> &'static str {
         match self {
             SplitStrategy::PerFile => "Create one commit per changed file",
+            SplitStrategy::OutFile => "Peel one file into its own commit",
             SplitStrategy::PerHunk => "Create one commit per diff hunk",
             SplitStrategy::PerHunkGroup => "Create one commit per hunk group",
         }
@@ -162,6 +171,13 @@ pub enum AppMode {
     CommitDetail,
     /// Split strategy selection dialog; carries the highlighted option index.
     SplitSelect { strategy_index: usize },
+    /// File picker for the "split out file" strategy; lists the commit's
+    /// changed files and carries the highlighted file index.
+    SplitFileSelect {
+        commit_oid: Oid,
+        files: Vec<String>,
+        file_index: usize,
+    },
     /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
     SplitConfirm(PendingSplit),
     /// Confirmation dialog before dropping a commit.
@@ -193,6 +209,7 @@ impl AppMode {
             AppMode::Loading { .. } | AppMode::CommitList | AppMode::CommitDetail => None,
             AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::SplitSelect { .. }
+            | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
