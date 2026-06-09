@@ -301,6 +301,66 @@ pub(super) fn count_split_per_hunk_group(
     Ok(touched.len())
 }
 
+pub(super) fn split_commit_out_file(
+    repo: &Git2Repo,
+    commit_oid: &Oid,
+    file_path: &str,
+    head_oid: &Oid,
+) -> Result<()> {
+    let target = load_split_commit(repo, commit_oid)?;
+
+    let full_diff =
+        repo.inner
+            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let file_count = full_diff.deltas().len();
+    if file_count < 2 {
+        anyhow::bail!("Commit touches fewer than 2 files — nothing to split out");
+    }
+
+    let chosen = (0..file_count)
+        .find_map(|i| {
+            let delta = full_diff.get_delta(i)?;
+            (delta_path(&delta).as_deref() == Some(file_path)).then_some(delta)
+        })
+        .ok_or_else(|| anyhow::anyhow!("File not changed by this commit: {file_path}"))?;
+
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, true))?;
+
+    // The first commit keeps every change except `file_path`.  Build its tree
+    // by taking the full commit tree and reverting just the chosen path to its
+    // parent state (or removing it when the file was newly added).  This pure
+    // tree surgery handles added/modified/deleted files and gitlinks uniformly
+    // and can never produce a merge conflict.
+    let mut builder = git2::build::TreeUpdateBuilder::new();
+    if chosen.old_file().id().is_zero() {
+        builder.remove(file_path);
+    } else {
+        builder.upsert(file_path, chosen.old_file().id(), chosen.old_file().mode());
+    }
+    let rest_tree_oid = builder.create_updated(&repo.inner, &target.commit_tree)?;
+
+    let base = initial_split_base(&target.commit)?;
+    let original_message = target.commit.message().unwrap_or("split");
+    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+
+    let peeled_message = hunks::summary_suffix_message(original_message, file_path);
+    let second = commit_with_message(
+        repo,
+        &target.commit,
+        target.commit_tree.id(),
+        Some(first),
+        &peeled_message,
+    )?;
+
+    finalize_split(
+        repo,
+        target.commit_oid,
+        head_oid,
+        second,
+        "git-tailor: split out file",
+    )
+}
+
 /// Resolved inputs to a split operation.  `commit_oid` is the parsed form of
 /// the caller's `&str` argument; `parent_tree` is an empty tree when `commit`
 /// is a root commit.
@@ -440,13 +500,25 @@ fn commit_split_piece(
     piece_num: usize,
     total_pieces: usize,
 ) -> Result<git2::Oid> {
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
     let message = hunks::split_message(
         original.message().unwrap_or("split"),
         piece_num,
         total_pieces,
     );
+    commit_with_message(repo, original, new_tree_oid, current_base, &message)
+}
 
+/// Create a commit with the given tree and message, parented on `current_base`
+/// (or as an orphan root when `None`), inheriting author and committer from
+/// `original`.
+fn commit_with_message(
+    repo: &Git2Repo,
+    original: &git2::Commit<'_>,
+    new_tree_oid: git2::Oid,
+    current_base: Option<git2::Oid>,
+    message: &str,
+) -> Result<git2::Oid> {
+    let new_tree = repo.inner.find_tree(new_tree_oid)?;
     let parents: Vec<git2::Commit> = match current_base {
         Some(oid) => vec![repo.inner.find_commit(oid)?],
         None => vec![],
@@ -456,10 +528,19 @@ fn commit_split_piece(
         None,
         &original.author(),
         &original.committer(),
-        &message,
+        message,
         &new_tree,
         &parent_refs,
     )?)
+}
+
+/// New-or-old path of a delta as an owned `String`.
+fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<String> {
+    delta
+        .new_file()
+        .path()
+        .or_else(|| delta.old_file().path())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Replay descendants of the split commit onto the last split piece and

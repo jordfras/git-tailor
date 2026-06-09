@@ -287,8 +287,31 @@ impl Dialog {
     ) -> (usize, usize) {
         let border_color = self.kind.border_color();
         let area = frame.area();
-        let content_height = self.lines.len();
         let dialog_width = preferred_width.min(area.width.saturating_sub(BORDER_WIDTH * 2));
+
+        let padded_title = format!(" {title} ");
+        let paragraph = Paragraph::new(self.lines)
+            .block(
+                Block::default()
+                    .title(padded_title.as_str())
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(border_color))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: false });
+
+        // Measure the content *after* wrapping at the inner width. Using the
+        // logical line count would undercount any line wider than the dialog
+        // (it occupies several rows once wrapped), which previously left the
+        // lower rows clipped by the border and unreachable by scrolling.
+        // `line_count` shares the renderer's word-wrapper and includes the
+        // block's top/bottom border rows, so subtract them for the bare height.
+        let inner_width = dialog_width.saturating_sub(BORDER_WIDTH);
+        let content_height = paragraph
+            .line_count(inner_width)
+            .saturating_sub(BORDER_HEIGHT as usize);
+
         let dialog_height =
             (content_height as u16 + BORDER_HEIGHT).min(area.height.saturating_sub(BORDER_HEIGHT));
         let inner_height = dialog_height.saturating_sub(BORDER_HEIGHT) as usize;
@@ -305,21 +328,7 @@ impl Dialog {
         };
 
         frame.render_widget(Clear, dialog_area);
-        let padded_title = format!(" {title} ");
-        frame.render_widget(
-            Paragraph::new(self.lines)
-                .block(
-                    Block::default()
-                        .title(padded_title.as_str())
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(border_color))
-                        .style(Style::default().bg(Color::Black)),
-                )
-                .alignment(Alignment::Left)
-                .wrap(Wrap { trim: false })
-                .scroll((scroll_offset as u16, 0)),
-            dialog_area,
-        );
+        frame.render_widget(paragraph.scroll((scroll_offset as u16, 0)), dialog_area);
 
         if max_scroll > 0 && dialog_height > BORDER_HEIGHT {
             let scrollbar_area = Rect {

@@ -25,6 +25,7 @@ pub mod list_nav;
 pub mod loading;
 pub mod main_view;
 pub mod move_select;
+pub mod split_file_select;
 pub mod split_select;
 pub mod squash_select;
 pub mod theme;

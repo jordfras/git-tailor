@@ -150,6 +150,10 @@ pub trait GitRepo {
     /// Returns `Ok(None)` when the working tree is clean relative to the index.
     fn unstaged_diff(&self) -> Result<Option<CommitDiff>>;
 
+    /// List the paths of the files changed by `commit_oid` relative to its
+    /// first parent (all files for a root commit), in diff order.
+    fn list_commit_files(&self, commit_oid: &Oid) -> Result<Vec<String>>;
+
     /// Split a commit into one commit per changed file.
     ///
     /// Creates N new commits (one per file touched by `commit_oid`), each applying
@@ -193,6 +197,26 @@ pub trait GitRepo {
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
+    ) -> Result<()>;
+
+    /// Peel a single file's changes out of `commit_oid` into a follow-up commit.
+    ///
+    /// Produces exactly two commits: the first keeps every other file's changes
+    /// under the original (unchanged) message; the second contains only
+    /// `file_path`'s changes, with the file name appended to its summary. All
+    /// commits between `commit_oid` (exclusive) and `head_oid` (inclusive) are
+    /// rebased onto the result and the branch ref is fast-forwarded.
+    ///
+    /// Fails if:
+    /// - the commit has fewer than 2 changed files (nothing to split out)
+    /// - `file_path` is not changed by the commit
+    /// - staged or unstaged changes share file paths with the commit being split
+    /// - a rebase conflict occurs while rebuilding descendants
+    fn split_commit_out_file(
+        &self,
+        commit_oid: &Oid,
+        file_path: &str,
+        head_oid: &Oid,
     ) -> Result<()>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.

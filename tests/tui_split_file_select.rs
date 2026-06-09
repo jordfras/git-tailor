@@ -12,69 +12,73 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TUI snapshot tests for the split-strategy selection dialog.
+// TUI snapshot tests for the "split out file" file picker dialog.
 
 #[allow(dead_code)]
 mod common;
 use common::TuiTestHarness;
 
 use git_tailor::{
+    Oid,
     app::{AppMode, AppState},
     views,
 };
 
-fn make_app_in_split_select(strategy_index: usize) -> AppState {
+fn make_app_in_file_select(file_index: usize) -> AppState {
     let mut app =
         common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
     app.selection_index = 0;
-    app.mode = AppMode::SplitSelect { strategy_index };
+    app.mode = AppMode::SplitFileSelect {
+        commit_oid: Oid::from("0".repeat(40).as_str()),
+        files: vec![
+            "src/parser.rs".to_string(),
+            "src/lexer.rs".to_string(),
+            "tests/parser.rs".to_string(),
+        ],
+        file_index,
+    };
     app
 }
 
 #[test]
-fn test_split_dialog_per_file_selected() {
+fn test_split_file_select_first_highlighted() {
     let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(0);
+    let mut app = make_app_in_file_select(0);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::split_file_select::render(&mut app, frame);
     }));
 }
 
 #[test]
-fn test_split_dialog_out_file_selected() {
+fn test_split_file_select_second_highlighted() {
     let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(1);
+    let mut app = make_app_in_file_select(1);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::split_file_select::render(&mut app, frame);
     }));
 }
 
 #[test]
-fn test_split_dialog_per_hunk_selected() {
+fn test_split_file_select_long_path_elided() {
     let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(2);
+    let mut app =
+        common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
+    app.selection_index = 0;
+    app.mode = AppMode::SplitFileSelect {
+        commit_oid: Oid::from("0".repeat(40).as_str()),
+        files: vec![
+            "src/views/git2_impl/reads/extract_files_and_hunks.rs".to_string(),
+            "Cargo.toml".to_string(),
+        ],
+        file_index: 0,
+    };
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
-    }));
-}
-
-#[test]
-fn test_split_dialog_per_hunk_group_selected() {
-    let mut harness = TuiTestHarness::typical();
-
-    let mut app = make_app_in_split_select(3);
-
-    insta::assert_debug_snapshot!(harness.render(|frame| {
-        views::commit_list::render(&mut app, frame);
-        views::split_select::render(&mut app, frame);
+        views::split_file_select::render(&mut app, frame);
     }));
 }

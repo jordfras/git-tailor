@@ -127,6 +127,10 @@ impl GitRepo for Git2Repo {
         reads::unstaged_diff(self)
     }
 
+    fn list_commit_files(&self, commit_oid: &Oid) -> Result<Vec<String>> {
+        reads::list_commit_files(self, commit_oid)
+    }
+
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         split_op::split_commit_per_file(self, commit_oid, head_oid)
     }
@@ -142,6 +146,15 @@ impl GitRepo for Git2Repo {
         reference_oid: &Oid,
     ) -> Result<()> {
         split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+    }
+
+    fn split_commit_out_file(
+        &self,
+        commit_oid: &Oid,
+        file_path: &str,
+        head_oid: &Oid,
+    ) -> Result<()> {
+        split_op::split_commit_out_file(self, commit_oid, file_path, head_oid)
     }
 
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {

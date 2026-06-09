@@ -10,6 +10,11 @@ The format is based on
 
 ### Fixed
 
+- Overlay dialogs now size themselves and scroll by wrapped rows rather than
+  logical lines. Previously a line wider than the dialog wrapped onto extra
+  rows that were not counted, so the dialog rendered one or more rows too short
+  — clipping content against the bottom border and leaving it unreachable by
+  scrolling (most visible in narrow terminals).
 - Rewording a commit without changing the message now shows a "No changes made"
   status message instead of silently doing nothing. Saving an empty message
   cancels the reword with a status message instead of committing an invalid
@@ -20,6 +25,14 @@ The format is based on
 
 ### Added
 
+- The "Split out file" file picker now shortens long paths that would overflow
+  the dialog, eliding leading directories (`…/reads/extract.rs`) so the filename
+  and its nearest parents stay visible.
+- The split menu (`p`) has a new "Split out file" option for commits that touch
+  multiple files. It opens a file picker; choosing a file rewrites the commit
+  into two: the first keeps every other file's changes under the original
+  message, and the second contains only the chosen file's changes (its summary
+  suffixed with the file name).
 - In the commit detail view, pressing `Enter` to confirm a search now
   automatically scrolls to the first match at or after the current scroll
   position (wrapping to the first match overall if all matches lie above).

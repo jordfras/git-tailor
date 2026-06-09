@@ -21,7 +21,10 @@ path = "src/main.rs"
 [dependencies]
 git2 = { version = "0.21", default-features = false }
 anyhow = "1.0"
-ratatui = "0.30"
+# `unstable-rendered-line-info` exposes `Paragraph::line_count`, used by the
+# dialog overlay to size and scroll itself by wrapped rows rather than logical
+# lines (so long lines that wrap are not clipped / left unreachable).
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29"
 clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions", "env"] }
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }

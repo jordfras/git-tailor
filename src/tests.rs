@@ -103,6 +103,12 @@ impl GitRepo for MockRepo {
     fn split_commit_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
+    fn list_commit_files(&self, _: &Oid) -> anyhow::Result<Vec<String>> {
+        unimplemented!()
+    }
+    fn split_commit_out_file(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
         unimplemented!()
     }

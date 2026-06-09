@@ -45,9 +45,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             let strategy = SplitStrategy::ALL[strategy_index];
             let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
             app.mode = AppMode::CommitList;
-            AppAction::PrepareSplit {
-                strategy,
-                commit_oid,
+            // "Split out file" needs a second dialog to choose the file, so it
+            // takes its own flow rather than the count/confirm split path.
+            match strategy {
+                SplitStrategy::OutFile => AppAction::PrepareSplitOutFile { commit_oid },
+                _ => AppAction::PrepareSplit {
+                    strategy,
+                    commit_oid,
+                },
             }
         }
         ListNav::Cancelled => {
@@ -196,6 +201,9 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerFile => "per file",
         crate::app::SplitStrategy::PerHunk => "per hunk",
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
+        // "Split out file" never reaches the large-split confirmation dialog
+        // (it always produces exactly two commits), but the match must be total.
+        crate::app::SplitStrategy::OutFile => "split out file",
     };
 
     let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm)
