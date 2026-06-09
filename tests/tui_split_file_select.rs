@@ -61,3 +61,24 @@ fn test_split_file_select_second_highlighted() {
         views::split_file_select::render(&mut app, frame);
     }));
 }
+
+#[test]
+fn test_split_file_select_long_path_elided() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app =
+        common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
+    app.selection_index = 0;
+    app.mode = AppMode::SplitFileSelect {
+        commit_oid: Oid::from("0".repeat(40).as_str()),
+        files: vec![
+            "src/views/git2_impl/reads/extract_files_and_hunks.rs".to_string(),
+            "Cargo.toml".to_string(),
+        ],
+        file_index: 0,
+    };
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::split_file_select::render(&mut app, frame);
+    }));
+}

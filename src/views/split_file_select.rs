@@ -23,6 +23,14 @@ use ratatui::{
     text::{Line, Span},
 };
 
+/// Dialog content width passed to [`Dialog::render`].
+const CONTENT_WIDTH: u16 = 50;
+
+/// Display columns available for a file path on one row: the dialog content
+/// width minus its borders (2), the " ▸   " marker/indent (5), and one column
+/// reserved for the scrollbar.
+const PATH_WIDTH: usize = CONTENT_WIDTH as usize - 8;
+
 /// Handle an action while in SplitFileSelect mode.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let (commit_oid, file_count, file_index) = match &app.mode {
@@ -111,7 +119,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
             Style::default().fg(Color::White)
         };
         dialog = dialog.push_line(Line::from(Span::styled(
-            format!(" {}  {}", marker, file),
+            format!(" {}  {}", marker, elide_path(file, PATH_WIDTH)),
             style,
         )));
     }
@@ -124,13 +132,98 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         ])
         .blank();
 
-    let content_width = 50;
     let (max_scroll, visible_height) = dialog.render(
         frame,
         "Split Out File",
-        content_width,
+        CONTENT_WIDTH,
         app.dialog_scroll_offset,
     );
     app.max_dialog_scroll = max_scroll;
     app.dialog_visible_height = visible_height;
+}
+
+/// Shorten `path` to at most `max` display columns for the picker by eliding
+/// leading directory components (front ellipsis), so the filename and its
+/// nearest parents — the parts that identify the file — stay visible.
+///
+/// Elision happens on `/` boundaries: the result is `…/<tail>` where `<tail>`
+/// is the longest run of whole trailing components that fits. If even the
+/// basename is too wide, the path's trailing characters are kept with a
+/// leading ellipsis as a last resort.
+fn elide_path(path: &str, max: usize) -> String {
+    let total = path.chars().count();
+    if total <= max {
+        return path.to_string();
+    }
+
+    // Byte indices where each component starts (just after every '/').
+    let mut starts = vec![0usize];
+    for (i, c) in path.char_indices() {
+        if c == '/' {
+            starts.push(i + c.len_utf8());
+        }
+    }
+
+    // From the longest tail to the shortest, return the first `…/<tail>` that
+    // fits. `starts[0]` (the whole path) is skipped — it already doesn't fit.
+    for &start in starts.iter().skip(1) {
+        let suffix = &path[start..];
+        // 2 columns for the leading "…/".
+        if 2 + suffix.chars().count() <= max {
+            return format!("…/{suffix}");
+        }
+    }
+
+    // Even the basename does not fit: keep the trailing chars after one '…'.
+    let keep = max.saturating_sub(1);
+    let tail: String = path.chars().skip(total - keep).collect();
+    format!("…{tail}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::elide_path;
+
+    // "aa/bb/cc/dd.rs" is 14 columns; components start at 0, 3, 6, 9.
+
+    #[test]
+    fn keeps_path_that_fits() {
+        assert_eq!(elide_path("aa/bb/cc/dd.rs", 14), "aa/bb/cc/dd.rs");
+        assert_eq!(elide_path("src/a.rs", 20), "src/a.rs");
+    }
+
+    #[test]
+    fn elides_leading_components_on_boundary() {
+        assert_eq!(elide_path("aa/bb/cc/dd.rs", 13), "…/bb/cc/dd.rs");
+        assert_eq!(elide_path("aa/bb/cc/dd.rs", 10), "…/cc/dd.rs");
+    }
+
+    #[test]
+    fn keeps_basename_when_middle_too_long() {
+        assert_eq!(elide_path("aa/bb/cc/dd.rs", 9), "…/dd.rs");
+    }
+
+    #[test]
+    fn truncates_basename_as_last_resort() {
+        // Budget too small even for "…/dd.rs": keep trailing chars after '…'.
+        let out = elide_path("aa/bb/cc/dd.rs", 6);
+        assert_eq!(out, "…dd.rs");
+        assert!(out.chars().count() <= 6);
+    }
+
+    #[test]
+    fn handles_path_without_separators() {
+        let out = elide_path("verylongfilename.rs", 10);
+        assert!(out.starts_with('…'));
+        assert!(out.ends_with(".rs"));
+        assert!(out.chars().count() <= 10);
+    }
+
+    #[test]
+    fn result_never_exceeds_budget() {
+        let p = "src/views/git2_impl/reads/extract_files.rs";
+        for max in 4..=p.chars().count() {
+            assert!(elide_path(p, max).chars().count() <= max, "max={max}");
+        }
+    }
 }

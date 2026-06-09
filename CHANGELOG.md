@@ -25,6 +25,9 @@ The format is based on
 
 ### Added
 
+- The "Split out file" file picker now shortens long paths that would overflow
+  the dialog, eliding leading directories (`…/reads/extract.rs`) so the filename
+  and its nearest parents stay visible.
 - The split menu (`p`) has a new "Split out file" option for commits that touch
   multiple files. It opens a file picker; choosing a file rewrites the commit
   into two: the first keeps every other file's changes under the original
