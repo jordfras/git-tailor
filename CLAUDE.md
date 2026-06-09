@@ -1,4 +1,4 @@
-# AI Agent Guidelines for git-tailor
+# Claude Guidelines for git-tailor
 
 This document describes the architecture, design decisions, and conventions for
 the git-tailor project.
@@ -14,23 +14,8 @@ browse, analyze, reorder, squash, and split commits on a branch.
 - **Language**: Rust
 - **Key crates**: `ratatui`, `crossterm`, `git2`, `clap`, `anyhow`
 
-Every source file (`.rs`) must begin with the Apache-2.0 license header:
-
-```rust
-// Copyright 2026 Thomas Johannesson
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-```
+Every `.rs` file must begin with the Apache-2.0 license header. Use the
+`new-rust-file` skill when creating new files.
 
 ## Architecture
 
@@ -107,26 +92,10 @@ non-TUI frontends (CLI batch mode, CI tooling, etc.).
 - A module without sub-modules: `src/repo.rs`
 - A module with sub-modules: `src/repo.rs` + `src/repo/*.rs`
 
-Example:
-```
-src/
-  lib.rs
-  repo.rs              # declares: pub mod git2_impl;
-  repo/
-    git2_impl.rs
-  views.rs             # declares sub-modules
-  views/
-    commit_list.rs
-    commit_detail.rs
-    fragmap.rs
-```
-
 **Exception — integration test helpers:** `tests/common/mod.rs` (and its
 sub-modules like `tests/common/fake.rs`) use the `mod.rs` style intentionally.
 This keeps every file directly inside `tests/` an actual test binary entry
 point, making the layout unambiguous at a glance.
-
-This keeps the module tree clear and avoids the old `mod.rs` pattern in production code.
 
 ### Code Comments Convention
 
@@ -137,73 +106,30 @@ not restate what the code already clearly expresses.
 ```rust
 // Open repository from current directory
 let repo = git2::Repository::open(".")?;
-
-// Get HEAD as Oid
-let head = repo.head()?;
 ```
 
 ✅ Good (explains *why* or provides non-obvious context):
 ```rust
-// Use current directory since we want to operate on the active repo
-let repo = git2::Repository::open(".")?;
-
 // HEAD might be detached, so target() can fail
 let head_oid = repo.head()?.target()?;
 ```
 
-✅ Also good (doc comments for public APIs):
-```rust
-/// Find the merge-base (reference point) between HEAD and a given commit-ish.
-/// Returns the OID of the common ancestor.
-pub fn find_reference_point(commit_ish: &str) -> Result<String> {
-```
+### Code Quality
 
-When in doubt, let the code speak for itself. Use meaningful variable names and
-clear structure instead of comments.
-
-### Code Quality Workflow
-
-**Always run formatting and linting after code changes.**
-
-After modifying any Rust code, run these commands in order:
-
-1. **`cargo fmt`** — Format code according to Rust style guidelines
-2. **`cargo clippy --all-targets`** — Run linter to catch common mistakes and
-   suggest improvements (includes examples, tests, and benchmarks)
-3. **`cargo test`** — Run test suite
-
-Fix any clippy warnings before committing. The codebase should maintain zero
-warnings.
-
-### Changelog
-
-`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-format. When completing a task, ask the user whether the change warrants a
-changelog entry before committing. User-visible changes that typically need an
-entry:
-
-- New CLI flags or arguments → **Added**
-- New TUI features or interactive behaviors → **Added**
-- Changed behavior users will notice → **Changed**
-- Bug fixes → **Fixed**
-
-Internal-only changes (refactors, test additions, CI tweaks, doc corrections)
-generally do **not** need a changelog entry — confirm with the user if unsure.
+After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and
+`cargo test`. The codebase maintains zero clippy warnings.
 
 ### Commit Conventions
 
 Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `refactor:`,
-`docs:`, `chore:`. Each commit should represent one logical change.
+`docs:`, `chore:`, `tasks:`. Each commit represents one logical change.
 
-**Bug fixes — TDD workflow:** write a failing test that reproduces the bug and
-commit it alone with a `test:` prefix before implementing the fix. Skip this
-only if the bug cannot be exercised by an automated test.
+**Bug fixes — TDD:** write a failing test first, commit it with `test:` prefix,
+then implement the fix. Skip only if the bug cannot be exercised by a test.
 
-**Design fit over diff size.** Prefer changes that integrate cleanly with the
-surrounding code. If the existing structure is a poor fit — fragile, duplicated,
-or poorly abstracted — identify the problem and propose a preparatory refactoring
-before implementing. A prior refactor commit that makes the actual change cleaner
-is in scope; unrelated cleanup is not.
+**Design fit over diff size.** If the existing structure is a poor fit for a
+change — fragile, duplicated, or poorly abstracted — propose a preparatory
+refactoring commit first. Unrelated cleanup is out of scope.
 
 ### Commit & Diff Types
 
@@ -253,12 +179,9 @@ cannot be expressed through the rebase todo-list model. The cherry-pick loop is
 also simpler to reason about — all state lives in Rust structs rather than
 libgit2's opaque rebase state machine.
 
-- **Reorder**: Cherry-pick commits in new order onto merge-base using
-  `Repository::cherrypick_commit` to produce new trees, then create new commits.
-- **Squash**: Cherry-pick squash-target on top of destination commit, combine
-  messages.
-- **Split per-file**: From a commit's diff, create N commits each applying only
-  one file's hunks. Uses `Diff::apply_to_tree` with filtered patches.
+- **Reorder**: Cherry-pick commits in new order onto merge-base.
+- **Squash**: Cherry-pick squash-target on top of destination commit, combine messages.
+- **Split per-file**: Create N commits each applying only one file's hunks via `Diff::apply_to_tree`.
 - **Split per-hunk**: Same approach at hunk granularity.
 
 All mutations build new commit chains and advance the branch ref immediately.
@@ -318,26 +241,6 @@ The fragmap algorithm, rebase plan computation, and split selection logic are
 pure functions over domain types — easily unit tested. The git2 interaction is
 behind a trait boundary, integration tested with real temporary repos.
 
-```
-┌──────────────────────────────────────────────┐
-│            TUI (main.rs + views)             │
-│  (thin: renders AppState, dispatches keys)   │
-│  tested with: TestBackend + insta snapshots  │
-├──────────────────────────────────────────────┤
-│          Library (lib.rs + modules)          │
-│                                              │
-│  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ Pure logic   │  │ trait GitRepo        │  │
-│  │ (fragmap,    │  │                      │  │
-│  │  rebase plan)│  │  ├─ Git2Repo (real)  │  │
-│  │              │  │  └─ MockRepo (test)  │  │
-│  │ unit tested  │  │                      │  │
-│  │ with mocks   │  │  integration tested  │  │
-│  │              │  │  with TempDir repos  │  │
-│  └──────────────┘  └──────────────────────┘  │
-└──────────────────────────────────────────────┘
-```
-
 ### Trait-based abstraction over git2
 
 Don't call `git2` directly from business logic. All git operations go through
@@ -365,41 +268,17 @@ impl TestRepo {
 }
 ```
 
-Tests read like specifications:
-
-```rust
-#[test]
-fn squash_adjacent_commits() {
-    let test = TestRepo::new();
-    let base = test.commit_file("a.txt", "base\n", "base");
-    let target = test.commit_file("a.txt", "target\n", "target commit");
-    let source = test.commit_file("b.txt", "source\n", "source commit");
-
-    let git_repo = test.git_repo();
-    let result = git_repo
-        .squash_commits(
-            &source.to_string(),
-            &target.to_string(),
-            "squashed message",
-            &source.to_string(),
-        )
-        .unwrap();
-
-    assert!(matches!(result, RebaseOutcome::Complete));
-}
-```
-
 ### What to test at each layer
 
-| Layer                          | How to test                                           | Example                                                |
-|--------------------------------|-------------------------------------------------------|--------------------------------------------------------|
-| **Domain types**               | Plain unit tests, no git                              | Construct structs, assert properties                   |
-| **Fragmap clustering**         | Unit tests with fabricated `CommitDiff` data          | Feed hand-crafted hunks, assert cluster grouping       |
-| **Rebase planner**             | Unit tests with mock `GitRepo` trait                  | Assert correct sequence of cherry-picks for a reorder  |
-| **`Git2Repo` implementation**  | Integration tests with `TempDir` repos                | Verify real commits are created correctly              |
-| **Rebase engine e2e**          | Integration tests with `TempDir` repos                | Squash, reorder, split → verify resulting commit graph |
-| **Conflict detection**         | Integration with repos having overlapping edits       | Assert conflicts are detected and reported             |
-| **TUI views**                  | Snapshot testing with `ratatui::backend::TestBackend` | Render to buffer, assert cell contents via `insta`     |
+| Layer                          | How to test                                           |
+|--------------------------------|-------------------------------------------------------|
+| **Domain types**               | Plain unit tests, no git                              |
+| **Fragmap clustering**         | Unit tests with fabricated `CommitDiff` data          |
+| **Rebase planner**             | Unit tests with mock `GitRepo` trait                  |
+| **`Git2Repo` implementation**  | Integration tests with `TempDir` repos                |
+| **Rebase engine e2e**          | Integration tests with `TempDir` repos                |
+| **Conflict detection**         | Integration with repos having overlapping edits       |
+| **TUI views**                  | Snapshot testing with `ratatui::backend::TestBackend` |
 
 ### Test dependencies
 
