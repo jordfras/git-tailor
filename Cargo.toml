@@ -41,3 +41,7 @@ winapi = { version = "0.3", features = ["consoleapi", "processenv", "winbase", "
 
 [dev-dependencies]
 insta = "1"
+# Used only by the `gen_screenshot` example to rasterize the rendered TUI buffer
+# into doc/tui_example.png. Not part of the published crate (examples are excluded).
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
