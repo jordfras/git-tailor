@@ -222,11 +222,11 @@ impl FragmapTheme for ClassicTheme {
 /// Selects which `FragmapTheme` implementation is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum Theme {
-    /// No focus highlighting (default).
+    /// Highlight clusters related to the selected commit (default).
     #[default]
-    Plain,
-    /// Highlight clusters related to the selected commit.
     Highlight,
+    /// No focus highlighting.
+    Plain,
     /// Background-color style, matching the `--static` output.
     Classic,
 }
@@ -234,8 +234,8 @@ pub enum Theme {
 impl Theme {
     pub fn as_theme(&self) -> &dyn FragmapTheme {
         match self {
-            Theme::Plain => &PlainTheme,
             Theme::Highlight => &HighlightTheme,
+            Theme::Plain => &PlainTheme,
             Theme::Classic => &ClassicTheme,
         }
     }

@@ -27,7 +27,6 @@ use git_tailor::{
     CommitDiff, CommitInfo, Oid,
     app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
     editor, mergetool, views,
-    views::theme::Theme,
 };
 
 use crate::cli::Cli;
@@ -94,7 +93,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::new();
     app.reverse = cli.reverse;
-    app.theme = cli.theme.unwrap_or(Theme::Plain);
+    app.theme = cli.theme.unwrap_or_default();
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
     app.full_fragmap = cli.full;

@@ -55,12 +55,15 @@ fn main() -> Result<()> {
 
     let mut app = load_app(tmp.path()).context("loading commits + fragmap")?;
 
-    // Select a fixup commit so its squash target lights up (yellow squash
-    // partner / connector), demonstrating "find where to squash this".
+    // Select a commit whose hunk group contains both a squashable partner
+    // (green: "feat: add expression parser") and a later conflicting edit
+    // (red: "refactor: track source spans"). With the default Highlight theme
+    // this lights up that one column and dims the rest — showcasing how the
+    // theme focuses attention on the selected commit's relationships.
     if let Some(idx) = app
         .commits
         .iter()
-        .position(|c| c.summary.starts_with("fixup! add token kinds"))
+        .position(|c| c.summary.starts_with("fix: handle unary minus"))
     {
         app.selection_index = idx;
     }
@@ -99,7 +102,8 @@ fn load_app(repo_path: &Path) -> Result<AppState> {
         .context("fragmap computation returned None")?;
 
     let mut app = AppState::with_commits(commits);
-    app.theme = Theme::Plain;
+    // Render with the default theme so the screenshot matches what users see.
+    app.theme = Theme::default();
     app.fragmap = Some(fragmap);
     // Trim the title column down to the widest summary so the hunk-group matrix
     // sits right next to the titles, leaving just enough room for its header.

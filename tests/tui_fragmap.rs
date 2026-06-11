@@ -13,6 +13,11 @@
 // limitations under the License.
 
 // TUI snapshot tests for the fragmap view.
+//
+// These tests document the Plain theme's gray/white/yellow/red rendering and
+// pin `Theme::Plain` so they stay stable regardless of the default theme.
+// Theme-specific rendering (including the default Highlight theme) is covered
+// by tui_theme.rs.
 
 #[allow(dead_code)]
 mod common;
@@ -23,6 +28,7 @@ use git_tailor::{
     app::AppState,
     fragmap::{SpanCluster, TouchKind},
     views,
+    views::theme::Theme,
 };
 
 /// Two commits touching the same cluster with no commits in between → squashable.
@@ -32,6 +38,7 @@ fn test_fragmap_squashable_pair() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
@@ -65,6 +72,7 @@ fn test_fragmap_conflicting_pair() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add parser"),
         common::create_test_commit("bbbb33334444", "Refactor parser"),
@@ -100,6 +108,7 @@ fn test_fragmap_mixed_columns() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add feature A"),
         common::create_test_commit("bbbb33334444", "Touch both files"),
@@ -151,6 +160,7 @@ fn test_fragmap_reversed() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
@@ -185,6 +195,7 @@ fn test_fragmap_full_duplicate_columns_visible() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
@@ -216,6 +227,7 @@ fn test_fragmap_adjacent_squashable() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Fix handler"),
@@ -271,6 +283,7 @@ fn test_fragmap_horizontal_scroll() {
         .collect();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = commits;
     app.selection_index = 0;
     app.fragmap_scroll_offset = 4;
@@ -289,6 +302,7 @@ fn test_fragmap_not_fully_squashable() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
+    app.theme = Theme::Plain;
     app.commits = vec![
         common::create_test_commit("aaaa11112222", "Touch config"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),

@@ -54,6 +54,14 @@ The format is based on
   while pressing it in the commit detail view shows only the relevant subset
   (diff scroll, search, navigation back).
 
+### Changed
+
+- The hunk group matrix now defaults to the `highlight` theme, which dims the
+  columns the selected commit does not touch and draws related commits in green
+  (squashable) or red (conflicting) to focus attention on its relationships. The
+  previous flat coloring remains available with `--theme plain` (or
+  `GT_THEME=plain`).
+
 ### Removed
 
 - `--squashable-scope` CLI flag and `GT_SQUASHABLE_SCOPE` environment variable.
