@@ -28,9 +28,6 @@ The format is based on
 - git-tailor now checks crates.io for a newer release (at most once a day, on a
   background thread so startup is never delayed) and shows an unobtrusive notice
   in the footer when one is found.
-- The "Split out file" file picker now shortens long paths that would overflow
-  the dialog, eliding leading directories (`…/reads/extract.rs`) so the filename
-  and its nearest parents stay visible.
 - The split menu (`p`) has a new "Split out file" option for commits that touch
   multiple files. It opens a file picker; choosing a file rewrites the commit
   into two: the first keeps every other file's changes under the original
