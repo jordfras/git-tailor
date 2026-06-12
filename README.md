@@ -119,8 +119,6 @@ When you select a commit, the other commits are colored relative to it:
 With `--theme plain` these same relationships are shown in yellow (squashable),
 red (conflicting), and gray (fully squashable) instead.
 
-
-
 ## Key bindings
 
 ### Navigation
@@ -175,6 +173,30 @@ exception is `f` / `F`, which is available in the commit detail view only.
 | `N`   | Jump to previous match              |
 | `Esc` | Dismiss search                      |
 
+## Notes
+
+### A single hunk can span more than one hunk group
+
+The matrix columns are not simply "one per hunk." A hunk group is a range of
+lines that one or more commits touch, and its boundaries fall wherever *any*
+commit's hunk starts or ends. So when two commits change overlapping but not
+identical line ranges, the shared region and the non-overlapping remainders each
+become a separate group — and a single hunk from one commit can then cover more
+than one group, showing up as squares in two (or more) adjacent columns on the
+same row.
+
+This is worth keeping in mind when splitting a commit:
+
+- **Per hunk group** cannot slice a hunk along a group boundary. A hunk is the
+  smallest unit Git can apply on its own, so when one hunk spans several groups
+  those groups stay together in the same resulting commit. The split can
+  therefore produce *fewer* commits than there are columns.
+- **Per hunk** splits by the commit's actual diff hunks, not by columns. A hunk
+  drawn across two columns looks like two changes in the matrix, but it is a
+  single hunk and yields a single commit — it cannot be divided further.
+
+In short, the matrix shows how changes *relate* across commits; it does not
+promise that every column is independently splittable.
 
 ## Attribution
 
