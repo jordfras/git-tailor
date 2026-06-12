@@ -81,6 +81,9 @@ pub struct AppState {
     pub search_match_index: Option<usize>,
     /// Line indices of file-diff headers in the detail view content (updated during render).
     pub file_start_lines: Vec<usize>,
+    /// Set when the background check detects a newer crates.io release. Persistent
+    /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
+    pub update_notice: Option<String>,
 }
 
 impl AppState {

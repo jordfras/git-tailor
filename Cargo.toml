@@ -31,6 +31,7 @@ time = { version = "0.3", default-features = false, features = ["formatting", "m
 tempfile = "3"
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
 shell-words = "1"
+update-informer = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
