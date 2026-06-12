@@ -65,11 +65,11 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 Some flags can be persisted via environment variables so you don't have to pass
 them every time:
 
-| Environment variable              | Equivalent flag                     |
-|-----------------------------------|-------------------------------------|
-| `GT_REVERSE=1`                    | `--reverse`                         |
-| `GT_FULL=1`                       | `--full`                            |
-| `GT_THEME=highlight`              | `--theme highlight`                 |
+| Environment variable          | Equivalent flag                 |
+|-------------------------------|---------------------------------|
+| `GT_REVERSE=1`                | `--reverse`                     |
+| `GT_FULL=1`                   | `--full`                        |
+| `GT_THEME=plain`              | `--theme plain`                 |
 
 
 ## The interface
@@ -78,14 +78,17 @@ them every time:
 
 Each **column** in the hunk group matrix represents a group of related hunks (a
 contiguous set of lines in a file that is touched by one or more commits). A
-square `█` in a column means that commit modifies lines in that hunk group. A
+square `█` in a column means that the commit modifies lines in that hunk group. A
 vertical line (`│` or `┃`) between two squares is a **connector** — it means the
 two commits touch the same hunk group but are separated by other commits.
 
 The default **highlight** theme focuses on the selected commit: the hunk groups
 it touches are drawn at full brightness (with heavy `┃` connectors) while every
 other column is dimmed. Pass `--theme plain` for a flat look with no dimming, or
-`--theme classic` for the background-color style matching `--static` output.
+`--theme classic` for the background-color style matching `--static` output. The
+`plain` and `classic` themes render the matrix much like the
+[fragmap](https://github.com/amollberg/fragmap) tool, so they may feel more
+familiar if you are coming from there.
 
 ### Color legend — hunk group matrix (highlight theme)
 
