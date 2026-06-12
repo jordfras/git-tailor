@@ -328,3 +328,40 @@ fn test_fragmap_not_fully_squashable() {
         harness.render(|frame| views::commit_list::render(&mut app, frame))
     );
 }
+
+/// End-to-end snapshot of the default Highlight theme (the rendering users
+/// actually see) for a squashable/unrelated topology. The rest of this file
+/// pins Plain for focus-independent structural snapshots; this one guards the
+/// default look of the full commit-list view.
+#[test]
+fn test_fragmap_default_highlight_theme() {
+    let mut harness = TuiTestHarness::short();
+
+    let mut app = AppState::new();
+    // No `app.theme = ...`: exercise the default (Highlight).
+    app.commits = vec![
+        common::create_test_commit("aaaa11112222", "Touch config"),
+        common::create_test_commit("bbbb33334444", "Unrelated change"),
+        common::create_test_commit("cccc55556666", "Fix config typo"),
+    ];
+    app.selection_index = 0;
+
+    // Cluster 0: commits 0 and 2 → squashable. Cluster 1: commit 1 only →
+    // unrelated to the focus commit, so Highlight dims it.
+    app.fragmap = Some(create_fragmap(
+        vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaaa11112222", "cccc55556666"]),
+            simple_cluster("other.rs", 1, 5, &["bbbb33334444"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::None],
+            vec![TouchKind::None, TouchKind::Modified],
+            vec![TouchKind::Modified, TouchKind::None],
+        ],
+    ));
+
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
+}
