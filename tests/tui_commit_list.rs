@@ -205,6 +205,25 @@ fn test_footer_hint_too_narrow() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+// When an update notice is set it replaces the help hint in the right-hand
+// footer slot (highlighted), instead of occupying any extra space.
+#[test]
+fn test_footer_update_notice() {
+    let mut harness = TuiTestHarness::new(80, 5);
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit(
+        "abc123def456abc123def456abc123def456abc1",
+        "A commit",
+    )];
+    app.selection_index = 0;
+    app.update_notice = Some("Version 9.9.9 available".to_string());
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
 #[test]
 fn test_status_bar_long_error() {
     let mut harness = TuiTestHarness::short();

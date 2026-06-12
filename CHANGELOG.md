@@ -25,6 +25,9 @@ The format is based on
 
 ### Added
 
+- git-tailor now checks crates.io for a newer release (at most once a day, on a
+  background thread so startup is never delayed) and shows an unobtrusive notice
+  in the footer when one is found.
 - The "Split out file" file picker now shortens long paths that would overflow
   the dialog, eliding leading directories (`…/reads/extract.rs`) so the filename
   and its nearest parents stay visible.

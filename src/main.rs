@@ -18,6 +18,7 @@ mod cli;
 mod external_tool;
 mod loader;
 mod terminal_guard;
+mod update_check;
 
 use anyhow::Result;
 use clap::Parser;
@@ -87,6 +88,10 @@ fn main() -> Result<()> {
     let mut terminal_guard = setup_terminal()?;
     let kb_enhanced = terminal_guard.kb_enhanced();
 
+    // Kick off the crates.io update check immediately so it can run during the
+    // loading phase; its result is surfaced on a later keypress (see the loop).
+    let mut update_poller = update_check::UpdatePoller::new();
+
     let mut app = AppState::new();
     app.reverse = cli.reverse;
     app.theme = cli.theme.unwrap_or(Theme::Plain);
@@ -120,6 +125,10 @@ fn main() -> Result<()> {
         })?;
 
         let event = app::read_event()?;
+
+        if let Some(version) = update_poller.poll() {
+            app.update_notice = Some(format!("Version {version} available"));
+        }
 
         // When the search-input bar is active in CommitDetail, forward raw
         // key events to the search handler instead of routing through parse_key.

@@ -756,7 +756,18 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
-    const HINT: &str = "Press 'h' for help";
+    // When the background check found a newer release, the notice takes over the
+    // right-hand hint slot (highlighted); otherwise show the usual help hint.
+    let (hint, hint_style) = match &app.update_notice {
+        Some(notice) => (
+            notice.as_str(),
+            FOOTER_STYLE.fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
+        None => (
+            "Press 'h' for help",
+            FOOTER_STYLE.add_modifier(Modifier::DIM),
+        ),
+    };
     let left = if app.commits.is_empty() {
         String::from("No commits")
     } else {
@@ -764,10 +775,9 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         let position = app.commits.len() - app.selection_index;
         format!(" {} {}/{}", commit.oid.long(), position, app.commits.len())
     };
-    let hint_style = FOOTER_STYLE.add_modifier(Modifier::DIM);
     let width = area.width as usize;
     let left_len = left.len();
-    let hint_len = HINT.len();
+    let hint_len = hint.len();
     const MIN_GAP: usize = 2;
     const RIGHT_PAD: usize = 1;
     let line = if left_len + MIN_GAP + hint_len + RIGHT_PAD <= width {
@@ -775,7 +785,7 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         Line::from(vec![
             Span::styled(left, FOOTER_STYLE),
             Span::styled(" ".repeat(padding), FOOTER_STYLE),
-            Span::styled(HINT, hint_style),
+            Span::styled(hint, hint_style),
             Span::styled(" ".repeat(RIGHT_PAD), FOOTER_STYLE),
         ])
     } else {
