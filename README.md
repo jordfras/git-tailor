@@ -125,12 +125,26 @@ red (conflicting), and gray (fully squashable) instead.
 
 ### Navigation
 
-| Key                  | Action                              |
-|----------------------|-------------------------------------|
-| `↑` / `↓`, `j` / `k` | Move selection up/down              |
-| `PgUp` / `PgDn`      | Move one page up/down               |
-| `←` / `→`            | Scroll hunk group matrix left/right |
-| `Ctrl ←` / `Ctrl →`  | Move the panel separator left/right |
+These keys work in both the commit list and the commit detail view — vertical
+keys move the selection in the list and scroll the diff in the detail view,
+horizontal keys scroll the hunk group matrix and the diff respectively. The only
+exception is `f` / `F`, which is available in the commit detail view only.
+
+| Key                                  | Action                                                      |
+|--------------------------------------|-------------------------------------------------------------|
+| `↑` / `↓`, `j` / `k`                 | Move selection / scroll up/down                             |
+| `PgUp` / `PgDn`                      | Move one page up/down                                       |
+| `Space` / `b`                        | Move one page down/up                                       |
+| `Ctrl-f` / `Ctrl-b`                  | Move one page down/up                                       |
+| `Ctrl-d` / `Ctrl-u`                  | Move half a page down/up                                    |
+| `Ctrl-PgDn` / `Ctrl-PgUp`            | Move half a page down/up                                    |
+| `g` / `G`, `Home` / `End`            | Jump to first/last commit (list) or top/bottom (detail)     |
+| `←` / `→`                            | Scroll hunk group matrix / diff left/right                  |
+| `0` / `$`                            | Scroll to the left/right edge                               |
+| `Ctrl-a` / `Ctrl-e`                  | Scroll to the left/right edge                               |
+| `Ctrl-Home` / `Ctrl-End`             | Scroll to the left/right edge                               |
+| `Ctrl ←` / `Ctrl →`                  | Move the panel separator left/right                         |
+| `f` / `F`                            | Jump to next/previous file in diff (commit detail only)     |
 
 ### Operations
 
