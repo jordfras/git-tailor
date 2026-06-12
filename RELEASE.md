@@ -12,6 +12,9 @@ Steps to follow when cutting a new release of git-tailor.
 
 - Update `README.md` if any new CLI flags, key bindings, or significant features
   were added.
+- Regenerate the TUI screenshot so it reflects the current rendering:
+  `cargo run --example gen_screenshot` (writes `doc/tui_example.png`). Commit the
+  result if it changed.
 
 ## 3. Cargo.toml metadata
 

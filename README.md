@@ -60,16 +60,16 @@ gt                   # auto-detect default branch (origin/HEAD or main)
 | `--all`              | Browse the complete repository history from HEAD down to the root commit           |
 | `--static` / `-s`    | Print the hunk group matrix to stdout and exit (no TUI)                            |
 | `--no-color`         | Disable colors in `--static` output                                                |
-| `--theme <THEME>`    | Hunk group matrix rendering theme: `plain` (default), `highlight`, or `classic`    |
+| `--theme <THEME>`    | Hunk group matrix rendering theme: `highlight` (default), `plain`, or `classic`    |
 
 Some flags can be persisted via environment variables so you don't have to pass
 them every time:
 
-| Environment variable              | Equivalent flag                     |
-|-----------------------------------|-------------------------------------|
-| `GT_REVERSE=1`                    | `--reverse`                         |
-| `GT_FULL=1`                       | `--full`                            |
-| `GT_THEME=highlight`              | `--theme highlight`                 |
+| Environment variable          | Equivalent flag                 |
+|-------------------------------|---------------------------------|
+| `GT_REVERSE=1`                | `--reverse`                     |
+| `GT_FULL=1`                   | `--full`                        |
+| `GT_THEME=plain`              | `--theme plain`                 |
 
 
 ## The interface
@@ -78,33 +78,46 @@ them every time:
 
 Each **column** in the hunk group matrix represents a group of related hunks (a
 contiguous set of lines in a file that is touched by one or more commits). A
-square `█` in a column means that commit modifies lines in that hunk group. A
-vertical line `│` between two squares is a **connector** — it means the two
-commits touch the same hunk group but are separated by other commits.
+square `█` in a column means that the commit modifies lines in that hunk group. A
+vertical line (`│` or `┃`) between two squares is a **connector** — it means the
+two commits touch the same hunk group but are separated by other commits.
 
-### Color legend — hunk group matrix (plain theme)
+The default **highlight** theme focuses on the selected commit: the hunk groups
+it touches are drawn at full brightness (with heavy `┃` connectors) while every
+other column is dimmed. Pass `--theme plain` for a flat look with no dimming, or
+`--theme classic` for the background-color style matching `--static` output. The
+`plain` and `classic` themes render the matrix much like the
+[fragmap](https://github.com/amollberg/fragmap) tool, so they may feel more
+familiar if you are coming from there.
 
-| Color            | Meaning                                                                                                                |
+### Color legend — hunk group matrix (highlight theme)
+
+| Color / style    | Meaning                                                                                                                |
 |------------------|------------------------------------------------------------------------------------------------------------------------|
-| White square     | This commit touches a hunk group that also appears in another commit — potential conflict                              |
-| Dark gray square | This commit's changes in this hunk group can be cleanly squashed with the related, earlier commit                      |
-| Yellow connector | From dark gray square, the two commits can be cleanly squashed                                                         |
+| Green square     | This commit can be cleanly squashed with the related, earlier commit in this hunk group                                |
+| White square     | The earliest commit in a hunk group, or one that touches it but is not a clean squash                                  |
+| Light red square | The selected commit's own square where squashing into the related commit would conflict                                |
+| Green connector  | The two commits linked by the connector can be cleanly squashed                                                        |
 | Red connector    | The two commits touching this hunk group have **conflicting** changes, reordering or squashing risks a merge conflict  |
+| Dimmed column    | A hunk group the selected commit does not touch, shown for context                                                     |
 
 Note that even though the colors indicate cleanly squashable, git may consider
 the squash causing conflict since git-tailor considers no extra lines of context
 while git does.
 
-### Color legend — commit list (plain theme)
+### Color legend — commit list (highlight theme)
 
 When you select a commit, the other commits are colored relative to it:
 
 | Color     | Meaning                                                                                                                           |
 |-----------|-----------------------------------------------------------------------------------------------------------------------------------|
-| Yellow    | Squashable partner — the currently selected commit can be cleanly squashed into the yellow or vice versa depending on order       |
+| Green     | Squashable partner — the currently selected commit can be cleanly squashed into the green commit or vice versa depending on order |
 | Red       | Conflicting — the currently selected commit touches the same lines as the red commit; squashing or reordering may cause conflicts |
-| Dark gray | Fully squashable — every hunk group the grey commit touches is squashable; a good candidate to merge into another commit          |
+| Dim green | Fully squashable — every hunk group this commit touches is squashable; a good candidate to merge into another commit             |
 | Normal    | No shared hunk groups with the currently selected commit                                                                          |
+
+With `--theme plain` these same relationships are shown in yellow (squashable),
+red (conflicting), and gray (fully squashable) instead.
 
 
 

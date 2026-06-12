@@ -28,9 +28,6 @@ The format is based on
 - git-tailor now checks crates.io for a newer release (at most once a day, on a
   background thread so startup is never delayed) and shows an unobtrusive notice
   in the footer when one is found.
-- The "Split out file" file picker now shortens long paths that would overflow
-  the dialog, eliding leading directories (`…/reads/extract.rs`) so the filename
-  and its nearest parents stay visible.
 - The split menu (`p`) has a new "Split out file" option for commits that touch
   multiple files. It opens a file picker; choosing a file rewrites the commit
   into two: the first keeps every other file's changes under the original
@@ -56,6 +53,14 @@ The format is based on
   list shows commit-list keybindings (navigation, operations, fragmap scroll),
   while pressing it in the commit detail view shows only the relevant subset
   (diff scroll, search, navigation back).
+
+### Changed
+
+- The hunk group matrix now defaults to the `highlight` theme, which dims the
+  columns the selected commit does not touch and draws related commits in green
+  (squashable) or red (conflicting) to focus attention on its relationships. The
+  previous flat coloring remains available with `--theme plain` (or
+  `GT_THEME=plain`).
 
 ### Removed
 

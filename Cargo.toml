@@ -27,6 +27,8 @@ anyhow = "1.0"
 ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29"
 clap = { version = "4", default-features = false, features = ["std", "derive", "wrap_help", "help", "usage", "error-context", "suggestions", "env"] }
+# Pinned to 0.3.47 in Cargo.lock: 0.3.48 triggers an E0119 coherence conflict
+# with ratatui-widgets. Retry `cargo update -p time` once upstream ships a fix.
 time = { version = "0.3", default-features = false, features = ["formatting", "macros"] }
 tempfile = "3"
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
@@ -41,3 +43,7 @@ winapi = { version = "0.3", features = ["consoleapi", "processenv", "winbase", "
 
 [dev-dependencies]
 insta = "1"
+# Used only by the `gen_screenshot` example to rasterize the rendered TUI buffer
+# into doc/tui_example.png. Not part of the published crate (examples are excluded).
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }

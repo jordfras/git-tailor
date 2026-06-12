@@ -23,6 +23,7 @@ use git_tailor::{
     app::{AppAction, AppMode, AppState, KeyCommand, SquashMode},
     fragmap::TouchKind,
     views,
+    views::theme::Theme,
 };
 
 fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> AppState {
@@ -246,6 +247,8 @@ fn test_squash_candidate_coloring_with_fragmap() {
         source_index: 2,
         squash_mode: SquashMode::Squash,
     };
+    // Documented colours below are the Plain theme's; pin it for stability.
+    app.theme = Theme::Plain;
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
     app.fragmap = Some(create_fragmap(
@@ -283,6 +286,8 @@ fn test_squash_candidate_coloring_conflicting() {
         source_index: 2,
         squash_mode: SquashMode::Squash,
     };
+    // Documented colours below are the Plain theme's; pin it for stability.
+    app.theme = Theme::Plain;
 
     // All three commits touch cluster 0 → conflicting between 0 and 2
     app.fragmap = Some(create_fragmap(
