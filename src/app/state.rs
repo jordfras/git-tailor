@@ -340,6 +340,11 @@ impl AppState {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
     }
 
+    /// Enter the startup crash-recovery prompt for an interrupted operation.
+    pub fn enter_recover_confirm(&mut self, state: ConflictState) {
+        self.enter_dialog(AppMode::RecoverConfirm(Box::new(state)));
+    }
+
     /// Returns the selected commit if it is a real (non-synthetic) commit.
     /// Sets an error message and returns `None` for staged/unstaged rows.
     pub fn selected_real_commit(&mut self, action: &str) -> Option<&CommitInfo> {
@@ -488,6 +493,7 @@ impl AppState {
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
+            | AppMode::RecoverConfirm(_)
             | AppMode::SquashSelect { .. }
             | AppMode::MoveSelect { .. }
             | AppMode::Loading { .. } => return,

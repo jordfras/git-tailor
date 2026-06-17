@@ -6,6 +6,20 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Added
+
+- Crash safety for rebase operations. While a drop, move, squash, or fixup is
+  paused on an unresolved conflict, git-tailor now records the operation to a
+  journal under `.git/git-tailor/`. If the tool is killed (or the terminal
+  closed) before the conflict is resolved, the next launch detects the
+  interrupted operation and offers to resume it or abort back to the original
+  branch tip — which is pinned with a ref so its commits survive `git gc`.
+  Previously this state lived only in memory and was lost on exit, leaving the
+  repository stuck mid-conflict.
+
+
 ## [1.0.0] - 2026-06-12
 
 ### Fixed

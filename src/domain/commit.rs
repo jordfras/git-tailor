@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A real git object identifier (40-hex-char SHA).
@@ -19,7 +20,7 @@ use std::fmt;
 /// The derived `Default` returns an empty string, which is not a valid SHA.
 /// It is used as a sentinel for `AppState::reference_oid` before the real
 /// merge-base is resolved at startup.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub struct Oid(String);
 
 impl Oid {

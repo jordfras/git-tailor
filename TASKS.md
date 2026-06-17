@@ -13,7 +13,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T216 P2 feat - Add a persistent operation journal for crash safety: the
+- [X] T216 P2 feat - Add a persistent operation journal for crash safety: the
   cherry-pick rebase operations (move, drop, squash, fixup, reword, split) hold
   their in-flight state only in memory — in particular `ConflictState`
   (`original_branch_oid`, `new_tip_oid`, `remaining_oids`, the conflicting commit

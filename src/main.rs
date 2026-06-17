@@ -22,7 +22,7 @@ mod update_check;
 
 use anyhow::Result;
 use clap::Parser;
-use git_tailor::repo::{ConflictState, Git2Repo, GitRepo, RebaseOutcome};
+use git_tailor::repo::{ConflictState, Git2Repo, GitRepo, JournalStatus, RebaseOutcome};
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
     app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
@@ -117,6 +117,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    check_journal_recovery(&git_repo, &mut app);
+
     loop {
         terminal_guard.terminal().draw(|frame| {
             let mode = app.mode.clone();
@@ -181,6 +183,7 @@ fn main() -> Result<()> {
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
             AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
+            AppMode::RecoverConfirm(_) => views::recover::handle_recover_key(action, &mut app),
             AppMode::SquashSelect { .. } => views::squash_select::handle_key(action, &mut app),
             AppMode::MoveSelect { .. } => views::move_select::handle_key(action, &mut app),
             AppMode::Help(_) => views::help::handle_key(action, &mut app),
@@ -234,6 +237,44 @@ fn main() -> Result<()> {
 
     terminal_guard.shutdown()?;
     Ok(())
+}
+
+/// On startup, detect an operation a previous run was killed in the middle of
+/// (from the persisted journal) and surface a recovery prompt — or inform the
+/// user when the journal can't be used.
+fn check_journal_recovery(git_repo: &impl GitRepo, app: &mut AppState) {
+    match git_repo.read_journal() {
+        Ok(JournalStatus::Recovered(state)) => {
+            // Only offer recovery when the branch is still where the interrupted
+            // operation left it; otherwise the journal is stale (history changed
+            // outside git-tailor) and resuming or aborting would be unsafe.
+            let head_matches = git_repo
+                .head_oid()
+                .map(|head| head == state.new_tip_oid)
+                .unwrap_or(false);
+            if head_matches {
+                app.enter_recover_confirm(*state);
+            } else {
+                let _ = git_repo.clear_journal();
+                app.set_error_message(
+                    "Discarded a stale interrupted-operation journal (branch has moved)",
+                );
+            }
+        }
+        Ok(JournalStatus::NewerVersion(v)) => {
+            app.set_error_message(format!(
+                "Ignoring a journal written by a newer git-tailor (format v{v}); \
+                 upgrade git-tailor or remove .git/git-tailor/journal.json"
+            ));
+        }
+        Ok(JournalStatus::Corrupt(e)) => {
+            app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
+        }
+        Ok(JournalStatus::None) => {}
+        Err(e) => {
+            app.set_error_message(format!("Failed to read operation journal: {e}"));
+        }
+    }
 }
 
 /// Handle the side effects requested by a view-module action. Returns whether
@@ -802,6 +843,7 @@ fn render_mode(
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
+        AppMode::RecoverConfirm(_) => views::recover::render_recover(app, frame),
         AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
         AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
         AppMode::Help(prev) => views::help::render(prev, app, frame),

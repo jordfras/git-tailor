@@ -129,8 +129,9 @@ impl SplitStrategy {
 }
 
 /// Whether a squash operation keeps the target message (fixup) or combines both (squash).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SquashMode {
+    #[default]
     Squash,
     Fixup,
 }
@@ -185,6 +186,10 @@ pub enum AppMode {
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(Box<ConflictState>),
+    /// Startup prompt offering to recover an operation that a previous run was
+    /// killed in the middle of (detected from the persisted journal). Enter
+    /// resumes (enters `RebaseConflict`), Esc aborts back to the original tip.
+    RecoverConfirm(Box<ConflictState>),
     /// Squash/fixup target selection: user picks which commit to squash the source into.
     SquashSelect {
         source_index: usize,
@@ -212,7 +217,8 @@ impl AppMode {
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
+            | AppMode::RebaseConflict(_)
+            | AppMode::RecoverConfirm(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }

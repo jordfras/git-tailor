@@ -78,6 +78,12 @@ impl GitRepo for MockRepo {
             Err(anyhow::anyhow!("abort failed"))
         }
     }
+    fn read_journal(&self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
+        Ok(git_tailor::repo::JournalStatus::None)
+    }
+    fn clear_journal(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
             Ok(self.count_per_file)

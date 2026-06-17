@@ -175,6 +175,12 @@ impl GitRepo for StubRepo {
     fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
         unimplemented!()
     }
+    fn read_journal(&self) -> Result<git_tailor::repo::JournalStatus> {
+        unimplemented!()
+    }
+    fn clear_journal(&self) -> Result<()> {
+        unimplemented!()
+    }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
     }

@@ -37,6 +37,7 @@ mod cherry_pick;
 mod conflict;
 mod drop_op;
 mod hunks;
+mod journal;
 mod move_op;
 mod reads;
 mod reword_op;
@@ -63,6 +64,25 @@ impl Git2Repo {
                 anyhow::bail!("Could not find git repository root");
             }
         }
+    }
+
+    /// Path to the repository's git directory (the `.git` dir for a normal repo).
+    fn git_dir(&self) -> &std::path::Path {
+        self.inner.path()
+    }
+
+    /// Persist or clear the crash-safety journal based on a rebase operation's
+    /// outcome: record the conflict state on `Conflict` (so an interrupted
+    /// resolution can be recovered), clear it on `Complete`. Errors are passed
+    /// through untouched.
+    fn journaled(&self, outcome: Result<super::RebaseOutcome>) -> Result<super::RebaseOutcome> {
+        if let Ok(out) = &outcome {
+            match out {
+                super::RebaseOutcome::Conflict(state) => journal::set_in_progress(self, state)?,
+                super::RebaseOutcome::Complete => journal::clear_in_progress(self)?,
+            }
+        }
+        outcome
     }
 
     pub(super) fn stage_file(&self, path: &str) -> Result<()> {
@@ -183,15 +203,24 @@ impl GitRepo for Git2Repo {
     }
 
     fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
-        drop_op::drop_commit(self, commit_oid, head_oid)
+        self.journaled(drop_op::drop_commit(self, commit_oid, head_oid))
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        conflict::rebase_continue(self, state)
+        self.journaled(conflict::rebase_continue(self, state))
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
-        conflict::rebase_abort(self, state)
+        conflict::rebase_abort(self, state)?;
+        journal::clear_in_progress(self)
+    }
+
+    fn read_journal(&self) -> Result<super::JournalStatus> {
+        Ok(journal::read(self))
+    }
+
+    fn clear_journal(&self) -> Result<()> {
+        journal::clear_in_progress(self)
     }
 
     fn workdir(&self) -> Option<std::path::PathBuf> {
@@ -212,7 +241,12 @@ impl GitRepo for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        move_op::move_commit(self, commit_oid, insert_after_oid, head_oid)
+        self.journaled(move_op::move_commit(
+            self,
+            commit_oid,
+            insert_after_oid,
+            head_oid,
+        ))
     }
 
     fn squash_commits(
@@ -222,7 +256,9 @@ impl GitRepo for Git2Repo {
         message: &str,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        squash_op::squash_commits(self, source_oid, target_oid, message, head_oid)
+        self.journaled(squash_op::squash_commits(
+            self, source_oid, target_oid, message, head_oid,
+        ))
     }
 
     fn stage_file(&self, path: &str) -> Result<()> {
@@ -249,14 +285,20 @@ impl GitRepo for Git2Repo {
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
-        squash_op::squash_try_combine(
+        let result = squash_op::squash_try_combine(
             self,
             source_oid,
             target_oid,
             combined_message,
             squash_mode,
             head_oid,
-        )
+        )?;
+        // The squash-tree conflict path writes conflicts to the working tree and
+        // returns the state directly (bypassing RebaseOutcome), so journal it here.
+        if let Some(state) = &result {
+            journal::set_in_progress(self, state)?;
+        }
+        Ok(result)
     }
 
     fn squash_finalize(
@@ -265,7 +307,12 @@ impl GitRepo for Git2Repo {
         message: &str,
         original_branch_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        squash_op::squash_finalize(self, ctx, message, original_branch_oid)
+        self.journaled(squash_op::squash_finalize(
+            self,
+            ctx,
+            message,
+            original_branch_oid,
+        ))
     }
 
     fn commit_walker<'a>(

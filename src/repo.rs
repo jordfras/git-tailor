@@ -17,8 +17,27 @@ pub mod git2_impl;
 pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
+
+/// Result of reading the crash-safety journal at startup.
+///
+/// Crash detection keys off an in-progress record inside the journal, not the
+/// file's existence — so `None` covers both "no journal file" and "a journal
+/// exists but holds no interrupted operation".
+#[derive(Debug)]
+pub enum JournalStatus {
+    /// No interrupted operation to recover.
+    None,
+    /// An operation was interrupted; the persisted state can resume or abort it.
+    Recovered(Box<ConflictState>),
+    /// The journal was written by a newer git-tailor (`version` exceeds what
+    /// this build understands). The file is left untouched.
+    NewerVersion(u32),
+    /// The journal could not be read or parsed; the message describes why.
+    Corrupt(String),
+}
 
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
@@ -37,7 +56,8 @@ pub enum RebaseOutcome {
 /// conflicts, then calls `rebase_continue` (which reads the resolved
 /// index and creates the commit) or `rebase_abort` (which restores
 /// the branch to `original_branch_oid`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConflictState {
     /// Human-readable label for the operation that triggered this conflict
     /// (e.g. "Drop", "Squash"). Used in dialog titles and messages.
@@ -75,7 +95,8 @@ pub struct ConflictState {
 
 /// Extra state carried through a squash-time conflict so that the squash
 /// can be finalized after the user resolves the conflicting tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SquashContext {
     /// OID of the target commit's parent (the base for the squash commit).
     /// `None` when the target is the repository root (squash commit is an orphan).
@@ -291,6 +312,19 @@ pub trait GitRepo {
     /// Resets the branch ref to `state.original_branch_oid`, cleans up the
     /// working tree and index.
     fn rebase_abort(&self, state: &ConflictState) -> Result<()>;
+
+    /// Read the crash-safety journal to detect an operation interrupted by a
+    /// previous run (process killed or crashed mid-conflict).
+    ///
+    /// Returns [`JournalStatus::Recovered`] with the persisted [`ConflictState`]
+    /// when an interrupted operation is found, so the caller can resume it
+    /// (via the normal conflict flow) or abort it.
+    fn read_journal(&self) -> Result<JournalStatus>;
+
+    /// Discard the journal's in-progress record without otherwise touching the
+    /// repository. Used when a recovered operation is stale (the branch has
+    /// moved since it was journaled), so resuming or aborting would be unsafe.
+    fn clear_journal(&self) -> Result<()>;
 
     /// Return the path of the repository's working directory, if any.
     ///
