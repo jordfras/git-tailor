@@ -42,6 +42,8 @@ pub enum KeyCommand {
     Reword,
     Drop,
     Move,
+    Undo,
+    Redo,
     Mergetool,
     OpenEditor,
     Update,
@@ -171,6 +173,9 @@ impl AppMode {
                 // 0 / $: scroll to left/right edge (vi/less convention).
                 KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
                 KeyCode::Char('$') => KeyCommand::ScrollToRightEdge,
+                // z / Z: undo / redo the last history-rewriting operation.
+                KeyCode::Char('z') => KeyCommand::Undo,
+                KeyCode::Char('Z') => KeyCommand::Redo,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };

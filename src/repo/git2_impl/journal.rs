@@ -12,40 +12,63 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Persistent crash-safety journal.
+//! Persistent journal under the git dir (`<gitdir>/git-tailor/journal.json`).
 //!
-//! Records an in-progress rebase operation's [`ConflictState`] as a versioned
-//! JSON document under the git dir (`<gitdir>/git-tailor/journal.json`) so that
-//! an operation interrupted mid-conflict (process killed, terminal closed, hard
-//! crash) can be detected and resumed — or aborted — on the next launch.
+//! Holds two kinds of state in one versioned JSON document:
 //!
-//! Crash detection keys off the presence of an `in_progress` record, **not** the
-//! file's existence: the same document is intended to also hold a persistent
-//! undo/redo stack in the future, so a journal left after a *clean* exit must
-//! not look like a crash.
+//! - `in_progress`: an operation interrupted mid-conflict (process killed,
+//!   terminal closed, hard crash), so the next launch can detect it and resume
+//!   or abort. Crash detection keys off the *presence* of this record, **not**
+//!   the file's existence — because the file also persists the undo stack across
+//!   clean exits, a leftover file must not look like a crash.
+//! - `undo` / `redo`: a stack of completed history-rewriting operations so they
+//!   can be undone (and redone) even across restarts. Undo needs no per-op
+//!   inverse — every gt mutation only moves the branch ref forward and leaves the
+//!   old commits in the object database, so undo just restores the recorded
+//!   pre-operation tip.
+//!
+//! Tips referenced by either stack are pinned under `refs/git-tailor/undo/*` so
+//! `git gc` cannot prune them; the pins are kept in sync with the stacks and the
+//! undo depth is capped so they cannot accumulate without bound.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{ConflictState, JournalStatus};
+use super::super::{ConflictState, JournalStatus, UndoOutcome};
 use super::Git2Repo;
+use super::reads;
+use crate::Oid;
 
 /// On-disk journal format version. Bump when the schema changes in a
 /// non-additive way and add a matching arm in [`migrate`].
 const JOURNAL_VERSION: u32 = 1;
 
-/// Ref pinning the pre-operation branch tip (and therefore every commit the
-/// interrupted operation still needs) so `git gc` cannot prune them while the
-/// operation is paused.
+/// Ref pinning the pre-operation branch tip of an *interrupted* operation so
+/// `git gc` cannot prune the commits it still needs while it is paused.
 const ORIG_REF: &str = "refs/git-tailor/orig";
+
+/// Ref namespace pinning every tip referenced by the undo/redo stacks.
+const UNDO_REF_PREFIX: &str = "refs/git-tailor/undo/";
+
+/// Maximum number of undo records kept. Bounds how many old tips stay pinned
+/// against `git gc`; pushing past it drops the oldest record (and its pin).
+const MAX_UNDO_DEPTH: usize = 50;
+
+/// One reversible operation: restoring `tip_before` undoes it, `tip_after` redoes it.
+#[derive(Serialize, Deserialize, Clone)]
+struct UndoRecord {
+    label: String,
+    tip_before: Oid,
+    tip_after: Oid,
+}
 
 /// The full journal document.
 ///
-/// `in_progress` and any future fields carry `#[serde(default)]` so that adding
-/// fields (e.g. a future undo/redo stack) is an additive, auto-upgradeable
-/// change that still parses older files.
+/// All fields carry `#[serde(default)]` so that adding fields is an additive,
+/// auto-upgradeable change that still parses older files.
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 struct JournalDoc {
@@ -53,6 +76,10 @@ struct JournalDoc {
     /// `Some` while an operation is paused/incomplete; `None` after a clean
     /// completion or abort.
     in_progress: Option<ConflictState>,
+    /// Completed operations available to undo, oldest first (top = last).
+    undo: Vec<UndoRecord>,
+    /// Undone operations available to redo, oldest first (top = last).
+    redo: Vec<UndoRecord>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -97,28 +124,11 @@ fn write_doc(repo: &Git2Repo, doc: &JournalDoc) -> Result<()> {
     Ok(())
 }
 
-/// Record `state` as the in-progress operation and pin the original branch tip.
-pub(super) fn set_in_progress(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+/// Persist the document — removing the file when nothing is left to store — and
+/// reconcile the undo pin refs with the stacks.
+fn save(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
-    doc.in_progress = Some(state.clone());
-    write_doc(repo, &doc)?;
-
-    let orig = git2::Oid::from(&state.original_branch_oid);
-    repo.inner
-        .reference(ORIG_REF, orig, true, "git-tailor: journal in-progress")?;
-    Ok(())
-}
-
-/// Clear the in-progress record after a clean completion or abort.
-///
-/// Removes the file entirely when nothing else remains to persist (a future
-/// undo stack would instead keep it while non-empty), and drops the pin ref.
-pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
-    doc.in_progress = None;
-
-    if is_empty(&doc) {
+    if is_empty(doc) {
         let path = journal_path(repo);
         if let Err(e) = std::fs::remove_file(&path)
             && e.kind() != std::io::ErrorKind::NotFound
@@ -126,23 +136,156 @@ pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
             return Err(e).with_context(|| format!("failed to remove journal {}", path.display()));
         }
     } else {
-        doc.version = JOURNAL_VERSION;
-        write_doc(repo, &doc)?;
+        write_doc(repo, doc)?;
     }
-
-    delete_orig_ref(repo);
+    sync_undo_pins(repo, doc);
     Ok(())
 }
 
 /// Whether the document holds nothing worth persisting.
 fn is_empty(doc: &JournalDoc) -> bool {
-    doc.in_progress.is_none()
+    doc.in_progress.is_none() && doc.undo.is_empty() && doc.redo.is_empty()
+}
+
+/// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
+/// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
+/// caller (pins are only a gc optimisation).
+fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
+    if let Ok(refs) = repo.inner.references_glob(&format!("{UNDO_REF_PREFIX}*")) {
+        let names: Vec<String> = refs
+            .filter_map(|r| r.ok())
+            .filter_map(|r| r.name().ok().map(String::from))
+            .collect();
+        for name in names {
+            if let Ok(mut r) = repo.inner.find_reference(&name) {
+                let _ = r.delete();
+            }
+        }
+    }
+
+    let mut oids: BTreeSet<&Oid> = BTreeSet::new();
+    for rec in doc.undo.iter().chain(doc.redo.iter()) {
+        oids.insert(&rec.tip_before);
+        oids.insert(&rec.tip_after);
+    }
+    for (i, oid) in oids.into_iter().enumerate() {
+        let _ = repo.inner.reference(
+            &format!("{UNDO_REF_PREFIX}{i}"),
+            git2::Oid::from(oid),
+            true,
+            "git-tailor: undo pin",
+        );
+    }
+}
+
+/// Record `state` as the in-progress operation and pin the original branch tip.
+pub(super) fn set_in_progress(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.in_progress = Some(state.clone());
+    save(repo, &mut doc)?;
+
+    let orig = git2::Oid::from(&state.original_branch_oid);
+    repo.inner
+        .reference(ORIG_REF, orig, true, "git-tailor: journal in-progress")?;
+    Ok(())
+}
+
+/// Clear the in-progress record after a clean completion or abort, keeping any
+/// undo/redo stack intact, and drop the in-progress pin ref.
+pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.in_progress = None;
+    save(repo, &mut doc)?;
+    delete_orig_ref(repo);
+    Ok(())
 }
 
 fn delete_orig_ref(repo: &Git2Repo) {
     if let Ok(mut r) = repo.inner.find_reference(ORIG_REF) {
         let _ = r.delete();
     }
+}
+
+/// Push a completed operation onto the undo stack, clearing the redo stack (a
+/// new action invalidates redo) and capping the depth.
+pub(super) fn record_undo(
+    repo: &Git2Repo,
+    label: &str,
+    tip_before: &Oid,
+    tip_after: &Oid,
+) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.undo.push(UndoRecord {
+        label: label.to_string(),
+        tip_before: tip_before.clone(),
+        tip_after: tip_after.clone(),
+    });
+    doc.redo.clear();
+    while doc.undo.len() > MAX_UNDO_DEPTH {
+        doc.undo.remove(0);
+    }
+    save(repo, &mut doc)
+}
+
+/// Undo the most recent operation: restore its pre-operation tip and move the
+/// record to the redo stack.
+pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    let Some(record) = doc.undo.last().cloned() else {
+        return Ok(UndoOutcome::Empty);
+    };
+
+    // The branch must still be where this operation left it; otherwise history
+    // was changed outside git-tailor and the stack is no longer valid.
+    if reads::head_oid(repo)? != record.tip_after {
+        doc.undo.clear();
+        doc.redo.clear();
+        save(repo, &mut doc)?;
+        return Ok(UndoOutcome::Stale);
+    }
+
+    repo.check_no_dirty_state()?;
+    restore_tip(repo, &record.tip_before, "undo", &record.label)?;
+
+    doc.undo.pop();
+    doc.redo.push(record.clone());
+    save(repo, &mut doc)?;
+    Ok(UndoOutcome::Done {
+        label: record.label,
+    })
+}
+
+/// Redo the most recently undone operation: restore its post-operation tip and
+/// move the record back to the undo stack.
+pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    let Some(record) = doc.redo.last().cloned() else {
+        return Ok(UndoOutcome::Empty);
+    };
+
+    if reads::head_oid(repo)? != record.tip_before {
+        doc.undo.clear();
+        doc.redo.clear();
+        save(repo, &mut doc)?;
+        return Ok(UndoOutcome::Stale);
+    }
+
+    repo.check_no_dirty_state()?;
+    restore_tip(repo, &record.tip_after, "redo", &record.label)?;
+
+    doc.redo.pop();
+    doc.undo.push(record.clone());
+    save(repo, &mut doc)?;
+    Ok(UndoOutcome::Done {
+        label: record.label,
+    })
+}
+
+/// Point the current branch at `target` and check it out.
+fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
+    let oid = git2::Oid::from(target);
+    repo.advance_branch_ref(oid, &format!("git-tailor: {verb} {}", label.to_lowercase()))?;
+    repo.checkout_head()
 }
 
 /// Read the journal and classify it for the startup recovery flow.

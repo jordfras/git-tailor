@@ -181,6 +181,12 @@ impl GitRepo for StubRepo {
     fn clear_journal(&self) -> Result<()> {
         unimplemented!()
     }
+    fn undo(&self) -> Result<git_tailor::repo::UndoOutcome> {
+        unimplemented!()
+    }
+    fn redo(&self) -> Result<git_tailor::repo::UndoOutcome> {
+        unimplemented!()
+    }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
     }

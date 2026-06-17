@@ -52,6 +52,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   r              ", "Reword commit message")
         .key_binding("   d              ", "Drop commit")
         .key_binding("   m              ", "Move commit (pick new position)")
+        .key_binding("   z/Z            ", "Undo/redo last operation")
         .section(" Views")
         .key_binding("   Enter, i       ", "Open commit detail view")
         .key_binding("   h              ", "Show this help dialog")

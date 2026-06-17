@@ -73,16 +73,43 @@ impl Git2Repo {
 
     /// Persist or clear the crash-safety journal based on a rebase operation's
     /// outcome: record the conflict state on `Conflict` (so an interrupted
-    /// resolution can be recovered), clear it on `Complete`. Errors are passed
-    /// through untouched.
-    fn journaled(&self, outcome: Result<super::RebaseOutcome>) -> Result<super::RebaseOutcome> {
+    /// resolution can be recovered), clear it on `Complete` and push an undo
+    /// entry from `tip_before` to the resulting tip. Errors are passed through
+    /// untouched.
+    fn journaled(
+        &self,
+        label: &str,
+        tip_before: &Oid,
+        outcome: Result<super::RebaseOutcome>,
+    ) -> Result<super::RebaseOutcome> {
         if let Ok(out) = &outcome {
             match out {
                 super::RebaseOutcome::Conflict(state) => journal::set_in_progress(self, state)?,
-                super::RebaseOutcome::Complete => journal::clear_in_progress(self)?,
+                super::RebaseOutcome::Complete => {
+                    journal::clear_in_progress(self)?;
+                    self.record_undo_if_changed(label, tip_before)?;
+                }
             }
         }
         outcome
+    }
+
+    /// Wrap a `Result<()>` operation (reword, split): on success, record an
+    /// undo entry from `tip_before` to the resulting tip.
+    fn record_unit_undo(&self, label: &str, tip_before: &Oid, result: Result<()>) -> Result<()> {
+        result?;
+        self.record_undo_if_changed(label, tip_before)
+    }
+
+    /// Push an undo entry from `tip_before` to the current HEAD, unless the
+    /// branch did not actually move.
+    fn record_undo_if_changed(&self, label: &str, tip_before: &Oid) -> Result<()> {
+        if let Ok(after) = reads::head_oid(self)
+            && &after != tip_before
+        {
+            journal::record_undo(self, label, tip_before, &after)?;
+        }
+        Ok(())
     }
 
     pub(super) fn stage_file(&self, path: &str) -> Result<()> {
@@ -152,11 +179,19 @@ impl GitRepo for Git2Repo {
     }
 
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        split_op::split_commit_per_file(self, commit_oid, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_file(self, commit_oid, head_oid),
+        )
     }
 
     fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        split_op::split_commit_per_hunk(self, commit_oid, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_hunk(self, commit_oid, head_oid),
+        )
     }
 
     fn split_commit_per_hunk_group(
@@ -165,7 +200,11 @@ impl GitRepo for Git2Repo {
         head_oid: &Oid,
         reference_oid: &Oid,
     ) -> Result<()> {
-        split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid),
+        )
     }
 
     fn split_commit_out_file(
@@ -174,7 +213,11 @@ impl GitRepo for Git2Repo {
         file_path: &str,
         head_oid: &Oid,
     ) -> Result<()> {
-        split_op::split_commit_out_file(self, commit_oid, file_path, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_out_file(self, commit_oid, file_path, head_oid),
+        )
     }
 
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
@@ -195,7 +238,11 @@ impl GitRepo for Git2Repo {
     }
 
     fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
-        reword_op::reword_commit(self, commit_oid, new_message, head_oid)
+        self.record_unit_undo(
+            "Reword",
+            head_oid,
+            reword_op::reword_commit(self, commit_oid, new_message, head_oid),
+        )
     }
 
     fn get_config_string(&self, key: &str) -> Result<Option<String>> {
@@ -203,11 +250,19 @@ impl GitRepo for Git2Repo {
     }
 
     fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
-        self.journaled(drop_op::drop_commit(self, commit_oid, head_oid))
+        self.journaled(
+            "Drop",
+            head_oid,
+            drop_op::drop_commit(self, commit_oid, head_oid),
+        )
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        self.journaled(conflict::rebase_continue(self, state))
+        self.journaled(
+            &state.operation_label,
+            &state.original_branch_oid,
+            conflict::rebase_continue(self, state),
+        )
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
@@ -221,6 +276,14 @@ impl GitRepo for Git2Repo {
 
     fn clear_journal(&self) -> Result<()> {
         journal::clear_in_progress(self)
+    }
+
+    fn undo(&self) -> Result<super::UndoOutcome> {
+        journal::apply_undo(self)
+    }
+
+    fn redo(&self) -> Result<super::UndoOutcome> {
+        journal::apply_redo(self)
     }
 
     fn workdir(&self) -> Option<std::path::PathBuf> {
@@ -241,12 +304,11 @@ impl GitRepo for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(move_op::move_commit(
-            self,
-            commit_oid,
-            insert_after_oid,
+        self.journaled(
+            "Move",
             head_oid,
-        ))
+            move_op::move_commit(self, commit_oid, insert_after_oid, head_oid),
+        )
     }
 
     fn squash_commits(
@@ -256,9 +318,11 @@ impl GitRepo for Git2Repo {
         message: &str,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(squash_op::squash_commits(
-            self, source_oid, target_oid, message, head_oid,
-        ))
+        self.journaled(
+            "Squash",
+            head_oid,
+            squash_op::squash_commits(self, source_oid, target_oid, message, head_oid),
+        )
     }
 
     fn stage_file(&self, path: &str) -> Result<()> {
@@ -307,12 +371,11 @@ impl GitRepo for Git2Repo {
         message: &str,
         original_branch_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(squash_op::squash_finalize(
-            self,
-            ctx,
-            message,
+        self.journaled(
+            "Squash",
             original_branch_oid,
-        ))
+            squash_op::squash_finalize(self, ctx, message, original_branch_oid),
+        )
     }
 
     fn commit_walker<'a>(

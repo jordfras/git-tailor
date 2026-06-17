@@ -157,6 +157,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_move_select();
             AppAction::Handled
         }
+        KeyCommand::Undo => AppAction::Undo,
+        KeyCommand::Redo => AppAction::Redo,
         KeyCommand::Mergetool
         | KeyCommand::OpenEditor
         | KeyCommand::None

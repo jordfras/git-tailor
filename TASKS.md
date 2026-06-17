@@ -44,7 +44,7 @@ Guidelines:
   commit order; its in-memory mode also writes no on-disk recovery state. A
   native journal delivers the crash-safety goal for *all* operations and is the
   shared foundation for undo (T218).
-- [ ] T218 P2 feat - Add undo/redo of history-rewriting operations via an
+- [X] T218 P2 feat - Add undo/redo of history-rewriting operations via an
   operation stack: because every gt mutation (move, drop, squash, fixup, reword,
   split) only builds new commits and advances the branch ref — the previous
   commits remain in the object database — undo needs no per-operation inverse; it

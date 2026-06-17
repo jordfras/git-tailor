@@ -51,7 +51,10 @@ fn conflict_records_journal_and_recovers_after_reopen() {
 }
 
 /// Resuming a recovered operation to completion clears the journal entirely
-/// (no file, no pin ref) — detection must not depend on a leftover file.
+/// Resuming a recovered operation to completion clears the in-progress record
+/// and the in-progress pin ref. (The journal file itself now persists to hold
+/// the undo stack — crash detection keys off the in-progress marker, not the
+/// file's existence, so `read_journal` still reports `None`.)
 #[test]
 fn resume_to_completion_clears_journal() {
     let test = common::TestRepo::new();
@@ -86,12 +89,8 @@ fn resume_to_completion_clears_journal() {
         JournalStatus::None
     ));
     assert!(
-        !journal_file_exists(&test),
-        "journal file should be removed once nothing remains to persist"
-    );
-    assert!(
         test.repo.find_reference("refs/git-tailor/orig").is_err(),
-        "pin ref should be gone after completion"
+        "in-progress pin ref should be gone after completion"
     );
 }
 

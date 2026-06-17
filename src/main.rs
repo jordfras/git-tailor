@@ -22,7 +22,9 @@ mod update_check;
 
 use anyhow::Result;
 use clap::Parser;
-use git_tailor::repo::{ConflictState, Git2Repo, GitRepo, JournalStatus, RebaseOutcome};
+use git_tailor::repo::{
+    ConflictState, Git2Repo, GitRepo, JournalStatus, RebaseOutcome, UndoOutcome,
+};
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
     app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
@@ -388,8 +390,58 @@ fn dispatch_action(
             source_oid,
             insert_after_oid,
         } => return handle_execute_move(git_repo, app, source_oid, insert_after_oid),
+        AppAction::Undo => return handle_undo(git_repo, app),
+        AppAction::Redo => return handle_redo(git_repo, app),
     }
     Ok(LoopAction::Proceed)
+}
+
+fn handle_undo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+    match git_repo.undo() {
+        Ok(UndoOutcome::Done { label }) => {
+            app.set_success_message(format!(
+                "Undid {} \u{00b7} press Z to redo",
+                label.to_lowercase()
+            ));
+            Ok(LoopAction::Reload)
+        }
+        Ok(UndoOutcome::Empty) => {
+            app.set_error_message("Nothing to undo");
+            Ok(LoopAction::Proceed)
+        }
+        Ok(UndoOutcome::Stale) => {
+            app.set_error_message("Undo history no longer matches the branch — discarded");
+            Ok(LoopAction::Reload)
+        }
+        Err(e) => {
+            app.set_error_message(format!("Undo failed: {e}"));
+            Ok(LoopAction::Proceed)
+        }
+    }
+}
+
+fn handle_redo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+    match git_repo.redo() {
+        Ok(UndoOutcome::Done { label }) => {
+            app.set_success_message(format!(
+                "Redid {} \u{00b7} press z to undo",
+                label.to_lowercase()
+            ));
+            Ok(LoopAction::Reload)
+        }
+        Ok(UndoOutcome::Empty) => {
+            app.set_error_message("Nothing to redo");
+            Ok(LoopAction::Proceed)
+        }
+        Ok(UndoOutcome::Stale) => {
+            app.set_error_message("Redo history no longer matches the branch — discarded");
+            Ok(LoopAction::Reload)
+        }
+        Err(e) => {
+            app.set_error_message(format!("Redo failed: {e}"));
+            Ok(LoopAction::Proceed)
+        }
+    }
 }
 
 fn handle_prepare_split(

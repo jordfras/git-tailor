@@ -85,6 +85,10 @@ pub enum AppAction {
         target_message: String,
         squash_mode: SquashMode,
     },
+    /// Undo the most recent history-rewriting operation.
+    Undo,
+    /// Redo the most recently undone operation.
+    Redo,
     /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
     ExecuteMove {
         source_oid: Oid,

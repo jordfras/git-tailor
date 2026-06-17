@@ -39,6 +39,18 @@ pub enum JournalStatus {
     Corrupt(String),
 }
 
+/// Result of an undo or redo request.
+#[derive(Debug)]
+pub enum UndoOutcome {
+    /// The corresponding stack was empty — nothing to undo/redo.
+    Empty,
+    /// The branch no longer matched the recorded tip (history was changed
+    /// outside git-tailor), so the undo/redo stack was discarded.
+    Stale,
+    /// An operation was undone/redone; `label` names it (e.g. "Drop").
+    Done { label: String },
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -325,6 +337,17 @@ pub trait GitRepo {
     /// repository. Used when a recovered operation is stale (the branch has
     /// moved since it was journaled), so resuming or aborting would be unsafe.
     fn clear_journal(&self) -> Result<()>;
+
+    /// Undo the most recent history-rewriting operation by restoring the branch
+    /// to the tip recorded before it ran (and moving the record to the redo
+    /// stack). Refuses if the working tree is dirty; reports
+    /// [`UndoOutcome::Stale`] and discards the stack if the branch no longer
+    /// matches the recorded post-operation tip.
+    fn undo(&self) -> Result<UndoOutcome>;
+
+    /// Redo the most recently undone operation, restoring its post-operation
+    /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
+    fn redo(&self) -> Result<UndoOutcome>;
 
     /// Return the path of the repository's working directory, if any.
     ///

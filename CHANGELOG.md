@@ -10,6 +10,13 @@ The format is based on
 
 ### Added
 
+- Undo and redo of history-rewriting operations. Press `z` to undo the last
+  drop, move, squash, fixup, reword, or split, and `Z` to redo it; multiple
+  levels are supported and the stack persists across restarts. Undo restores the
+  branch to the exact state before the operation — no per-operation inverse is
+  needed, since the old commits are kept and pinned against `git gc`. It refuses
+  when the working tree has uncommitted changes, and discards the stack if the
+  branch was changed outside git-tailor.
 - Crash safety for rebase operations. While a drop, move, squash, or fixup is
   paused on an unresolved conflict, git-tailor now records the operation to a
   journal under `.git/git-tailor/`. If the tool is killed (or the terminal

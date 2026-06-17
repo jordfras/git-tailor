@@ -84,6 +84,12 @@ impl GitRepo for MockRepo {
     fn clear_journal(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
+        Ok(git_tailor::repo::UndoOutcome::Empty)
+    }
+    fn redo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
+        Ok(git_tailor::repo::UndoOutcome::Empty)
+    }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
             Ok(self.count_per_file)
