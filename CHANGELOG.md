@@ -10,8 +10,8 @@ The format is based on
 
 ### Added
 
-- Undo and redo of history-rewriting operations. Press `z` to undo the last
-  drop, move, squash, fixup, reword, or split, and `Z` to redo it; multiple
+- Undo and redo of history-rewriting operations. Press `u` to undo the last
+  drop, move, squash, fixup, reword, or split, and `Ctrl-r` to redo it; multiple
   levels are supported and the stack persists across restarts. Undo restores the
   branch to the exact state before the operation — no per-operation inverse is
   needed, since the old commits are kept and pinned against `git gc`. It refuses
@@ -25,6 +25,11 @@ The format is based on
   branch tip — which is pinned with a ref so its commits survive `git gc`.
   Previously this state lived only in memory and was lost on exit, leaving the
   repository stuck mid-conflict.
+
+### Changed
+
+- Refreshing the commit list moved from `u` to `R` / `F5`, freeing `u` for undo
+  (the vim convention). "Refresh" replaces the previous "update" wording.
 
 
 ## [1.0.0] - 2026-06-12

@@ -46,7 +46,7 @@ pub enum KeyCommand {
     Redo,
     Mergetool,
     OpenEditor,
-    Update,
+    Refresh,
     Search,
     SearchNext,
     SearchPrev,
@@ -111,6 +111,8 @@ impl AppMode {
                     // Ctrl-D / Ctrl-U: half-page scroll (vim convention).
                     KeyCode::Char('d') => return KeyCommand::HalfPageDown,
                     KeyCode::Char('u') => return KeyCommand::HalfPageUp,
+                    // Ctrl-R: redo (vim convention).
+                    KeyCode::Char('r') => return KeyCommand::Redo,
                     // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
                     KeyCode::PageDown => return KeyCommand::HalfPageDown,
                     KeyCode::PageUp => return KeyCommand::HalfPageUp, // Ctrl-a / Ctrl-e: scroll to left/right edge (emacs convention).
@@ -154,7 +156,8 @@ impl AppMode {
                     AppMode::RebaseConflict(_) => KeyCommand::OpenEditor,
                     _ => KeyCommand::None,
                 },
-                KeyCode::Char('u') => KeyCommand::Update,
+                // u: undo (vim convention).
+                KeyCode::Char('u') => KeyCommand::Undo,
                 KeyCode::Char('/') => match self {
                     AppMode::CommitDetail => KeyCommand::Search,
                     _ => KeyCommand::None,
@@ -173,9 +176,8 @@ impl AppMode {
                 // 0 / $: scroll to left/right edge (vi/less convention).
                 KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
                 KeyCode::Char('$') => KeyCommand::ScrollToRightEdge,
-                // z / Z: undo / redo the last history-rewriting operation.
-                KeyCode::Char('z') => KeyCommand::Undo,
-                KeyCode::Char('Z') => KeyCommand::Redo,
+                // R / F5: refresh the commit list from HEAD.
+                KeyCode::Char('R') | KeyCode::F(5) => KeyCommand::Refresh,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };

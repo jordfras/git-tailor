@@ -400,7 +400,7 @@ fn handle_undo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction
     match git_repo.undo() {
         Ok(UndoOutcome::Done { label }) => {
             app.set_success_message(format!(
-                "Undid {} \u{00b7} press Z to redo",
+                "Undid {} \u{00b7} press Ctrl-r to redo",
                 label.to_lowercase()
             ));
             Ok(LoopAction::Reload)
@@ -424,7 +424,7 @@ fn handle_redo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction
     match git_repo.redo() {
         Ok(UndoOutcome::Done { label }) => {
             app.set_success_message(format!(
-                "Redid {} \u{00b7} press z to undo",
+                "Redid {} \u{00b7} press u to undo",
                 label.to_lowercase()
             ));
             Ok(LoopAction::Reload)

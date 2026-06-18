@@ -151,7 +151,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 current_message: commit.message.clone(),
             }
         }
-        KeyCommand::Update => AppAction::ReloadCommits,
+        KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => AppAction::Quit,
         KeyCommand::Move => {
             app.enter_move_select();
