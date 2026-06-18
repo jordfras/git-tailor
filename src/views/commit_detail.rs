@@ -572,9 +572,9 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
             Span::raw(format!("{} <{}>", author, author_email)),
         ]));
 
-        let fmt = time::format_description::parse(
+        let fmt = time::macros::format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
-        ).unwrap();
+        );
 
         if let Some(author_date) = &commit.author_date {
             let formatted = author_date
