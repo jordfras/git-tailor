@@ -105,16 +105,18 @@ impl Git2Repo {
         Ok(descendants)
     }
 
-    /// Cherry-pick a sequence of commits onto `tip`, returning the final tip
-    /// or the point at which a conflict was detected.
+    /// Cherry-pick a sequence of commits onto `tip`. Returns the final tip on
+    /// success, or a `ConflictState` describing the first conflict.
     ///
-    /// On conflict the conflicted index is written to the working tree so the
-    /// user can resolve it. The returned `conflicting_idx` identifies which
-    /// element of `commits` conflicted.
+    /// On conflict the operation is journaled and the conflicted index is
+    /// written to the working tree — both handled by
+    /// `write_conflicts_to_workdir`, which journals *before* mutating so a crash
+    /// mid-operation is recoverable.
     pub(super) fn cherry_pick_chain(
         &self,
         mut tip: git2::Oid,
         commits: &[git2::Oid],
+        ctx: &ChainCtx,
     ) -> Result<CherryPickResult> {
         let repo = &self.inner;
 
@@ -140,11 +142,9 @@ impl Git2Repo {
                 repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?
             };
             if cherry_index.has_conflicts() {
-                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit)?;
-                return Ok(CherryPickResult::Conflict {
-                    tip,
-                    conflicting_idx: idx,
-                });
+                let state = build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
+                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit, &state)?;
+                return Ok(CherryPickResult::Conflict(Box::new(state)));
             }
 
             let new_tree_oid = cherry_index.write_tree_to(repo)?;
@@ -164,49 +164,48 @@ impl Git2Repo {
     }
 }
 
+/// Operation context threaded into [`Git2Repo::cherry_pick_chain`] so it can
+/// build (and journal) a `ConflictState` at the point a conflict is detected,
+/// before any durable change is made.
+pub(super) struct ChainCtx<'a> {
+    pub label: &'a str,
+    pub original_branch_oid: &'a Oid,
+    pub moved_commit_oid: Option<&'a Oid>,
+}
+
 /// Internal result from `cherry_pick_chain`.
 pub(super) enum CherryPickResult {
     Complete(git2::Oid),
-    Conflict {
-        tip: git2::Oid,
-        conflicting_idx: usize,
-    },
+    Conflict(Box<ConflictState>),
 }
 
-/// Build a `RebaseOutcome::Conflict` from the output of a failed
-/// `cherry_pick_chain` call.
-///
-/// All four conflict-reporting sites share the same shape: extract the
-/// conflicting OID and the remaining-OIDs tail from the `oids` slice using
-/// `conflicting_idx`, then collect conflict files from the working-tree index.
-/// Centralising this keeps future `ConflictState` field additions in one place.
-pub(super) fn build_chain_conflict(
-    repo: &Git2Repo,
+/// Build the `ConflictState` for a chain conflict, reading the conflicting
+/// paths from the in-memory `cherry_index` (before it is written to disk).
+fn build_chain_conflict_state(
+    cherry_index: &git2::Index,
     tip: git2::Oid,
     oids: &[git2::Oid],
     conflicting_idx: usize,
-    operation_label: impl Into<String>,
-    original_branch_oid: Oid,
-    moved_commit_oid: Option<Oid>,
-) -> RebaseOutcome {
+    ctx: &ChainCtx,
+) -> ConflictState {
     let conflicting_oid = oids[conflicting_idx];
     let remaining: Vec<Oid> = oids[conflicting_idx + 1..]
         .iter()
         .map(|&oid| Oid::from(oid))
         .collect();
 
-    RebaseOutcome::Conflict(Box::new(ConflictState {
-        operation_label: operation_label.into(),
-        original_branch_oid,
+    ConflictState {
+        operation_label: ctx.label.to_string(),
+        original_branch_oid: ctx.original_branch_oid.clone(),
         new_tip_oid: Oid::from(tip),
         conflicting_commit_oid: Oid::from(conflicting_oid),
         remaining_oids: remaining,
-        conflicting_files: conflict::collect_conflict_files(&repo.inner),
+        conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
         still_unresolved: false,
-        moved_commit_oid,
+        moved_commit_oid: ctx.moved_commit_oid.cloned(),
         squash_context: None,
         is_orphan_root: false,
-    }))
+    }
 }
 
 /// Strip `root_tree`'s content from `first_commit` via a three-way merge to
@@ -240,22 +239,23 @@ pub(super) fn replace_root_and_replay(
             repo.inner
                 .commit(None, &sig, &first_commit.committer(), "", &empty_tree, &[])?;
         let anchor_commit = repo.inner.find_commit(anchor_oid)?;
-        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit)?;
 
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
-
-        return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+        let state = ConflictState {
             operation_label: operation_label.to_string(),
             original_branch_oid,
             new_tip_oid: Oid::from(anchor_oid),
             conflicting_commit_oid: Oid::from(first_commit.id()),
             remaining_oids,
-            conflicting_files: conflict::collect_conflict_files(&repo.inner),
+            conflicting_files: conflict::collect_conflict_files_from_index(&cherry_index),
             still_unresolved: false,
             moved_commit_oid,
             squash_context: None,
             is_orphan_root: true,
-        })));
+        };
+        // Journals write-ahead, then mutates the ref/index/workdir.
+        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit, &state)?;
+        return Ok(RebaseOutcome::Conflict(Box::new(state)));
     }
 
     let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
@@ -270,24 +270,17 @@ pub(super) fn replace_root_and_replay(
         &[],
     )?;
 
-    let result = repo.cherry_pick_chain(new_root_oid, remaining)?;
-    match result {
+    let ctx = ChainCtx {
+        label: operation_label,
+        original_branch_oid: &original_branch_oid,
+        moved_commit_oid: moved_commit_oid.as_ref(),
+    };
+    match repo.cherry_pick_chain(new_root_oid, remaining, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, reflog_msg)?;
             repo.checkout_head()?;
             Ok(RebaseOutcome::Complete)
         }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            remaining,
-            conflicting_idx,
-            operation_label,
-            original_branch_oid,
-            moved_commit_oid,
-        )),
+        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
     }
 }
