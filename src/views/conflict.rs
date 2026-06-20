@@ -149,7 +149,10 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         let shown = state.conflicting_files.len().min(MAX_FILES);
         for path in &state.conflicting_files[..shown] {
             let truncated = if path.len() + 3 > iw {
-                format!(" \u{2026}{}", &path[path.len().saturating_sub(iw - 3)..])
+                format!(
+                    " \u{2026}{}",
+                    &path[path.len().saturating_sub(iw.saturating_sub(3))..]
+                )
             } else {
                 path.to_string()
             };

@@ -54,6 +54,17 @@ fn test_recover_dialog() {
     }));
 }
 
+/// A very narrow terminal with a long conflicting-file path must not panic when
+/// truncating it (the dialog inner width can drop below the truncation margin).
+#[test]
+fn test_recover_dialog_tiny_terminal_does_not_panic() {
+    for width in [2u16, 4, 6, 8] {
+        let mut harness = TuiTestHarness::new(width, 12);
+        let mut app = make_app_in_recover("Drop", vec!["src/very/long/path/overflows.rs"]);
+        let _ = harness.render(|frame| views::recover::render_recover(&mut app, frame));
+    }
+}
+
 #[test]
 fn test_recover_dialog_multiple_files() {
     let mut harness = TuiTestHarness::typical();
