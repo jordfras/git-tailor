@@ -485,9 +485,35 @@ impl Git2Repo {
         Ok(())
     }
 
-    /// Reset the working tree and index to match HEAD.
-    fn checkout_head(&self) -> Result<()> {
+    /// Reset the working tree and index to match HEAD, removing files that the
+    /// just-completed operation dropped.
+    ///
+    /// `prev_tip` is the branch tip the working tree currently reflects, before
+    /// this operation advanced the ref. Files present in `prev_tip` but absent
+    /// from the new HEAD must be deleted from the working tree. A force checkout
+    /// alone won't do it: we reset the index to HEAD's tree below, which turns
+    /// those files into untracked leftovers that checkout leaves untouched. We
+    /// delete exactly those files, so the user's own untracked files survive.
+    fn checkout_head(&self, prev_tip: &Oid) -> Result<()> {
         let repo = &self.inner;
+        let new_tree = repo.head()?.peel_to_commit()?.tree()?;
+
+        let prev_tree = repo.find_commit(git2::Oid::from(prev_tip))?.tree()?;
+        let diff = repo.diff_tree_to_tree(Some(&prev_tree), Some(&new_tree), None)?;
+        if let Some(workdir) = repo.workdir() {
+            for delta in diff.deltas() {
+                if delta.status() == git2::Delta::Deleted
+                    && let Some(path) = delta.old_file().path()
+                {
+                    let full = workdir.join(path);
+                    if full.exists() {
+                        std::fs::remove_file(&full).with_context(|| {
+                            format!("failed to remove dropped file {}", full.display())
+                        })?;
+                    }
+                }
+            }
+        }
 
         // Explicitly reset the index to HEAD's tree before forcing a workdir
         // checkout. cherry_pick_chain uses in-memory index operations
@@ -498,9 +524,8 @@ impl Git2Repo {
         // leave the index empty — all files appear as staged deletions with the
         // actual files untracked. Writing HEAD's tree into the index first
         // guarantees a clean baseline regardless of prior index state.
-        let head_oid = repo.head()?.peel_to_commit()?;
         let mut index = repo.index()?;
-        index.read_tree(&head_oid.tree()?)?;
+        index.read_tree(&new_tree)?;
         index.write()?;
 
         let mut checkout = git2::build::CheckoutBuilder::new();

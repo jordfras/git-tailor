@@ -79,7 +79,7 @@ pub(super) fn move_commit(
     match repo.cherry_pick_chain(chain_base, &reordered, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, "git-tailor: move commit")?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),

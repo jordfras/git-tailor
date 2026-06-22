@@ -57,7 +57,7 @@ pub(super) fn drop_commit(
     match repo.cherry_pick_chain(parent_oid, &descendants, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, "git-tailor: drop commit")?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),

@@ -80,7 +80,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
         CherryPickResult::Complete(final_tip) => {
             let label = state.operation_label.to_lowercase();
             repo.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
-            repo.checkout_head()?;
+            repo.checkout_head(&state.original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(new_state) => Ok(RebaseOutcome::Conflict(new_state)),

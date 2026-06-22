@@ -278,7 +278,7 @@ pub(super) fn replace_root_and_replay(
     match repo.cherry_pick_chain(new_root_oid, remaining, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, reflog_msg)?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),

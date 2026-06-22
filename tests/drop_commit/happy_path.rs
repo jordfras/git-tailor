@@ -72,6 +72,30 @@ fn drop_middle_commit_rebases_descendants() {
 }
 
 #[test]
+fn drop_removes_added_file_from_working_tree() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let to_drop = test.commit_file("b.txt", "added\n", "add b.txt");
+    let child = test.commit_file("a.txt", "changed\n", "modify a.txt");
+
+    let git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(child))
+            .unwrap()
+    );
+
+    let _ = base;
+    // The dropped commit added b.txt, so it must be gone from the working tree —
+    // not left behind as an untracked file.
+    assert!(
+        !test.repo.workdir().unwrap().join("b.txt").exists(),
+        "b.txt should be removed from the working tree after dropping its commit"
+    );
+}
+
+#[test]
 fn drop_with_multiple_descendants() {
     let test = common::TestRepo::new();
 

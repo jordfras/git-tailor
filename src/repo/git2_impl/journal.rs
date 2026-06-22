@@ -283,9 +283,13 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
 
 /// Point the current branch at `target` and check it out.
 fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
+    // The working tree currently reflects the tip we're moving away from, so
+    // capture it before advancing — checkout_head needs it to remove files the
+    // restored tip no longer contains.
+    let prev_tip = reads::head_oid(repo)?;
     let oid = git2::Oid::from(target);
     repo.advance_branch_ref(oid, &format!("git-tailor: {verb} {}", label.to_lowercase()))?;
-    repo.checkout_head()
+    repo.checkout_head(&prev_tip)
 }
 
 /// Read the journal and classify it for the startup recovery flow.
