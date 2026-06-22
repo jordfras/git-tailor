@@ -93,13 +93,17 @@ impl TestRepo {
     /// Stage `path` by adding it to the index with `add_path`.
     ///
     /// Unlike [`GitRepo::stage_file`], this is a minimal test-fixture helper:
-    /// it does not refresh the index from disk first, does not handle deleted
-    /// files (those need `remove_path`), and does not clear conflict stages.
-    /// Use it only to set up pre-operation dirty state in tests, never to
-    /// simulate conflict resolution — for that call `git_repo.stage_file()`
-    /// which is the production implementation under test.
+    /// it does not handle deleted files (those need `remove_path`) and does not
+    /// clear conflict stages. Use it only to set up pre-operation dirty state in
+    /// tests, never to simulate conflict resolution — for that call
+    /// `git_repo.stage_file()` which is the production implementation under test.
+    ///
+    /// It does refresh the index from disk first: a prior `git_repo` operation
+    /// may have rewritten the on-disk index, which would otherwise leave this
+    /// handle's cached index stale and reintroduce now-removed entries.
     pub fn stage_file(&self, path: &str) {
         let mut index = self.repo.index().unwrap();
+        index.read(true).unwrap();
         index.add_path(std::path::Path::new(path)).unwrap();
         index.write().unwrap();
     }

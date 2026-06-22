@@ -43,12 +43,16 @@ mod reads;
 mod reword_op;
 mod split_op;
 mod squash_op;
+mod stash;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
 pub struct Git2Repo {
     inner: git2::Repository,
+    /// When true, operations that need a clean working tree auto-stash dirty
+    /// state instead of refusing (see [`GitRepo::autostash_save`]).
+    autostash: bool,
 }
 
 impl Git2Repo {
@@ -58,12 +62,21 @@ impl Git2Repo {
         loop {
             let result = git2::Repository::open(&path);
             if let Ok(repo) = result {
-                return Ok(Git2Repo { inner: repo });
+                return Ok(Git2Repo {
+                    inner: repo,
+                    autostash: false,
+                });
             }
             if !path.pop() {
                 anyhow::bail!("Could not find git repository root");
             }
         }
+    }
+
+    /// Enable or disable auto-stash for this session (from the `--autostash`
+    /// flag / `GT_AUTOSTASH`).
+    pub fn set_autostash(&mut self, enabled: bool) {
+        self.autostash = enabled;
     }
 
     /// Path to the repository's git directory (the `.git` dir for a normal repo).
@@ -286,6 +299,14 @@ impl GitRepo for Git2Repo {
         journal::apply_redo(self)
     }
 
+    fn autostash_save(&mut self) -> Result<()> {
+        self.save_autostash()
+    }
+
+    fn autostash_restore(&mut self) -> Result<()> {
+        self.restore_autostash()
+    }
+
     fn workdir(&self) -> Option<std::path::PathBuf> {
         reads::workdir(self)
     }
@@ -399,6 +420,19 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
+        if self.is_worktree_dirty()? {
+            anyhow::bail!(
+                "You have staged or unstaged changes. \
+                 Stash or commit them before running this operation."
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether the working tree or index has real (non-gitlink) staged or
+    /// unstaged changes — the condition that makes the rebase operations refuse
+    /// (and that auto-stash, when enabled, stashes away).
+    pub(super) fn is_worktree_dirty(&self) -> Result<bool> {
         let mut opts = git2::DiffOptions::new();
         opts.context_lines(0);
         opts.interhunk_lines(0);
@@ -434,13 +468,7 @@ impl Git2Repo {
             .deltas()
             .any(is_real);
 
-        if has_staged || has_unstaged {
-            anyhow::bail!(
-                "You have staged or unstaged changes. \
-                 Stash or commit them before running this operation."
-            );
-        }
-        Ok(())
+        Ok(has_staged || has_unstaged)
     }
 
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.

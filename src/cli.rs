@@ -37,6 +37,12 @@ pub struct Cli {
     #[arg(short, long, env = "GT_REVERSE")]
     pub reverse: bool,
 
+    /// Automatically stash staged/unstaged/untracked changes around operations
+    /// that need a clean working tree (move, drop, squash, fixup, undo, redo),
+    /// restoring them afterwards, instead of refusing to run.
+    #[arg(short = 'a', long, env = "GT_AUTOSTASH")]
+    pub autostash: bool,
+
     /// Show all hunk group columns without deduplication.
     ///
     /// By default the hunk group matrix merges columns whose set of touching

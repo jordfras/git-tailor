@@ -80,6 +80,10 @@ struct JournalDoc {
     undo: Vec<UndoRecord>,
     /// Undone operations available to redo, oldest first (top = last).
     redo: Vec<UndoRecord>,
+    /// OID of an auto-stash created for the in-flight operation, to be
+    /// reapplied when it completes or aborts (survives a crash so recovery can
+    /// restore the user's working-tree changes).
+    autostash: Option<Oid>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -144,7 +148,22 @@ fn save(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
 
 /// Whether the document holds nothing worth persisting.
 fn is_empty(doc: &JournalDoc) -> bool {
-    doc.in_progress.is_none() && doc.undo.is_empty() && doc.redo.is_empty()
+    doc.in_progress.is_none()
+        && doc.undo.is_empty()
+        && doc.redo.is_empty()
+        && doc.autostash.is_none()
+}
+
+/// Read the recorded auto-stash OID, if any.
+pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<Oid>> {
+    Ok(load_doc(repo)?.autostash)
+}
+
+/// Record (or clear, with `None`) the auto-stash OID for the in-flight operation.
+pub(super) fn set_autostash(repo: &Git2Repo, oid: Option<Oid>) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.autostash = oid;
+    save(repo, &mut doc)
 }
 
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the

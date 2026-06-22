@@ -65,7 +65,7 @@ Guidelines:
   contents match the pre-operation state, redo and assert they match the
   post-operation state, plus multi-level undo/redo and stale-stack invalidation.
   Depends on T216 (journal infrastructure).
-- [ ] T219 P2 feat - Add opt-in auto-stash so dirty-working-tree operations just
+- [X] T219 P2 feat - Add opt-in auto-stash so dirty-working-tree operations just
   work: operations that currently refuse when the working tree has staged or
   unstaged changes (`move`, `drop`, `squash`, `fixup` via `check_no_dirty_state`,
   and `undo`/`redo`, which hard-reset the tree) should, when auto-stash is

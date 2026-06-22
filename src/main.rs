@@ -67,7 +67,8 @@ macro_rules! get_head_oid_or_continue {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let git_repo = Git2Repo::open(std::env::current_dir()?)?;
+    let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
+    git_repo.set_autostash(cli.autostash);
 
     // Static output path: no TUI involved, load commits synchronously.
     if cli.static_output {
@@ -119,7 +120,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    check_journal_recovery(&git_repo, &mut app);
+    check_journal_recovery(&mut git_repo, &mut app);
 
     loop {
         terminal_guard.terminal().draw(|frame| {
@@ -159,6 +160,8 @@ fn main() -> Result<()> {
             if let AppMode::RebaseConflict(ref state) = app.mode {
                 let _ = git_repo.rebase_abort(state);
             }
+            // Restore any auto-stashed changes so the user's work is not stranded.
+            let _ = git_repo.autostash_restore();
             break;
         }
 
@@ -194,7 +197,7 @@ fn main() -> Result<()> {
         let dispatch_result = dispatch_action(
             result,
             &mut app,
-            &git_repo,
+            &mut git_repo,
             &mut terminal_guard,
             kb_enhanced,
         )?;
@@ -244,7 +247,7 @@ fn main() -> Result<()> {
 /// On startup, detect an operation a previous run was killed in the middle of
 /// (from the persisted journal) and surface a recovery prompt — or inform the
 /// user when the journal can't be used.
-fn check_journal_recovery(git_repo: &impl GitRepo, app: &mut AppState) {
+fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(state)) => {
             // Only offer recovery when the branch is still where the interrupted
@@ -277,6 +280,12 @@ fn check_journal_recovery(git_repo: &impl GitRepo, app: &mut AppState) {
             app.set_error_message(format!("Failed to read operation journal: {e}"));
         }
     }
+
+    // A leftover auto-stash with no operation to recover (e.g. a crash after the
+    // op finished but before the stash was reapplied) — restore it now.
+    if !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+        let _ = git_repo.autostash_restore();
+    }
 }
 
 /// Handle the side effects requested by a view-module action. Returns whether
@@ -285,7 +294,7 @@ fn check_journal_recovery(git_repo: &impl GitRepo, app: &mut AppState) {
 fn dispatch_action(
     result: AppAction,
     app: &mut AppState,
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
@@ -396,13 +405,16 @@ fn dispatch_action(
     Ok(LoopAction::Proceed)
 }
 
-fn handle_undo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    match git_repo.undo() {
+fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
+    let outcome = git_repo.undo();
+    let restored = git_repo.autostash_restore();
+    match outcome {
         Ok(UndoOutcome::Done { label }) => {
-            app.set_success_message(format!(
-                "Undid {} \u{00b7} press Ctrl-r to redo",
-                label.to_lowercase()
-            ));
+            apply_autostash_message(app, restored, &format!("Undid {}", label.to_lowercase()));
             Ok(LoopAction::Reload)
         }
         Ok(UndoOutcome::Empty) => {
@@ -420,13 +432,16 @@ fn handle_undo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction
     }
 }
 
-fn handle_redo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    match git_repo.redo() {
+fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
+    let outcome = git_repo.redo();
+    let restored = git_repo.autostash_restore();
+    match outcome {
         Ok(UndoOutcome::Done { label }) => {
-            app.set_success_message(format!(
-                "Redid {} \u{00b7} press u to undo",
-                label.to_lowercase()
-            ));
+            apply_autostash_message(app, restored, &format!("Redid {}", label.to_lowercase()));
             Ok(LoopAction::Reload)
         }
         Ok(UndoOutcome::Empty) => {
@@ -441,6 +456,15 @@ fn handle_redo(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction
             app.set_error_message(format!("Redo failed: {e}"));
             Ok(LoopAction::Proceed)
         }
+    }
+}
+
+/// Set the success message for an operation, appending a warning if reapplying
+/// the auto-stash failed.
+fn apply_autostash_message(app: &mut AppState, restored: Result<()>, success: &str) {
+    match restored {
+        Ok(()) => app.set_success_message(success.to_string()),
+        Err(e) => app.set_error_message(format!("{success}; auto-stash NOT restored: {e}")),
     }
 }
 
@@ -506,13 +530,18 @@ fn handle_execute_split_out_file(
 }
 
 fn handle_execute_drop(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
     head_oid: Oid,
 ) -> Result<LoopAction> {
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
     let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
     Ok(handle_rebase_outcome(
+        git_repo,
         app,
         outcome,
         "Drop",
@@ -521,25 +550,36 @@ fn handle_execute_drop(
 }
 
 fn handle_execute_move(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source_oid: Oid,
     insert_after_oid: Option<Oid>,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
     let outcome = git_repo.move_commit(&source_oid, insert_after_oid.as_ref(), &head_oid);
-    Ok(handle_rebase_outcome(app, outcome, "Move", "Commit moved"))
+    Ok(handle_rebase_outcome(
+        git_repo,
+        app,
+        outcome,
+        "Move",
+        "Commit moved",
+    ))
 }
 
 fn handle_rebase_abort(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     state: ConflictState,
 ) -> Result<LoopAction> {
     match git_repo.rebase_abort(&state) {
         Ok(()) => {
+            let restored = git_repo.autostash_restore();
             let label = state.operation_label.to_lowercase();
-            app.set_success_message(format!("{} aborted", label.trim()));
+            apply_autostash_message(app, restored, &format!("{} aborted", label.trim()));
             Ok(LoopAction::Reload)
         }
         Err(e) => {
@@ -550,7 +590,7 @@ fn handle_rebase_abort(
 }
 
 fn handle_rebase_continue(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     state: ConflictState,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
@@ -579,11 +619,13 @@ fn handle_rebase_continue(
             match editor_result {
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
+                    let _ = git_repo.autostash_restore();
                     app.set_error_message(format!("Editor error: {e}"));
                     return Ok(LoopAction::Reload);
                 }
                 Ok(msg) if msg.trim().is_empty() => {
                     let _ = git_repo.rebase_abort(&state);
+                    let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;
                     app.set_error_message(format!("{label} aborted: empty commit message"));
                     return Ok(LoopAction::Continue);
@@ -596,11 +638,18 @@ fn handle_rebase_continue(
             SquashMode::Squash => "Commits squashed",
         };
         let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
-        return Ok(handle_rebase_outcome(app, outcome, "Squash", success_msg));
+        return Ok(handle_rebase_outcome(
+            git_repo,
+            app,
+            outcome,
+            "Squash",
+            success_msg,
+        ));
     }
     let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
     let outcome = git_repo.rebase_continue(&state);
     Ok(handle_rebase_outcome(
+        git_repo,
         app,
         outcome,
         "Continue",
@@ -708,7 +757,7 @@ fn handle_prepare_reword(
 
 #[allow(clippy::too_many_arguments)]
 fn handle_prepare_squash(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source_oid: Oid,
     target_oid: Oid,
@@ -719,6 +768,10 @@ fn handle_prepare_squash(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
     let label = squash_mode.label();
     let message_for_context = if squash_mode.keeps_target_message() {
         target_message.clone()
@@ -734,10 +787,13 @@ fn handle_prepare_squash(
         &head_oid,
     ) {
         Ok(Some(conflict_state)) => {
+            // Squash-tree conflict — defer restoring the auto-stash until the
+            // user resolves and the squash finalizes (or aborts).
             app.enter_rebase_conflict(conflict_state);
             return Ok(LoopAction::Continue);
         }
         Err(e) => {
+            let _ = git_repo.autostash_restore();
             app.set_error_message(format!("{label} failed: {e}"));
             return Ok(LoopAction::Continue);
         }
@@ -751,10 +807,12 @@ fn handle_prepare_squash(
         })?;
         match editor_result {
             Err(e) => {
+                let _ = git_repo.autostash_restore();
                 app.set_error_message(format!("Editor error: {e}"));
                 return Ok(LoopAction::Continue);
             }
             Ok(msg) if msg.trim().is_empty() => {
+                let _ = git_repo.autostash_restore();
                 app.set_error_message(format!("{label} aborted: empty commit message"));
                 return Ok(LoopAction::Continue);
             }
@@ -767,7 +825,13 @@ fn handle_prepare_squash(
             SquashMode::Squash => "Commits squashed",
         };
         let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
-        return Ok(handle_rebase_outcome(app, outcome, label, success_msg));
+        return Ok(handle_rebase_outcome(
+            git_repo,
+            app,
+            outcome,
+            label,
+            success_msg,
+        ));
     }
     Ok(LoopAction::Proceed)
 }
@@ -817,6 +881,7 @@ const SPLIT_CONFIRM_THRESHOLD: usize = 5;
 /// so the caller can trigger a reload with the selection preserved. On conflict,
 /// enters conflict mode. On error, sets an error message.
 fn handle_rebase_outcome(
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     outcome: anyhow::Result<RebaseOutcome>,
     op_label: &str,
@@ -824,14 +889,18 @@ fn handle_rebase_outcome(
 ) -> LoopAction {
     match outcome {
         Ok(RebaseOutcome::Complete) => {
-            app.set_success_message(success_msg.to_string());
+            // Operation finished — reapply any auto-stash.
+            apply_autostash_message(app, git_repo.autostash_restore(), success_msg);
             LoopAction::ReloadPreserving
         }
         Ok(RebaseOutcome::Conflict(state)) => {
+            // Defer the auto-stash restore until the conflict is resolved/aborted.
             app.enter_rebase_conflict(*state);
             LoopAction::Continue
         }
         Err(e) => {
+            // The operation did not complete — restore the working tree.
+            let _ = git_repo.autostash_restore();
             app.set_error_message(format!("{op_label} failed: {e}"));
             LoopAction::Proceed
         }

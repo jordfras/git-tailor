@@ -90,6 +90,12 @@ impl GitRepo for MockRepo {
     fn redo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         Ok(git_tailor::repo::UndoOutcome::Empty)
     }
+    fn autostash_save(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn autostash_restore(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
             Ok(self.count_per_file)
@@ -204,10 +210,10 @@ fn make_conflict_state() -> ConflictState {
 
 #[test]
 fn execute_drop_complete_sets_success_message() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let result = handle_execute_drop(
-        &repo,
+        &mut repo,
         &mut app,
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
@@ -219,13 +225,13 @@ fn execute_drop_complete_sets_success_message() {
 
 #[test]
 fn execute_drop_error_sets_error_message() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         drop_ok: false,
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let _ = handle_execute_drop(
-        &repo,
+        &mut repo,
         &mut app,
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
@@ -241,9 +247,9 @@ fn execute_drop_error_sets_error_message() {
 
 #[test]
 fn execute_move_complete_sets_success_message() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
-    let result = handle_execute_move(&repo, &mut app, Oid::from("a".repeat(40)), None);
+    let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status_message.as_deref(), Some("Commit moved"));
     assert!(!app.status_is_error);
@@ -251,22 +257,22 @@ fn execute_move_complete_sets_success_message() {
 
 #[test]
 fn execute_move_head_error_continues() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         head_ok: false,
         ..MockRepo::default()
     };
     let mut app = AppState::default();
-    let result = handle_execute_move(&repo, &mut app, Oid::from("a".repeat(40)), None);
+    let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::Continue)));
     assert!(app.status_is_error);
 }
 
 #[test]
 fn rebase_abort_success_sets_success_message() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let state = make_conflict_state();
-    let result = handle_rebase_abort(&repo, &mut app, state);
+    let result = handle_rebase_abort(&mut repo, &mut app, state);
     assert!(matches!(result, Ok(LoopAction::Reload)));
     assert!(!app.status_is_error);
     assert!(
@@ -279,13 +285,13 @@ fn rebase_abort_success_sets_success_message() {
 
 #[test]
 fn rebase_abort_error_sets_error_message() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         abort_ok: false,
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let state = make_conflict_state();
-    let _ = handle_rebase_abort(&repo, &mut app, state);
+    let _ = handle_rebase_abort(&mut repo, &mut app, state);
     assert!(app.status_is_error);
     assert!(
         app.status_message

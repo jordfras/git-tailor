@@ -349,6 +349,18 @@ pub trait GitRepo {
     /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
     fn redo(&self) -> Result<UndoOutcome>;
 
+    /// When auto-stash is enabled and the working tree is dirty, stash the
+    /// staged/unstaged/untracked changes (recording them in the journal) so a
+    /// following operation sees a clean tree. Idempotent: a second call while a
+    /// stash is already pending is a no-op. No-op when auto-stash is disabled or
+    /// the tree is clean.
+    fn autostash_save(&mut self) -> Result<()>;
+
+    /// Reapply and drop the pending auto-stash, restoring the original
+    /// staged/unstaged split. No-op when nothing is stashed. Errors (leaving the
+    /// stash intact) if it cannot be reapplied cleanly.
+    fn autostash_restore(&mut self) -> Result<()>;
+
     /// Return the path of the repository's working directory, if any.
     ///
     /// Bare repositories have no working directory and return `None`.

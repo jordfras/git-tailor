@@ -25,6 +25,14 @@ The format is based on
   branch tip — which is pinned with a ref so its commits survive `git gc`.
   Previously this state lived only in memory and was lost on exit, leaving the
   repository stuck mid-conflict.
+- Opt-in auto-stash via the `--autostash` flag (or `GT_AUTOSTASH` env var). When
+  enabled, operations that need a clean working tree — move, drop, squash,
+  fixup, undo, and redo — automatically stash your staged, unstaged, and
+  untracked changes, run the operation, and restore the exact staged/unstaged
+  split afterwards, instead of refusing to run. The stash is recorded in the
+  operation journal so it survives a crash or a conflict pause, and a clear
+  error is shown if it cannot be reapplied cleanly. Disabled by default, matching
+  git's own `rebase.autoStash` behaviour.
 
 ### Changed
 

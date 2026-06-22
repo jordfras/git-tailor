@@ -187,6 +187,12 @@ impl GitRepo for StubRepo {
     fn redo(&self) -> Result<git_tailor::repo::UndoOutcome> {
         unimplemented!()
     }
+    fn autostash_save(&mut self) -> Result<()> {
+        unimplemented!()
+    }
+    fn autostash_restore(&mut self) -> Result<()> {
+        unimplemented!()
+    }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
     }
