@@ -23,6 +23,7 @@ struct MockRepo {
     drop_ok: bool,
     move_ok: bool,
     abort_ok: bool,
+    autostash_restore_ok: bool,
     count_per_file: usize,
     count_ok: bool,
 }
@@ -34,6 +35,7 @@ impl Default for MockRepo {
             drop_ok: true,
             move_ok: true,
             abort_ok: true,
+            autostash_restore_ok: true,
             count_per_file: 0,
             count_ok: true,
         }
@@ -94,7 +96,13 @@ impl GitRepo for MockRepo {
         Ok(())
     }
     fn autostash_restore(&mut self) -> anyhow::Result<()> {
-        Ok(())
+        if self.autostash_restore_ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "auto-stashed changes conflict with the result"
+            ))
+        }
     }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
@@ -221,6 +229,35 @@ fn execute_drop_complete_sets_success_message() {
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status_message.as_deref(), Some("Commit dropped"));
     assert!(!app.status_is_error);
+}
+
+#[test]
+fn execute_drop_surfaces_autostash_restore_failure() {
+    // The operation completed, but reapplying the auto-stash conflicted. The
+    // user must be told (and not see a plain success), so their stashed changes
+    // are not silently abandoned.
+    let mut repo = MockRepo {
+        autostash_restore_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let result = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+    assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
+    assert!(app.status_is_error);
+    let msg = app.status_message.as_deref().unwrap_or("");
+    assert!(
+        msg.contains("Commit dropped"),
+        "should mention the op: {msg}"
+    );
+    assert!(
+        msg.contains("auto-stash NOT restored"),
+        "should warn the stash was not restored: {msg}"
+    );
 }
 
 #[test]

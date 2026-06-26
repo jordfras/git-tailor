@@ -357,8 +357,9 @@ pub trait GitRepo {
     fn autostash_save(&mut self) -> Result<()>;
 
     /// Reapply and drop the pending auto-stash, restoring the original
-    /// staged/unstaged split. No-op when nothing is stashed. Errors (leaving the
-    /// stash intact) if it cannot be reapplied cleanly.
+    /// staged/unstaged split. No-op when nothing is stashed. On a conflict the
+    /// stash is kept (leaving conflict markers in the working tree) and an error
+    /// is returned, so the user's changes are never silently lost.
     fn autostash_restore(&mut self) -> Result<()>;
 
     /// Return the path of the repository's working directory, if any.

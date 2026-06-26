@@ -62,6 +62,17 @@ fn read_workdir(test: &common::TestRepo, path: &str) -> String {
     std::fs::read_to_string(test.repo.workdir().unwrap().join(path)).unwrap()
 }
 
+fn stash_count(gitdir: &Path) -> usize {
+    let mut repo = git2::Repository::open(gitdir).unwrap();
+    let mut n = 0;
+    repo.stash_foreach(|_, _, _| {
+        n += 1;
+        true
+    })
+    .unwrap();
+    n
+}
+
 /// Three independent-file commits on `work`, plus a staged change to `s.txt`
 /// and an unstaged change to `u.txt`. Returns `(base, c1, c2)`.
 fn setup_dirty_repo(test: &common::TestRepo) -> (git2::Oid, git2::Oid, git2::Oid) {
@@ -274,4 +285,49 @@ fn autostash_around_undo_with_dirty_tree() {
     let (staged, _unstaged) = staged_and_unstaged(&gitdir);
     assert!(staged.contains(&"s.txt".to_string()));
     assert_eq!(read_workdir(&test, "s.txt"), "s1\n");
+}
+
+#[test]
+fn autostash_restore_conflict_keeps_stash_and_errors() {
+    let test = common::TestRepo::new();
+    // c1 changes line 2; the user edits the same line differently (unstaged), so
+    // reapplying the auto-stash after dropping c1 conflicts. The edit changes the
+    // file size, sidestepping git's racy "stat-clean" shortcut so the change is
+    // reliably captured.
+    let _base = test.commit_files(&[("f.txt", "AAAA\nBBBB\nCCCC\n")], "base");
+    let c1 = test.commit_file("f.txt", "AAAA\nYYYY\nCCCC\n", "c1");
+    test.write_file("f.txt", "AAAA\nZZZZZZZZ\nCCCC\n");
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+
+    // libgit2's stash_apply does not report a content conflict as an error, so
+    // the restore must detect it and surface one — keeping the stash rather than
+    // silently dropping it and reporting success.
+    let err = git_repo.autostash_restore().unwrap_err();
+    assert!(
+        err.to_string().contains("conflict"),
+        "expected a conflict error, got: {err}"
+    );
+    assert!(
+        read_workdir(&test, "f.txt").contains("<<<<<<<"),
+        "conflict markers should be left in the working tree"
+    );
+    assert_eq!(
+        stash_count(&gitdir),
+        1,
+        "the stash must be kept so the user's changes are recoverable"
+    );
+
+    // The journal reference was cleared, so a second restore is a no-op: it
+    // neither re-conflicts nor touches the kept stash.
+    git_repo.autostash_restore().unwrap();
+    assert_eq!(stash_count(&gitdir), 1);
 }

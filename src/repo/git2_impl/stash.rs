@@ -63,8 +63,14 @@ impl Git2Repo {
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
     /// split. No-op when nothing is recorded.
     ///
-    /// Errors — leaving the stash in the list — if it cannot be reapplied
-    /// cleanly (e.g. the user's changes conflict with the rewritten result).
+    /// On a conflict the stash is **kept** (not dropped) so the user retains a
+    /// clean copy of their changes, and an error is returned. `libgit2`'s
+    /// `stash_apply` does not report a content conflict as an error — it returns
+    /// `Ok` after writing conflict markers into the working tree and leaving
+    /// unmerged entries in the index — so the conflict is detected explicitly
+    /// via the index rather than relying on the return value. The journal
+    /// reference is cleared either way, so startup recovery does not reapply (and
+    /// re-conflict) a stash that has already been written into the working tree.
     pub(super) fn restore_autostash(&mut self) -> Result<()> {
         let Some(oid) = journal::autostash(self)? else {
             return Ok(());
@@ -80,6 +86,20 @@ impl Git2Repo {
             "could not reapply auto-stashed changes — they may conflict with the \
              result; your changes remain in `git stash list`",
         )?;
+
+        let mut repo_index = self.inner.index()?;
+        repo_index.read(true)?;
+        if repo_index.has_conflicts() {
+            // Keep the stash (a clean copy of the user's work) and clear the
+            // journal so we don't reapply it again on the next launch.
+            journal::set_autostash(self, None)?;
+            anyhow::bail!(
+                "auto-stashed changes conflict with the result — conflict markers \
+                 were written to the working tree, and your original changes are \
+                 preserved in `git stash list` (drop it once you have resolved them)"
+            );
+        }
+
         self.inner.stash_drop(index)?;
         self.inner.index()?.read(true)?;
         journal::set_autostash(self, None)
