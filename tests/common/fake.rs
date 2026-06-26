@@ -190,7 +190,13 @@ impl GitRepo for StubRepo {
     fn autostash_save(&mut self) -> Result<()> {
         unimplemented!()
     }
-    fn autostash_restore(&mut self) -> Result<()> {
+    fn autostash_restore(&mut self) -> Result<git_tailor::repo::AutostashRestore> {
+        unimplemented!()
+    }
+    fn autostash_conflict_continue(&mut self) -> Result<git_tailor::repo::AutostashContinue> {
+        unimplemented!()
+    }
+    fn autostash_conflict_abort(&mut self) -> Result<()> {
         unimplemented!()
     }
     fn workdir(&self) -> Option<std::path::PathBuf> {

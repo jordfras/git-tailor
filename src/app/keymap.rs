@@ -149,11 +149,13 @@ impl AppMode {
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {
-                    AppMode::RebaseConflict(_) => KeyCommand::Mergetool,
+                    AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => KeyCommand::Mergetool,
                     _ => KeyCommand::Move,
                 },
                 KeyCode::Char('e') => match self {
-                    AppMode::RebaseConflict(_) => KeyCommand::OpenEditor,
+                    AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => {
+                        KeyCommand::OpenEditor
+                    }
                     _ => KeyCommand::None,
                 },
                 // u: undo (vim convention).

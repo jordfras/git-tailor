@@ -127,6 +127,39 @@ pub struct SquashContext {
     pub squash_mode: SquashMode,
 }
 
+/// Enough state to drive the resolution dialog for a conflicting auto-stash
+/// reapply. The stash OID and the pre-operation tip needed to continue or abort
+/// live in the journal; this only carries what the dialog displays.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StashConflictState {
+    /// Label of the operation whose auto-stash reapply conflicted (e.g. "Drop"),
+    /// used in the dialog title.
+    pub operation_label: String,
+    /// Paths with conflict markers left by the reapply.
+    pub conflicting_files: Vec<String>,
+    /// True when the user pressed continue but conflicts still remain.
+    pub still_unresolved: bool,
+}
+
+/// Result of reapplying the auto-stash after an operation.
+#[derive(Debug)]
+pub enum AutostashRestore {
+    /// Nothing was stashed, or the stash was reapplied cleanly.
+    Done,
+    /// The reapply conflicted: markers are in the working tree and the stash is
+    /// kept. Carries the conflicting file paths for the resolution dialog.
+    Conflict { files: Vec<String> },
+}
+
+/// Result of attempting to finish a conflicting auto-stash reapply.
+#[derive(Debug)]
+pub enum AutostashContinue {
+    /// All conflicts resolved; the stash was dropped.
+    Resolved,
+    /// Conflicts still remain; `files` lists them.
+    StillUnresolved { files: Vec<String> },
+}
+
 /// Abstraction over git repository operations.
 ///
 /// Isolates the `git2` crate to the `repo::git2_impl` module. Callers work
@@ -356,11 +389,23 @@ pub trait GitRepo {
     /// the tree is clean.
     fn autostash_save(&mut self) -> Result<()>;
 
-    /// Reapply and drop the pending auto-stash, restoring the original
-    /// staged/unstaged split. No-op when nothing is stashed. On a conflict the
-    /// stash is kept (leaving conflict markers in the working tree) and an error
-    /// is returned, so the user's changes are never silently lost.
-    fn autostash_restore(&mut self) -> Result<()>;
+    /// Reapply the pending auto-stash, restoring the original staged/unstaged
+    /// split, and drop it. Returns [`AutostashRestore::Done`] when nothing was
+    /// stashed or it reapplied cleanly. On a conflict the stash is **kept** (with
+    /// markers left in the working tree) and [`AutostashRestore::Conflict`] is
+    /// returned so the caller can open the resolution dialog — the user's changes
+    /// are never silently lost.
+    fn autostash_restore(&mut self) -> Result<AutostashRestore>;
+
+    /// Finish a conflicting auto-stash reapply: stage the files the user has
+    /// resolved and, if none remain conflicted, drop the stash. Returns whether
+    /// the resolution is complete or files still conflict.
+    fn autostash_conflict_continue(&mut self) -> Result<AutostashContinue>;
+
+    /// Abort a conflicting auto-stash reapply: rewind the branch and working
+    /// tree to the pre-operation tip (undoing the operation), restore the
+    /// original dirty changes there (always conflict-free), and drop the stash.
+    fn autostash_conflict_abort(&mut self) -> Result<()>;
 
     /// Return the path of the repository's working directory, if any.
     ///

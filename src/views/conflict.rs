@@ -14,7 +14,9 @@
 
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
-use super::dialog::{Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width};
+use super::dialog::{
+    Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width, render_conflict_dialog,
+};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
@@ -141,51 +143,18 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         dialog = dialog.wrapped_indent(&note, iw);
     }
 
-    if !state.conflicting_files.is_empty() {
-        dialog = dialog
-            .blank()
-            .styled_line("Conflicting files:", TextRole::Highlight);
-        const MAX_FILES: usize = 5;
-        let shown = state.conflicting_files.len().min(MAX_FILES);
-        for path in &state.conflicting_files[..shown] {
-            let truncated = if path.len() + 3 > iw {
-                format!(
-                    " \u{2026}{}",
-                    &path[path.len().saturating_sub(iw.saturating_sub(3))..]
-                )
-            } else {
-                path.to_string()
-            };
-            dialog = dialog.styled_line(truncated, TextRole::Danger);
-        }
-        let extra = state.conflicting_files.len().saturating_sub(MAX_FILES);
-        if extra > 0 {
-            dialog = dialog.styled_line(format!("... {extra} more"), TextRole::Muted);
-        }
-    }
-
-    dialog = dialog.blank();
-    if state.still_unresolved {
-        dialog = dialog
-            .wrapped_styled_bold(
-                " ! Still unresolved — fix all conflicts above before continuing",
-                iw,
-                TextRole::Danger,
-            )
-            .blank();
-    }
-    dialog = dialog
-        .instructions(&[
-            ("Enter", Color::Green, "Continue"),
-            ("m", Color::Cyan, "Mergetool"),
-            ("e", Color::Cyan, "Editor"),
-            ("Esc", Color::Red, "Abort"),
-        ])
-        .blank();
-
+    // Copy the bits the shared renderer needs so the immutable borrow of
+    // `app.mode` (via `state`) ends before it takes `app` mutably.
     let title = format!("{label} Conflict");
-    let (max_scroll, visible_height) =
-        dialog.render(frame, &title, PREFERRED_WIDTH, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+    let files = state.conflicting_files.clone();
+    let still_unresolved = state.still_unresolved;
+    render_conflict_dialog(
+        app,
+        frame,
+        dialog,
+        &files,
+        still_unresolved,
+        PREFERRED_WIDTH,
+        &title,
+    );
 }

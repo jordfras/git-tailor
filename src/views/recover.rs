@@ -14,7 +14,9 @@
 
 // Startup crash-recovery prompt for an operation a previous run was killed in.
 
-use super::dialog::{Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width};
+use super::dialog::{
+    Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width, truncate_path_tail,
+};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{Frame, style::Color};
 
@@ -84,15 +86,7 @@ pub fn render_recover(app: &mut AppState, frame: &mut Frame) {
         const MAX_FILES: usize = 5;
         let shown = state.conflicting_files.len().min(MAX_FILES);
         for path in &state.conflicting_files[..shown] {
-            let truncated = if path.len() + 3 > iw {
-                format!(
-                    " \u{2026}{}",
-                    &path[path.len().saturating_sub(iw.saturating_sub(3))..]
-                )
-            } else {
-                path.to_string()
-            };
-            dialog = dialog.styled_line(truncated, TextRole::Danger);
+            dialog = dialog.styled_line(truncate_path_tail(path, iw), TextRole::Danger);
         }
         let extra = state.conflicting_files.len().saturating_sub(MAX_FILES);
         if extra > 0 {

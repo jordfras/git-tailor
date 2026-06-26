@@ -13,7 +13,11 @@
 // limitations under the License.
 
 use crate::{
-    CommitInfo, Oid, app::SquashMode, fragmap::FragMap, repo::ConflictState, views::theme::Theme,
+    CommitInfo, Oid,
+    app::SquashMode,
+    fragmap::FragMap,
+    repo::{ConflictState, StashConflictState},
+    views::theme::Theme,
 };
 
 use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
@@ -340,6 +344,11 @@ impl AppState {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
     }
 
+    /// Enter the auto-stash conflict resolution dialog.
+    pub fn enter_stash_conflict(&mut self, state: StashConflictState) {
+        self.enter_dialog(AppMode::StashConflict(Box::new(state)));
+    }
+
     /// Enter the startup crash-recovery prompt for an interrupted operation.
     pub fn enter_recover_confirm(&mut self, state: ConflictState) {
         self.enter_dialog(AppMode::RecoverConfirm(Box::new(state)));
@@ -493,6 +502,7 @@ impl AppState {
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
+            | AppMode::StashConflict(_)
             | AppMode::RecoverConfirm(_)
             | AppMode::SquashSelect { .. }
             | AppMode::MoveSelect { .. }

@@ -303,8 +303,16 @@ impl GitRepo for Git2Repo {
         self.save_autostash()
     }
 
-    fn autostash_restore(&mut self) -> Result<()> {
+    fn autostash_restore(&mut self) -> Result<crate::repo::AutostashRestore> {
         self.restore_autostash()
+    }
+
+    fn autostash_conflict_continue(&mut self) -> Result<crate::repo::AutostashContinue> {
+        self.continue_autostash()
+    }
+
+    fn autostash_conflict_abort(&mut self) -> Result<()> {
+        self.abort_autostash()
     }
 
     fn workdir(&self) -> Option<std::path::PathBuf> {

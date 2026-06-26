@@ -23,7 +23,8 @@ mod update_check;
 use anyhow::Result;
 use clap::Parser;
 use git_tailor::repo::{
-    ConflictState, Git2Repo, GitRepo, JournalStatus, RebaseOutcome, UndoOutcome,
+    AutostashContinue, AutostashRestore, ConflictState, Git2Repo, GitRepo, JournalStatus,
+    RebaseOutcome, StashConflictState, UndoOutcome,
 };
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
@@ -188,6 +189,9 @@ fn main() -> Result<()> {
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
             AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
+            AppMode::StashConflict(_) => {
+                views::stash_conflict::handle_stash_conflict_key(action, &mut app)
+            }
             AppMode::RecoverConfirm(_) => views::recover::handle_recover_key(action, &mut app),
             AppMode::SquashSelect { .. } => views::squash_select::handle_key(action, &mut app),
             AppMode::MoveSelect { .. } => views::move_select::handle_key(action, &mut app),
@@ -282,9 +286,17 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
     }
 
     // A leftover auto-stash with no operation to recover (e.g. a crash after the
-    // op finished but before the stash was reapplied) — restore it now.
-    if !matches!(app.mode, AppMode::RecoverConfirm(_)) {
-        let _ = git_repo.autostash_restore();
+    // op finished but before the stash was reapplied) — restore it now. If it
+    // conflicts (or a previous run already left markers), open the resolution
+    // dialog so the user can finish or abort rather than being stuck.
+    if !matches!(app.mode, AppMode::RecoverConfirm(_))
+        && let Ok(AutostashRestore::Conflict { files }) = git_repo.autostash_restore()
+    {
+        app.enter_stash_conflict(StashConflictState {
+            operation_label: "the operation".to_string(),
+            conflicting_files: files,
+            still_unresolved: false,
+        });
     }
 }
 
@@ -363,6 +375,14 @@ fn dispatch_action(
                 kb_enhanced,
             );
         }
+        AppAction::AutostashContinue => return handle_autostash_continue(git_repo, app),
+        AppAction::AutostashAbort => return handle_autostash_abort(git_repo, app),
+        AppAction::RunMergetoolForStash { files } => {
+            return handle_run_stash_tool(git_repo, app, files, terminal_guard, kb_enhanced, true);
+        }
+        AppAction::RunEditorForStash { files } => {
+            return handle_run_stash_tool(git_repo, app, files, terminal_guard, kb_enhanced, false);
+        }
         AppAction::PrepareReword {
             commit_oid,
             current_message,
@@ -413,10 +433,13 @@ fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAc
     let outcome = git_repo.undo();
     let restored = git_repo.autostash_restore();
     match outcome {
-        Ok(UndoOutcome::Done { label }) => {
-            apply_autostash_message(app, restored, &format!("Undid {}", label.to_lowercase()));
-            Ok(LoopAction::Reload)
-        }
+        Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
+            app,
+            restored,
+            "Undo",
+            &format!("Undid {}", label.to_lowercase()),
+            LoopAction::Reload,
+        )),
         Ok(UndoOutcome::Empty) => {
             app.set_error_message("Nothing to undo");
             Ok(LoopAction::Proceed)
@@ -440,10 +463,13 @@ fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAc
     let outcome = git_repo.redo();
     let restored = git_repo.autostash_restore();
     match outcome {
-        Ok(UndoOutcome::Done { label }) => {
-            apply_autostash_message(app, restored, &format!("Redid {}", label.to_lowercase()));
-            Ok(LoopAction::Reload)
-        }
+        Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
+            app,
+            restored,
+            "Redo",
+            &format!("Redid {}", label.to_lowercase()),
+            LoopAction::Reload,
+        )),
         Ok(UndoOutcome::Empty) => {
             app.set_error_message("Nothing to redo");
             Ok(LoopAction::Proceed)
@@ -459,12 +485,36 @@ fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAc
     }
 }
 
-/// Set the success message for an operation, appending a warning if reapplying
-/// the auto-stash failed.
-fn apply_autostash_message(app: &mut AppState, restored: Result<()>, success: &str) {
+/// Settle the auto-stash after an operation completed. On a clean reapply, show
+/// `success` and return `done`. On a conflict, open the stash-conflict dialog
+/// (Esc there aborts the whole operation). On an unexpected restore error, warn
+/// the user that the stash was not restored.
+///
+/// `op_label` titles the conflict dialog (e.g. "Drop" → "after drop").
+fn settle_autostash(
+    app: &mut AppState,
+    restored: Result<AutostashRestore>,
+    op_label: &str,
+    success: &str,
+    done: LoopAction,
+) -> LoopAction {
     match restored {
-        Ok(()) => app.set_success_message(success.to_string()),
-        Err(e) => app.set_error_message(format!("{success}; auto-stash NOT restored: {e}")),
+        Ok(AutostashRestore::Done) => {
+            app.set_success_message(success.to_string());
+            done
+        }
+        Ok(AutostashRestore::Conflict { files }) => {
+            app.enter_stash_conflict(StashConflictState {
+                operation_label: op_label.to_string(),
+                conflicting_files: files,
+                still_unresolved: false,
+            });
+            LoopAction::Continue
+        }
+        Err(e) => {
+            app.set_error_message(format!("{success}; auto-stash NOT restored: {e}"));
+            done
+        }
     }
 }
 
@@ -579,8 +629,13 @@ fn handle_rebase_abort(
         Ok(()) => {
             let restored = git_repo.autostash_restore();
             let label = state.operation_label.to_lowercase();
-            apply_autostash_message(app, restored, &format!("{} aborted", label.trim()));
-            Ok(LoopAction::Reload)
+            Ok(settle_autostash(
+                app,
+                restored,
+                &state.operation_label,
+                &format!("{} aborted", label.trim()),
+                LoopAction::Reload,
+            ))
         }
         Err(e) => {
             app.set_error_message(format!("Abort failed: {e}"));
@@ -725,6 +780,115 @@ fn handle_run_editor(
         }
     }
     Ok(LoopAction::Proceed)
+}
+
+/// Run the merge tool (`use_mergetool`) or editor over the files conflicting in
+/// an auto-stash reapply, then refresh the stash-conflict dialog.
+fn handle_run_stash_tool(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    files: Vec<String>,
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+    use_mergetool: bool,
+) -> Result<LoopAction> {
+    let operation_label = match &app.mode {
+        AppMode::StashConflict(s) => s.operation_label.clone(),
+        _ => String::new(),
+    };
+    let tool = if use_mergetool {
+        "Merge tool"
+    } else {
+        "Editor"
+    };
+    let workdir = git_repo.workdir();
+    let result: anyhow::Result<bool> =
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+            if use_mergetool {
+                mergetool::run_mergetool(git_repo, &files)
+            } else {
+                let workdir = workdir
+                    .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+                for file_path in &files {
+                    editor::open_file_in_editor(git_repo, &workdir.join(file_path))?;
+                }
+                Ok(true)
+            }
+        })?;
+    match result {
+        Ok(true) => {
+            let new_files = git_repo.read_conflicting_files();
+            app.mode = AppMode::StashConflict(Box::new(StashConflictState {
+                operation_label,
+                conflicting_files: new_files,
+                still_unresolved: false,
+            }));
+            app.set_success_message(format!(
+                "{tool} finished \u{2014} press Enter when done or Esc to abort"
+            ));
+        }
+        Ok(false) => {
+            app.set_error_message("No merge tool configured (set merge.tool in git config)");
+        }
+        Err(e) => {
+            app.set_error_message(format!("{tool} failed: {e}"));
+        }
+    }
+    Ok(LoopAction::Proceed)
+}
+
+/// Finish a conflicting auto-stash reapply: drop the stash if everything is
+/// resolved, otherwise refresh the dialog with the remaining conflicts.
+fn handle_autostash_continue(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+) -> Result<LoopAction> {
+    let operation_label = match &app.mode {
+        AppMode::StashConflict(s) => s.operation_label.clone(),
+        _ => String::new(),
+    };
+    match git_repo.autostash_conflict_continue() {
+        Ok(AutostashContinue::Resolved) => {
+            app.mode = AppMode::CommitList;
+            app.set_success_message("Auto-stashed changes restored");
+            Ok(LoopAction::ReloadPreserving)
+        }
+        Ok(AutostashContinue::StillUnresolved { files }) => {
+            app.mode = AppMode::StashConflict(Box::new(StashConflictState {
+                operation_label,
+                conflicting_files: files,
+                still_unresolved: true,
+            }));
+            Ok(LoopAction::Continue)
+        }
+        Err(e) => {
+            app.set_error_message(format!("Failed to finish auto-stash: {e}"));
+            Ok(LoopAction::Continue)
+        }
+    }
+}
+
+/// Abort a conflicting auto-stash reapply: rewind the whole operation and put
+/// the user's original dirty changes back.
+fn handle_autostash_abort(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+    let label = match &app.mode {
+        AppMode::StashConflict(s) => s.operation_label.to_lowercase(),
+        _ => String::new(),
+    };
+    match git_repo.autostash_conflict_abort() {
+        Ok(()) => {
+            app.mode = AppMode::CommitList;
+            app.set_success_message(format!(
+                "{} aborted \u{2014} changes restored",
+                label.trim()
+            ));
+            Ok(LoopAction::Reload)
+        }
+        Err(e) => {
+            app.set_error_message(format!("Abort failed: {e}"));
+            Ok(LoopAction::Continue)
+        }
+    }
 }
 
 fn handle_prepare_reword(
@@ -889,9 +1053,15 @@ fn handle_rebase_outcome(
 ) -> LoopAction {
     match outcome {
         Ok(RebaseOutcome::Complete) => {
-            // Operation finished — reapply any auto-stash.
-            apply_autostash_message(app, git_repo.autostash_restore(), success_msg);
-            LoopAction::ReloadPreserving
+            // Operation finished — reapply any auto-stash, opening the
+            // resolution dialog if it conflicts.
+            settle_autostash(
+                app,
+                git_repo.autostash_restore(),
+                op_label,
+                success_msg,
+                LoopAction::ReloadPreserving,
+            )
         }
         Ok(RebaseOutcome::Conflict(state)) => {
             // Defer the auto-stash restore until the conflict is resolved/aborted.
@@ -964,6 +1134,7 @@ fn render_mode(
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
+        AppMode::StashConflict(_) => views::stash_conflict::render_stash_conflict(app, frame),
         AppMode::RecoverConfirm(_) => views::recover::render_recover(app, frame),
         AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
         AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),

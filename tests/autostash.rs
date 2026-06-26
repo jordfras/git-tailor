@@ -20,7 +20,7 @@
 mod common;
 
 use common::prelude::*;
-use git_tailor::repo::UndoOutcome;
+use git_tailor::repo::{AutostashContinue, AutostashRestore, UndoOutcome};
 use std::path::Path;
 
 /// Open a fresh handle and return `(staged, unstaged)` file paths, so the read
@@ -287,16 +287,21 @@ fn autostash_around_undo_with_dirty_tree() {
     assert_eq!(read_workdir(&test, "s.txt"), "s1\n");
 }
 
-#[test]
-fn autostash_restore_conflict_keeps_stash_and_errors() {
-    let test = common::TestRepo::new();
-    // c1 changes line 2; the user edits the same line differently (unstaged), so
-    // reapplying the auto-stash after dropping c1 conflicts. The edit changes the
-    // file size, sidestepping git's racy "stat-clean" shortcut so the change is
-    // reliably captured.
-    let _base = test.commit_files(&[("f.txt", "AAAA\nBBBB\nCCCC\n")], "base");
+/// Build a repo where reapplying the auto-stash after dropping `c1` conflicts:
+/// `c1` changes line 2 and the user edits the same line differently (unstaged).
+/// The edit changes the file size, sidestepping git's racy "stat-clean"
+/// shortcut so the change is reliably captured. Returns `(base, c1)`.
+fn setup_restore_conflict(test: &common::TestRepo) -> (git2::Oid, git2::Oid) {
+    let base = test.commit_files(&[("f.txt", "AAAA\nBBBB\nCCCC\n")], "base");
     let c1 = test.commit_file("f.txt", "AAAA\nYYYY\nCCCC\n", "c1");
     test.write_file("f.txt", "AAAA\nZZZZZZZZ\nCCCC\n");
+    (base, c1)
+}
+
+#[test]
+fn autostash_restore_conflict_reports_and_keeps_stash() {
+    let test = common::TestRepo::new();
+    let (_base, c1) = setup_restore_conflict(&test);
     let gitdir = test.repo.path().to_path_buf();
 
     let mut git_repo = test.git_repo();
@@ -309,25 +314,123 @@ fn autostash_restore_conflict_keeps_stash_and_errors() {
     );
 
     // libgit2's stash_apply does not report a content conflict as an error, so
-    // the restore must detect it and surface one — keeping the stash rather than
-    // silently dropping it and reporting success.
-    let err = git_repo.autostash_restore().unwrap_err();
-    assert!(
-        err.to_string().contains("conflict"),
-        "expected a conflict error, got: {err}"
-    );
+    // the restore detects it via the index and reports a Conflict — keeping the
+    // stash rather than silently dropping it and reporting success.
+    let files = match git_repo.autostash_restore().unwrap() {
+        AutostashRestore::Conflict { files } => files,
+        AutostashRestore::Done => panic!("expected a conflict"),
+    };
+    assert_eq!(files, vec!["f.txt".to_string()]);
     assert!(
         read_workdir(&test, "f.txt").contains("<<<<<<<"),
         "conflict markers should be left in the working tree"
     );
-    assert_eq!(
-        stash_count(&gitdir),
-        1,
-        "the stash must be kept so the user's changes are recoverable"
-    );
+    assert_eq!(stash_count(&gitdir), 1, "the stash must be kept");
 
-    // The journal reference was cleared, so a second restore is a no-op: it
-    // neither re-conflicts nor touches the kept stash.
-    git_repo.autostash_restore().unwrap();
+    // The record is flagged applied, so a second restore re-reports the conflict
+    // without reapplying onto the already-markered tree.
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
     assert_eq!(stash_count(&gitdir), 1);
+}
+
+#[test]
+fn autostash_conflict_continue_resolves_and_drops_stash() {
+    let test = common::TestRepo::new();
+    let (base, c1) = setup_restore_conflict(&test);
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // The user resolves the markers in the working tree, then continues.
+    test.write_file("f.txt", "AAAA\nRESOLVED\nCCCC\n");
+    assert!(matches!(
+        git_repo.autostash_conflict_continue().unwrap(),
+        AutostashContinue::Resolved
+    ));
+
+    // The drop stuck (HEAD is base), the resolution is in the tree, and the
+    // stash is gone.
+    assert_eq!(test.commits_from_head(base).len(), 0);
+    assert_eq!(read_workdir(&test, "f.txt"), "AAAA\nRESOLVED\nCCCC\n");
+    assert_eq!(stash_count(&gitdir), 0);
+}
+
+#[test]
+fn autostash_conflict_continue_stays_when_unresolved() {
+    let test = common::TestRepo::new();
+    let (_base, c1) = setup_restore_conflict(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // Markers still present: continue must report the files as unresolved.
+    match git_repo.autostash_conflict_continue().unwrap() {
+        AutostashContinue::StillUnresolved { files } => {
+            assert_eq!(files, vec!["f.txt".to_string()])
+        }
+        AutostashContinue::Resolved => panic!("should still be unresolved"),
+    }
+}
+
+#[test]
+fn autostash_conflict_abort_rewinds_whole_operation() {
+    let test = common::TestRepo::new();
+    let (base, c1) = setup_restore_conflict(&test);
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    // A clean drop of an unrelated earlier commit would record undo; here we drop
+    // c1, recording an undo entry that the abort must also remove.
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    git_repo.autostash_conflict_abort().unwrap();
+
+    // Back to exactly before the drop: c1 is restored as HEAD, the user's
+    // original unstaged edit is back (no markers), and the stash is gone.
+    assert_eq!(
+        Oid::from(test.repo.head().unwrap().target().unwrap()),
+        Oid::from(c1)
+    );
+    assert_eq!(test.commits_from_head(base).len(), 1);
+    assert_eq!(read_workdir(&test, "f.txt"), "AAAA\nZZZZZZZZ\nCCCC\n");
+    assert_eq!(stash_count(&gitdir), 0);
+    // The reverted drop no longer lingers in the undo history.
+    assert!(matches!(
+        git_repo.undo().unwrap(),
+        UndoOutcome::Empty | UndoOutcome::Stale
+    ));
 }

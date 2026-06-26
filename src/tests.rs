@@ -95,14 +95,22 @@ impl GitRepo for MockRepo {
     fn autostash_save(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn autostash_restore(&mut self) -> anyhow::Result<()> {
+    fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {
         if self.autostash_restore_ok {
-            Ok(())
+            Ok(git_tailor::repo::AutostashRestore::Done)
         } else {
-            Err(anyhow::anyhow!(
-                "auto-stashed changes conflict with the result"
-            ))
+            Ok(git_tailor::repo::AutostashRestore::Conflict {
+                files: vec!["conflict.txt".to_string()],
+            })
         }
+    }
+    fn autostash_conflict_continue(
+        &mut self,
+    ) -> anyhow::Result<git_tailor::repo::AutostashContinue> {
+        Ok(git_tailor::repo::AutostashContinue::Resolved)
+    }
+    fn autostash_conflict_abort(&mut self) -> anyhow::Result<()> {
+        Ok(())
     }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
@@ -232,10 +240,10 @@ fn execute_drop_complete_sets_success_message() {
 }
 
 #[test]
-fn execute_drop_surfaces_autostash_restore_failure() {
-    // The operation completed, but reapplying the auto-stash conflicted. The
-    // user must be told (and not see a plain success), so their stashed changes
-    // are not silently abandoned.
+fn execute_drop_opens_stash_conflict_dialog_on_conflict() {
+    // The drop completed, but reapplying the auto-stash conflicted. Instead of a
+    // terse error the user is dropped into the resolution dialog (same as a
+    // cherry-pick conflict), so their changes are never silently abandoned.
     let mut repo = MockRepo {
         autostash_restore_ok: false,
         ..MockRepo::default()
@@ -247,17 +255,14 @@ fn execute_drop_surfaces_autostash_restore_failure() {
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
     );
-    assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
-    assert!(app.status_is_error);
-    let msg = app.status_message.as_deref().unwrap_or("");
-    assert!(
-        msg.contains("Commit dropped"),
-        "should mention the op: {msg}"
-    );
-    assert!(
-        msg.contains("auto-stash NOT restored"),
-        "should warn the stash was not restored: {msg}"
-    );
+    assert!(matches!(result, Ok(LoopAction::Continue)));
+    match &app.mode {
+        AppMode::StashConflict(state) => {
+            assert_eq!(state.operation_label, "Drop");
+            assert_eq!(state.conflicting_files, vec!["conflict.txt".to_string()]);
+        }
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
 }
 
 #[test]

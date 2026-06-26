@@ -65,6 +65,17 @@ fn test_recover_dialog_tiny_terminal_does_not_panic() {
     }
 }
 
+/// Truncating a non-ASCII path must cut on a character boundary, not a byte
+/// offset, so a narrow terminal does not panic mid-codepoint.
+#[test]
+fn test_recover_dialog_non_ascii_path_does_not_panic() {
+    for width in [2u16, 4, 6, 8, 12, 20] {
+        let mut harness = TuiTestHarness::new(width, 12);
+        let mut app = make_app_in_recover("Drop", vec!["src/très/lÄngé/café_naïve_файл.rs"]);
+        let _ = harness.render(|frame| views::recover::render_recover(&mut app, frame));
+    }
+}
+
 #[test]
 fn test_recover_dialog_multiple_files() {
     let mut harness = TuiTestHarness::typical();

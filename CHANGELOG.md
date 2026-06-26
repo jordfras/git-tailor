@@ -30,9 +30,12 @@ The format is based on
   fixup, undo, and redo — automatically stash your staged, unstaged, and
   untracked changes, run the operation, and restore the exact staged/unstaged
   split afterwards, instead of refusing to run. The stash is recorded in the
-  operation journal so it survives a crash or a conflict pause, and a clear
-  error is shown if it cannot be reapplied cleanly. Disabled by default, matching
-  git's own `rebase.autoStash` behaviour.
+  operation journal so it survives a crash or a conflict pause. If reapplying the
+  changes conflicts with the result, the same resolution dialog used for
+  cherry-pick conflicts opens — resolve with the merge tool (`m`) or editor
+  (`e`) and continue, or press Esc to abort the whole operation and get your
+  changes back unchanged. Disabled by default, matching git's own
+  `rebase.autoStash` behaviour.
 
 ### Changed
 

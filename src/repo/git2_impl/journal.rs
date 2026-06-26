@@ -65,6 +65,23 @@ struct UndoRecord {
     tip_after: Oid,
 }
 
+/// State of an auto-stash created for the in-flight operation.
+///
+/// Kept in the journal so the stash can be reapplied — or, on a conflicting
+/// reapply, aborted back to `pre_op_tip` — even across a crash or restart.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub(super) struct AutostashRecord {
+    /// OID of the stash commit holding the user's dirty changes.
+    pub stash: Oid,
+    /// Branch tip at the moment the stash was taken (before the operation
+    /// advanced the ref). Aborting a conflicting reapply rewinds here; the stash
+    /// re-applies cleanly there because that tip is the stash's own base.
+    pub pre_op_tip: Oid,
+    /// Set once the stash has been reapplied and left conflict markers in the
+    /// working tree, so startup recovery does not reapply it a second time.
+    pub applied_with_conflict: bool,
+}
+
 /// The full journal document.
 ///
 /// All fields carry `#[serde(default)]` so that adding fields is an additive,
@@ -80,10 +97,10 @@ struct JournalDoc {
     undo: Vec<UndoRecord>,
     /// Undone operations available to redo, oldest first (top = last).
     redo: Vec<UndoRecord>,
-    /// OID of an auto-stash created for the in-flight operation, to be
-    /// reapplied when it completes or aborts (survives a crash so recovery can
-    /// restore the user's working-tree changes).
-    autostash: Option<Oid>,
+    /// Auto-stash created for the in-flight operation, to be reapplied when it
+    /// completes or aborts (survives a crash so recovery can restore the user's
+    /// working-tree changes).
+    autostash: Option<AutostashRecord>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -154,16 +171,40 @@ fn is_empty(doc: &JournalDoc) -> bool {
         && doc.autostash.is_none()
 }
 
-/// Read the recorded auto-stash OID, if any.
-pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<Oid>> {
+/// Read the recorded auto-stash, if any.
+pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
     Ok(load_doc(repo)?.autostash)
 }
 
-/// Record (or clear, with `None`) the auto-stash OID for the in-flight operation.
-pub(super) fn set_autostash(repo: &Git2Repo, oid: Option<Oid>) -> Result<()> {
+/// Record (or clear, with `None`) the auto-stash for the in-flight operation.
+pub(super) fn set_autostash(repo: &Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
-    doc.autostash = oid;
+    doc.autostash = record;
     save(repo, &mut doc)
+}
+
+/// Restore the undo/redo stacks to the state captured before a forward
+/// operation, by dropping its just-recorded undo entry. Called when a
+/// conflicting auto-stash reapply is aborted, so the reverted operation does
+/// not linger in the undo history. The entry is removed only when it precisely
+/// matches a forward operation that advanced `pre_op_tip` to the current
+/// `discarded_tip`; undo/redo records (which move between stacks) do not match
+/// and are left to the staleness check.
+pub(super) fn drop_reverted_undo_record(
+    repo: &Git2Repo,
+    pre_op_tip: &Oid,
+    discarded_tip: &Oid,
+) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    if doc
+        .undo
+        .last()
+        .is_some_and(|r| &r.tip_before == pre_op_tip && &r.tip_after == discarded_tip)
+    {
+        doc.undo.pop();
+        save(repo, &mut doc)?;
+    }
+    Ok(())
 }
 
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
