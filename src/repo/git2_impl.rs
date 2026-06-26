@@ -291,6 +291,10 @@ impl GitRepo for Git2Repo {
         journal::clear_in_progress(self)
     }
 
+    fn prune_stale_journal(&self) -> Result<()> {
+        journal::prune_stale(self)
+    }
+
     fn undo(&self) -> Result<super::UndoOutcome> {
         journal::apply_undo(self)
     }

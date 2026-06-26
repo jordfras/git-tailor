@@ -207,6 +207,46 @@ pub(super) fn drop_reverted_undo_record(
     Ok(())
 }
 
+/// Discard undo/redo history (and its gc-pin refs) that no longer matches the
+/// branch, so stale `refs/git-tailor/*` entries don't linger in tools like
+/// `gitk`. Run at startup.
+///
+/// A *valid* stack — HEAD still at the position git-tailor left it
+/// (`undo.last().tip_after`, or `redo.last().tip_before` once everything is
+/// undone) — is preserved so undo/redo survives across restarts. Skipped while
+/// an operation is paused mid-conflict (`in_progress`), since HEAD then sits on
+/// a partial tip and the stack cannot be validated against it. Either way the
+/// pin refs are reconciled with whatever remains, dropping any orphans.
+pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+
+    if doc.in_progress.is_some() {
+        return Ok(());
+    }
+
+    let stale = if doc.undo.is_empty() && doc.redo.is_empty() {
+        false
+    } else {
+        let current = doc
+            .undo
+            .last()
+            .map(|r| &r.tip_after)
+            .or_else(|| doc.redo.last().map(|r| &r.tip_before));
+        current != Some(&reads::head_oid(repo)?)
+    };
+
+    if stale {
+        doc.undo.clear();
+        doc.redo.clear();
+        // `save` removes the now-empty journal and reconciles the pins.
+        save(repo, &mut doc)
+    } else {
+        // Keep the (valid) history; just drop any orphaned pin refs.
+        sync_undo_pins(repo, &doc);
+        Ok(())
+    }
+}
+
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
 /// caller (pins are only a gc optimisation).

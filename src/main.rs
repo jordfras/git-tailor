@@ -252,6 +252,10 @@ fn main() -> Result<()> {
 /// (from the persisted journal) and surface a recovery prompt — or inform the
 /// user when the journal can't be used.
 fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
+    // Drop undo/redo history (and its gc-pin refs) left stale by external
+    // history changes, so it doesn't clutter the journal or tools like gitk.
+    let _ = git_repo.prune_stale_journal();
+
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(state)) => {
             // Only offer recovery when the branch is still where the interrupted

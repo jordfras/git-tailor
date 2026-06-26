@@ -86,6 +86,9 @@ impl GitRepo for MockRepo {
     fn clear_journal(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    fn prune_stale_journal(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         Ok(git_tailor::repo::UndoOutcome::Empty)
     }

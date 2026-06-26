@@ -371,6 +371,12 @@ pub trait GitRepo {
     /// moved since it was journaled), so resuming or aborting would be unsafe.
     fn clear_journal(&self) -> Result<()>;
 
+    /// Drop undo/redo history (and its `refs/git-tailor/*` gc-pins) that no
+    /// longer matches the branch, and reconcile the remaining pins. Run at
+    /// startup so stale refs don't linger in tools like `gitk`; a still-valid
+    /// stack is preserved so undo/redo survives across restarts.
+    fn prune_stale_journal(&self) -> Result<()>;
+
     /// Undo the most recent history-rewriting operation by restoring the branch
     /// to the tip recorded before it ran (and moving the record to the redo
     /// stack). Refuses if the working tree is dirty; reports

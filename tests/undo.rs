@@ -213,3 +213,52 @@ fn undo_and_redo_empty_with_no_history() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
     assert!(matches!(git_repo.redo().unwrap(), UndoOutcome::Empty));
 }
+
+#[test]
+fn prune_clears_stale_undo_history_and_pins() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let git_repo = test.git_repo();
+
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+    assert!(undo_pin_count(&test) >= 1);
+    let _ = base;
+
+    // History changed outside git-tailor: HEAD no longer matches the recorded
+    // post-operation tip, so the stack is stale.
+    test.commit_file("d.txt", "d\n", "external commit");
+
+    git_repo.prune_stale_journal().unwrap();
+
+    // The stale history and its gc-pin refs are gone.
+    assert_eq!(undo_pin_count(&test), 0);
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
+}
+
+#[test]
+fn prune_keeps_valid_undo_history_and_pins() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let git_repo = test.git_repo();
+
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+    let pins_before = undo_pin_count(&test);
+    assert!(pins_before >= 1);
+    let _ = base;
+
+    // HEAD is still where git-tailor left it, so the stack stays valid across a
+    // restart-time prune — pins preserved and undo still works.
+    git_repo.prune_stale_journal().unwrap();
+    assert_eq!(undo_pin_count(&test), pins_before);
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+}
