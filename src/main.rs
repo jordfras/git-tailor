@@ -71,6 +71,11 @@ fn main() -> Result<()> {
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
     git_repo.set_autostash(cli.autostash);
 
+    // Maintenance path: wipe recovery state and exit without any TUI.
+    if cli.clean_journal {
+        return run_clean_journal(&git_repo);
+    }
+
     // Static output path: no TUI involved, load commits synchronously.
     if cli.static_output {
         let Some((commits, _reference_oid, _include_reference_oid)) =
@@ -1092,6 +1097,22 @@ fn handle_prepare_squash(
 }
 
 /// Render the fragmap to stdout in static (non-TUI) mode and return.
+/// Wipe all git-tailor recovery state (`--clean-journal`) and report what was
+/// removed on stdout. No TUI is started.
+fn run_clean_journal(git_repo: &impl GitRepo) -> Result<()> {
+    let summary = git_repo.clean_journal()?;
+    let journal_note = if summary.journal_removed {
+        " and the journal file"
+    } else {
+        ""
+    };
+    println!(
+        "Cleaned git-tailor state: removed {} ref(s){journal_note}.",
+        summary.refs_removed
+    );
+    Ok(())
+}
+
 fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli) -> Result<()> {
     let mut commit_diffs: Vec<CommitDiff> = commits
         .iter()

@@ -184,6 +184,9 @@ impl GitRepo for StubRepo {
     fn prune_stale_journal(&self) -> Result<()> {
         unimplemented!()
     }
+    fn clean_journal(&self) -> Result<git_tailor::repo::JournalCleanSummary> {
+        unimplemented!()
+    }
     fn undo(&self) -> Result<git_tailor::repo::UndoOutcome> {
         unimplemented!()
     }

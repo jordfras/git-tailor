@@ -316,6 +316,10 @@ impl GitRepo for Git2Repo {
         journal::prune_stale(self)
     }
 
+    fn clean_journal(&self) -> Result<super::JournalCleanSummary> {
+        journal::clean(self)
+    }
+
     fn undo(&self) -> Result<super::UndoOutcome> {
         journal::apply_undo(self)
     }

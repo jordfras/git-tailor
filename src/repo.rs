@@ -39,6 +39,15 @@ pub enum JournalStatus {
     Corrupt(String),
 }
 
+/// Summary of what [`GitRepo::clean_journal`] removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JournalCleanSummary {
+    /// Number of `refs/git-tailor/*` refs deleted.
+    pub refs_removed: usize,
+    /// Whether an on-disk journal file was present and removed.
+    pub journal_removed: bool,
+}
+
 /// Result of an undo or redo request.
 #[derive(Debug)]
 pub enum UndoOutcome {
@@ -394,6 +403,13 @@ pub trait GitRepo {
     /// startup so stale refs don't linger in tools like `gitk`; a still-valid
     /// stack is preserved so undo/redo survives across restarts.
     fn prune_stale_journal(&self) -> Result<()>;
+
+    /// Remove **all** git-tailor recovery state: every ref under
+    /// `refs/git-tailor/` and the on-disk journal file. Refs are found by
+    /// namespace rather than from the journal, so stray refs are removed even if
+    /// the journal is missing or out of sync. A manual escape hatch (the
+    /// `--clean-journal` CLI flag); returns a summary of what was removed.
+    fn clean_journal(&self) -> Result<JournalCleanSummary>;
 
     /// Undo the most recent history-rewriting operation by restoring the branch
     /// to the tip recorded before it ran (and moving the record to the redo

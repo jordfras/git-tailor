@@ -41,7 +41,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{ConflictState, JournalStatus, UndoOutcome};
+use super::super::{ConflictState, JournalCleanSummary, JournalStatus, UndoOutcome};
 use super::Git2Repo;
 use super::reads;
 use crate::Oid;
@@ -50,12 +50,25 @@ use crate::Oid;
 /// non-additive way and add a matching arm in [`migrate`].
 const JOURNAL_VERSION: u32 = 1;
 
-/// Ref pinning the pre-operation branch tip of an *interrupted* operation so
-/// `git gc` cannot prune the commits it still needs while it is paused.
-const ORIG_REF: &str = "refs/git-tailor/orig";
+/// Common namespace for every ref git-tailor writes. Single source of truth:
+/// the leaf names below build on it, and `--clean-journal` finds every ref by
+/// this prefix regardless of the journal contents. (Stable Rust can't
+/// concatenate `&str` consts, so the full names are composed at use sites.)
+const REF_NAMESPACE: &str = "refs/git-tailor/";
 
-/// Ref namespace pinning every tip referenced by the undo/redo stacks.
-const UNDO_REF_PREFIX: &str = "refs/git-tailor/undo/";
+/// Leaf (under [`REF_NAMESPACE`]) of the ref pinning the pre-operation branch
+/// tip of an *interrupted* operation so `git gc` cannot prune the commits it
+/// still needs while it is paused.
+const ORIG_REF_LEAF: &str = "orig";
+
+/// Leaf (under [`REF_NAMESPACE`]) of the subdirectory pinning every tip
+/// referenced by the undo/redo stacks.
+const UNDO_REF_LEAF: &str = "undo/";
+
+/// Full name of the in-progress `orig` pin.
+fn orig_ref() -> String {
+    format!("{REF_NAMESPACE}{ORIG_REF_LEAF}")
+}
 
 /// Maximum number of undo records kept. Bounds how many old tips stay pinned
 /// against `git gc`; pushing past it drops the oldest record (and its pin).
@@ -346,7 +359,10 @@ pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
 /// caller (pins are only a gc optimisation).
 fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
-    if let Ok(refs) = repo.inner.references_glob(&format!("{UNDO_REF_PREFIX}*")) {
+    if let Ok(refs) = repo
+        .inner
+        .references_glob(&format!("{REF_NAMESPACE}{UNDO_REF_LEAF}*"))
+    {
         let names: Vec<String> = refs
             .filter_map(|r| r.ok())
             .filter_map(|r| r.name().ok().map(String::from))
@@ -364,7 +380,7 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
-            &format!("{UNDO_REF_PREFIX}{i}"),
+            &format!("{REF_NAMESPACE}{UNDO_REF_LEAF}{i}"),
             git2::Oid::from(oid),
             true,
             "git-tailor: undo pin",
@@ -380,7 +396,7 @@ pub(super) fn set_in_progress(repo: &Git2Repo, state: &ConflictState) -> Result<
 
     let orig = git2::Oid::from(&state.original_branch_oid);
     repo.inner
-        .reference(ORIG_REF, orig, true, "git-tailor: journal in-progress")?;
+        .reference(&orig_ref(), orig, true, "git-tailor: journal in-progress")?;
     Ok(())
 }
 
@@ -395,9 +411,54 @@ pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
 }
 
 fn delete_orig_ref(repo: &Git2Repo) {
-    if let Ok(mut r) = repo.inner.find_reference(ORIG_REF) {
+    if let Ok(mut r) = repo.inner.find_reference(&orig_ref()) {
         let _ = r.delete();
     }
+}
+
+/// Remove all git-tailor recovery state: every ref under `refs/git-tailor/`
+/// (undo pins and the in-progress `orig` pin) and the on-disk journal file.
+///
+/// Refs are discovered by namespace rather than from the journal, so stray refs
+/// are removed even when the journal is missing, corrupt, or out of sync — this
+/// is the manual escape hatch behind `--clean-journal`.
+pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
+    let mut refs = repo
+        .inner
+        .references()
+        .context("failed to enumerate references")?;
+    let names: Vec<String> = refs
+        .names()
+        .filter_map(|n| n.ok())
+        .filter(|name| name.starts_with(REF_NAMESPACE))
+        .map(|name| name.to_string())
+        .collect();
+    let mut refs_removed = 0;
+    for name in names {
+        if let Ok(mut r) = repo.inner.find_reference(&name)
+            && r.delete().is_ok()
+        {
+            refs_removed += 1;
+        }
+    }
+
+    let path = journal_path(repo);
+    let journal_removed = match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => {
+            return Err(e).with_context(|| format!("failed to remove journal {}", path.display()));
+        }
+    };
+    // A temp file may linger if a write was interrupted; drop it too, then
+    // remove the now-hopefully-empty directory (best-effort).
+    let _ = std::fs::remove_file(path.with_extension("json.tmp"));
+    let _ = std::fs::remove_dir(journal_dir(repo));
+
+    Ok(JournalCleanSummary {
+        refs_removed,
+        journal_removed,
+    })
 }
 
 /// Push a completed history-rewriting operation onto the undo stack.

@@ -112,6 +112,12 @@ impl GitRepo for MockRepo {
     fn prune_stale_journal(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    fn clean_journal(&self) -> anyhow::Result<git_tailor::repo::JournalCleanSummary> {
+        Ok(git_tailor::repo::JournalCleanSummary {
+            refs_removed: 0,
+            journal_removed: false,
+        })
+    }
     fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         if self.undo_skips_autostash {
             Ok(git_tailor::repo::UndoOutcome::Done {
@@ -513,4 +519,34 @@ fn ref_move_undo_runs_autostash() {
     let mut app = AppState::default();
     let _ = handle_undo(&mut repo, &mut app);
     assert_eq!(repo.autostash_save_calls.get(), 1);
+}
+
+#[test]
+fn clean_journal_parses_on_its_own() {
+    use clap::Parser;
+    assert!(crate::cli::Cli::try_parse_from(["gt", "--clean-journal"]).is_ok());
+}
+
+#[test]
+fn clean_journal_conflicts_with_browse_args() {
+    use clap::Parser;
+    for extra in [
+        ["--clean-journal", "somebase"],
+        ["--clean-journal", "--all"],
+        ["--clean-journal", "--static"],
+    ] {
+        let argv = std::iter::once("gt").chain(extra);
+        assert!(
+            crate::cli::Cli::try_parse_from(argv).is_err(),
+            "--clean-journal must conflict with {extra:?}"
+        );
+    }
+}
+
+#[test]
+fn clean_journal_ignores_cosmetic_flags() {
+    // Cosmetic flags don't conflict (no TUI is launched), so a globally-set
+    // GT_* env var won't wrongly block --clean-journal.
+    use clap::Parser;
+    assert!(crate::cli::Cli::try_parse_from(["gt", "--clean-journal", "--reverse"]).is_ok());
 }
