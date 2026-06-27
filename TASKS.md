@@ -154,7 +154,7 @@ Guidelines:
   including a no-op message when there is nothing to stage. Document the key in
   the help dialog. Scope: staging *all* changes at once is enough for now —
   per-file or per-hunk staging is out of scope.
-- [ ] T221 P2 feat - Commit staged changes from within git-tailor: add a key
+- [x] T221 P2 feat - Commit staged changes from within git-tailor: add a key
   binding in the commit list (e.g. `c` for "commit", currently unused) that
   creates a new commit from the currently staged changes. Open the configured
   editor (reuse `edit_message_in_editor`) for the commit message; if the message
