@@ -143,7 +143,7 @@ Guidelines:
   unaffected regardless of backend.
 
 ## Interactivity — Staging & Committing
-- [ ] T220 P2 feat - Stage all unstaged changes from within git-tailor: add a
+- [x] T220 P2 feat - Stage all unstaged changes from within git-tailor: add a
   key binding in the commit list (e.g. `a` for "add", currently unused) that
   stages every unstaged working-tree change — modifications, additions
   (untracked files), and deletions — equivalent to `git add -A`. Add a
