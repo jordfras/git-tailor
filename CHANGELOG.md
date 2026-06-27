@@ -10,6 +10,11 @@ The format is based on
 
 ### Added
 
+- Stage and unstage all working-tree changes without leaving git-tailor. With the
+  Unstaged row selected, press `a` to stage every change (modifications, new
+  files, and deletions, like `git add -A`); with the Staged row selected, press
+  `A` to unstage everything back to HEAD. Both are undoable and redoable with
+  `u` / `Ctrl-r`.
 - Undo and redo of history-rewriting operations. Press `u` to undo the last
   drop, move, squash, fixup, reword, or split, and `Ctrl-r` to redo it; multiple
   levels are supported and the stack persists across restarts. Undo restores the
