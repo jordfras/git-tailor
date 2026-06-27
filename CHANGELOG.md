@@ -10,6 +10,10 @@ The format is based on
 
 ### Added
 
+- Commit the staged changes without leaving git-tailor. With the Staged row
+  selected, press `c` to open your editor for a commit message and create a
+  commit from the index. The commit is undoable: `u` soft-resets it (the changes
+  reappear as staged, your working-tree edits untouched) and `Ctrl-r` re-commits.
 - Stage and unstage all working-tree changes without leaving git-tailor. With the
   Unstaged row selected, press `a` to stage every change (modifications, new
   files, and deletions, like `git add -A`); with the Staged row selected, press
