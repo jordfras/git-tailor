@@ -427,3 +427,78 @@ fn prepare_split_above_threshold_enters_confirm_mode() {
     );
     assert!(matches!(app.mode, AppMode::SplitConfirm(_)));
 }
+
+#[test]
+fn stage_all_changed_reloads_and_reports_success() {
+    let repo = MockRepo::default();
+    let mut app = AppState::default();
+    let action = report_stage_outcome(
+        &mut app,
+        repo.stage_all(),
+        "Staged all changes",
+        "Nothing to stage",
+    );
+    assert!(matches!(action, LoopAction::Reload));
+    assert_eq!(app.status_message.as_deref(), Some("Staged all changes"));
+    assert!(!app.status_is_error);
+}
+
+#[test]
+fn stage_all_noop_reports_without_reload() {
+    let repo = MockRepo {
+        stage_changed: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let action = report_stage_outcome(
+        &mut app,
+        repo.stage_all(),
+        "Staged all changes",
+        "Nothing to stage",
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert_eq!(app.status_message.as_deref(), Some("Nothing to stage"));
+    assert!(!app.status_is_error);
+}
+
+#[test]
+fn stage_all_error_sets_error_message() {
+    let repo = MockRepo {
+        stage_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let action = report_stage_outcome(
+        &mut app,
+        repo.unstage_all(),
+        "Unstaged all changes",
+        "Nothing to unstage",
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn index_only_undo_skips_autostash() {
+    // The index-only undo path must not stash/restore the working tree, or it
+    // would squirrel away and reapply the very index it is restoring.
+    let mut repo = MockRepo {
+        pending_undo_index_only: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let result = handle_undo(&mut repo, &mut app);
+    assert!(matches!(result, Ok(LoopAction::Reload)));
+    assert_eq!(repo.autostash_save_calls.get(), 0);
+    assert_eq!(app.status_message.as_deref(), Some("Undid stage all"));
+    assert!(!app.status_is_error);
+}
+
+#[test]
+fn ref_move_undo_runs_autostash() {
+    // A normal (ref-moving) undo still runs the auto-stash dance.
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+    let _ = handle_undo(&mut repo, &mut app);
+    assert_eq!(repo.autostash_save_calls.get(), 1);
+}

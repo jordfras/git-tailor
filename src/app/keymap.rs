@@ -42,6 +42,8 @@ pub enum KeyCommand {
     Reword,
     Drop,
     Move,
+    StageAll,
+    UnstageAll,
     Undo,
     Redo,
     Mergetool,
@@ -156,6 +158,16 @@ impl AppMode {
                     AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => {
                         KeyCommand::OpenEditor
                     }
+                    _ => KeyCommand::None,
+                },
+                // a / A: stage / unstage all working-tree changes (only meaningful
+                // in the commit list, gated to the synthetic Unstaged/Staged rows).
+                KeyCode::Char('a') => match self {
+                    AppMode::CommitList => KeyCommand::StageAll,
+                    _ => KeyCommand::None,
+                },
+                KeyCode::Char('A') => match self {
+                    AppMode::CommitList => KeyCommand::UnstageAll,
                     _ => KeyCommand::None,
                 },
                 // u: undo (vim convention).

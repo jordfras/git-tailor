@@ -15,6 +15,7 @@
 // Commit list view rendering
 
 use super::hunk_groups;
+use crate::VirtualOid;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
 use crate::fragmap::TouchKind;
 use ratatui::{
@@ -156,6 +157,20 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         KeyCommand::Move => {
             app.enter_move_select();
             AppAction::Handled
+        }
+        KeyCommand::StageAll => {
+            if app.selected_synthetic_row_is(VirtualOid::Unstaged, "stage all changes") {
+                AppAction::StageAll
+            } else {
+                AppAction::Handled
+            }
+        }
+        KeyCommand::UnstageAll => {
+            if app.selected_synthetic_row_is(VirtualOid::Staged, "unstage all changes") {
+                AppAction::UnstageAll
+            } else {
+                AppAction::Handled
+            }
         }
         KeyCommand::Undo => AppAction::Undo,
         KeyCommand::Redo => AppAction::Redo,

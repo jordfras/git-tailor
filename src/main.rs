@@ -24,7 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use git_tailor::repo::{
     AutostashContinue, AutostashRestore, ConflictState, Git2Repo, GitRepo, JournalStatus,
-    RebaseOutcome, StashConflictState, UndoOutcome,
+    RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
 };
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
@@ -423,19 +423,69 @@ fn dispatch_action(
             source_oid,
             insert_after_oid,
         } => return handle_execute_move(git_repo, app, source_oid, insert_after_oid),
+        AppAction::StageAll => {
+            let outcome = git_repo.stage_all();
+            return Ok(report_stage_outcome(
+                app,
+                outcome,
+                "Staged all changes",
+                "Nothing to stage",
+            ));
+        }
+        AppAction::UnstageAll => {
+            let outcome = git_repo.unstage_all();
+            return Ok(report_stage_outcome(
+                app,
+                outcome,
+                "Unstaged all changes",
+                "Nothing to unstage",
+            ));
+        }
         AppAction::Undo => return handle_undo(git_repo, app),
         AppAction::Redo => return handle_redo(git_repo, app),
     }
     Ok(LoopAction::Proceed)
 }
 
+/// Report a stage-all / unstage-all outcome. A change triggers a reload so the
+/// synthetic Staged/Unstaged rows refresh; a no-op leaves the view untouched.
+fn report_stage_outcome(
+    app: &mut AppState,
+    outcome: Result<StageOutcome>,
+    changed_msg: &str,
+    noop_msg: &str,
+) -> LoopAction {
+    match outcome {
+        Ok(StageOutcome::Changed) => {
+            app.set_success_message(changed_msg.to_string());
+            LoopAction::Reload
+        }
+        Ok(StageOutcome::NoOp) => {
+            app.set_success_message(noop_msg.to_string());
+            LoopAction::Proceed
+        }
+        Err(e) => {
+            app.set_error_message(format!("{e}"));
+            LoopAction::Proceed
+        }
+    }
+}
+
 fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    if let Err(e) = git_repo.autostash_save() {
+    // An index-only undo (stage/unstage all) restores the very index that
+    // auto-stash would squirrel away and reapply — running the stash dance would
+    // negate it — so bypass it entirely for those.
+    let index_only = git_repo.pending_undo_is_index_only().unwrap_or(false);
+    if !index_only && let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e}"));
         return Ok(LoopAction::Proceed);
     }
     let outcome = git_repo.undo();
-    let restored = git_repo.autostash_restore();
+    let restored = if index_only {
+        Ok(AutostashRestore::Done)
+    } else {
+        git_repo.autostash_restore()
+    };
     match outcome {
         Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
             app,
@@ -460,12 +510,18 @@ fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAc
 }
 
 fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    if let Err(e) = git_repo.autostash_save() {
+    // See handle_undo: skip the auto-stash dance for an index-only redo.
+    let index_only = git_repo.pending_redo_is_index_only().unwrap_or(false);
+    if !index_only && let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e}"));
         return Ok(LoopAction::Proceed);
     }
     let outcome = git_repo.redo();
-    let restored = git_repo.autostash_restore();
+    let restored = if index_only {
+        Ok(AutostashRestore::Done)
+    } else {
+        git_repo.autostash_restore()
+    };
     match outcome {
         Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
             app,

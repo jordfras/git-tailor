@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CommitInfo, Oid,
+    CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
     repo::{ConflictState, StashConflictState},
@@ -366,6 +366,22 @@ impl AppState {
             return None;
         }
         self.commits.get(self.selection_index)
+    }
+
+    /// Whether the selected row is the synthetic `want` row (`Staged` /
+    /// `Unstaged`). Otherwise sets a guiding hint naming the row to select for
+    /// `action` (e.g. "stage all changes") and returns `false`.
+    pub fn selected_synthetic_row_is(&mut self, want: VirtualOid, action: &str) -> bool {
+        if self.commits.get(self.selection_index).map(|c| &c.oid) == Some(&want) {
+            return true;
+        }
+        let row = match want {
+            VirtualOid::Staged => "Staged",
+            VirtualOid::Unstaged => "Unstaged",
+            VirtualOid::Real(_) => "",
+        };
+        self.set_error_message(format!("Select the \"{row}\" row to {action}"));
+        false
     }
 
     /// Enter split strategy selection mode.

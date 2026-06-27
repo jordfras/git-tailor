@@ -96,6 +96,10 @@ pub enum AppAction {
         target_message: String,
         squash_mode: SquashMode,
     },
+    /// Stage all working-tree changes (`git add -A`).
+    StageAll,
+    /// Unstage all staged changes (reset the index to HEAD).
+    UnstageAll,
     /// Undo the most recent history-rewriting operation.
     Undo,
     /// Redo the most recently undone operation.
