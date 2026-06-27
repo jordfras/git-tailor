@@ -34,6 +34,7 @@ impl From<&Oid> for git2::Oid {
 }
 
 mod cherry_pick;
+mod commit_staged_op;
 mod conflict;
 mod drop_op;
 mod hunks;
@@ -323,12 +324,12 @@ impl GitRepo for Git2Repo {
         journal::apply_redo(self)
     }
 
-    fn pending_undo_is_index_only(&self) -> Result<bool> {
-        journal::pending_undo_is_index_only(self)
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_undo_skips_autostash(self)
     }
 
-    fn pending_redo_is_index_only(&self) -> Result<bool> {
-        journal::pending_redo_is_index_only(self)
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_redo_skips_autostash(self)
     }
 
     fn stage_all(&self) -> Result<super::StageOutcome> {
@@ -337,6 +338,17 @@ impl GitRepo for Git2Repo {
 
     fn unstage_all(&self) -> Result<super::StageOutcome> {
         self.journaled_index_op("Unstage all", stage_op::unstage_all)
+    }
+
+    fn commit_staged(&self, message: &str) -> Result<super::CommitOutcome> {
+        let before = reads::head_oid(self)?;
+        match commit_staged_op::commit_staged(self, message)? {
+            None => Ok(super::CommitOutcome::NothingStaged),
+            Some(after) => {
+                journal::record_commit_undo(self, "Commit", &before, &after)?;
+                Ok(super::CommitOutcome::Committed)
+            }
+        }
     }
 
     fn autostash_save(&mut self) -> Result<()> {

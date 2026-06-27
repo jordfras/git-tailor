@@ -60,6 +60,15 @@ pub enum StageOutcome {
     NoOp,
 }
 
+/// Result of a commit-staged operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitOutcome {
+    /// A commit was created from the staged changes.
+    Committed,
+    /// Nothing was staged (the index matched HEAD), so no commit was made.
+    NothingStaged,
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -397,14 +406,15 @@ pub trait GitRepo {
     /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
     fn redo(&self) -> Result<UndoOutcome>;
 
-    /// Whether the next [`undo`](Self::undo) only rewrites the index (a
-    /// stage/unstage-all op). The caller uses this to skip the auto-stash dance,
-    /// which would otherwise stash away the very index being restored.
-    fn pending_undo_is_index_only(&self) -> Result<bool>;
+    /// Whether the next [`undo`](Self::undo) leaves the working tree untouched (a
+    /// stage/unstage-all op or a commit's soft reset). The caller uses this to
+    /// skip the auto-stash dance, which would otherwise stash away and reapply
+    /// the very state being restored.
+    fn pending_undo_skips_autostash(&self) -> Result<bool>;
 
-    /// Whether the next [`redo`](Self::redo) only rewrites the index. See
-    /// [`pending_undo_is_index_only`](Self::pending_undo_is_index_only).
-    fn pending_redo_is_index_only(&self) -> Result<bool>;
+    /// Whether the next [`redo`](Self::redo) leaves the working tree untouched.
+    /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
+    fn pending_redo_skips_autostash(&self) -> Result<bool>;
 
     /// Stage all working-tree changes (modifications, untracked additions, and
     /// deletions), like `git add -A`. Recorded as an undoable index-only
@@ -415,6 +425,13 @@ pub trait GitRepo {
     /// undoable index-only operation. Returns [`StageOutcome::NoOp`] when there
     /// was nothing staged.
     fn unstage_all(&self) -> Result<StageOutcome>;
+
+    /// Create a commit from the currently staged changes with `message`, using
+    /// HEAD as the parent and advancing the branch ref. Recorded as an undoable
+    /// operation whose undo is a soft reset (the committed changes reappear as
+    /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
+    /// HEAD.
+    fn commit_staged(&self, message: &str) -> Result<CommitOutcome>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a

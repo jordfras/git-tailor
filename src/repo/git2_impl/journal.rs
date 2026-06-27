@@ -63,14 +63,12 @@ const MAX_UNDO_DEPTH: usize = 50;
 
 /// One reversible operation.
 ///
-/// Tagged on `kind` so the two flavours stay self-describing on disk and a future
-/// commit-from-staged op (which both moves the ref *and* rewrites the index) can
-/// be added as a third variant without ambiguity.
+/// Tagged on `kind` so the flavours stay self-describing on disk.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 enum UndoRecord {
     /// A history-rewriting op: restoring `tip_before` undoes it, `tip_after`
-    /// redoes it.
+    /// redoes it. Undo/redo check the restored tip out (hard ref move).
     RefMove {
         label: String,
         tip_before: Oid,
@@ -86,26 +84,43 @@ enum UndoRecord {
         index_tree_before: Oid,
         index_tree_after: Oid,
     },
+    /// A new commit (commit-staged). Undo/redo is a *soft* ref move
+    /// (`reset --soft`): the ref moves between `tip_before` (parent) and
+    /// `tip_after` (the commit) while the index and working tree are left
+    /// untouched, so the committed changes reappear as staged on undo.
+    Commit {
+        label: String,
+        tip_before: Oid,
+        tip_after: Oid,
+    },
 }
 
 impl UndoRecord {
     fn label(&self) -> &str {
         match self {
-            UndoRecord::RefMove { label, .. } | UndoRecord::IndexChange { label, .. } => label,
+            UndoRecord::RefMove { label, .. }
+            | UndoRecord::IndexChange { label, .. }
+            | UndoRecord::Commit { label, .. } => label,
         }
     }
 
-    /// Whether undo/redo only rewrites the index (so the caller can skip the
-    /// auto-stash dance that protects the working tree during ref restores).
-    fn is_index_only(&self) -> bool {
-        matches!(self, UndoRecord::IndexChange { .. })
+    /// Whether undo/redo leave the working tree untouched (so the caller can skip
+    /// the auto-stash dance that protects the working tree during `RefMove`
+    /// checkouts). True for index-only ops and for commits (a soft ref move).
+    fn skips_autostash(&self) -> bool {
+        matches!(
+            self,
+            UndoRecord::IndexChange { .. } | UndoRecord::Commit { .. }
+        )
     }
 
     /// Where HEAD should sit while this op is *applied* (top of the undo stack):
-    /// after a ref move, or unchanged for an index-only op.
+    /// after the ref move, or unchanged for an index-only op.
     fn applied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_after, .. } => tip_after,
+            UndoRecord::RefMove { tip_after, .. } | UndoRecord::Commit { tip_after, .. } => {
+                tip_after
+            }
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
@@ -114,7 +129,9 @@ impl UndoRecord {
     /// back at the pre-op tip, or unchanged for an index-only op.
     fn unapplied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_before, .. } => tip_before,
+            UndoRecord::RefMove { tip_before, .. } | UndoRecord::Commit { tip_before, .. } => {
+                tip_before
+            }
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
@@ -123,6 +140,11 @@ impl UndoRecord {
     fn pinned_oids(&self) -> [&Oid; 2] {
         match self {
             UndoRecord::RefMove {
+                tip_before,
+                tip_after,
+                ..
+            }
+            | UndoRecord::Commit {
                 tip_before,
                 tip_after,
                 ..
@@ -414,6 +436,23 @@ pub(super) fn record_index_undo(
     )
 }
 
+/// Push a completed commit-staged operation onto the undo stack.
+pub(super) fn record_commit_undo(
+    repo: &Git2Repo,
+    label: &str,
+    tip_before: &Oid,
+    tip_after: &Oid,
+) -> Result<()> {
+    push_undo(
+        repo,
+        UndoRecord::Commit {
+            label: label.to_string(),
+            tip_before: tip_before.clone(),
+            tip_after: tip_after.clone(),
+        },
+    )
+}
+
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
 fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
@@ -426,26 +465,28 @@ fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
     save(repo, &mut doc)
 }
 
-/// Whether the next undo only rewrites the index (so the caller can skip the
-/// auto-stash dance that would otherwise stash away the very index it restores).
-pub(super) fn pending_undo_is_index_only(repo: &Git2Repo) -> Result<bool> {
+/// Whether the next undo leaves the working tree untouched, so the caller can
+/// skip the auto-stash dance that would otherwise stash away (and reapply) the
+/// very state it restores.
+pub(super) fn pending_undo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
     Ok(load_doc(repo)?
         .undo
         .last()
-        .is_some_and(UndoRecord::is_index_only))
+        .is_some_and(UndoRecord::skips_autostash))
 }
 
-/// Whether the next redo only rewrites the index. See [`pending_undo_is_index_only`].
-pub(super) fn pending_redo_is_index_only(repo: &Git2Repo) -> Result<bool> {
+/// Whether the next redo leaves the working tree untouched. See
+/// [`pending_undo_skips_autostash`].
+pub(super) fn pending_redo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
     Ok(load_doc(repo)?
         .redo
         .last()
-        .is_some_and(UndoRecord::is_index_only))
+        .is_some_and(UndoRecord::skips_autostash))
 }
 
 /// Undo the most recent operation, moving its record to the redo stack. A
 /// history-rewriting op restores its pre-operation tip; an index-only op restores
-/// its pre-operation index tree.
+/// its pre-operation index tree; a commit soft-resets to its parent.
 pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.undo.last().cloned() else {
@@ -469,6 +510,15 @@ pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
             ..
         } => {
             if !revert_index(repo, &mut doc, head, index_tree_after, index_tree_before)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::Commit {
+            tip_before,
+            tip_after,
+            label,
+        } => {
+            if !revert_soft(repo, &mut doc, tip_after, tip_before, "undo", label)? {
                 return Ok(UndoOutcome::Stale);
             }
         }
@@ -507,6 +557,15 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
             ..
         } => {
             if !revert_index(repo, &mut doc, head, index_tree_before, index_tree_after)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::Commit {
+            tip_before,
+            tip_after,
+            label,
+        } => {
+            if !revert_soft(repo, &mut doc, tip_before, tip_after, "redo", label)? {
                 return Ok(UndoOutcome::Stale);
             }
         }
@@ -556,6 +615,29 @@ fn revert_index(
         return Ok(false);
     }
     restore_index(repo, target)
+}
+
+/// Soft-move the branch ref from `expected` to `target` (`reset --soft`),
+/// leaving the index and working tree untouched, so a committed change reappears
+/// as staged on undo. Returns `false` (after clearing the now-stale stacks) when
+/// HEAD has drifted from `expected`.
+fn revert_soft(
+    repo: &Git2Repo,
+    doc: &mut JournalDoc,
+    expected: &Oid,
+    target: &Oid,
+    verb: &str,
+    label: &str,
+) -> Result<bool> {
+    if &reads::head_oid(repo)? != expected {
+        clear_stacks(repo, doc)?;
+        return Ok(false);
+    }
+    repo.advance_branch_ref(
+        git2::Oid::from(target),
+        &format!("git-tailor: {verb} {}", label.to_lowercase()),
+    )?;
+    Ok(true)
 }
 
 fn clear_stacks(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
