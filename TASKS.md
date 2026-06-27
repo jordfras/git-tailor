@@ -50,7 +50,7 @@ Guidelines:
     prove identical end-state behaviour.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
-- [ ] T223 P3 feat - Add a `--clean-journal` CLI option that wipes all
+- [x] T223 P3 feat - Add a `--clean-journal` CLI option that wipes all
   git-tailor recovery state: delete the journal file
   (`<gitdir>/git-tailor/journal.json`, and the `git-tailor` dir if it ends up
   empty) and every ref git-tailor writes under `refs/git-tailor/*` — the undo
