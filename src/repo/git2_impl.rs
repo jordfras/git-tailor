@@ -43,6 +43,7 @@ mod reads;
 mod reword_op;
 mod split_op;
 mod squash_op;
+mod stage_op;
 mod stash;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
@@ -123,6 +124,25 @@ impl Git2Repo {
             journal::record_undo(self, label, tip_before, &after)?;
         }
         Ok(())
+    }
+
+    /// Run an index-only operation (stage/unstage all), recording an undo entry
+    /// from the before-tree to the after-tree. Reports `NoOp` when the index tree
+    /// is unchanged, so nothing is journalled.
+    fn journaled_index_op(
+        &self,
+        label: &str,
+        op: impl FnOnce(&Self) -> Result<()>,
+    ) -> Result<super::StageOutcome> {
+        let head = reads::head_oid(self)?;
+        let before = journal::current_index_tree(self)?;
+        op(self)?;
+        let after = journal::current_index_tree(self)?;
+        if before == after {
+            return Ok(super::StageOutcome::NoOp);
+        }
+        journal::record_index_undo(self, label, &head, &before, &after)?;
+        Ok(super::StageOutcome::Changed)
     }
 
     pub(super) fn stage_file(&self, path: &str) -> Result<()> {
@@ -301,6 +321,22 @@ impl GitRepo for Git2Repo {
 
     fn redo(&self) -> Result<super::UndoOutcome> {
         journal::apply_redo(self)
+    }
+
+    fn pending_undo_is_index_only(&self) -> Result<bool> {
+        journal::pending_undo_is_index_only(self)
+    }
+
+    fn pending_redo_is_index_only(&self) -> Result<bool> {
+        journal::pending_redo_is_index_only(self)
+    }
+
+    fn stage_all(&self) -> Result<super::StageOutcome> {
+        self.journaled_index_op("Stage all", stage_op::stage_all)
+    }
+
+    fn unstage_all(&self) -> Result<super::StageOutcome> {
+        self.journaled_index_op("Unstage all", stage_op::unstage_all)
     }
 
     fn autostash_save(&mut self) -> Result<()> {

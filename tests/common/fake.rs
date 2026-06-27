@@ -190,6 +190,18 @@ impl GitRepo for StubRepo {
     fn redo(&self) -> Result<git_tailor::repo::UndoOutcome> {
         unimplemented!()
     }
+    fn pending_undo_is_index_only(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn pending_redo_is_index_only(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn stage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
+        unimplemented!()
+    }
+    fn unstage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
+        unimplemented!()
+    }
     fn autostash_save(&mut self) -> Result<()> {
         unimplemented!()
     }

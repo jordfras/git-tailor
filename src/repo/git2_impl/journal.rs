@@ -21,15 +21,19 @@
 //!   or abort. Crash detection keys off the *presence* of this record, **not**
 //!   the file's existence — because the file also persists the undo stack across
 //!   clean exits, a leftover file must not look like a crash.
-//! - `undo` / `redo`: a stack of completed history-rewriting operations so they
-//!   can be undone (and redone) even across restarts. Undo needs no per-op
-//!   inverse — every gt mutation only moves the branch ref forward and leaves the
-//!   old commits in the object database, so undo just restores the recorded
-//!   pre-operation tip.
+//! - `undo` / `redo`: a stack of completed operations so they can be undone (and
+//!   redone) even across restarts. Undo needs no per-op inverse: a
+//!   history-rewriting op only moves the branch ref forward and leaves the old
+//!   commits in the object database, so undo just restores the recorded
+//!   pre-operation tip; an index-only op (stage/unstage all) leaves the ref alone
+//!   and records the index *tree* OIDs before/after, so undo just restores the
+//!   recorded tree into the index. Either way the recorded OIDs are a complete,
+//!   diff-free snapshot of the pre-operation state.
 //!
-//! Tips referenced by either stack are pinned under `refs/git-tailor/undo/*` so
-//! `git gc` cannot prune them; the pins are kept in sync with the stacks and the
-//! undo depth is capped so they cannot accumulate without bound.
+//! Tips and index trees referenced by either stack are pinned under
+//! `refs/git-tailor/undo/*` so `git gc` cannot prune them; the pins are kept in
+//! sync with the stacks and the undo depth is capped so they cannot accumulate
+//! without bound.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -57,12 +61,79 @@ const UNDO_REF_PREFIX: &str = "refs/git-tailor/undo/";
 /// against `git gc`; pushing past it drops the oldest record (and its pin).
 const MAX_UNDO_DEPTH: usize = 50;
 
-/// One reversible operation: restoring `tip_before` undoes it, `tip_after` redoes it.
+/// One reversible operation.
+///
+/// Tagged on `kind` so the two flavours stay self-describing on disk and a future
+/// commit-from-staged op (which both moves the ref *and* rewrites the index) can
+/// be added as a third variant without ambiguity.
 #[derive(Serialize, Deserialize, Clone)]
-struct UndoRecord {
-    label: String,
-    tip_before: Oid,
-    tip_after: Oid,
+#[serde(tag = "kind")]
+enum UndoRecord {
+    /// A history-rewriting op: restoring `tip_before` undoes it, `tip_after`
+    /// redoes it.
+    RefMove {
+        label: String,
+        tip_before: Oid,
+        tip_after: Oid,
+    },
+    /// An index-only op (stage/unstage all): the ref stays at `head` while the
+    /// index tree moves from `index_tree_before` to `index_tree_after`. Undo/redo
+    /// restore the respective tree into the index without touching the ref or the
+    /// working tree.
+    IndexChange {
+        label: String,
+        head: Oid,
+        index_tree_before: Oid,
+        index_tree_after: Oid,
+    },
+}
+
+impl UndoRecord {
+    fn label(&self) -> &str {
+        match self {
+            UndoRecord::RefMove { label, .. } | UndoRecord::IndexChange { label, .. } => label,
+        }
+    }
+
+    /// Whether undo/redo only rewrites the index (so the caller can skip the
+    /// auto-stash dance that protects the working tree during ref restores).
+    fn is_index_only(&self) -> bool {
+        matches!(self, UndoRecord::IndexChange { .. })
+    }
+
+    /// Where HEAD should sit while this op is *applied* (top of the undo stack):
+    /// after a ref move, or unchanged for an index-only op.
+    fn applied_head(&self) -> &Oid {
+        match self {
+            UndoRecord::RefMove { tip_after, .. } => tip_after,
+            UndoRecord::IndexChange { head, .. } => head,
+        }
+    }
+
+    /// Where HEAD should sit while this op is *undone* (top of the redo stack):
+    /// back at the pre-op tip, or unchanged for an index-only op.
+    fn unapplied_head(&self) -> &Oid {
+        match self {
+            UndoRecord::RefMove { tip_before, .. } => tip_before,
+            UndoRecord::IndexChange { head, .. } => head,
+        }
+    }
+
+    /// OIDs that must stay reachable (gc-pinned) while this record lives.
+    fn pinned_oids(&self) -> [&Oid; 2] {
+        match self {
+            UndoRecord::RefMove {
+                tip_before,
+                tip_after,
+                ..
+            } => [tip_before, tip_after],
+            UndoRecord::IndexChange {
+                index_tree_before,
+                index_tree_after,
+                ..
+            } => [index_tree_before, index_tree_after],
+        }
+    }
 }
 
 /// State of an auto-stash created for the in-flight operation.
@@ -196,11 +267,13 @@ pub(super) fn drop_reverted_undo_record(
     discarded_tip: &Oid,
 ) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
-    if doc
-        .undo
-        .last()
-        .is_some_and(|r| &r.tip_before == pre_op_tip && &r.tip_after == discarded_tip)
-    {
+    if doc.undo.last().is_some_and(|r| {
+        matches!(
+            r,
+            UndoRecord::RefMove { tip_before, tip_after, .. }
+                if tip_before == pre_op_tip && tip_after == discarded_tip
+        )
+    }) {
         doc.undo.pop();
         save(repo, &mut doc)?;
     }
@@ -230,8 +303,8 @@ pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
         let current = doc
             .undo
             .last()
-            .map(|r| &r.tip_after)
-            .or_else(|| doc.redo.last().map(|r| &r.tip_before));
+            .map(UndoRecord::applied_head)
+            .or_else(|| doc.redo.last().map(UndoRecord::unapplied_head));
         current != Some(&reads::head_oid(repo)?)
     };
 
@@ -265,8 +338,7 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
 
     let mut oids: BTreeSet<&Oid> = BTreeSet::new();
     for rec in doc.undo.iter().chain(doc.redo.iter()) {
-        oids.insert(&rec.tip_before);
-        oids.insert(&rec.tip_after);
+        oids.extend(rec.pinned_oids());
     }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
@@ -306,20 +378,47 @@ fn delete_orig_ref(repo: &Git2Repo) {
     }
 }
 
-/// Push a completed operation onto the undo stack, clearing the redo stack (a
-/// new action invalidates redo) and capping the depth.
+/// Push a completed history-rewriting operation onto the undo stack.
 pub(super) fn record_undo(
     repo: &Git2Repo,
     label: &str,
     tip_before: &Oid,
     tip_after: &Oid,
 ) -> Result<()> {
+    push_undo(
+        repo,
+        UndoRecord::RefMove {
+            label: label.to_string(),
+            tip_before: tip_before.clone(),
+            tip_after: tip_after.clone(),
+        },
+    )
+}
+
+/// Push a completed index-only operation (stage/unstage all) onto the undo stack.
+pub(super) fn record_index_undo(
+    repo: &Git2Repo,
+    label: &str,
+    head: &Oid,
+    index_tree_before: &Oid,
+    index_tree_after: &Oid,
+) -> Result<()> {
+    push_undo(
+        repo,
+        UndoRecord::IndexChange {
+            label: label.to_string(),
+            head: head.clone(),
+            index_tree_before: index_tree_before.clone(),
+            index_tree_after: index_tree_after.clone(),
+        },
+    )
+}
+
+/// Append a record to the undo stack, clearing the redo stack (a new action
+/// invalidates redo) and capping the depth.
+fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
-    doc.undo.push(UndoRecord {
-        label: label.to_string(),
-        tip_before: tip_before.clone(),
-        tip_after: tip_after.clone(),
-    });
+    doc.undo.push(record);
     doc.redo.clear();
     while doc.undo.len() > MAX_UNDO_DEPTH {
         doc.undo.remove(0);
@@ -327,58 +426,142 @@ pub(super) fn record_undo(
     save(repo, &mut doc)
 }
 
-/// Undo the most recent operation: restore its pre-operation tip and move the
-/// record to the redo stack.
+/// Whether the next undo only rewrites the index (so the caller can skip the
+/// auto-stash dance that would otherwise stash away the very index it restores).
+pub(super) fn pending_undo_is_index_only(repo: &Git2Repo) -> Result<bool> {
+    Ok(load_doc(repo)?
+        .undo
+        .last()
+        .is_some_and(UndoRecord::is_index_only))
+}
+
+/// Whether the next redo only rewrites the index. See [`pending_undo_is_index_only`].
+pub(super) fn pending_redo_is_index_only(repo: &Git2Repo) -> Result<bool> {
+    Ok(load_doc(repo)?
+        .redo
+        .last()
+        .is_some_and(UndoRecord::is_index_only))
+}
+
+/// Undo the most recent operation, moving its record to the redo stack. A
+/// history-rewriting op restores its pre-operation tip; an index-only op restores
+/// its pre-operation index tree.
 pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.undo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
 
-    // The branch must still be where this operation left it; otherwise history
-    // was changed outside git-tailor and the stack is no longer valid.
-    if reads::head_oid(repo)? != record.tip_after {
-        doc.undo.clear();
-        doc.redo.clear();
-        save(repo, &mut doc)?;
-        return Ok(UndoOutcome::Stale);
+    match &record {
+        UndoRecord::RefMove {
+            tip_before,
+            tip_after,
+            label,
+        } => {
+            if !revert_ref(repo, &mut doc, tip_after, tip_before, "undo", label)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::IndexChange {
+            head,
+            index_tree_before,
+            index_tree_after,
+            ..
+        } => {
+            if !revert_index(repo, &mut doc, head, index_tree_after, index_tree_before)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
     }
-
-    repo.check_no_dirty_state()?;
-    restore_tip(repo, &record.tip_before, "undo", &record.label)?;
 
     doc.undo.pop();
     doc.redo.push(record.clone());
     save(repo, &mut doc)?;
     Ok(UndoOutcome::Done {
-        label: record.label,
+        label: record.label().to_string(),
     })
 }
 
-/// Redo the most recently undone operation: restore its post-operation tip and
-/// move the record back to the undo stack.
+/// Redo the most recently undone operation, moving its record back to the undo
+/// stack: restore its post-operation tip, or its post-operation index tree.
 pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.redo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
 
-    if reads::head_oid(repo)? != record.tip_before {
-        doc.undo.clear();
-        doc.redo.clear();
-        save(repo, &mut doc)?;
-        return Ok(UndoOutcome::Stale);
+    match &record {
+        UndoRecord::RefMove {
+            tip_before,
+            tip_after,
+            label,
+        } => {
+            if !revert_ref(repo, &mut doc, tip_before, tip_after, "redo", label)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::IndexChange {
+            head,
+            index_tree_before,
+            index_tree_after,
+            ..
+        } => {
+            if !revert_index(repo, &mut doc, head, index_tree_before, index_tree_after)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
     }
-
-    repo.check_no_dirty_state()?;
-    restore_tip(repo, &record.tip_after, "redo", &record.label)?;
 
     doc.redo.pop();
     doc.undo.push(record.clone());
     save(repo, &mut doc)?;
     Ok(UndoOutcome::Done {
-        label: record.label,
+        label: record.label().to_string(),
     })
+}
+
+/// Move the branch ref from `expected` to `target` and check it out. Returns
+/// `false` (after clearing the now-stale stacks) when HEAD has drifted from
+/// `expected` — history was changed outside git-tailor.
+fn revert_ref(
+    repo: &Git2Repo,
+    doc: &mut JournalDoc,
+    expected: &Oid,
+    target: &Oid,
+    verb: &str,
+    label: &str,
+) -> Result<bool> {
+    if &reads::head_oid(repo)? != expected {
+        clear_stacks(repo, doc)?;
+        return Ok(false);
+    }
+    repo.check_no_dirty_state()?;
+    restore_tip(repo, target, verb, label)?;
+    Ok(true)
+}
+
+/// Restore `target` index tree, expecting the index to currently hold
+/// `expected`. Returns `false` (after clearing the now-stale stacks) when the
+/// ref has drifted from `head` or the index no longer matches `expected` — the
+/// user staged something else outside this undo history.
+fn revert_index(
+    repo: &Git2Repo,
+    doc: &mut JournalDoc,
+    head: &Oid,
+    expected: &Oid,
+    target: &Oid,
+) -> Result<bool> {
+    if &reads::head_oid(repo)? != head || &current_index_tree(repo)? != expected {
+        clear_stacks(repo, doc)?;
+        return Ok(false);
+    }
+    restore_index(repo, target)
+}
+
+fn clear_stacks(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
+    doc.undo.clear();
+    doc.redo.clear();
+    save(repo, doc)
 }
 
 /// Point the current branch at `target` and check it out.
@@ -390,6 +573,33 @@ fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result
     let oid = git2::Oid::from(target);
     repo.advance_branch_ref(oid, &format!("git-tailor: {verb} {}", label.to_lowercase()))?;
     repo.checkout_head(&prev_tip)
+}
+
+/// Tree OID of the on-disk index, without mutating it. Used to snapshot the
+/// staged state and to validate it before an index undo/redo.
+pub(super) fn current_index_tree(repo: &Git2Repo) -> Result<Oid> {
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index.read(true).context("failed to refresh index")?;
+    Ok(index
+        .write_tree()
+        .context("failed to snapshot index tree")?
+        .into())
+}
+
+/// Reset the index to `target` tree, leaving the branch ref and working tree
+/// untouched. Always returns `Ok(true)` so callers can treat it as the
+/// non-stale arm of `revert_index`.
+fn restore_index(repo: &Git2Repo, target: &Oid) -> Result<bool> {
+    let tree = repo
+        .inner
+        .find_tree(git2::Oid::from(target))
+        .context("failed to find recorded index tree")?;
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index
+        .read_tree(&tree)
+        .context("failed to restore index tree")?;
+    index.write().context("failed to write index")?;
+    Ok(true)
 }
 
 /// Read the journal and classify it for the startup recovery flow.

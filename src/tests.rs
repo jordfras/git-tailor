@@ -26,6 +26,13 @@ struct MockRepo {
     autostash_restore_ok: bool,
     count_per_file: usize,
     count_ok: bool,
+    stage_ok: bool,
+    stage_changed: bool,
+    pending_undo_index_only: bool,
+    pending_redo_index_only: bool,
+    /// Counts `autostash_save` invocations so tests can assert the index-only
+    /// undo/redo path skips the stash dance.
+    autostash_save_calls: std::cell::Cell<usize>,
 }
 
 impl Default for MockRepo {
@@ -38,8 +45,24 @@ impl Default for MockRepo {
             autostash_restore_ok: true,
             count_per_file: 0,
             count_ok: true,
+            stage_ok: true,
+            stage_changed: true,
+            pending_undo_index_only: false,
+            pending_redo_index_only: false,
+            autostash_save_calls: std::cell::Cell::new(0),
         }
     }
+}
+
+fn mock_stage_outcome(ok: bool, changed: bool) -> anyhow::Result<git_tailor::repo::StageOutcome> {
+    if !ok {
+        return Err(anyhow::anyhow!("stage failed"));
+    }
+    Ok(if changed {
+        git_tailor::repo::StageOutcome::Changed
+    } else {
+        git_tailor::repo::StageOutcome::NoOp
+    })
 }
 
 impl GitRepo for MockRepo {
@@ -90,12 +113,38 @@ impl GitRepo for MockRepo {
         Ok(())
     }
     fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
-        Ok(git_tailor::repo::UndoOutcome::Empty)
+        if self.pending_undo_index_only {
+            Ok(git_tailor::repo::UndoOutcome::Done {
+                label: "Stage all".to_string(),
+            })
+        } else {
+            Ok(git_tailor::repo::UndoOutcome::Empty)
+        }
     }
     fn redo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
-        Ok(git_tailor::repo::UndoOutcome::Empty)
+        if self.pending_redo_index_only {
+            Ok(git_tailor::repo::UndoOutcome::Done {
+                label: "Stage all".to_string(),
+            })
+        } else {
+            Ok(git_tailor::repo::UndoOutcome::Empty)
+        }
+    }
+    fn pending_undo_is_index_only(&self) -> anyhow::Result<bool> {
+        Ok(self.pending_undo_index_only)
+    }
+    fn pending_redo_is_index_only(&self) -> anyhow::Result<bool> {
+        Ok(self.pending_redo_index_only)
+    }
+    fn stage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
+        mock_stage_outcome(self.stage_ok, self.stage_changed)
+    }
+    fn unstage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
+        mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
+        self.autostash_save_calls
+            .set(self.autostash_save_calls.get() + 1);
         Ok(())
     }
     fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {

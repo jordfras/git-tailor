@@ -51,6 +51,15 @@ pub enum UndoOutcome {
     Done { label: String },
 }
 
+/// Result of a stage-all / unstage-all operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageOutcome {
+    /// The index changed and an undo entry was recorded.
+    Changed,
+    /// The index was already in the requested state — nothing to do.
+    NoOp,
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -387,6 +396,25 @@ pub trait GitRepo {
     /// Redo the most recently undone operation, restoring its post-operation
     /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
     fn redo(&self) -> Result<UndoOutcome>;
+
+    /// Whether the next [`undo`](Self::undo) only rewrites the index (a
+    /// stage/unstage-all op). The caller uses this to skip the auto-stash dance,
+    /// which would otherwise stash away the very index being restored.
+    fn pending_undo_is_index_only(&self) -> Result<bool>;
+
+    /// Whether the next [`redo`](Self::redo) only rewrites the index. See
+    /// [`pending_undo_is_index_only`](Self::pending_undo_is_index_only).
+    fn pending_redo_is_index_only(&self) -> Result<bool>;
+
+    /// Stage all working-tree changes (modifications, untracked additions, and
+    /// deletions), like `git add -A`. Recorded as an undoable index-only
+    /// operation. Returns [`StageOutcome::NoOp`] when there was nothing to stage.
+    fn stage_all(&self) -> Result<StageOutcome>;
+
+    /// Unstage all staged changes by resetting the index to HEAD. Recorded as an
+    /// undoable index-only operation. Returns [`StageOutcome::NoOp`] when there
+    /// was nothing staged.
+    fn unstage_all(&self) -> Result<StageOutcome>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a
