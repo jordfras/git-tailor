@@ -10,6 +10,12 @@ The format is based on
 
 ### Added
 
+- `--clean-journal` flag that removes all git-tailor recovery state — the journal
+  file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
+  pins and the in-progress pin) — then exits without launching the TUI and prints
+  a summary. A manual escape hatch for when recovery state gets stuck; refs are
+  found by namespace, so stray ones are cleared even if the journal is missing or
+  out of sync.
 - Commit the staged changes without leaving git-tailor. With the Staged row
   selected, press `c` to open your editor for a commit message and create a
   commit from the index. The commit is undoable: `u` soft-resets it (the changes
