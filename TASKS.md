@@ -50,6 +50,27 @@ Guidelines:
     prove identical end-state behaviour.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
+- [ ] T223 P3 feat - Add a `--clean-journal` CLI option that wipes all
+  git-tailor recovery state: delete the journal file
+  (`<gitdir>/git-tailor/journal.json`, and the `git-tailor` dir if it ends up
+  empty) and every ref git-tailor writes under `refs/git-tailor/*` — the undo
+  pins (`refs/git-tailor/undo/*`) and the in-progress pin
+  (`refs/git-tailor/orig`) — discovering refs by globbing `refs/git-tailor/*`
+  rather than from the journal contents, so stray refs are removed even if the
+  journal is missing, corrupt, or out of sync. This is a manual escape hatch for
+  when recovery state gets stuck. The option must NOT start the TUI: it performs
+  the cleanup and exits (like the static-output path), and is meant to run on its
+  own — combining it with the normal browse arguments should be rejected with a
+  clear error (or those args ignored). Write a short summary to stdout when
+  finished (e.g. whether a journal file was removed and how many refs were
+  deleted). Implementation: add the flag in `cli.rs`; branch early in `main.rs`
+  before terminal setup; enumerate-and-delete the refs via `references_glob`
+  (best-effort, continue past individual failures) and remove the journal file,
+  reusing/extending the `journal` module rather than duplicating ref names. Add
+  integration tests that seed a journal file plus undo/orig refs (including a
+  stray `refs/git-tailor/undo/*` not referenced by the journal), run the
+  cleanup, and assert the file and all refs are gone and the summary reports
+  them.
 
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
