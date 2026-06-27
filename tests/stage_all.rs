@@ -259,6 +259,54 @@ fn undo_is_stale_when_index_changed_externally() {
 }
 
 #[test]
+fn redo_is_stale_when_index_changed_externally() {
+    let test = dirty_repo();
+    let git_repo = test.git_repo();
+    git_repo.stage_all().unwrap();
+    git_repo.undo().unwrap(); // now the op sits on the redo stack
+
+    // Stage something outside this history, so the index no longer matches the
+    // pre-op tree the redo expects to restore from.
+    test.write_file("e.txt", "e\n");
+    test.stage_file("e.txt");
+
+    assert!(matches!(git_repo.redo().unwrap(), UndoOutcome::Stale));
+    assert!(undo_pins(&test).is_empty());
+}
+
+#[test]
+fn stage_all_undo_persists_across_reopen() {
+    let test = dirty_repo();
+    {
+        let git_repo = test.git_repo();
+        git_repo.stage_all().unwrap();
+    }
+
+    // A brand-new handle (simulating a restart) reads the journal and can still
+    // undo the index-only operation.
+    let git_repo = test.git_repo();
+    assert_eq!(expect_done(git_repo.undo().unwrap()), "Stage all");
+    let (staged, unstaged) = staged_and_unstaged(test.repo.path());
+    assert!(staged.is_empty());
+    assert_eq!(unstaged, vec!["a.txt", "b.txt", "c.txt"]);
+}
+
+#[test]
+fn prune_keeps_index_only_undo_across_reopen() {
+    let test = dirty_repo();
+    let git_repo = test.git_repo();
+    git_repo.stage_all().unwrap();
+    let pins_before = undo_pins(&test).len();
+    assert!(pins_before >= 1);
+
+    // The ref never moved, so a startup-time prune keeps the index-only record
+    // (and its tree pins) and undo still works.
+    git_repo.prune_stale_journal().unwrap();
+    assert_eq!(undo_pins(&test).len(), pins_before);
+    assert_eq!(expect_done(git_repo.undo().unwrap()), "Stage all");
+}
+
+#[test]
 fn stage_all_errors_on_conflicted_index() {
     let test = common::TestRepo::new();
     let _state = test.make_drop_conflict();
