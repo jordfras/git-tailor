@@ -1392,3 +1392,121 @@
   `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
   amount should match the existing `PageDown`/`PageUp` behaviour (one
   visible-area height, keeping one line of overlap)
+
+## Architecture & Robustness
+- [X] T216 P2 feat - Add a persistent operation journal for crash safety: the
+  cherry-pick rebase operations (move, drop, squash, fixup, reword, split) hold
+  their in-flight state only in memory — in particular `ConflictState`
+  (`original_branch_oid`, `new_tip_oid`, `remaining_oids`, the conflicting commit
+  and files, etc.) lives in `AppState` while the user resolves a conflict. By
+  that point the branch ref has already been advanced to a partial tip and the
+  working tree holds conflict markers, so if gt is killed mid-operation the
+  remaining-work state is lost: the operation cannot be resumed and the repo is
+  left mid-conflict. Persist operation state to a durable journal under `.git/`
+  (e.g. `.git/git-tailor/journal` for the serialized `ConflictState`, plus a ref
+  such as `refs/git-tailor/orig` recording the pre-operation tip so the original
+  commits are pinned against `git gc`). Write/refresh the journal when a mutating
+  operation starts and when it enters a conflict; clear it on successful
+  completion or abort. On startup, detect a leftover journal entry (an
+  interrupted operation) and offer the user a recovery dialog: **resume** the
+  rebase from the persisted `ConflictState` / `remaining_oids`, or **abort** by
+  restoring the branch ref to the recorded original tip and cleaning the working
+  tree. Keep this git2-native — do NOT write or depend on git's private
+  `.git/rebase-merge/` format, so `git rebase --continue` / `--abort` will not
+  act on this journal (recovery is via gt); the reflog remains a manual fallback
+  (`git reset --hard <branch>@{1}`). Add integration tests that build a
+  `ConflictState`, persist the journal, drop and reopen the repo handle, and
+  assert the interrupted operation is detected and that both resume and abort
+  restore correct state.
+  NOTE: replacing the cherry-pick engine with `git2::Rebase` was investigated
+  and rejected — libgit2 only exposes the non-interactive, range-based rebase
+  (`git_rebase_init` over `upstream..branch`) and cannot express git-tailor's
+  reordering operations (move, non-adjacent squash), which require an arbitrary
+  commit order; its in-memory mode also writes no on-disk recovery state. A
+  native journal delivers the crash-safety goal for *all* operations and is the
+  shared foundation for undo (T218).
+- [X] T218 P2 feat - Add undo/redo of history-rewriting operations via an
+  operation stack: because every gt mutation (move, drop, squash, fixup, reword,
+  split) only builds new commits and advances the branch ref — the previous
+  commits remain in the object database — undo needs no per-operation inverse; it
+  simply restores the branch ref to the tip OID recorded before the operation and
+  checks out. Maintain a stack of operation records `{ label, tip_before,
+  tip_after }` persisted alongside the T216 journal; **undo** pops the top record
+  and restores `tip_before`, **redo** restores `tip_after` and pushes it back,
+  with multiple levels supported by walking the stack. Pin the recorded tips
+  against `git gc` by writing refs under `refs/git-tailor/undo/<n>` (a plain file
+  holding a SHA does not protect objects from gc — only refs/reflogs do). Bind
+  undo and redo to free keys in the commit-list view (`u` is taken by reload and
+  `r` by reword, so choose unused keys) and document them in the help dialog.
+  Safety: run the same dirty-state guard the operations use before undoing (a
+  hard reset would clobber uncommitted changes), and validate that HEAD still
+  matches the expected `tip_after` before allowing undo — if the user rewrote
+  history via external git the stack is stale and must be invalidated or trimmed.
+  Add integration tests: perform each operation, undo and assert history/file
+  contents match the pre-operation state, redo and assert they match the
+  post-operation state, plus multi-level undo/redo and stale-stack invalidation.
+  Depends on T216 (journal infrastructure).
+- [X] T219 P2 feat - Add opt-in auto-stash so dirty-working-tree operations just
+  work: operations that currently refuse when the working tree has staged or
+  unstaged changes (`move`, `drop`, `squash`, `fixup` via `check_no_dirty_state`,
+  and `undo`/`redo`, which hard-reset the tree) should, when auto-stash is
+  enabled, automatically stash the dirty state, run the operation, then restore
+  it afterwards instead of bailing. Gate it behind a new CLI flag `--autostash`
+  with a `GT_AUTOSTASH` env binding (default off, mirroring `--reverse` /
+  `GT_REVERSE`), matching git's own `rebase.autoStash` ergonomics. Requirements:
+  * Preserve the staged/unstaged split exactly: changes staged before the
+    operation must be staged again afterwards, and unstaged changes must come
+    back unstaged. (git2 supports this via `stash_save` then
+    `stash_apply`/`stash_pop` with `REINSTATE_INDEX`; alternatively unstage the
+    index and take a second stash so the two sets restore independently.) Include
+    untracked files so nothing is lost.
+  * Conflict-bearing operations: when the operation enters `RebaseConflict` the
+    working tree holds conflict markers and the stash cannot be popped yet —
+    defer the unstash until the operation truly finishes (after
+    `rebase_continue` completes) or is aborted (`rebase_abort`), restoring the
+    original staged/unstaged state in both cases. Surface a clear error if the
+    stash cannot be reapplied cleanly (it conflicts with the rebased result)
+    rather than silently dropping it.
+  * Crash safety: record the stash reference in the operation journal (T216) so
+    that if gt is killed between stashing and restoring, the recovery flow can
+    reapply (or at least point the user at) the stash instead of leaving work
+    stranded in the stash list.
+  * Undo/redo (T218): `undo` / `redo` reset the working tree, so with auto-stash
+    on they must stash before and restore after, the same as forward operations,
+    keeping the user's in-progress edits intact across an undo/redo. The
+    dirty-state guard in `apply_undo` / `apply_redo` should defer to the
+    auto-stash path when enabled.
+  * Plumb the flag from `cli.rs` into `AppState` / the repo layer and thread it
+    to every guarded operation; when disabled, behaviour is unchanged (still
+    refuse with the current message).
+  Add integration tests covering: staged-only, unstaged-only, and mixed dirty
+  state restored exactly after move/squash; the conflict path (stash reapplied
+  after continue and after abort); untracked files preserved; and an
+  undo-with-dirty-tree round trip. Depends on T216 (journal) and interacts with
+  T218 (undo/redo).
+
+## Interactivity — Staging & Committing
+- [X] T220 P2 feat - Stage all unstaged changes from within git-tailor: add a
+  key binding in the commit list (e.g. `a` for "add", currently unused) that
+  stages every unstaged working-tree change — modifications, additions
+  (untracked files), and deletions — equivalent to `git add -A`. Add a
+  `stage_all` method to the `GitRepo` trait (git2: `Index::add_all(["*"], …)`
+  plus `update_all` to capture deletions, then `Index::write`) and wire the key
+  through `commit_list::handle_key` and a new `AppAction`, reloading afterwards
+  so the synthetic "staged" / "unstaged" rows refresh. Show a status message,
+  including a no-op message when there is nothing to stage. Document the key in
+  the help dialog. Scope: staging *all* changes at once is enough for now —
+  per-file or per-hunk staging is out of scope.
+- [X] T221 P2 feat - Commit staged changes from within git-tailor: add a key
+  binding in the commit list (e.g. `c` for "commit", currently unused) that
+  creates a new commit from the currently staged changes. Open the configured
+  editor (reuse `edit_message_in_editor`) for the commit message; if the message
+  is non-empty, build a tree from the index and create a commit with the current
+  HEAD as parent, advancing the branch ref (cancel on an empty message, as
+  reword does). Add a `commit_staged(message)` method to the `GitRepo` trait, and
+  refuse with a clear message when nothing is staged. Reload afterwards so the
+  new commit appears and the "staged" synthetic row clears; document the key in
+  help. Scope: committing all staged changes with an editor-provided message is
+  enough for now. Decide how this interacts with undo/redo (T218): a plain commit
+  is additive rather than history-rewriting, so it need not be undoable in this
+  task — but record the decision rather than leaving it implicit.
