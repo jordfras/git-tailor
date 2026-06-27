@@ -54,6 +54,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   m              ", "Move commit (pick new position)")
         .key_binding("   a              ", "Stage all changes")
         .key_binding("   A              ", "Unstage all changes")
+        .key_binding("   c              ", "Commit staged changes")
         .key_binding("   u              ", "Undo last operation")
         .key_binding("   C-r            ", "Redo last operation")
         .section(" Views")
