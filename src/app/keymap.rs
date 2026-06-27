@@ -44,6 +44,7 @@ pub enum KeyCommand {
     Move,
     StageAll,
     UnstageAll,
+    CommitStaged,
     Undo,
     Redo,
     Mergetool,
@@ -168,6 +169,11 @@ impl AppMode {
                 },
                 KeyCode::Char('A') => match self {
                     AppMode::CommitList => KeyCommand::UnstageAll,
+                    _ => KeyCommand::None,
+                },
+                // c: commit the staged changes (gated to the Staged row).
+                KeyCode::Char('c') => match self {
+                    AppMode::CommitList => KeyCommand::CommitStaged,
                     _ => KeyCommand::None,
                 },
                 // u: undo (vim convention).

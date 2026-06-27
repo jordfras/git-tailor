@@ -172,6 +172,13 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             }
         }
+        KeyCommand::CommitStaged => {
+            if app.selected_synthetic_row_is(VirtualOid::Staged, "commit staged changes") {
+                AppAction::PrepareCommitStaged
+            } else {
+                AppAction::Handled
+            }
+        }
         KeyCommand::Undo => AppAction::Undo,
         KeyCommand::Redo => AppAction::Redo,
         KeyCommand::Mergetool

@@ -23,8 +23,8 @@ mod update_check;
 use anyhow::Result;
 use clap::Parser;
 use git_tailor::repo::{
-    AutostashContinue, AutostashRestore, ConflictState, Git2Repo, GitRepo, JournalStatus,
-    RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
+    AutostashContinue, AutostashRestore, CommitOutcome, ConflictState, Git2Repo, GitRepo,
+    JournalStatus, RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
 };
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
@@ -441,6 +441,9 @@ fn dispatch_action(
                 "Nothing to unstage",
             ));
         }
+        AppAction::PrepareCommitStaged => {
+            return handle_commit_staged(git_repo, app, terminal_guard, kb_enhanced);
+        }
         AppAction::Undo => return handle_undo(git_repo, app),
         AppAction::Redo => return handle_redo(git_repo, app),
     }
@@ -469,6 +472,34 @@ fn report_stage_outcome(
             LoopAction::Proceed
         }
     }
+}
+
+/// Commit the staged changes: open the editor for a message (reusing the reword
+/// editor flow), then create the commit. An empty message cancels.
+fn handle_commit_staged(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+) -> Result<LoopAction> {
+    let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+        editor::edit_message_in_editor(git_repo, "")
+    })?;
+    match editor_result {
+        Err(e) => app.set_error_message(format!("Editor error: {e}")),
+        Ok(message) if message.trim().is_empty() => {
+            app.set_success_message("Commit cancelled: message is empty");
+        }
+        Ok(message) => match git_repo.commit_staged(&message) {
+            Ok(CommitOutcome::Committed) => {
+                app.set_success_message("Committed staged changes");
+                return Ok(LoopAction::Reload);
+            }
+            Ok(CommitOutcome::NothingStaged) => app.set_error_message("Nothing staged to commit"),
+            Err(e) => app.set_error_message(format!("Commit failed: {e}")),
+        },
+    }
+    Ok(LoopAction::Proceed)
 }
 
 fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {

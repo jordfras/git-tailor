@@ -100,6 +100,8 @@ pub enum AppAction {
     StageAll,
     /// Unstage all staged changes (reset the index to HEAD).
     UnstageAll,
+    /// Start the commit-staged flow: launch the editor, then commit the index.
+    PrepareCommitStaged,
     /// Undo the most recent history-rewriting operation.
     Undo,
     /// Redo the most recently undone operation.

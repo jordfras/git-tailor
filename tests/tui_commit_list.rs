@@ -333,3 +333,46 @@ fn unstage_all_is_gated_to_the_staged_row() {
     ));
     assert!(app.status_is_error);
 }
+
+#[test]
+fn commit_key_maps_only_in_commit_list() {
+    let list = AppMode::CommitList;
+    assert_eq!(
+        list.parse_key(key('c', KeyModifiers::NONE)),
+        KeyCommand::CommitStaged
+    );
+
+    // Elsewhere `c` is inert (and Ctrl-c stays ForceQuit).
+    let detail = AppMode::CommitDetail;
+    assert_eq!(
+        detail.parse_key(key('c', KeyModifiers::NONE)),
+        KeyCommand::None
+    );
+    assert_eq!(
+        list.parse_key(key('c', KeyModifiers::CONTROL)),
+        KeyCommand::ForceQuit
+    );
+}
+
+#[test]
+fn commit_staged_is_gated_to_the_staged_row() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        synthetic_row(VirtualOid::Staged, "(staged changes)"),
+        common::create_test_commit("abc123def456", "real commit"),
+    ];
+
+    app.selection_index = 0;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
+        AppAction::PrepareCommitStaged
+    ));
+
+    // On any other row it is a no-op with a guiding hint.
+    app.selection_index = 1;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
+        AppAction::Handled
+    ));
+    assert!(app.status_is_error);
+}
