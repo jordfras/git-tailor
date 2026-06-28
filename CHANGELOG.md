@@ -57,6 +57,13 @@ The format is based on
 - Refreshing the commit list moved from `u` to `R` / `F5`, freeing `u` for undo
   (the vim convention). "Refresh" replaces the previous "update" wording.
 
+### Fixed
+
+- Dropping, moving, or squashing past a commit that added a file no longer leaves
+  that file behind as an untracked leftover in the working tree. git-tailor now
+  removes exactly the files the rewrite removed (matching `git rebase`), while
+  leaving your own untracked files in place.
+
 
 ## [1.0.0] - 2026-06-12
 
