@@ -181,7 +181,8 @@ pub(super) fn write_conflicts_to_workdir(
 
     // Point the branch at the onto commit so HEAD matches the partially
     // rebased chain.
-    repo.advance_branch_ref(onto_commit.id(), "git-tailor: drop commit (conflict)")?;
+    let label = state.operation_label.to_lowercase();
+    repo.advance_branch_ref(onto_commit.id(), &format!("git-tailor: {label} (conflict)"))?;
 
     // Write the conflicted index entries (including conflict markers) into
     // the repo's index so `git status` and the user's editor see them.
