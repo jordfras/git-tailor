@@ -105,7 +105,7 @@ Guidelines:
   context); changing the value should trigger a re-fetch or re-render of the
   diff so the change is immediately visible; show the current context line count
   in the footer or status line so the user knows the active value
-- [ ] T224 P3 feat - Show diff context around staged/unstaged changes in the
+- [x] T224 P3 feat - Show diff context around staged/unstaged changes in the
   commit detail view: the synthetic Staged/Unstaged rows render their diff with
   no surrounding context, while real commits show the default context, so the
   detail view is inconsistent. `reads::staged_diff` / `unstaged_diff` set
