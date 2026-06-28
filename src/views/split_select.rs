@@ -127,10 +127,12 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         .map(|c| format!("{} {}", c.oid.short(), c.summary))
         .unwrap_or_default();
 
-    // Truncate summary if too long for dialog
+    // Truncate summary if too long for dialog. Count/cut by characters, not
+    // bytes, so a non-ASCII summary never slices mid-codepoint (which panics).
     let max_summary_len = 44;
-    let display_summary = if commit_summary.len() > max_summary_len {
-        format!("{}…", &commit_summary[..max_summary_len - 1])
+    let display_summary = if commit_summary.chars().count() > max_summary_len {
+        let prefix: String = commit_summary.chars().take(max_summary_len - 1).collect();
+        format!("{prefix}…")
     } else {
         commit_summary
     };
