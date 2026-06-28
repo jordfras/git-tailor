@@ -32,24 +32,7 @@ impl Git2Repo {
         mut tip: git2::Oid,
     ) -> Result<git2::Oid> {
         let repo = &self.inner;
-        if head_oid == stop_oid {
-            return Ok(tip);
-        }
-
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push(head_oid)?;
-
-        let mut descendants: Vec<git2::Oid> = Vec::new();
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            if oid == stop_oid {
-                break;
-            }
-            descendants.push(oid);
-        }
-        descendants.reverse();
-
-        for desc_oid in descendants {
+        for desc_oid in self.collect_descendants(stop_oid, head_oid)? {
             let desc_commit = repo.find_commit(desc_oid)?;
             let onto_commit = repo.find_commit(tip)?;
 
