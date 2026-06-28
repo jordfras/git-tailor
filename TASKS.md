@@ -72,6 +72,18 @@ Guidelines:
   cleanup, and assert the file and all refs are gone and the summary reports
   them.
 
+## Interactivity — Commit List
+- [ ] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
+  moving the selection: bind `Ctrl-Up` / `Ctrl-Down` (currently unused —
+  `Ctrl-Left`/`Right` adjust the separator and `Ctrl-PageUp`/`Down` half-page
+  scroll) to scroll the list viewport by one row while keeping the selected
+  commit highlighted, like vim's `Ctrl-Y` / `Ctrl-E`. Only scroll as far as the
+  selection stays visible — the selected row must never leave the visible window.
+  Today the scroll offset always follows the selection, so this needs an
+  independent scroll offset clamped against `commit_list_visible_height` (and the
+  fragmap/detail layout). Make it behave intuitively in reverse-order mode
+  (`--reverse`) too, and document the keys in the help dialog.
+
 ## Interactivity — Commit Detail View
 - [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
@@ -93,6 +105,17 @@ Guidelines:
   context); changing the value should trigger a re-fetch or re-render of the
   diff so the change is immediately visible; show the current context line count
   in the footer or status line so the user knows the active value
+- [ ] T224 P3 feat - Show diff context around staged/unstaged changes in the
+  commit detail view: the synthetic Staged/Unstaged rows render their diff with
+  no surrounding context, while real commits show the default context, so the
+  detail view is inconsistent. `reads::staged_diff` / `unstaged_diff` set
+  `context_lines(0)` (needed for tight fragmap span extraction), and the detail
+  view reuses that same diff. Show the same amount of context as a commit diff
+  (`commit_diff`, default 3) for the detail view while keeping the 0-context
+  spans for the fragmap — e.g. thread a context-lines parameter through the
+  synthetic-diff reads, or add a detail-specific variant mirroring the existing
+  `commit_diff` vs `commit_diff_for_fragmap` split. Relates to T166 (adjustable
+  context), which should then also apply to the staged/unstaged rows.
 
 ## CLI — Shell Completion
 - [ ] T140 P3 feat - Add shell completion for CLI options: use `clap_complete`
