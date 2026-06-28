@@ -68,6 +68,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   Ctrl-f/b       ", "Move one page down/up")
         .key_binding("   Ctrl-d/u       ", "Move half page down/up")
         .key_binding("   Ctrl-PgDn/PgUp ", "Move half page down/up")
+        .key_binding("   Ctrl-↓/↑       ", "Scroll list, keep selection")
         .key_binding("   g/G            ", "Jump to first/last commit")
         .key_binding("   Home/End       ", "Jump to first/last commit")
         .key_binding("   ←/→            ", "Scroll matrix left/right")
