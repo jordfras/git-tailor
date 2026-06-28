@@ -62,6 +62,9 @@ The format is based on
 
 ### Fixed
 
+- The Staged / Unstaged detail view now shows the same surrounding diff context
+  as commits (git's default) instead of only the changed lines, so they are no
+  longer harder to read than a commit's diff.
 - Dropping, moving, or squashing past a commit that added a file no longer leaves
   that file behind as an untracked leftover in the working tree. git-tailor now
   removes exactly the files the rewrite removed (matching `git rebase`), while
