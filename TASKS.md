@@ -73,7 +73,7 @@ Guidelines:
   them.
 
 ## Interactivity — Commit List
-- [ ] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
+- [x] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
   moving the selection: bind `Ctrl-Up` / `Ctrl-Down` (currently unused —
   `Ctrl-Left`/`Right` adjust the separator and `Ctrl-PageUp`/`Down` half-page
   scroll) to scroll the list viewport by one row while keeping the selected
