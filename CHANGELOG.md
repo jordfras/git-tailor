@@ -6,6 +6,65 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Added
+
+- `--clean-journal` flag that removes all git-tailor recovery state — the journal
+  file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
+  pins and the in-progress pin) — then exits without launching the TUI and prints
+  a summary. A manual escape hatch for when recovery state gets stuck; refs are
+  found by namespace, so stray ones are cleared even if the journal is missing or
+  out of sync.
+- Commit the staged changes without leaving git-tailor. With the Staged row
+  selected, press `c` to open your editor for a commit message and create a
+  commit from the index. The commit is undoable: `u` soft-resets it (the changes
+  reappear as staged, your working-tree edits untouched) and `Ctrl-r` re-commits.
+- Stage and unstage all working-tree changes without leaving git-tailor. With the
+  Unstaged row selected, press `a` to stage every change (modifications, new
+  files, and deletions, like `git add -A`); with the Staged row selected, press
+  `A` to unstage everything back to HEAD. Both are undoable and redoable with
+  `u` / `Ctrl-r`.
+- Undo and redo of history-rewriting operations. Press `u` to undo the last
+  drop, move, squash, fixup, reword, or split, and `Ctrl-r` to redo it; multiple
+  levels are supported and the stack persists across restarts. Undo restores the
+  branch to the exact state before the operation — no per-operation inverse is
+  needed, since the old commits are kept and pinned against `git gc`. It refuses
+  when the working tree has uncommitted changes, and discards the stack if the
+  branch was changed outside git-tailor.
+- Crash safety for rebase operations. While a drop, move, squash, or fixup is
+  paused on an unresolved conflict, git-tailor now records the operation to a
+  journal under `.git/git-tailor/`. If the tool is killed (or the terminal
+  closed) before the conflict is resolved, the next launch detects the
+  interrupted operation and offers to resume it or abort back to the original
+  branch tip — which is pinned with a ref so its commits survive `git gc`.
+  Previously this state lived only in memory and was lost on exit, leaving the
+  repository stuck mid-conflict.
+- Opt-in auto-stash via the `--autostash` flag (or `GT_AUTOSTASH` env var). When
+  enabled, operations that need a clean working tree — move, drop, squash,
+  fixup, undo, and redo — automatically stash your staged, unstaged, and
+  untracked changes, run the operation, and restore the exact staged/unstaged
+  split afterwards, instead of refusing to run. The stash is recorded in the
+  operation journal so it survives a crash or a conflict pause. If reapplying the
+  changes conflicts with the result, the same resolution dialog used for
+  cherry-pick conflicts opens — resolve with the merge tool (`m`) or editor
+  (`e`) and continue, or press Esc to abort the whole operation and get your
+  changes back unchanged. Disabled by default, matching git's own
+  `rebase.autoStash` behaviour.
+
+### Changed
+
+- Refreshing the commit list moved from `u` to `R` / `F5`, freeing `u` for undo
+  (the vim convention). "Refresh" replaces the previous "update" wording.
+
+### Fixed
+
+- Dropping, moving, or squashing past a commit that added a file no longer leaves
+  that file behind as an untracked leftover in the working tree. git-tailor now
+  removes exactly the files the rewrite removed (matching `git rebase`), while
+  leaving your own untracked files in place.
+
+
 ## [1.0.0] - 2026-06-12
 
 ### Fixed

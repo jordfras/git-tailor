@@ -17,8 +17,66 @@ pub mod git2_impl;
 pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
+
+/// Result of reading the crash-safety journal at startup.
+///
+/// Crash detection keys off an in-progress record inside the journal, not the
+/// file's existence — so `None` covers both "no journal file" and "a journal
+/// exists but holds no interrupted operation".
+#[derive(Debug)]
+pub enum JournalStatus {
+    /// No interrupted operation to recover.
+    None,
+    /// An operation was interrupted; the persisted state can resume or abort it.
+    Recovered(Box<ConflictState>),
+    /// The journal was written by a newer git-tailor (`version` exceeds what
+    /// this build understands). The file is left untouched.
+    NewerVersion(u32),
+    /// The journal could not be read or parsed; the message describes why.
+    Corrupt(String),
+}
+
+/// Summary of what [`GitRepo::clean_journal`] removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JournalCleanSummary {
+    /// Number of `refs/git-tailor/*` refs deleted.
+    pub refs_removed: usize,
+    /// Whether an on-disk journal file was present and removed.
+    pub journal_removed: bool,
+}
+
+/// Result of an undo or redo request.
+#[derive(Debug)]
+pub enum UndoOutcome {
+    /// The corresponding stack was empty — nothing to undo/redo.
+    Empty,
+    /// The branch no longer matched the recorded tip (history was changed
+    /// outside git-tailor), so the undo/redo stack was discarded.
+    Stale,
+    /// An operation was undone/redone; `label` names it (e.g. "Drop").
+    Done { label: String },
+}
+
+/// Result of a stage-all / unstage-all operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageOutcome {
+    /// The index changed and an undo entry was recorded.
+    Changed,
+    /// The index was already in the requested state — nothing to do.
+    NoOp,
+}
+
+/// Result of a commit-staged operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitOutcome {
+    /// A commit was created from the staged changes.
+    Committed,
+    /// Nothing was staged (the index matched HEAD), so no commit was made.
+    NothingStaged,
+}
 
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
@@ -37,7 +95,8 @@ pub enum RebaseOutcome {
 /// conflicts, then calls `rebase_continue` (which reads the resolved
 /// index and creates the commit) or `rebase_abort` (which restores
 /// the branch to `original_branch_oid`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConflictState {
     /// Human-readable label for the operation that triggered this conflict
     /// (e.g. "Drop", "Squash"). Used in dialog titles and messages.
@@ -75,7 +134,8 @@ pub struct ConflictState {
 
 /// Extra state carried through a squash-time conflict so that the squash
 /// can be finalized after the user resolves the conflicting tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SquashContext {
     /// OID of the target commit's parent (the base for the squash commit).
     /// `None` when the target is the repository root (squash commit is an orphan).
@@ -92,6 +152,39 @@ pub struct SquashContext {
     pub descendant_oids: Vec<Oid>,
     /// Whether this is a squash (editor shown) or fixup (target message kept as-is).
     pub squash_mode: SquashMode,
+}
+
+/// Enough state to drive the resolution dialog for a conflicting auto-stash
+/// reapply. The stash OID and the pre-operation tip needed to continue or abort
+/// live in the journal; this only carries what the dialog displays.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StashConflictState {
+    /// Label of the operation whose auto-stash reapply conflicted (e.g. "Drop"),
+    /// used in the dialog title.
+    pub operation_label: String,
+    /// Paths with conflict markers left by the reapply.
+    pub conflicting_files: Vec<String>,
+    /// True when the user pressed continue but conflicts still remain.
+    pub still_unresolved: bool,
+}
+
+/// Result of reapplying the auto-stash after an operation.
+#[derive(Debug)]
+pub enum AutostashRestore {
+    /// Nothing was stashed, or the stash was reapplied cleanly.
+    Done,
+    /// The reapply conflicted: markers are in the working tree and the stash is
+    /// kept. Carries the conflicting file paths for the resolution dialog.
+    Conflict { files: Vec<String> },
+}
+
+/// Result of attempting to finish a conflicting auto-stash reapply.
+#[derive(Debug)]
+pub enum AutostashContinue {
+    /// All conflicts resolved; the stash was dropped.
+    Resolved,
+    /// Conflicts still remain; `files` lists them.
+    StillUnresolved { files: Vec<String> },
 }
 
 /// Abstraction over git repository operations.
@@ -291,6 +384,95 @@ pub trait GitRepo {
     /// Resets the branch ref to `state.original_branch_oid`, cleans up the
     /// working tree and index.
     fn rebase_abort(&self, state: &ConflictState) -> Result<()>;
+
+    /// Read the crash-safety journal to detect an operation interrupted by a
+    /// previous run (process killed or crashed mid-conflict).
+    ///
+    /// Returns [`JournalStatus::Recovered`] with the persisted [`ConflictState`]
+    /// when an interrupted operation is found, so the caller can resume it
+    /// (via the normal conflict flow) or abort it.
+    fn read_journal(&self) -> Result<JournalStatus>;
+
+    /// Discard the journal's in-progress record without otherwise touching the
+    /// repository. Used when a recovered operation is stale (the branch has
+    /// moved since it was journaled), so resuming or aborting would be unsafe.
+    fn clear_journal(&self) -> Result<()>;
+
+    /// Drop undo/redo history (and its `refs/git-tailor/*` gc-pins) that no
+    /// longer matches the branch, and reconcile the remaining pins. Run at
+    /// startup so stale refs don't linger in tools like `gitk`; a still-valid
+    /// stack is preserved so undo/redo survives across restarts.
+    fn prune_stale_journal(&self) -> Result<()>;
+
+    /// Remove **all** git-tailor recovery state: every ref under
+    /// `refs/git-tailor/` and the on-disk journal file. Refs are found by
+    /// namespace rather than from the journal, so stray refs are removed even if
+    /// the journal is missing or out of sync. A manual escape hatch (the
+    /// `--clean-journal` CLI flag); returns a summary of what was removed.
+    fn clean_journal(&self) -> Result<JournalCleanSummary>;
+
+    /// Undo the most recent history-rewriting operation by restoring the branch
+    /// to the tip recorded before it ran (and moving the record to the redo
+    /// stack). Refuses if the working tree is dirty; reports
+    /// [`UndoOutcome::Stale`] and discards the stack if the branch no longer
+    /// matches the recorded post-operation tip.
+    fn undo(&self) -> Result<UndoOutcome>;
+
+    /// Redo the most recently undone operation, restoring its post-operation
+    /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
+    fn redo(&self) -> Result<UndoOutcome>;
+
+    /// Whether the next [`undo`](Self::undo) leaves the working tree untouched (a
+    /// stage/unstage-all op or a commit's soft reset). The caller uses this to
+    /// skip the auto-stash dance, which would otherwise stash away and reapply
+    /// the very state being restored.
+    fn pending_undo_skips_autostash(&self) -> Result<bool>;
+
+    /// Whether the next [`redo`](Self::redo) leaves the working tree untouched.
+    /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
+    fn pending_redo_skips_autostash(&self) -> Result<bool>;
+
+    /// Stage all working-tree changes (modifications, untracked additions, and
+    /// deletions), like `git add -A`. Recorded as an undoable index-only
+    /// operation. Returns [`StageOutcome::NoOp`] when there was nothing to stage.
+    fn stage_all(&self) -> Result<StageOutcome>;
+
+    /// Unstage all staged changes by resetting the index to HEAD. Recorded as an
+    /// undoable index-only operation. Returns [`StageOutcome::NoOp`] when there
+    /// was nothing staged.
+    fn unstage_all(&self) -> Result<StageOutcome>;
+
+    /// Create a commit from the currently staged changes with `message`, using
+    /// HEAD as the parent and advancing the branch ref. Recorded as an undoable
+    /// operation whose undo is a soft reset (the committed changes reappear as
+    /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
+    /// HEAD.
+    fn commit_staged(&self, message: &str) -> Result<CommitOutcome>;
+
+    /// When auto-stash is enabled and the working tree is dirty, stash the
+    /// staged/unstaged/untracked changes (recording them in the journal) so a
+    /// following operation sees a clean tree. Idempotent: a second call while a
+    /// stash is already pending is a no-op. No-op when auto-stash is disabled or
+    /// the tree is clean.
+    fn autostash_save(&mut self) -> Result<()>;
+
+    /// Reapply the pending auto-stash, restoring the original staged/unstaged
+    /// split, and drop it. Returns [`AutostashRestore::Done`] when nothing was
+    /// stashed or it reapplied cleanly. On a conflict the stash is **kept** (with
+    /// markers left in the working tree) and [`AutostashRestore::Conflict`] is
+    /// returned so the caller can open the resolution dialog — the user's changes
+    /// are never silently lost.
+    fn autostash_restore(&mut self) -> Result<AutostashRestore>;
+
+    /// Finish a conflicting auto-stash reapply: stage the files the user has
+    /// resolved and, if none remain conflicted, drop the stash. Returns whether
+    /// the resolution is complete or files still conflict.
+    fn autostash_conflict_continue(&mut self) -> Result<AutostashContinue>;
+
+    /// Abort a conflicting auto-stash reapply: rewind the branch and working
+    /// tree to the pre-operation tip (undoing the operation), restore the
+    /// original dirty changes there (always conflict-free), and drop the stash.
+    fn autostash_conflict_abort(&mut self) -> Result<()>;
 
     /// Return the path of the repository's working directory, if any.
     ///

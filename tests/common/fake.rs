@@ -175,6 +175,51 @@ impl GitRepo for StubRepo {
     fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
         unimplemented!()
     }
+    fn read_journal(&self) -> Result<git_tailor::repo::JournalStatus> {
+        unimplemented!()
+    }
+    fn clear_journal(&self) -> Result<()> {
+        unimplemented!()
+    }
+    fn prune_stale_journal(&self) -> Result<()> {
+        unimplemented!()
+    }
+    fn clean_journal(&self) -> Result<git_tailor::repo::JournalCleanSummary> {
+        unimplemented!()
+    }
+    fn undo(&self) -> Result<git_tailor::repo::UndoOutcome> {
+        unimplemented!()
+    }
+    fn redo(&self) -> Result<git_tailor::repo::UndoOutcome> {
+        unimplemented!()
+    }
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn stage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
+        unimplemented!()
+    }
+    fn unstage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
+        unimplemented!()
+    }
+    fn commit_staged(&self, _message: &str) -> Result<git_tailor::repo::CommitOutcome> {
+        unimplemented!()
+    }
+    fn autostash_save(&mut self) -> Result<()> {
+        unimplemented!()
+    }
+    fn autostash_restore(&mut self) -> Result<git_tailor::repo::AutostashRestore> {
+        unimplemented!()
+    }
+    fn autostash_conflict_continue(&mut self) -> Result<git_tailor::repo::AutostashContinue> {
+        unimplemented!()
+    }
+    fn autostash_conflict_abort(&mut self) -> Result<()> {
+        unimplemented!()
+    }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
     }

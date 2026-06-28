@@ -241,3 +241,138 @@ fn test_status_bar_long_error() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use git_tailor::VirtualOid;
+use git_tailor::app::{AppAction, AppMode, KeyCommand};
+
+fn key(c: char, modifiers: KeyModifiers) -> Event {
+    Event::Key(KeyEvent {
+        code: KeyCode::Char(c),
+        modifiers,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    })
+}
+
+fn synthetic_row(oid: VirtualOid, summary: &str) -> git_tailor::CommitInfo {
+    let mut commit = common::create_test_commit("abc123def456", summary);
+    commit.oid = oid;
+    commit
+}
+
+#[test]
+fn stage_unstage_keys_map_only_in_commit_list() {
+    let list = AppMode::CommitList;
+    assert_eq!(
+        list.parse_key(key('a', KeyModifiers::NONE)),
+        KeyCommand::StageAll
+    );
+    assert_eq!(
+        list.parse_key(key('A', KeyModifiers::SHIFT)),
+        KeyCommand::UnstageAll
+    );
+
+    // Elsewhere `a` / `A` are inert (and `Ctrl-a` keeps its scroll meaning).
+    let detail = AppMode::CommitDetail;
+    assert_eq!(
+        detail.parse_key(key('a', KeyModifiers::NONE)),
+        KeyCommand::None
+    );
+    assert_eq!(
+        detail.parse_key(key('A', KeyModifiers::SHIFT)),
+        KeyCommand::None
+    );
+    assert_eq!(
+        list.parse_key(key('a', KeyModifiers::CONTROL)),
+        KeyCommand::ScrollToLeftEdge
+    );
+}
+
+#[test]
+fn stage_all_is_gated_to_the_unstaged_row() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        common::create_test_commit("abc123def456", "real commit"),
+        synthetic_row(VirtualOid::Unstaged, "(unstaged changes)"),
+    ];
+
+    app.selection_index = 1;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::StageAll, &mut app),
+        AppAction::StageAll
+    ));
+
+    // On any other row it is a no-op with a guiding hint.
+    app.selection_index = 0;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::StageAll, &mut app),
+        AppAction::Handled
+    ));
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn unstage_all_is_gated_to_the_staged_row() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        synthetic_row(VirtualOid::Staged, "(staged changes)"),
+        common::create_test_commit("abc123def456", "real commit"),
+    ];
+
+    app.selection_index = 0;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::UnstageAll, &mut app),
+        AppAction::UnstageAll
+    ));
+
+    app.selection_index = 1;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::UnstageAll, &mut app),
+        AppAction::Handled
+    ));
+    assert!(app.status_is_error);
+}
+
+#[test]
+fn commit_key_maps_only_in_commit_list() {
+    let list = AppMode::CommitList;
+    assert_eq!(
+        list.parse_key(key('c', KeyModifiers::NONE)),
+        KeyCommand::CommitStaged
+    );
+
+    // Elsewhere `c` is inert (and Ctrl-c stays ForceQuit).
+    let detail = AppMode::CommitDetail;
+    assert_eq!(
+        detail.parse_key(key('c', KeyModifiers::NONE)),
+        KeyCommand::None
+    );
+    assert_eq!(
+        list.parse_key(key('c', KeyModifiers::CONTROL)),
+        KeyCommand::ForceQuit
+    );
+}
+
+#[test]
+fn commit_staged_is_gated_to_the_staged_row() {
+    let mut app = AppState::new();
+    app.commits = vec![
+        synthetic_row(VirtualOid::Staged, "(staged changes)"),
+        common::create_test_commit("abc123def456", "real commit"),
+    ];
+
+    app.selection_index = 0;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
+        AppAction::PrepareCommitStaged
+    ));
+
+    // On any other row it is a no-op with a guiding hint.
+    app.selection_index = 1;
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
+        AppAction::Handled
+    ));
+    assert!(app.status_is_error);
+}

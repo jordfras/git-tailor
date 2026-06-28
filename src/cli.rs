@@ -37,6 +37,12 @@ pub struct Cli {
     #[arg(short, long, env = "GT_REVERSE")]
     pub reverse: bool,
 
+    /// Automatically stash staged/unstaged/untracked changes around operations
+    /// that need a clean working tree (move, drop, squash, fixup, undo, redo),
+    /// restoring them afterwards, instead of refusing to run.
+    #[arg(short = 'a', long, env = "GT_AUTOSTASH")]
+    pub autostash: bool,
+
     /// Show all hunk group columns without deduplication.
     ///
     /// By default the hunk group matrix merges columns whose set of touching
@@ -67,4 +73,14 @@ pub struct Cli {
     /// Hunk group matrix rendering theme.
     #[arg(long = "theme", value_enum, env = "GT_THEME")]
     pub theme: Option<Theme>,
+
+    /// Remove all git-tailor recovery state and exit, without launching the TUI.
+    ///
+    /// Deletes the journal file (`.git/git-tailor/journal.json`) and every ref
+    /// git-tailor writes under `refs/git-tailor/*` (undo pins and the
+    /// in-progress pin), found by namespace so stray refs are removed even if the
+    /// journal is missing or out of sync. A manual escape hatch for when recovery
+    /// state gets stuck.
+    #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
+    pub clean_journal: bool,
 }

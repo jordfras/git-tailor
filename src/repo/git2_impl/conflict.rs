@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 
 use super::super::{ConflictState, RebaseOutcome};
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict};
+use super::cherry_pick::{ChainCtx, CherryPickResult};
 
 pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
@@ -71,26 +71,19 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     // Continue cherry-picking remaining descendants.
     let remaining: Vec<git2::Oid> = state.remaining_oids.iter().map(git2::Oid::from).collect();
 
-    let result = repo.cherry_pick_chain(new_tip, &remaining)?;
-    match result {
+    let ctx = ChainCtx {
+        label: &state.operation_label,
+        original_branch_oid: &state.original_branch_oid,
+        moved_commit_oid: state.moved_commit_oid.as_ref(),
+    };
+    match repo.cherry_pick_chain(new_tip, &remaining, &ctx)? {
         CherryPickResult::Complete(final_tip) => {
             let label = state.operation_label.to_lowercase();
             repo.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
-            repo.checkout_head()?;
+            repo.checkout_head(&state.original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            &remaining,
-            conflicting_idx,
-            state.operation_label.clone(),
-            state.original_branch_oid.clone(),
-            state.moved_commit_oid.clone(),
-        )),
+        CherryPickResult::Conflict(new_state) => Ok(RebaseOutcome::Conflict(new_state)),
     }
 }
 
@@ -143,13 +136,20 @@ pub(super) fn auto_stage_resolved_conflicts(repo: &Git2Repo, files: &[String]) -
     Ok(())
 }
 
-/// Read the index and return paths with conflict (non-zero) stages.
+/// Read the on-disk index and return paths with conflict (non-zero) stages.
 pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
     let mut index = match repo.index() {
         Ok(i) => i,
         Err(_) => return Vec::new(),
     };
     let _ = index.read(true);
+    collect_conflict_files_from_index(&index)
+}
+
+/// Return paths with conflict (non-zero) stages from a specific index. Lets
+/// callers read conflicts from an in-memory merge index before it is written
+/// to the on-disk index.
+pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<String> {
     let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
@@ -165,14 +165,24 @@ pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
 
 /// Write a conflicted merge index to the repo index and working tree so
 /// the user can resolve conflicts manually.
+///
+/// The `state` describing the operation is journaled **first**, before any
+/// durable change, so that a crash anywhere in this function (advancing the
+/// ref, writing the index, checking out) still leaves a recoverable journal
+/// entry rather than a partially-rebased branch with no record of it.
 pub(super) fn write_conflicts_to_workdir(
     repo: &Git2Repo,
     cherry_index: &git2::Index,
     onto_commit: &git2::Commit,
+    state: &ConflictState,
 ) -> Result<()> {
+    // Write-ahead: record the in-progress operation before mutating anything.
+    super::journal::set_in_progress(repo, state)?;
+
     // Point the branch at the onto commit so HEAD matches the partially
     // rebased chain.
-    repo.advance_branch_ref(onto_commit.id(), "git-tailor: drop commit (conflict)")?;
+    let label = state.operation_label.to_lowercase();
+    repo.advance_branch_ref(onto_commit.id(), &format!("git-tailor: {label} (conflict)"))?;
 
     // Write the conflicted index entries (including conflict markers) into
     // the repo's index so `git status` and the user's editor see them.

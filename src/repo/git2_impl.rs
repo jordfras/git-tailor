@@ -34,20 +34,27 @@ impl From<&Oid> for git2::Oid {
 }
 
 mod cherry_pick;
+mod commit_staged_op;
 mod conflict;
 mod drop_op;
 mod hunks;
+mod journal;
 mod move_op;
 mod reads;
 mod reword_op;
 mod split_op;
 mod squash_op;
+mod stage_op;
+mod stash;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
 pub struct Git2Repo {
     inner: git2::Repository,
+    /// When true, operations that need a clean working tree auto-stash dirty
+    /// state instead of refusing (see [`GitRepo::autostash_save`]).
+    autostash: bool,
 }
 
 impl Git2Repo {
@@ -57,12 +64,86 @@ impl Git2Repo {
         loop {
             let result = git2::Repository::open(&path);
             if let Ok(repo) = result {
-                return Ok(Git2Repo { inner: repo });
+                return Ok(Git2Repo {
+                    inner: repo,
+                    autostash: false,
+                });
             }
             if !path.pop() {
                 anyhow::bail!("Could not find git repository root");
             }
         }
+    }
+
+    /// Enable or disable auto-stash for this session (from the `--autostash`
+    /// flag / `GT_AUTOSTASH`).
+    pub fn set_autostash(&mut self, enabled: bool) {
+        self.autostash = enabled;
+    }
+
+    /// Path to the repository's git directory (the `.git` dir for a normal repo).
+    fn git_dir(&self) -> &std::path::Path {
+        self.inner.path()
+    }
+
+    /// Persist or clear the crash-safety journal based on a rebase operation's
+    /// outcome: record the conflict state on `Conflict` (so an interrupted
+    /// resolution can be recovered), clear it on `Complete` and push an undo
+    /// entry from `tip_before` to the resulting tip. Errors are passed through
+    /// untouched.
+    fn journaled(
+        &self,
+        label: &str,
+        tip_before: &Oid,
+        outcome: Result<super::RebaseOutcome>,
+    ) -> Result<super::RebaseOutcome> {
+        if let Ok(out) = &outcome {
+            match out {
+                super::RebaseOutcome::Conflict(state) => journal::set_in_progress(self, state)?,
+                super::RebaseOutcome::Complete => {
+                    journal::clear_in_progress(self)?;
+                    self.record_undo_if_changed(label, tip_before)?;
+                }
+            }
+        }
+        outcome
+    }
+
+    /// Wrap a `Result<()>` operation (reword, split): on success, record an
+    /// undo entry from `tip_before` to the resulting tip.
+    fn record_unit_undo(&self, label: &str, tip_before: &Oid, result: Result<()>) -> Result<()> {
+        result?;
+        self.record_undo_if_changed(label, tip_before)
+    }
+
+    /// Push an undo entry from `tip_before` to the current HEAD, unless the
+    /// branch did not actually move.
+    fn record_undo_if_changed(&self, label: &str, tip_before: &Oid) -> Result<()> {
+        if let Ok(after) = reads::head_oid(self)
+            && &after != tip_before
+        {
+            journal::record_undo(self, label, tip_before, &after)?;
+        }
+        Ok(())
+    }
+
+    /// Run an index-only operation (stage/unstage all), recording an undo entry
+    /// from the before-tree to the after-tree. Reports `NoOp` when the index tree
+    /// is unchanged, so nothing is journalled.
+    fn journaled_index_op(
+        &self,
+        label: &str,
+        op: impl FnOnce(&Self) -> Result<()>,
+    ) -> Result<super::StageOutcome> {
+        let head = reads::head_oid(self)?;
+        let before = journal::current_index_tree(self)?;
+        op(self)?;
+        let after = journal::current_index_tree(self)?;
+        if before == after {
+            return Ok(super::StageOutcome::NoOp);
+        }
+        journal::record_index_undo(self, label, &head, &before, &after)?;
+        Ok(super::StageOutcome::Changed)
     }
 
     pub(super) fn stage_file(&self, path: &str) -> Result<()> {
@@ -132,11 +213,19 @@ impl GitRepo for Git2Repo {
     }
 
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        split_op::split_commit_per_file(self, commit_oid, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_file(self, commit_oid, head_oid),
+        )
     }
 
     fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        split_op::split_commit_per_hunk(self, commit_oid, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_hunk(self, commit_oid, head_oid),
+        )
     }
 
     fn split_commit_per_hunk_group(
@@ -145,7 +234,11 @@ impl GitRepo for Git2Repo {
         head_oid: &Oid,
         reference_oid: &Oid,
     ) -> Result<()> {
-        split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid),
+        )
     }
 
     fn split_commit_out_file(
@@ -154,7 +247,11 @@ impl GitRepo for Git2Repo {
         file_path: &str,
         head_oid: &Oid,
     ) -> Result<()> {
-        split_op::split_commit_out_file(self, commit_oid, file_path, head_oid)
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_out_file(self, commit_oid, file_path, head_oid),
+        )
     }
 
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
@@ -175,7 +272,11 @@ impl GitRepo for Git2Repo {
     }
 
     fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
-        reword_op::reword_commit(self, commit_oid, new_message, head_oid)
+        self.record_unit_undo(
+            "Reword",
+            head_oid,
+            reword_op::reword_commit(self, commit_oid, new_message, head_oid),
+        )
     }
 
     fn get_config_string(&self, key: &str) -> Result<Option<String>> {
@@ -183,15 +284,91 @@ impl GitRepo for Git2Repo {
     }
 
     fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
-        drop_op::drop_commit(self, commit_oid, head_oid)
+        self.journaled(
+            "Drop",
+            head_oid,
+            drop_op::drop_commit(self, commit_oid, head_oid),
+        )
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        conflict::rebase_continue(self, state)
+        self.journaled(
+            &state.operation_label,
+            &state.original_branch_oid,
+            conflict::rebase_continue(self, state),
+        )
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
-        conflict::rebase_abort(self, state)
+        conflict::rebase_abort(self, state)?;
+        journal::clear_in_progress(self)
+    }
+
+    fn read_journal(&self) -> Result<super::JournalStatus> {
+        Ok(journal::read(self))
+    }
+
+    fn clear_journal(&self) -> Result<()> {
+        journal::clear_in_progress(self)
+    }
+
+    fn prune_stale_journal(&self) -> Result<()> {
+        journal::prune_stale(self)
+    }
+
+    fn clean_journal(&self) -> Result<super::JournalCleanSummary> {
+        journal::clean(self)
+    }
+
+    fn undo(&self) -> Result<super::UndoOutcome> {
+        journal::apply_undo(self)
+    }
+
+    fn redo(&self) -> Result<super::UndoOutcome> {
+        journal::apply_redo(self)
+    }
+
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_undo_skips_autostash(self)
+    }
+
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_redo_skips_autostash(self)
+    }
+
+    fn stage_all(&self) -> Result<super::StageOutcome> {
+        self.journaled_index_op("Stage all", stage_op::stage_all)
+    }
+
+    fn unstage_all(&self) -> Result<super::StageOutcome> {
+        self.journaled_index_op("Unstage all", stage_op::unstage_all)
+    }
+
+    fn commit_staged(&self, message: &str) -> Result<super::CommitOutcome> {
+        let before = reads::head_oid(self)?;
+        match commit_staged_op::commit_staged(self, message)? {
+            None => Ok(super::CommitOutcome::NothingStaged),
+            Some(after) => {
+                journal::record_commit_undo(self, "Commit", &before, &after)?;
+                Ok(super::CommitOutcome::Committed)
+            }
+        }
+    }
+
+    fn autostash_save(&mut self) -> Result<()> {
+        self.save_autostash()
+    }
+
+    fn autostash_restore(&mut self) -> Result<crate::repo::AutostashRestore> {
+        self.restore_autostash()
+    }
+
+    fn autostash_conflict_continue(&mut self) -> Result<crate::repo::AutostashContinue> {
+        self.continue_autostash()
+    }
+
+    fn autostash_conflict_abort(&mut self) -> Result<()> {
+        self.abort_autostash()
     }
 
     fn workdir(&self) -> Option<std::path::PathBuf> {
@@ -212,7 +389,11 @@ impl GitRepo for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        move_op::move_commit(self, commit_oid, insert_after_oid, head_oid)
+        self.journaled(
+            "Move",
+            head_oid,
+            move_op::move_commit(self, commit_oid, insert_after_oid, head_oid),
+        )
     }
 
     fn squash_commits(
@@ -222,7 +403,11 @@ impl GitRepo for Git2Repo {
         message: &str,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        squash_op::squash_commits(self, source_oid, target_oid, message, head_oid)
+        self.journaled(
+            "Squash",
+            head_oid,
+            squash_op::squash_commits(self, source_oid, target_oid, message, head_oid),
+        )
     }
 
     fn stage_file(&self, path: &str) -> Result<()> {
@@ -249,14 +434,20 @@ impl GitRepo for Git2Repo {
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
-        squash_op::squash_try_combine(
+        let result = squash_op::squash_try_combine(
             self,
             source_oid,
             target_oid,
             combined_message,
             squash_mode,
             head_oid,
-        )
+        )?;
+        // The squash-tree conflict path writes conflicts to the working tree and
+        // returns the state directly (bypassing RebaseOutcome), so journal it here.
+        if let Some(state) = &result {
+            journal::set_in_progress(self, state)?;
+        }
+        Ok(result)
     }
 
     fn squash_finalize(
@@ -265,7 +456,11 @@ impl GitRepo for Git2Repo {
         message: &str,
         original_branch_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        squash_op::squash_finalize(self, ctx, message, original_branch_oid)
+        self.journaled(
+            "Squash",
+            original_branch_oid,
+            squash_op::squash_finalize(self, ctx, message, original_branch_oid),
+        )
     }
 
     fn commit_walker<'a>(
@@ -289,6 +484,19 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
+        if self.is_worktree_dirty()? {
+            anyhow::bail!(
+                "You have staged or unstaged changes. \
+                 Stash or commit them before running this operation."
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether the working tree or index has real (non-gitlink) staged or
+    /// unstaged changes — the condition that makes the rebase operations refuse
+    /// (and that auto-stash, when enabled, stashes away).
+    pub(super) fn is_worktree_dirty(&self) -> Result<bool> {
         let mut opts = git2::DiffOptions::new();
         opts.context_lines(0);
         opts.interhunk_lines(0);
@@ -324,13 +532,7 @@ impl Git2Repo {
             .deltas()
             .any(is_real);
 
-        if has_staged || has_unstaged {
-            anyhow::bail!(
-                "You have staged or unstaged changes. \
-                 Stash or commit them before running this operation."
-            );
-        }
-        Ok(())
+        Ok(has_staged || has_unstaged)
     }
 
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
@@ -375,9 +577,35 @@ impl Git2Repo {
         Ok(())
     }
 
-    /// Reset the working tree and index to match HEAD.
-    fn checkout_head(&self) -> Result<()> {
+    /// Reset the working tree and index to match HEAD, removing files that the
+    /// just-completed operation dropped.
+    ///
+    /// `prev_tip` is the branch tip the working tree currently reflects, before
+    /// this operation advanced the ref. Files present in `prev_tip` but absent
+    /// from the new HEAD must be deleted from the working tree. A force checkout
+    /// alone won't do it: we reset the index to HEAD's tree below, which turns
+    /// those files into untracked leftovers that checkout leaves untouched. We
+    /// delete exactly those files, so the user's own untracked files survive.
+    fn checkout_head(&self, prev_tip: &Oid) -> Result<()> {
         let repo = &self.inner;
+        let new_tree = repo.head()?.peel_to_commit()?.tree()?;
+
+        let prev_tree = repo.find_commit(git2::Oid::from(prev_tip))?.tree()?;
+        let diff = repo.diff_tree_to_tree(Some(&prev_tree), Some(&new_tree), None)?;
+        if let Some(workdir) = repo.workdir() {
+            for delta in diff.deltas() {
+                if delta.status() == git2::Delta::Deleted
+                    && let Some(path) = delta.old_file().path()
+                {
+                    let full = workdir.join(path);
+                    if full.exists() {
+                        std::fs::remove_file(&full).with_context(|| {
+                            format!("failed to remove dropped file {}", full.display())
+                        })?;
+                    }
+                }
+            }
+        }
 
         // Explicitly reset the index to HEAD's tree before forcing a workdir
         // checkout. cherry_pick_chain uses in-memory index operations
@@ -388,9 +616,8 @@ impl Git2Repo {
         // leave the index empty — all files appear as staged deletions with the
         // actual files untracked. Writing HEAD's tree into the index first
         // guarantees a clean baseline regardless of prior index state.
-        let head_oid = repo.head()?.peel_to_commit()?;
         let mut index = repo.index()?;
-        index.read_tree(&head_oid.tree()?)?;
+        index.read_tree(&new_tree)?;
         index.write()?;
 
         let mut checkout = git2::build::CheckoutBuilder::new();

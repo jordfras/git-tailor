@@ -19,7 +19,7 @@ use anyhow::{Context, Result};
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict, replace_root_and_replay};
+use super::cherry_pick::{ChainCtx, CherryPickResult, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn move_commit(
@@ -71,25 +71,18 @@ pub(super) fn move_commit(
         )?,
     };
 
-    let result = repo.cherry_pick_chain(chain_base, &reordered)?;
-    match result {
+    let ctx = ChainCtx {
+        label: "Move",
+        original_branch_oid: &original_branch_oid,
+        moved_commit_oid: Some(commit_oid),
+    };
+    match repo.cherry_pick_chain(chain_base, &reordered, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, "git-tailor: move commit")?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            &reordered,
-            conflicting_idx,
-            "Move",
-            original_branch_oid,
-            Some(commit_oid.clone()),
-        )),
+        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
     }
 }
 

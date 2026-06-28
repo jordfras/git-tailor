@@ -710,6 +710,8 @@ dependencies = [
  "libc",
  "ratatui",
  "regex",
+ "serde",
+ "serde_json",
  "shell-words",
  "tempfile",
  "time",

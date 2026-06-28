@@ -20,7 +20,10 @@ pub mod state;
 pub use keymap::{KeyCommand, read_event};
 pub use state::AppState;
 
-use crate::{Oid, repo::ConflictState};
+use crate::{
+    Oid,
+    repo::{ConflictState, StashConflictState},
+};
 
 /// Result of a view module's `handle_key` function.
 ///
@@ -72,6 +75,14 @@ pub enum AppAction {
         files: Vec<String>,
         conflict_state: ConflictState,
     },
+    /// Finish a conflicting auto-stash reapply (drop the stash if resolved).
+    AutostashContinue,
+    /// Abort a conflicting auto-stash reapply, rewinding the whole operation.
+    AutostashAbort,
+    /// Launch the merge tool for files conflicting in an auto-stash reapply.
+    RunMergetoolForStash { files: Vec<String> },
+    /// Open auto-stash conflicting files in the configured editor.
+    RunEditorForStash { files: Vec<String> },
     /// Start the reword flow: get head_oid, launch editor, rewrite commit.
     PrepareReword {
         commit_oid: Oid,
@@ -85,6 +96,16 @@ pub enum AppAction {
         target_message: String,
         squash_mode: SquashMode,
     },
+    /// Stage all working-tree changes (`git add -A`).
+    StageAll,
+    /// Unstage all staged changes (reset the index to HEAD).
+    UnstageAll,
+    /// Start the commit-staged flow: launch the editor, then commit the index.
+    PrepareCommitStaged,
+    /// Undo the most recent history-rewriting operation.
+    Undo,
+    /// Redo the most recently undone operation.
+    Redo,
     /// Execute a confirmed move: reorder the source commit to after insert_after_oid.
     ExecuteMove {
         source_oid: Oid,
@@ -129,8 +150,9 @@ impl SplitStrategy {
 }
 
 /// Whether a squash operation keeps the target message (fixup) or combines both (squash).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SquashMode {
+    #[default]
     Squash,
     Fixup,
 }
@@ -185,6 +207,14 @@ pub enum AppMode {
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(Box<ConflictState>),
+    /// Waiting for the user to resolve conflicts left by reapplying the
+    /// auto-stash after an operation completed. Enter finishes (drops the
+    /// stash), Esc aborts the entire operation back to the pre-operation state.
+    StashConflict(Box<StashConflictState>),
+    /// Startup prompt offering to recover an operation that a previous run was
+    /// killed in the middle of (detected from the persisted journal). Enter
+    /// resumes (enters `RebaseConflict`), Esc aborts back to the original tip.
+    RecoverConfirm(Box<ConflictState>),
     /// Squash/fixup target selection: user picks which commit to squash the source into.
     SquashSelect {
         source_index: usize,
@@ -212,7 +242,9 @@ impl AppMode {
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
-            | AppMode::RebaseConflict(_) => Some(AppMode::CommitList),
+            | AppMode::RebaseConflict(_)
+            | AppMode::StashConflict(_)
+            | AppMode::RecoverConfirm(_) => Some(AppMode::CommitList),
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }

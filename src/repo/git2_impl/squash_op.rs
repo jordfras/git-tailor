@@ -20,7 +20,7 @@ use anyhow::Result;
 
 use super::super::{ConflictState, RebaseOutcome, SquashContext};
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict};
+use super::cherry_pick::{ChainCtx, CherryPickResult};
 use super::conflict;
 use crate::Oid;
 use crate::app::SquashMode;
@@ -80,6 +80,7 @@ pub(super) fn squash_commits(
                 squash_oid,
                 &descendants,
                 head_oid.clone(),
+                "Squash",
                 "git-tailor: squash commits",
             );
         }
@@ -121,6 +122,7 @@ pub(super) fn squash_commits(
         squash_oid,
         &descendants,
         head_oid.clone(),
+        "Squash",
         "git-tailor: squash commits",
     )
 }
@@ -209,6 +211,7 @@ pub(super) fn squash_finalize(
         squash_oid,
         &descendants,
         original_branch_oid.clone(),
+        ctx.squash_mode.label(),
         "git-tailor: squash commits (finalize)",
     )
 }
@@ -275,17 +278,13 @@ fn build_conflict_state(
         .map(Oid::from)
         .collect();
 
-    conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit)?;
-
-    let operation_label = squash_mode.label().to_string();
-
-    Ok(ConflictState {
-        operation_label,
+    let state = ConflictState {
+        operation_label: squash_mode.label().to_string(),
         original_branch_oid: inputs.head_oid.clone(),
         new_tip_oid: Oid::from(inputs.target_commit.id()),
         conflicting_commit_oid: Oid::from(inputs.source_commit.id()),
         remaining_oids: vec![],
-        conflicting_files: conflict::collect_conflict_files(&repo.inner),
+        conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
         still_unresolved: false,
         moved_commit_oid: None,
         is_orphan_root: false,
@@ -297,7 +296,10 @@ fn build_conflict_state(
             descendant_oids,
             squash_mode,
         }),
-    })
+    };
+    // Journals write-ahead, then mutates the ref/index/workdir.
+    conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit, &state)?;
+    Ok(state)
 }
 
 /// Cherry-pick descendants onto the new squash commit and either advance
@@ -307,26 +309,21 @@ fn replay_and_advance(
     squash_oid: git2::Oid,
     descendants: &[git2::Oid],
     original_branch_oid: Oid,
+    label: &str,
     advance_msg: &str,
 ) -> Result<RebaseOutcome> {
-    match repo.cherry_pick_chain(squash_oid, descendants)? {
+    let ctx = ChainCtx {
+        label,
+        original_branch_oid: &original_branch_oid,
+        moved_commit_oid: None,
+    };
+    match repo.cherry_pick_chain(squash_oid, descendants, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, advance_msg)?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            descendants,
-            conflicting_idx,
-            "Squash",
-            original_branch_oid,
-            None,
-        )),
+        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
     }
 }
 

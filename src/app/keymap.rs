@@ -42,9 +42,14 @@ pub enum KeyCommand {
     Reword,
     Drop,
     Move,
+    StageAll,
+    UnstageAll,
+    CommitStaged,
+    Undo,
+    Redo,
     Mergetool,
     OpenEditor,
-    Update,
+    Refresh,
     Search,
     SearchNext,
     SearchPrev,
@@ -109,6 +114,8 @@ impl AppMode {
                     // Ctrl-D / Ctrl-U: half-page scroll (vim convention).
                     KeyCode::Char('d') => return KeyCommand::HalfPageDown,
                     KeyCode::Char('u') => return KeyCommand::HalfPageUp,
+                    // Ctrl-R: redo (vim convention).
+                    KeyCode::Char('r') => return KeyCommand::Redo,
                     // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
                     KeyCode::PageDown => return KeyCommand::HalfPageDown,
                     KeyCode::PageUp => return KeyCommand::HalfPageUp, // Ctrl-a / Ctrl-e: scroll to left/right edge (emacs convention).
@@ -145,14 +152,32 @@ impl AppMode {
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {
-                    AppMode::RebaseConflict(_) => KeyCommand::Mergetool,
+                    AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => KeyCommand::Mergetool,
                     _ => KeyCommand::Move,
                 },
                 KeyCode::Char('e') => match self {
-                    AppMode::RebaseConflict(_) => KeyCommand::OpenEditor,
+                    AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => {
+                        KeyCommand::OpenEditor
+                    }
                     _ => KeyCommand::None,
                 },
-                KeyCode::Char('u') => KeyCommand::Update,
+                // a / A: stage / unstage all working-tree changes (only meaningful
+                // in the commit list, gated to the synthetic Unstaged/Staged rows).
+                KeyCode::Char('a') => match self {
+                    AppMode::CommitList => KeyCommand::StageAll,
+                    _ => KeyCommand::None,
+                },
+                KeyCode::Char('A') => match self {
+                    AppMode::CommitList => KeyCommand::UnstageAll,
+                    _ => KeyCommand::None,
+                },
+                // c: commit the staged changes (gated to the Staged row).
+                KeyCode::Char('c') => match self {
+                    AppMode::CommitList => KeyCommand::CommitStaged,
+                    _ => KeyCommand::None,
+                },
+                // u: undo (vim convention).
+                KeyCode::Char('u') => KeyCommand::Undo,
                 KeyCode::Char('/') => match self {
                     AppMode::CommitDetail => KeyCommand::Search,
                     _ => KeyCommand::None,
@@ -171,6 +196,8 @@ impl AppMode {
                 // 0 / $: scroll to left/right edge (vi/less convention).
                 KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
                 KeyCode::Char('$') => KeyCommand::ScrollToRightEdge,
+                // R / F5: refresh the commit list from HEAD.
+                KeyCode::Char('R') | KeyCode::F(5) => KeyCommand::Refresh,
                 KeyCode::Esc | KeyCode::Char('q') => KeyCommand::Quit,
                 _ => KeyCommand::None,
             };

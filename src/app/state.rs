@@ -13,7 +13,11 @@
 // limitations under the License.
 
 use crate::{
-    CommitInfo, Oid, app::SquashMode, fragmap::FragMap, repo::ConflictState, views::theme::Theme,
+    CommitInfo, Oid, VirtualOid,
+    app::SquashMode,
+    fragmap::FragMap,
+    repo::{ConflictState, StashConflictState},
+    views::theme::Theme,
 };
 
 use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
@@ -340,6 +344,16 @@ impl AppState {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
     }
 
+    /// Enter the auto-stash conflict resolution dialog.
+    pub fn enter_stash_conflict(&mut self, state: StashConflictState) {
+        self.enter_dialog(AppMode::StashConflict(Box::new(state)));
+    }
+
+    /// Enter the startup crash-recovery prompt for an interrupted operation.
+    pub fn enter_recover_confirm(&mut self, state: ConflictState) {
+        self.enter_dialog(AppMode::RecoverConfirm(Box::new(state)));
+    }
+
     /// Returns the selected commit if it is a real (non-synthetic) commit.
     /// Sets an error message and returns `None` for staged/unstaged rows.
     pub fn selected_real_commit(&mut self, action: &str) -> Option<&CommitInfo> {
@@ -352,6 +366,22 @@ impl AppState {
             return None;
         }
         self.commits.get(self.selection_index)
+    }
+
+    /// Whether the selected row is the synthetic `want` row (`Staged` /
+    /// `Unstaged`). Otherwise sets a guiding hint naming the row to select for
+    /// `action` (e.g. "stage all changes") and returns `false`.
+    pub fn selected_synthetic_row_is(&mut self, want: VirtualOid, action: &str) -> bool {
+        if self.commits.get(self.selection_index).map(|c| &c.oid) == Some(&want) {
+            return true;
+        }
+        let row = match want {
+            VirtualOid::Staged => "Staged",
+            VirtualOid::Unstaged => "Unstaged",
+            VirtualOid::Real(_) => "",
+        };
+        self.set_error_message(format!("Select the \"{row}\" row to {action}"));
+        false
     }
 
     /// Enter split strategy selection mode.
@@ -488,6 +518,8 @@ impl AppState {
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::RebaseConflict(_)
+            | AppMode::StashConflict(_)
+            | AppMode::RecoverConfirm(_)
             | AppMode::SquashSelect { .. }
             | AppMode::MoveSelect { .. }
             | AppMode::Loading { .. } => return,

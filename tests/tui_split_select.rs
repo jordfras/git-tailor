@@ -78,3 +78,16 @@ fn test_split_dialog_per_hunk_group_selected() {
         views::split_select::render(&mut app, frame);
     }));
 }
+
+/// A long non-ASCII commit summary must truncate on a character boundary, not a
+/// byte offset (which would panic mid-codepoint).
+#[test]
+fn test_split_dialog_long_non_ascii_summary_does_not_panic() {
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Réfactor le café très naïve — обновление — 日本語のまとめ for the parser",
+    ]);
+    app.selection_index = 0;
+    app.mode = AppMode::SplitSelect { strategy_index: 0 };
+    let mut harness = TuiTestHarness::typical();
+    let _ = harness.render(|frame| views::split_select::render(&mut app, frame));
+}

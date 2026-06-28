@@ -118,6 +118,77 @@ pub fn inner_width(preferred_width: u16, area_width: u16) -> usize {
         .saturating_sub(BORDER_WIDTH) as usize
 }
 
+/// Shorten `path` to roughly `inner_width` columns, keeping its tail behind a
+/// leading ellipsis (`" …tail"`). Truncates on a character boundary, so a
+/// non-ASCII path never panics; for ASCII input the result is unchanged.
+pub fn truncate_path_tail(path: &str, inner_width: usize) -> String {
+    if path.len() + 3 > inner_width {
+        let keep = inner_width.saturating_sub(3);
+        let skip = path.chars().count().saturating_sub(keep);
+        let tail: String = path.chars().skip(skip).collect();
+        format!(" \u{2026}{tail}")
+    } else {
+        path.to_string()
+    }
+}
+
+/// Append the shared conflict-dialog tail to `dialog` — the list of conflicting
+/// files, the "still unresolved" warning, and the `Enter`/`m`/`e`/`Esc`
+/// instructions — then render it under `title`.
+///
+/// Shared by the rebase-conflict and auto-stash-conflict dialogs so the two look
+/// and behave identically; only the heading and body (already built into
+/// `dialog` by the caller) differ.
+pub fn render_conflict_dialog(
+    app: &mut AppState,
+    frame: &mut Frame,
+    mut dialog: Dialog,
+    conflicting_files: &[String],
+    still_unresolved: bool,
+    preferred_width: u16,
+    title: &str,
+) {
+    let iw = inner_width(preferred_width, frame.area().width);
+    if !conflicting_files.is_empty() {
+        dialog = dialog
+            .blank()
+            .styled_line("Conflicting files:", TextRole::Highlight);
+        const MAX_FILES: usize = 5;
+        let shown = conflicting_files.len().min(MAX_FILES);
+        for path in &conflicting_files[..shown] {
+            dialog = dialog.styled_line(truncate_path_tail(path, iw), TextRole::Danger);
+        }
+        let extra = conflicting_files.len().saturating_sub(MAX_FILES);
+        if extra > 0 {
+            dialog = dialog.styled_line(format!("... {extra} more"), TextRole::Muted);
+        }
+    }
+
+    dialog = dialog.blank();
+    if still_unresolved {
+        dialog = dialog
+            .wrapped_styled_bold(
+                " ! Still unresolved — fix all conflicts above before continuing",
+                iw,
+                TextRole::Danger,
+            )
+            .blank();
+    }
+    dialog = dialog
+        .instructions(&[
+            ("Enter", Color::Green, "Continue"),
+            ("m", Color::Cyan, "Mergetool"),
+            ("e", Color::Cyan, "Editor"),
+            ("Esc", Color::Red, "Abort"),
+        ])
+        .blank();
+
+    let (max_scroll, visible_height) =
+        dialog.render(frame, title, preferred_width, app.dialog_scroll_offset);
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
+}
+
 /// Incremental builder for a centered overlay dialog.
 ///
 /// Chain content methods, then call [`render`][Dialog::render] to draw and

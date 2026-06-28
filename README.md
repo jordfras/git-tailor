@@ -51,25 +51,41 @@ gt v1.2.3            # commits since a tag
 gt                   # auto-detect default branch (origin/HEAD or main)
 ```
 
-**Flags:**
+`gt` also has options for things like reversing the commit order, browsing the
+complete repository history, choosing a hunk group matrix theme, and printing
+the matrix to stdout without launching the TUI (handy in scripts). Run
+`gt --help` for the full list of options, along with the environment variables
+that can set their defaults.
 
-| Flag                 | Description                                                                        |
-|----------------------|------------------------------------------------------------------------------------|
-| `--reverse` / `-r`   | Show oldest commit at the top                                                      |
-| `--full` / `-f`      | Show every raw hunk group column without deduplication                             |
-| `--all`              | Browse the complete repository history from HEAD down to the root commit           |
-| `--static` / `-s`    | Print the hunk group matrix to stdout and exit (no TUI)                            |
-| `--no-color`         | Disable colors in `--static` output                                                |
-| `--theme <THEME>`    | Hunk group matrix rendering theme: `highlight` (default), `plain`, or `classic`    |
 
-Some flags can be persisted via environment variables so you don't have to pass
-them every time:
+## Operations
 
-| Environment variable          | Equivalent flag                 |
-|-------------------------------|---------------------------------|
-| `GT_REVERSE=1`                | `--reverse`                     |
-| `GT_FULL=1`                   | `--full`                        |
-| `GT_THEME=plain`              | `--theme plain`                 |
+With a commit selected you can:
+
+- **Squash** — merge it into an earlier commit (with an editable combined
+  message)
+- **Fixup** — like squash, but discard the selected commit's message
+- **Move** — reorder it to a new position
+- **Split** — divide it into smaller commits, by file, by hunk, by hunk group,
+  or by peeling a single file out into its own commit
+- **Reword** — edit its message
+- **Drop** — delete it entirely
+- **Undo / redo** — every operation can be undone and redone, and the undo
+  history is kept even after you quit and reopen `gt`
+
+Pressing `Enter` (or `i`) opens the **commit detail view** with the full diff
+and incremental regex search. If an operation hits a merge conflict, git-tailor
+opens a resolution dialog where you can fix it up in your editor or merge tool
+and then continue or abort.
+
+By default, history-rewriting operations refuse to run when the working tree has
+uncommitted changes, so your work is never discarded. Pass `--autostash` (or set
+`GT_AUTOSTASH=true`) to let git-tailor stash those changes first, run the operation,
+and reapply them afterwards — preserving your exact staged/unstaged split —
+instead of refusing.
+
+Press `h` in the TUI for the complete key-binding reference — including all
+navigation, scrolling, and search keys.
 
 
 ## The interface
@@ -119,59 +135,6 @@ When you select a commit, the other commits are colored relative to it:
 With `--theme plain` these same relationships are shown in yellow (squashable),
 red (conflicting), and gray (fully squashable) instead.
 
-## Key bindings
-
-### Navigation
-
-These keys work in both the commit list and the commit detail view — vertical
-keys move the selection in the list and scroll the diff in the detail view,
-horizontal keys scroll the hunk group matrix and the diff respectively. The only
-exception is `f` / `F`, which is available in the commit detail view only.
-
-| Key                                  | Action                                                      |
-|--------------------------------------|-------------------------------------------------------------|
-| `↑` / `↓`, `j` / `k`                 | Move selection / scroll up/down                             |
-| `PgUp` / `PgDn`                      | Move one page up/down                                       |
-| `Space` / `b`                        | Move one page down/up                                       |
-| `Ctrl-f` / `Ctrl-b`                  | Move one page down/up                                       |
-| `Ctrl-d` / `Ctrl-u`                  | Move half a page down/up                                    |
-| `Ctrl-PgDn` / `Ctrl-PgUp`            | Move half a page down/up                                    |
-| `g` / `G`, `Home` / `End`            | Jump to first/last commit (list) or top/bottom (detail)     |
-| `←` / `→`                            | Scroll hunk group matrix / diff left/right                  |
-| `0` / `$`                            | Scroll to the left/right edge                               |
-| `Ctrl-a` / `Ctrl-e`                  | Scroll to the left/right edge                               |
-| `Ctrl-Home` / `Ctrl-End`             | Scroll to the left/right edge                               |
-| `Ctrl ←` / `Ctrl →`                  | Move the panel separator left/right                         |
-| `f` / `F`                            | Jump to next/previous file in diff (commit detail only)     |
-
-### Operations
-
-| Key | Action                                                                            |
-|-----|-----------------------------------------------------------------------------------|
-| `s` | **Squash** — merge the selected commit into an earlier one, message can be edited |
-| `f` | **Fixup** — like squash, but discards the selected commit's message               |
-| `m` | **Move** — pick a new position for the selected commit                            |
-| `p` | **Split** — divide the selected commit into smaller commits                       |
-| `r` | **Reword** — edit the commit message                                              |
-| `d` | **Drop** — delete the selected commit entirely                                    |
-
-### Views and other
-
-| Key           | Action                           |
-|---------------|----------------------------------|
-| `Enter` / `i` | Toggle commit detail view (diff) |
-| `h`           | Show help dialog                 |
-| `u`           | Refresh commit list from HEAD    |
-| `Esc` / `q`   | Close dialog / quit              |
-
-### Search (commit detail view)
-
-| Key   | Action                              |
-|-------|-------------------------------------|
-| `/`   | Open search bar (regex)             |
-| `n`   | Jump to next match                  |
-| `N`   | Jump to previous match              |
-| `Esc` | Dismiss search                      |
 
 ## Notes
 

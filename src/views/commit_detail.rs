@@ -131,7 +131,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             advance_search_match(app, SearchDirection::Prev);
             AppAction::Handled
         }
-        KeyCommand::Update => AppAction::ReloadCommits,
+        KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
             if app.search_active {
                 app.clear_search();

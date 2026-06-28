@@ -18,7 +18,7 @@ use anyhow::Result;
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{CherryPickResult, build_chain_conflict, replace_root_and_replay};
+use super::cherry_pick::{ChainCtx, CherryPickResult, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn drop_commit(
@@ -49,25 +49,18 @@ pub(super) fn drop_commit(
 
     // Cherry-pick each descendant onto the new chain, starting from the
     // dropped commit's parent.
-    let result = repo.cherry_pick_chain(parent_oid, &descendants)?;
-    match result {
+    let ctx = ChainCtx {
+        label: "Drop",
+        original_branch_oid: &original_branch_oid,
+        moved_commit_oid: None,
+    };
+    match repo.cherry_pick_chain(parent_oid, &descendants, &ctx)? {
         CherryPickResult::Complete(tip) => {
             repo.advance_branch_ref(tip, "git-tailor: drop commit")?;
-            repo.checkout_head()?;
+            repo.checkout_head(&original_branch_oid)?;
             Ok(RebaseOutcome::Complete)
         }
-        CherryPickResult::Conflict {
-            tip,
-            conflicting_idx,
-        } => Ok(build_chain_conflict(
-            repo,
-            tip,
-            &descendants,
-            conflicting_idx,
-            "Drop",
-            original_branch_oid,
-            None,
-        )),
+        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
     }
 }
 
