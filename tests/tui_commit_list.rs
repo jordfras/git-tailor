@@ -376,3 +376,26 @@ fn commit_staged_is_gated_to_the_staged_row() {
     ));
     assert!(app.status_is_error);
 }
+
+#[test]
+fn test_commit_list_ctrl_scroll_keeps_selection_visible() {
+    // A list taller than the window, selection in the middle.
+    let mut harness = TuiTestHarness::narrow();
+    let mut app = AppState::new();
+    app.commits = (0..12)
+        .map(|i| {
+            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+        })
+        .collect();
+    app.selection_index = 6;
+
+    // The first render establishes the visible height the scroll clamps against.
+    let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    // Scroll the viewport down twice without moving the selection.
+    app.scroll_commit_list_down();
+    app.scroll_commit_list_down();
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}

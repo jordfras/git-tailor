@@ -56,6 +56,10 @@ pub struct AppState {
     pub max_detail_h_scroll: usize,
     /// Visible height of the commit list area (updated during render).
     pub commit_list_visible_height: usize,
+    /// Explicit commit-list scroll offset (display space) set by `Ctrl-Up`/`Down`.
+    /// `None` follows the selection (the default); `Some` is clamped each render so
+    /// the selection stays visible.
+    pub commit_list_scroll_override: Option<usize>,
     /// Visible height of the detail view area (updated during render).
     pub detail_visible_height: usize,
     /// Transient status message shown in the footer (cleared on next keypress).
@@ -120,6 +124,50 @@ impl AppState {
         if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
             self.selection_index += 1;
         }
+    }
+
+    /// The commit-list scroll offset (in display space) to render, given the
+    /// visible height. Without an override it follows the selection (pinned to
+    /// the bottom once scrolled, the historical behaviour); with one it honours
+    /// the override but always clamps so the selected row stays visible.
+    pub fn commit_list_effective_offset(&self, available_height: usize) -> usize {
+        let total = self.commits.len();
+        if total == 0 || available_height == 0 {
+            return 0;
+        }
+        // Selected row in display space (the list is drawn reversed when `reverse`).
+        let visual_selection = if self.reverse {
+            total - 1 - self.selection_index.min(total - 1)
+        } else {
+            self.selection_index.min(total - 1)
+        };
+        let max_scroll = total.saturating_sub(available_height);
+        // Range of offsets that keep the selection on screen: from "selection at
+        // the bottom row" up to "selection at the top row" (never past max_scroll).
+        let min_off = visual_selection.saturating_sub(available_height - 1);
+        let max_off = visual_selection.min(max_scroll);
+        let derived = if visual_selection < available_height {
+            0
+        } else {
+            visual_selection - (available_height - 1)
+        };
+        self.commit_list_scroll_override
+            .unwrap_or(derived)
+            .clamp(min_off, max_off)
+    }
+
+    /// Scroll the commit list one row up (toward earlier display rows) without
+    /// moving the selection. Clamped on render so it never scrolls the selected
+    /// row off screen.
+    pub fn scroll_commit_list_up(&mut self) {
+        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
+        self.commit_list_scroll_override = Some(base.saturating_sub(1));
+    }
+
+    /// Scroll the commit list one row down without moving the selection.
+    pub fn scroll_commit_list_down(&mut self) {
+        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
+        self.commit_list_scroll_override = Some(base + 1);
     }
 
     /// Scroll fragmap grid left.
@@ -714,5 +762,78 @@ mod tests {
         assert_eq!(app.selection_index, 1);
         app.move_down();
         assert_eq!(app.selection_index, 2);
+    }
+
+    /// Build an app with `n` commits, the given selection, and visible height.
+    fn app_with(n: usize, selection: usize, height: usize) -> AppState {
+        let mut app = AppState::new();
+        app.commits = (0..n)
+            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
+            .collect();
+        app.selection_index = selection;
+        app.commit_list_visible_height = height;
+        app
+    }
+
+    /// The selected row's display index must lie within the visible window.
+    fn selection_visible(app: &AppState, offset: usize, height: usize) -> bool {
+        let total = app.commits.len();
+        let visual = if app.reverse {
+            total - 1 - app.selection_index
+        } else {
+            app.selection_index
+        };
+        offset <= visual && visual < offset + height
+    }
+
+    #[test]
+    fn effective_offset_without_override_follows_selection() {
+        // Selection at index 5 of 10 with a 4-row window pins it to the bottom.
+        let app = app_with(10, 5, 4);
+        assert_eq!(app.commit_list_scroll_override, None);
+        assert_eq!(app.commit_list_effective_offset(4), 2);
+        assert!(selection_visible(&app, 2, 4));
+    }
+
+    #[test]
+    fn scroll_down_then_up_keeps_selection_visible_and_clamps() {
+        let mut app = app_with(10, 5, 4);
+        // Starts with the selection at the bottom (offset 2).
+        assert_eq!(app.commit_list_effective_offset(4), 2);
+
+        // Scrolling down advances the offset until the selection hits the top…
+        app.scroll_commit_list_down();
+        assert_eq!(app.commit_list_effective_offset(4), 3);
+        app.scroll_commit_list_down();
+        assert_eq!(app.commit_list_effective_offset(4), 4);
+        app.scroll_commit_list_down();
+        assert_eq!(app.commit_list_effective_offset(4), 5);
+        // …then stops (further scroll would push the selection off screen).
+        app.scroll_commit_list_down();
+        assert_eq!(app.commit_list_effective_offset(4), 5);
+        assert!(selection_visible(&app, 5, 4));
+
+        // Scrolling back up returns to the bottom-pinned offset, then stops.
+        for expected in [4, 3, 2, 2] {
+            app.scroll_commit_list_up();
+            assert_eq!(app.commit_list_effective_offset(4), expected);
+            assert!(selection_visible(&app, expected, 4));
+        }
+    }
+
+    #[test]
+    fn scroll_keeps_selection_visible_in_reverse_mode() {
+        let mut app = app_with(10, 5, 4);
+        app.reverse = true;
+        let off = app.commit_list_effective_offset(4);
+        assert!(selection_visible(&app, off, 4));
+        for _ in 0..6 {
+            app.scroll_commit_list_down();
+            let off = app.commit_list_effective_offset(4);
+            assert!(
+                selection_visible(&app, off, 4),
+                "offset {off} hid selection"
+            );
+        }
     }
 }

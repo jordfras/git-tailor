@@ -1129,10 +1129,10 @@ fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli)
     if commit_diffs.len() != commits.len() {
         anyhow::bail!("Failed to load diffs for all commits");
     }
-    if let Some(d) = git_repo.staged_diff()? {
+    if let Some(d) = git_repo.staged_diff_for_fragmap()? {
         commit_diffs.push(d);
     }
-    if let Some(d) = git_repo.unstaged_diff()? {
+    if let Some(d) = git_repo.unstaged_diff_for_fragmap()? {
         commit_diffs.push(d);
     }
     print!(

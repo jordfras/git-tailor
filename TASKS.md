@@ -73,7 +73,7 @@ Guidelines:
   them.
 
 ## Interactivity — Commit List
-- [ ] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
+- [x] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
   moving the selection: bind `Ctrl-Up` / `Ctrl-Down` (currently unused —
   `Ctrl-Left`/`Right` adjust the separator and `Ctrl-PageUp`/`Down` half-page
   scroll) to scroll the list viewport by one row while keeping the selected
@@ -105,7 +105,7 @@ Guidelines:
   context); changing the value should trigger a re-fetch or re-render of the
   diff so the change is immediately visible; show the current context line count
   in the footer or status line so the user knows the active value
-- [ ] T224 P3 feat - Show diff context around staged/unstaged changes in the
+- [x] T224 P3 feat - Show diff context around staged/unstaged changes in the
   commit detail view: the synthetic Staged/Unstaged rows render their diff with
   no surrounding context, while real commits show the default context, so the
   detail view is inconsistent. `reads::staged_diff` / `unstaged_diff` set

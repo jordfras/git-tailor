@@ -10,6 +10,9 @@ The format is based on
 
 ### Added
 
+- Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
+  scroll the list one row at a time while keeping the selected commit
+  highlighted, stopping before it would scroll off screen.
 - `--clean-journal` flag that removes all git-tailor recovery state — the journal
   file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
   pins and the in-progress pin) — then exits without launching the TUI and prints
@@ -59,6 +62,9 @@ The format is based on
 
 ### Fixed
 
+- The Staged / Unstaged detail view now shows the same surrounding diff context
+  as commits (git's default) instead of only the changed lines, so they are no
+  longer harder to read than a commit's diff.
 - Dropping, moving, or squashing past a commit that added a file no longer leaves
   that file behind as an untracked leftover in the working tree. git-tailor now
   removes exactly the files the rewrite removed (matching `git rebase`), while

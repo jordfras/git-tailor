@@ -110,7 +110,13 @@ impl GitRepo for StubRepo {
     fn staged_diff(&self) -> Result<Option<CommitDiff>> {
         Ok(self.staged_diff.clone())
     }
+    fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
+        Ok(self.staged_diff.clone())
+    }
     fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
+        Ok(self.unstaged_diff.clone())
+    }
+    fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
         Ok(self.unstaged_diff.clone())
     }
     fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {

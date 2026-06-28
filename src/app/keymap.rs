@@ -61,6 +61,8 @@ pub enum KeyCommand {
     Suspend,
     SeparatorLeft,
     SeparatorRight,
+    ScrollListUp,
+    ScrollListDown,
     None,
 }
 
@@ -108,6 +110,10 @@ impl AppMode {
                     KeyCode::Char('z') => return KeyCommand::Suspend,
                     KeyCode::Left => return KeyCommand::SeparatorLeft,
                     KeyCode::Right => return KeyCommand::SeparatorRight,
+                    // Ctrl-Up / Ctrl-Down: scroll the commit list without moving
+                    // the selection.
+                    KeyCode::Up => return KeyCommand::ScrollListUp,
+                    KeyCode::Down => return KeyCommand::ScrollListDown,
                     // Ctrl-F / Ctrl-B: page scroll (less/vi convention).
                     KeyCode::Char('f') => return KeyCommand::PageDown,
                     KeyCode::Char('b') => return KeyCommand::PageUp,

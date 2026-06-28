@@ -197,55 +197,75 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
     extract_commit_diff(&diff, &commit)
 }
 
-pub(super) fn staged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
-    let head = match repo.inner.head() {
-        Ok(head) => Some(head.peel_to_tree()?),
+/// HEAD's tree, or `None` on an unborn branch (no commits yet).
+fn head_tree(repo: &Git2Repo) -> Result<Option<git2::Tree<'_>>> {
+    match repo.inner.head() {
+        Ok(head) => Ok(Some(head.peel_to_tree()?)),
         Err(err)
             if matches!(
                 err.code(),
                 git2::ErrorCode::NotFound | git2::ErrorCode::UnbornBranch
             ) =>
         {
-            None
+            Ok(None)
         }
-        Err(err) => return Err(err.into()),
-    };
+        Err(err) => Err(err.into()),
+    }
+}
 
+/// Tight-span diff options (no surrounding context, no inter-hunk merging) used
+/// when extracting fragmap spans.
+fn fragmap_diff_opts() -> git2::DiffOptions {
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(0);
     opts.interhunk_lines(0);
+    opts
+}
 
-    let diff = repo
-        .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
-
-    let files = extract_files_from_diff(&diff)?;
+/// Wrap a git2 diff into a synthetic `CommitDiff`, or `None` when it is empty.
+fn build_synthetic_diff(
+    diff: &git2::Diff,
+    oid: VirtualOid,
+    summary: &str,
+) -> Result<Option<CommitDiff>> {
+    let files = extract_files_from_diff(diff)?;
     if files.iter().all(|f| f.hunks.is_empty()) {
         return Ok(None);
     }
-
     Ok(Some(CommitDiff {
-        commit: synthetic_commit_info(VirtualOid::Staged, "(staged changes)"),
+        commit: synthetic_commit_info(oid, summary),
         files,
     }))
 }
 
+/// Staged changes (index vs HEAD) with full context, for the detail view.
+pub(super) fn staged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let head = head_tree(repo)?;
+    let diff = repo.inner.diff_tree_to_index(head.as_ref(), None, None)?;
+    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+}
+
+/// Staged changes with 0-context tight spans, for the fragmap matrix.
+pub(super) fn staged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let head = head_tree(repo)?;
+    let mut opts = fragmap_diff_opts();
+    let diff = repo
+        .inner
+        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
+    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+}
+
+/// Unstaged changes (workdir vs index) with full context, for the detail view.
 pub(super) fn unstaged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
-    let mut opts = git2::DiffOptions::new();
-    opts.context_lines(0);
-    opts.interhunk_lines(0);
+    let diff = repo.inner.diff_index_to_workdir(None, None)?;
+    build_synthetic_diff(&diff, VirtualOid::Unstaged, "(unstaged changes)")
+}
 
+/// Unstaged changes with 0-context tight spans, for the fragmap matrix.
+pub(super) fn unstaged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let mut opts = fragmap_diff_opts();
     let diff = repo.inner.diff_index_to_workdir(None, Some(&mut opts))?;
-
-    let files = extract_files_from_diff(&diff)?;
-    if files.iter().all(|f| f.hunks.is_empty()) {
-        return Ok(None);
-    }
-
-    Ok(Some(CommitDiff {
-        commit: synthetic_commit_info(VirtualOid::Unstaged, "(unstaged changes)"),
-        files,
-    }))
+    build_synthetic_diff(&diff, VirtualOid::Unstaged, "(unstaged changes)")
 }
 
 pub(super) fn list_commit_files(repo: &Git2Repo, oid: &Oid) -> Result<Vec<String>> {

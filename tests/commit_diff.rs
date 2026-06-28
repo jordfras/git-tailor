@@ -194,3 +194,68 @@ fn test_commit_diff_for_fragmap_detects_rename() {
     assert_eq!(f.old_path.as_deref(), Some("old_name.rs"));
     assert_eq!(f.new_path.as_deref(), Some("new_name.rs"));
 }
+
+#[test]
+fn test_staged_diff_has_context_but_fragmap_variant_does_not() {
+    let test = common::TestRepo::new();
+    test.commit_file("file.txt", "a\nb\nc\nd\ne\n", "init");
+    // Stage a change to the middle line.
+    test.write_file("file.txt", "a\nb\nCHANGED\nd\ne\n");
+    test.stage_file("file.txt");
+    let repo = test.git_repo();
+
+    let full = repo.staged_diff().unwrap().expect("staged changes present");
+    let hunk = &full.files[0].hunks[0];
+    assert!(
+        hunk.lines
+            .iter()
+            .any(|l| matches!(l.kind, DiffLineKind::Context)),
+        "the detail-view staged diff should include surrounding context"
+    );
+
+    let tight = repo
+        .staged_diff_for_fragmap()
+        .unwrap()
+        .expect("staged changes present");
+    let thunk = &tight.files[0].hunks[0];
+    assert!(
+        thunk
+            .lines
+            .iter()
+            .all(|l| !matches!(l.kind, DiffLineKind::Context)),
+        "the fragmap staged diff should have no context lines"
+    );
+}
+
+#[test]
+fn test_unstaged_diff_has_context_but_fragmap_variant_does_not() {
+    let test = common::TestRepo::new();
+    test.commit_file("file.txt", "a\nb\nc\nd\ne\n", "init");
+    // Unstaged change to the middle line.
+    test.write_file("file.txt", "a\nb\nCHANGED\nd\ne\n");
+    let repo = test.git_repo();
+
+    let full = repo
+        .unstaged_diff()
+        .unwrap()
+        .expect("unstaged changes present");
+    assert!(
+        full.files[0].hunks[0]
+            .lines
+            .iter()
+            .any(|l| matches!(l.kind, DiffLineKind::Context)),
+        "the detail-view unstaged diff should include surrounding context"
+    );
+
+    let tight = repo
+        .unstaged_diff_for_fragmap()
+        .unwrap()
+        .expect("unstaged changes present");
+    assert!(
+        tight.files[0].hunks[0]
+            .lines
+            .iter()
+            .all(|l| !matches!(l.kind, DiffLineKind::Context)),
+        "the fragmap unstaged diff should have no context lines"
+    );
+}

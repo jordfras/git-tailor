@@ -179,6 +179,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             }
         }
+        KeyCommand::ScrollListUp => {
+            app.scroll_commit_list_up();
+            AppAction::Handled
+        }
+        KeyCommand::ScrollListDown => {
+            app.scroll_commit_list_down();
+            AppAction::Handled
+        }
         KeyCommand::Undo => AppAction::Undo,
         KeyCommand::Redo => AppAction::Redo,
         KeyCommand::Mergetool
@@ -459,12 +467,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let visual_selection = fragmap_index(app, app.selection_index);
 
-    let scroll_offset =
-        if app.commits.is_empty() || available_height == 0 || visual_selection < available_height {
-            0
-        } else {
-            visual_selection.saturating_sub(available_height - 1)
-        };
+    let scroll_offset = app.commit_list_effective_offset(available_height);
 
     LayoutInfo {
         table_area,
