@@ -10,6 +10,9 @@ The format is based on
 
 ### Added
 
+- Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
+  scroll the list one row at a time while keeping the selected commit
+  highlighted, stopping before it would scroll off screen.
 - `--clean-journal` flag that removes all git-tailor recovery state — the journal
   file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
   pins and the in-progress pin) — then exits without launching the TUI and prints
