@@ -204,8 +204,16 @@ impl GitRepo for Git2Repo {
         reads::staged_diff(self)
     }
 
+    fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
+        reads::staged_diff_for_fragmap(self)
+    }
+
     fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
         reads::unstaged_diff(self)
+    }
+
+    fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
+        reads::unstaged_diff_for_fragmap(self)
     }
 
     fn list_commit_files(&self, commit_oid: &Oid) -> Result<Vec<String>> {

@@ -79,7 +79,13 @@ impl GitRepo for MockRepo {
     fn staged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
+    fn staged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
+        Ok(None)
+    }
     fn unstaged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
+        Ok(None)
+    }
+    fn unstaged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
     fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {

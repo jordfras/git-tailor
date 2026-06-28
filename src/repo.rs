@@ -233,15 +233,25 @@ pub trait GitRepo {
     /// span tracking.
     fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff>;
 
-    /// Return a synthetic `CommitDiff` for changes staged in the index (index vs HEAD).
+    /// Return a synthetic `CommitDiff` for changes staged in the index (index vs
+    /// HEAD), with full context for display in the detail view.
     ///
     /// Returns `Ok(None)` when the index is clean (no staged changes).
     fn staged_diff(&self) -> Result<Option<CommitDiff>>;
 
-    /// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir vs index).
+    /// Like [`staged_diff`](Self::staged_diff) but with zero-context tight spans
+    /// for fragmap analysis (see [`commit_diff_for_fragmap`](Self::commit_diff_for_fragmap)).
+    fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>>;
+
+    /// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir
+    /// vs index), with full context for display in the detail view.
     ///
     /// Returns `Ok(None)` when the working tree is clean relative to the index.
     fn unstaged_diff(&self) -> Result<Option<CommitDiff>>;
+
+    /// Like [`unstaged_diff`](Self::unstaged_diff) but with zero-context tight
+    /// spans for fragmap analysis.
+    fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>>;
 
     /// List the paths of the files changed by `commit_oid` relative to its
     /// first parent (all files for a root commit), in diff order.

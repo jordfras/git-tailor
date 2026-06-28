@@ -165,10 +165,13 @@ pub fn load_with_progress(
         return Ok(true);
     }
 
-    let extra_diffs: Vec<CommitDiff> = [git_repo.staged_diff()?, git_repo.unstaged_diff()?]
-        .into_iter()
-        .flatten()
-        .collect();
+    let extra_diffs: Vec<CommitDiff> = [
+        git_repo.staged_diff_for_fragmap()?,
+        git_repo.unstaged_diff_for_fragmap()?,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
     let matrix = build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?;
 
