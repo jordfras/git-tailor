@@ -78,6 +78,12 @@ and incremental regex search. If an operation hits a merge conflict, git-tailor
 opens a resolution dialog where you can fix it up in your editor or merge tool
 and then continue or abort.
 
+By default, history-rewriting operations refuse to run when the working tree has
+uncommitted changes, so your work is never discarded. Pass `--autostash` (or set
+`GT_AUTOSTASH=true`) to let git-tailor stash those changes first, run the operation,
+and reapply them afterwards — preserving your exact staged/unstaged split —
+instead of refusing.
+
 Press `h` in the TUI for the complete key-binding reference — including all
 navigation, scrolling, and search keys.
 
