@@ -262,3 +262,38 @@ fn prune_keeps_valid_undo_history_and_pins() {
     assert_eq!(undo_pin_count(&test), pins_before);
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
 }
+
+#[test]
+fn prune_drops_orphaned_orig_and_stray_pins_keeping_valid_history() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+
+    // Refs not justified by the journal: an `orig` pin with no paused operation,
+    // and a stray undo pin outside the reconciled sequence.
+    test.repo
+        .reference("refs/git-tailor/orig", base, true, "stray")
+        .unwrap();
+    test.repo
+        .reference("refs/git-tailor/undo/999", base, true, "stray")
+        .unwrap();
+
+    git_repo.prune_stale_journal().unwrap();
+
+    // Both orphans are gone…
+    assert!(test.repo.find_reference("refs/git-tailor/orig").is_err());
+    assert!(
+        test.repo
+            .find_reference("refs/git-tailor/undo/999")
+            .is_err()
+    );
+    // …while the valid history (and its reconciled pins) survives.
+    assert!(undo_pin_count(&test) >= 1);
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+}
