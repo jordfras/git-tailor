@@ -232,6 +232,92 @@ fn test_move_esc_cancels() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
+/// Build an app with three commits and a fragmap so the commit list render
+/// exercises the fragmap-matrix indexing that crashed in the regression below.
+fn app_with_fragmap_in_move_select(source_index: usize, insert_before: usize) -> AppState {
+    let mut app = common::app_state_from_commit_summaries(&[
+        "Oldest commit on branch",
+        "Middle commit",
+        "Newest commit (HEAD)",
+    ]);
+    app.fragmap = Some(create_fragmap(
+        vec!["111111111111", "222222222222", "333333333333"],
+        vec![simple_cluster(
+            "file.rs",
+            1,
+            10,
+            &["111111111111", "222222222222", "333333333333"],
+        )],
+        vec![
+            vec![TouchKind::Added],
+            vec![TouchKind::Modified],
+            vec![TouchKind::Modified],
+        ],
+    ));
+    app.selection_index = source_index;
+    app.mode = AppMode::MoveSelect {
+        source_index,
+        insert_before,
+    };
+    app
+}
+
+// Regression: while navigating in MoveSelect, `viewport_selection_for_separator`
+// writes a scroll anchor into `selection_index` that can land one or two slots
+// past the last commit (intentional: the scroll math clamps it). That is only
+// safe while the mode stays MoveSelect, where no consumer indexes the list with
+// it. When the move is confirmed (then conflicts, falling back to a CommitList
+// render behind the dialog) the stale anchor must not leak out — it used to crash
+// the fragmap/footer render with an out-of-bounds index.
+#[test]
+fn test_move_down_to_end_then_confirm_keeps_selection_in_bounds() {
+    let mut harness = TuiTestHarness::short();
+    // Source is the oldest commit (index 0); start at the first valid slot.
+    let mut app = app_with_fragmap_in_move_select(0, 2);
+
+    // Move the insertion cursor down to the very end. The scroll anchor
+    // (selection_index) now points past the last commit (len + 1).
+    views::move_select::handle_key(KeyCommand::MoveDown, &mut app);
+
+    // Confirm the move (returns ExecuteMove and switches back to CommitList).
+    let action = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
+    assert!(matches!(action, AppAction::ExecuteMove { .. }));
+    assert_eq!(app.mode, AppMode::CommitList);
+
+    // The stale anchor must not leak out as the selection.
+    assert!(
+        app.selection_index < app.commits.len(),
+        "selection_index {} out of bounds for {} commits",
+        app.selection_index,
+        app.commits.len()
+    );
+
+    // Rendering the commit list (as the conflict dialog does in the background
+    // when the move conflicts) must not panic on the stale selection.
+    let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
+}
+
+// Same stale-anchor regression as above, via the Esc-cancel exit path.
+#[test]
+fn test_move_down_then_cancel_keeps_selection_in_bounds() {
+    let mut harness = TuiTestHarness::short();
+    let mut app = app_with_fragmap_in_move_select(0, 2);
+
+    views::move_select::handle_key(KeyCommand::MoveDown, &mut app);
+    let result = views::move_select::handle_key(KeyCommand::Quit, &mut app);
+
+    assert!(matches!(result, AppAction::Handled));
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(
+        app.selection_index < app.commits.len(),
+        "selection_index {} out of bounds for {} commits",
+        app.selection_index,
+        app.commits.len()
+    );
+
+    let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
+}
+
 #[test]
 fn test_enter_move_select_blocks_on_synthetic() {
     let mut app = AppState::new();
