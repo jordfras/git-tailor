@@ -655,6 +655,12 @@ impl AppState {
     }
 
     fn exit_dialog(&mut self) {
+        // MoveSelect navigation can leave `selection_index` as a scroll anchor
+        // pointing past the last commit; clamp it so CommitList consumers
+        // (footer, fragmap highlight) never index out of bounds.
+        self.selection_index = self
+            .selection_index
+            .min(self.commits.len().saturating_sub(1));
         self.mode = AppMode::CommitList;
     }
 }

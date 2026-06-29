@@ -90,6 +90,7 @@ pub fn setup_terminal() -> Result<TerminalGuard> {
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         )?;
     }
+    install_panic_hook(kb_enhanced);
     let backend = CrosstermBackend::new(stderr);
     let terminal = Terminal::new(backend)?;
     Ok(TerminalGuard {
@@ -97,4 +98,15 @@ pub fn setup_terminal() -> Result<TerminalGuard> {
         kb_enhanced,
         finished: false,
     })
+}
+
+/// Restore the terminal *before* the default panic handler runs, so the panic
+/// message is printed on the main screen instead of being wiped when the
+/// alternate screen is left during unwind (see [`TerminalGuard`]'s Drop).
+fn install_panic_hook(kb_enhanced: bool) {
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = teardown(kb_enhanced);
+        original_hook(info);
+    }));
 }
