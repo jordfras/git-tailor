@@ -69,6 +69,9 @@ The format is based on
   that file behind as an untracked leftover in the working tree. git-tailor now
   removes exactly the files the rewrite removed (matching `git rebase`), while
   leaving your own untracked files in place.
+- A panic now restores the terminal and prints its message instead of leaving a
+  blank screen. Previously the terminal teardown wiped the panic output, so a
+  crash appeared to exit with no information at all.
 
 
 ## [1.0.0] - 2026-06-12
