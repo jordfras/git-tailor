@@ -72,6 +72,11 @@ The format is based on
 - A panic now restores the terminal and prints its message instead of leaving a
   blank screen. Previously the terminal teardown wiped the panic output, so a
   crash appeared to exit with no information at all.
+- Moving a commit toward the end of the list (e.g. two or three positions
+  "down") no longer crashes. Navigating the insertion cursor past the last
+  commit left the selection pointing out of bounds; once the move was confirmed
+  or cancelled, the next commit-list render indexed the list out of bounds and
+  panicked.
 
 
 ## [1.0.0] - 2026-06-12

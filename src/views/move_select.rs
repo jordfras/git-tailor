@@ -130,6 +130,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 app.commits[idx].oid.as_oid().cloned()
             };
 
+            // Navigation left `selection_index` as a scroll anchor that can point
+            // past the last commit; restore it to a valid index before leaving
+            // MoveSelect so the CommitList render (e.g. behind the conflict dialog
+            // if the move conflicts) doesn't index out of bounds.
+            app.selection_index = source_index;
             app.mode = AppMode::CommitList;
 
             AppAction::ExecuteMove {
