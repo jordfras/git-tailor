@@ -44,7 +44,7 @@ The format is based on
   Previously this state lived only in memory and was lost on exit, leaving the
   repository stuck mid-conflict.
 - Opt-in auto-stash via the `--autostash` flag (or `GT_AUTOSTASH` env var). When
-  enabled, operations that need a clean working tree — move, drop, squash,
+  enabled, operations that need a clean working tree — split, move, drop, squash,
   fixup, undo, and redo — automatically stash your staged, unstaged, and
   untracked changes, run the operation, and restore the exact staged/unstaged
   split afterwards, instead of refusing to run. The stash is recorded in the
