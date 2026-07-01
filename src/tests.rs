@@ -420,13 +420,13 @@ fn rebase_abort_error_sets_error_message() {
 
 #[test]
 fn prepare_split_count_error_sets_error_message() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         count_ok: false,
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let result = handle_prepare_split(
-        &repo,
+        &mut repo,
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),
@@ -437,13 +437,13 @@ fn prepare_split_count_error_sets_error_message() {
 
 #[test]
 fn prepare_split_above_threshold_enters_confirm_mode() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         count_per_file: SPLIT_CONFIRM_THRESHOLD + 1,
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let _ = handle_prepare_split(
-        &repo,
+        &mut repo,
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),

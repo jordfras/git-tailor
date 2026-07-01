@@ -332,9 +332,13 @@ fn dispatch_action(
             commit_oid,
             head_oid,
         } => {
-            if execute_split(git_repo, app, strategy, &commit_oid, &head_oid) {
-                return Ok(LoopAction::Reload);
-            }
+            return Ok(execute_split(
+                git_repo,
+                app,
+                strategy,
+                &commit_oid,
+                &head_oid,
+            ));
         }
         AppAction::PrepareSplitOutFile { commit_oid } => {
             return handle_prepare_split_out_file(git_repo, app, commit_oid);
@@ -615,7 +619,7 @@ fn settle_autostash(
 }
 
 fn handle_prepare_split(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     strategy: SplitStrategy,
     commit_oid: Oid,
@@ -636,9 +640,13 @@ fn handle_prepare_split(
             app.enter_split_confirm(strategy, commit_oid, head_oid, count);
         }
         Ok(_) => {
-            if execute_split(git_repo, app, strategy, &commit_oid, &head_oid) {
-                return Ok(LoopAction::Reload);
-            }
+            return Ok(execute_split(
+                git_repo,
+                app,
+                strategy,
+                &commit_oid,
+                &head_oid,
+            ));
         }
     }
     Ok(LoopAction::Proceed)
@@ -660,19 +668,18 @@ fn handle_prepare_split_out_file(
 }
 
 fn handle_execute_split_out_file(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
     file_path: String,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    match git_repo.split_commit_out_file(&commit_oid, &file_path, &head_oid) {
-        Ok(()) => Ok(LoopAction::Reload),
-        Err(e) => {
-            app.set_error_message(format!("Split failed: {e}"));
-            Ok(LoopAction::Proceed)
-        }
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
     }
+    let result = git_repo.split_commit_out_file(&commit_oid, &file_path, &head_oid);
+    Ok(settle_split_autostash(git_repo, app, result))
 }
 
 fn handle_execute_drop(
@@ -1191,38 +1198,52 @@ fn handle_rebase_outcome(
 
 /// Execute a split operation; returns true when a reload is needed.
 fn execute_split(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     strategy: SplitStrategy,
     commit_oid: &Oid,
     head_oid: &Oid,
-) -> bool {
-    match strategy {
-        SplitStrategy::PerFile => match git_repo.split_commit_per_file(commit_oid, head_oid) {
-            Ok(()) => true,
-            Err(e) => {
-                app.set_error_message(format!("Split failed: {e}"));
-                false
-            }
-        },
-        SplitStrategy::PerHunk => match git_repo.split_commit_per_hunk(commit_oid, head_oid) {
-            Ok(()) => true,
-            Err(e) => {
-                app.set_error_message(format!("Split failed: {e}"));
-                false
-            }
-        },
+) -> LoopAction {
+    // Stash dirty state first so a split whose files overlap uncommitted changes
+    // is not refused: a split reproduces the same final tree, so reapplying the
+    // stash afterwards is always conflict-free.
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return LoopAction::Proceed;
+    }
+    let result = match strategy {
+        SplitStrategy::PerFile => git_repo.split_commit_per_file(commit_oid, head_oid),
+        SplitStrategy::PerHunk => git_repo.split_commit_per_hunk(commit_oid, head_oid),
         SplitStrategy::PerHunkGroup => {
-            match git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid) {
-                Ok(()) => true,
-                Err(e) => {
-                    app.set_error_message(format!("Split failed: {e}"));
-                    false
-                }
-            }
+            git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid)
         }
         // "Split out file" is executed via handle_execute_split_out_file.
         SplitStrategy::OutFile => unreachable!("OutFile uses ExecuteSplitOutFile"),
+    };
+    settle_split_autostash(git_repo, app, result)
+}
+
+/// Restore the auto-stash after a split. On success, reapply the stash and show
+/// the outcome (opening the stash-conflict dialog if it cannot reapply); on
+/// failure, put the stashed changes back and surface the error.
+fn settle_split_autostash(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    result: Result<()>,
+) -> LoopAction {
+    match result {
+        Ok(()) => settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Split",
+            "Commit split",
+            LoopAction::Reload,
+        ),
+        Err(e) => {
+            let _ = git_repo.autostash_restore();
+            app.set_error_message(format!("Split failed: {e}"));
+            LoopAction::Proceed
+        }
     }
 }
 
