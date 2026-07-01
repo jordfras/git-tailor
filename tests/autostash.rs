@@ -397,6 +397,83 @@ fn autostash_conflict_continue_stays_when_unresolved() {
 }
 
 #[test]
+fn split_refuses_overlapping_dirty_without_autostash() {
+    // Documents the guard that auto-stash sidesteps: split on its own refuses
+    // when a dirty change overlaps a file the commit touches.
+    let test = common::TestRepo::new();
+    let _base = test.commit_files(&[("a.txt", "a0\n"), ("b.txt", "b0\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "big change");
+    test.write_file("a.txt", "a1-dirty\n");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let err = git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("overlap"),
+        "expected an overlap refusal, got: {err}"
+    );
+}
+
+#[test]
+fn autostash_lets_split_proceed_with_overlapping_unstaged() {
+    // A split reproduces the same final tree, so stashing the overlapping edit,
+    // splitting, then reapplying is always conflict-free — exactly the case the
+    // bare overlap guard rejects.
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "a0\n"), ("b.txt", "b0\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "big change");
+
+    // Unstaged edit to a.txt, which the split touches (overlap).
+    test.write_file("a.txt", "a1-dirty\n");
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo.autostash_save().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+    git_repo.autostash_restore().unwrap();
+
+    // The split happened (base → two commits) and the overlapping edit is back.
+    assert_eq!(test.commits_from_head(base).len(), 2);
+    assert_eq!(read_workdir(&test, "a.txt"), "a1-dirty\n");
+    let (_staged, unstaged) = staged_and_unstaged(&gitdir);
+    assert_eq!(unstaged, vec!["a.txt"]);
+}
+
+#[test]
+fn autostash_lets_split_proceed_with_overlapping_staged() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "a0\n"), ("b.txt", "b0\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "big change");
+
+    // Staged edit to a.txt, overlapping the split.
+    test.write_file("a.txt", "a1-staged\n");
+    test.stage_file("a.txt");
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo.autostash_save().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+    git_repo.autostash_restore().unwrap();
+
+    assert_eq!(test.commits_from_head(base).len(), 2);
+    assert_eq!(read_workdir(&test, "a.txt"), "a1-staged\n");
+    let (staged, _unstaged) = staged_and_unstaged(&gitdir);
+    assert_eq!(staged, vec!["a.txt"]);
+}
+
+#[test]
 fn autostash_conflict_abort_rewinds_whole_operation() {
     let test = common::TestRepo::new();
     let (base, c1) = setup_restore_conflict(&test);
