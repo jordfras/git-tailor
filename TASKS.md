@@ -71,6 +71,19 @@ Guidelines:
   stray `refs/git-tailor/undo/*` not referenced by the journal), run the
   cleanup, and assert the file and all refs are gone and the summary reports
   them.
+- [ ] T226 P2 bug - Make the header/footer/separator chrome readable across
+  terminal themes. `HEADER_STYLE`, `FOOTER_STYLE`, `SEPARATOR_STYLE` (in
+  `commit_list.rs`) and the status bar in `main_view.rs` paint `fg White` on
+  ANSI-indexed backgrounds (`bg Green` / `bg Blue` / `bg Cyan`), assuming those
+  ANSI slots are dark enough for white text. On pastel themes that remap ANSI
+  green/blue to light shades (e.g. Catppuccin Mocha: blue `#89b4fa`, green
+  `#a6e3a1`) the white-on-light text washes out, as does the `DarkGray`
+  "Press 'h' for help" hint on the footer. Make the chrome contrast-safe on any
+  terminal palette — prefer self-consistent explicit RGB (or reverse-video) for
+  the bars instead of inheriting ambiguous ANSI background slots, so it is
+  readable by default. A separate opt-in flag for overall UI coloring
+  (analogous to `--theme`, which today only styles the hunk-group matrix) could
+  be a follow-up nicety but should not be the primary fix.
 
 ## Interactivity — Commit List
 - [x] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without

@@ -15,6 +15,9 @@ Steps to follow when cutting a new release of git-tailor.
 - Regenerate the TUI screenshot so it reflects the current rendering:
   `cargo run --example gen_screenshot` (writes `doc/tui_example.png`). Commit the
   result if it changed.
+- Regenerate the demo GIF so it reflects the current UI and key bindings:
+  `demo/build.sh publish` (renders the tape in Docker and writes `doc/demo.gif`).
+  Commit the result if it changed. Requires Docker.
 
 ## 3. Cargo.toml metadata
 
