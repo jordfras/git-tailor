@@ -10,24 +10,6 @@ The format is based on
 
 ### Added
 
-- Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
-  scroll the list one row at a time while keeping the selected commit
-  highlighted, stopping before it would scroll off screen.
-- `--clean-journal` flag that removes all git-tailor recovery state — the journal
-  file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
-  pins and the in-progress pin) — then exits without launching the TUI and prints
-  a summary. A manual escape hatch for when recovery state gets stuck; refs are
-  found by namespace, so stray ones are cleared even if the journal is missing or
-  out of sync.
-- Commit the staged changes without leaving git-tailor. With the Staged row
-  selected, press `c` to open your editor for a commit message and create a
-  commit from the index. The commit is undoable: `u` soft-resets it (the changes
-  reappear as staged, your working-tree edits untouched) and `Ctrl-r` re-commits.
-- Stage and unstage all working-tree changes without leaving git-tailor. With the
-  Unstaged row selected, press `a` to stage every change (modifications, new
-  files, and deletions, like `git add -A`); with the Staged row selected, press
-  `A` to unstage everything back to HEAD. Both are undoable and redoable with
-  `u` / `Ctrl-r`.
 - Undo and redo of history-rewriting operations. Press `u` to undo the last
   drop, move, squash, fixup, reword, or split, and `Ctrl-r` to redo it; multiple
   levels are supported and the stack persists across restarts. Undo restores the
@@ -43,6 +25,21 @@ The format is based on
   branch tip — which is pinned with a ref so its commits survive `git gc`.
   Previously this state lived only in memory and was lost on exit, leaving the
   repository stuck mid-conflict.
+- `--clean-journal` flag that removes all git-tailor recovery state — the journal
+  file under `.git/git-tailor/` and every ref under `refs/git-tailor/*` (undo
+  pins and the in-progress pin) — then exits without launching the TUI and prints
+  a summary. A manual escape hatch for when recovery state gets stuck; refs are
+  found by namespace, so stray ones are cleared even if the journal is missing or
+  out of sync.
+- Commit the staged changes without leaving git-tailor. With the Staged row
+  selected, press `c` to open your editor for a commit message and create a
+  commit from the index. The commit is undoable: `u` soft-resets it (the changes
+  reappear as staged, your working-tree edits untouched) and `Ctrl-r` re-commits.
+- Stage and unstage all working-tree changes without leaving git-tailor. With the
+  Unstaged row selected, press `a` to stage every change (modifications, new
+  files, and deletions, like `git add -A`); with the Staged row selected, press
+  `A` to unstage everything back to HEAD. Both are undoable and redoable with
+  `u` / `Ctrl-r`.
 - Opt-in auto-stash via the `--autostash` flag (or `GT_AUTOSTASH` env var). When
   enabled, operations that need a clean working tree — split, move, drop, squash,
   fixup, undo, and redo — automatically stash your staged, unstaged, and
@@ -54,6 +51,9 @@ The format is based on
   (`e`) and continue, or press Esc to abort the whole operation and get your
   changes back unchanged. Disabled by default, matching git's own
   `rebase.autoStash` behaviour.
+- Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
+  scroll the list one row at a time while keeping the selected commit
+  highlighted, stopping before it would scroll off screen.
 
 ### Changed
 
