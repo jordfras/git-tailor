@@ -29,6 +29,13 @@ common_mounts=(
     -w /work
 )
 
+render_gif() {
+    build_image
+    docker run --rm "${common_mounts[@]}" \
+        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+        "$IMAGE" demo/scripts/render.sh "$@"
+}
+
 cmd=${1:-gif}
 shift || true
 case "$cmd" in
@@ -36,10 +43,16 @@ image)
     build_image
     ;;
 gif)
-    build_image
-    docker run --rm "${common_mounts[@]}" \
-        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-        "$IMAGE" demo/scripts/render.sh "$@"
+    render_gif "$@"
+    ;;
+publish)
+    # Render the README demo and copy it to its committed home in doc/. README.md
+    # references it there via an absolute raw URL so it renders on both GitHub
+    # and crates.io. Run this before a release (see RELEASE.md) and commit the
+    # updated doc/demo.gif.
+    render_gif demo/tapes/demo.tape
+    cp "$REPO_ROOT/demo/out/demo.gif" "$REPO_ROOT/doc/demo.gif"
+    echo "published -> doc/demo.gif"
     ;;
 shell)
     build_image
@@ -50,7 +63,7 @@ clean)
     docker volume rm "$CACHE_VOLUME" 2>/dev/null || true
     ;;
 *)
-    echo "usage: $0 {gif|image|shell|clean} [tape...]" >&2
+    echo "usage: $0 {gif|publish|image|shell|clean} [tape...]" >&2
     exit 1
     ;;
 esac

@@ -19,10 +19,16 @@ a fresh demo repo, and runs vhs — leaving the rendered GIF(s) in `demo/out/`
 (git-ignored, owned by you). Other subcommands:
 
 ```bash
+demo/build.sh publish  # render the README demo and copy it to doc/demo.gif
 demo/build.sh image    # just (re)build the toolchain image
 demo/build.sh shell    # interactive shell inside the image
 demo/build.sh clean    # remove demo/out/ and the build-cache volume
 ```
+
+`publish` writes `doc/demo.gif`, which `README.md` references with a relative
+path. crates.io resolves that against the repository, so the same committed file
+renders on both GitHub and crates.io — run `publish` before a release (see
+[`../RELEASE.md`](../RELEASE.md)) and commit the updated GIF.
 
 ## How it fits together
 

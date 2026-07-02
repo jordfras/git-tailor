@@ -9,6 +9,8 @@ The left panel shows your commits. The right panel shows a **hunk group matrix**
 — a visual aid that instantly reveals which commits touch the same lines of
 code, and whether combining them would be safe or risky.
 
+![git-tailor demo](doc/demo.gif)
+
 > **⚠ Data safety — please read before use**
 > 
 > This tool rewrites history. Always push your branch to a remote before running
