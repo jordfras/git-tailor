@@ -12,7 +12,7 @@ pull request or pushing to a shared branch.
 repository = "https://github.com/jordfras/git-tailor"
 keywords = ["git", "commit", "tui", "squash", "split"]
 categories = ["command-line-utilities", "development-tools", "visualization"]
-exclude = ["/.github", "about.hbs", "about.toml", "deny.toml", "demo", "doc", "examples", "AGENTS.md", "TASKS.md", "TASKS-COMPLETED.md", "RELEASE.md"]
+exclude = ["/.github", "about.hbs", "about.toml", "deny.toml", "demo", "doc", "examples", "AGENTS.md", "TASKS.md", "TASKS-COMPLETED.md", "RELEASE.md", "release.sh"]
 
 [[bin]]
 name = "gt"

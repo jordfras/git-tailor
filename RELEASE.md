@@ -2,6 +2,11 @@
 
 Steps to follow when cutting a new release of git-tailor.
 
+> **Tip:** `./release.sh <version>` automates the mechanical parts below — it
+> sets the `Cargo.toml` version, stamps the changelog with the version and date,
+> and regenerates the screenshot (§2) and demo GIF, reporting whether each
+> changed. It does not commit, tag or publish. Requires Docker (for the GIF).
+
 ## 1. Changelog
 
 - All user-visible changes since the last release are documented in
