@@ -15,9 +15,12 @@ Output demo/out/demo.gif
 Require gt
 
 Set Shell bash
-Set FontSize 16
-Set Width 1100
-Set Height 460
+Set FontSize 18
+Set Width 1240
+Set Height 500
+# 24fps keeps the file small (vhs defaults to 50); post-render gifsicle trims
+# the rest. See demo/scripts/render.sh.
+Set Framerate 24
 # Windows Terminal "Campbell" palette — the WSL default, and the same colours
 # the project's screenshot generator (examples/gen_screenshot.rs) uses.
 Set Theme { "name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC", "black": "#0C0C0C", "red": "#C50F1F", "green": "#13A10E", "yellow": "#C19C00", "blue": "#0037DA", "magenta": "#881798", "cyan": "#3A96DD", "white": "#CCCCCC", "brightBlack": "#767676", "brightRed": "#E74856", "brightGreen": "#16C60C", "brightYellow": "#F9F1A5", "brightBlue": "#3B78FF", "brightMagenta": "#B4009E", "brightCyan": "#61D6D6", "brightWhite": "#F2F2F2", "selection": "#3A96DD", "cursor": "#CCCCCC" }
@@ -83,17 +86,18 @@ Type "e"
 Sleep 1s
 Type "/^<<<<<<<"
 Enter
-Sleep 250ms
+Sleep 150ms
 Type "3dd"
-Sleep 250ms
+Sleep 150ms
 Type "/^>>>>>>>"
 Enter
-Sleep 250ms
+Sleep 150ms
 Type "dd"
-Sleep 250ms
+Sleep 150ms
 Type ":wq"
 Enter
-Sleep 700ms
+# Back in the resolved conflict dialog — hold so it can be read.
+Sleep 1.8s
 
 # ── Continue: git-tailor lands the rebase with the conflict resolved ───────
 Enter

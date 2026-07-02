@@ -32,6 +32,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && printf 'export PATH=%s/bin:$PATH\n' "$CARGO_HOME" > /etc/profile.d/rust-cargo.sh \
     && rustc --version && cargo --version
 
+# gifsicle: post-render GIF optimisation (palette reduction + lossy LZW) so the
+# recorded artifacts stay small without shrinking their pixel dimensions. Kept
+# in its own layer to leave the (slow) Rust layer above cached.
+RUN apt-get update && apt-get install -y --no-install-recommends gifsicle \
+    && rm -rf /var/lib/apt/lists/*
+
 # A UTF-8 locale so git-tailor's TUI renders box-drawing and other Unicode
 # glyphs (the fragmap) correctly; only the C/C.UTF-8 locales exist here.
 ENV LANG=C.UTF-8 \

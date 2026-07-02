@@ -44,6 +44,15 @@ for tape in "${tapes[@]}"; do
     vhs "$tape"
 done
 
+# Shrink the rendered GIFs. Terminal captures use very few colours, so palette
+# reduction plus lossy LZW cuts size substantially with no visible degradation.
+for gif in "$REPO"/demo/out/*.gif; do
+    [ -e "$gif" ] || continue
+    before=$(stat -c%s "$gif")
+    gifsicle -O3 --lossy=30 --colors 128 -b "$gif"
+    echo ">> optimized $(basename "$gif"): $before -> $(stat -c%s "$gif") bytes"
+done
+
 # Hand ownership of the rendered artifacts back to the invoking host user so the
 # repo is not left with root-owned files.
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
