@@ -50,6 +50,19 @@ impl Git2Repo {
             return Ok(());
         }
 
+        // Refresh the index against the working tree before stashing. libgit2's
+        // stash decides which tracked files are dirty from each index entry's
+        // cached stat (size + mtime); a same-size edit whose mtime collides with
+        // that cache (e.g. an edit made within the filesystem's mtime tick of the
+        // last index write) is judged unchanged, so `stash_save2` serialises the
+        // stale blob and the edit is silently lost. Forcing a content-level
+        // refresh re-examines the working tree so such edits are captured.
+        {
+            let mut opts = git2::StatusOptions::new();
+            opts.include_untracked(true).update_index(true);
+            self.inner.statuses(Some(&mut opts))?;
+        }
+
         // Captured before the operation advances the ref, so an aborted reapply
         // can rewind here — where the stash, whose base this tip is, re-applies
         // cleanly.
