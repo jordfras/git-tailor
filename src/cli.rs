@@ -41,6 +41,8 @@ pub struct Cli {
     #[arg(short, long, env = "GT_REVERSE")]
     pub reverse: bool,
 
+    /// Stash working-tree changes around operations, restoring them afterwards.
+    ///
     /// Automatically stash staged/unstaged/untracked changes around operations
     /// that need a clean working tree (move, drop, squash, fixup, undo, redo),
     /// restoring them afterwards, instead of refusing to run.
