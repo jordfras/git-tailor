@@ -6,6 +6,30 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Changed
+
+- git-tailor no longer falls back to `vi` when no editor is configured. If
+  neither `core.editor` nor the `GIT_EDITOR`/`VISUAL`/`EDITOR` environment
+  variables are set, it now reports a clear error asking you to configure one,
+  instead of failing cryptically on systems without `vi` (such as Windows).
+
+### Fixed
+
+- Auto-stash (`--autostash`) no longer silently drops an unstaged edit that keeps
+  a file's size unchanged (e.g. flipping a single character). libgit2's stash
+  could treat such an edit as unmodified when its timestamp collided with the
+  index's cached stat, discarding it; git-tailor now refreshes the index against
+  the working tree before stashing so the change is preserved.
+- Transient footer messages are no longer wiped before they can be read — for
+  example, an error shown when your editor fails to launch during reword,
+  commit, or squash. Such messages are now dismissed only by an actual key
+  press, not by resize or focus events (which the terminal can emit, most
+  notably on Windows, when the alternate screen is restored after an external
+  tool).
+
+
 ## [2.0.0] - 2026-07-02
 
 ### Added

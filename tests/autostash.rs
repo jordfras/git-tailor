@@ -511,3 +511,36 @@ fn autostash_conflict_abort_rewinds_whole_operation() {
         UndoOutcome::Empty | UndoOutcome::Stale
     ));
 }
+
+/// Regression: a *same-size* unstaged edit must survive an autostash round-trip.
+///
+/// `setup_dirty_repo` edits `u.txt` from "u0\n" to "u1\n" — both 3 bytes. When
+/// such an edit's mtime collides with the index entry's cached stat, libgit2's
+/// stash dirty-detection can treat the file as unmodified and serialize the
+/// stale blob, silently dropping the edit (see `save_autostash`, which now
+/// forces a content-level index refresh before stashing). Unlike the sibling
+/// tests this performs no intermediate status reads — those perturb the timing
+/// and hide the bug — so it triggers the collision reliably.
+#[test]
+fn autostash_preserves_same_size_unstaged_edit() {
+    for _ in 0..10 {
+        let test = common::TestRepo::new();
+        let (_base, c1, c2) = setup_dirty_repo(&test);
+
+        let mut git_repo = test.git_repo();
+        git_repo.set_autostash(true);
+        git_repo.autostash_save().unwrap();
+        assert_rebase_complete!(
+            git_repo
+                .drop_commit(&Oid::from(c1), &Oid::from(c2))
+                .unwrap()
+        );
+        git_repo.autostash_restore().unwrap();
+
+        assert_eq!(
+            read_workdir(&test, "u.txt"),
+            "u1\n",
+            "same-size unstaged edit was silently dropped by autostash"
+        );
+    }
+}

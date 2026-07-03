@@ -23,7 +23,11 @@ use git_tailor::views::theme::Theme;
 #[command(
     //name = "gt",
     version,
-    help_template = "{name} {version}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
+    help_template = "{name} {version}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}",
+    after_help = "Tip: git-tailor uses your Git editor to edit commit messages and your Git \
+                  merge tool to resolve conflicts. It is wise to configure both, e.g.:\n  \
+                  git config --global core.editor \"vim\"\n  \
+                  git config --global merge.tool \"kdiff3\""
 )]
 pub struct Cli {
     /// A commit-ish to use as the base reference (branch, tag, or hash).
@@ -37,6 +41,8 @@ pub struct Cli {
     #[arg(short, long, env = "GT_REVERSE")]
     pub reverse: bool,
 
+    /// Stash working-tree changes around operations, restoring them afterwards.
+    ///
     /// Automatically stash staged/unstaged/untracked changes around operations
     /// that need a clean working tree (move, drop, squash, fixup, undo, redo),
     /// restoring them afterwards, instead of refusing to run.

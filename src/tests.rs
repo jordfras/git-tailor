@@ -556,3 +556,22 @@ fn clean_journal_ignores_cosmetic_flags() {
     use clap::Parser;
     assert!(crate::cli::Cli::try_parse_from(["gt", "--clean-journal", "--reverse"]).is_ok());
 }
+
+#[test]
+fn only_key_events_dismiss_transient_status() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    let key_press = Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(crate::event_dismisses_status(&key_press));
+
+    // A Repeat key event still counts as a keypress.
+    let mut repeat = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
+    repeat.kind = KeyEventKind::Repeat;
+    assert!(crate::event_dismisses_status(&Event::Key(repeat)));
+
+    // Non-key events still reach the loop (so it can redraw on resize) but must
+    // NOT wipe the status message before it is read.
+    assert!(!crate::event_dismisses_status(&Event::Resize(80, 24)));
+    assert!(!crate::event_dismisses_status(&Event::FocusGained));
+    assert!(!crate::event_dismisses_status(&Event::FocusLost));
+}
