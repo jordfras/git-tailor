@@ -25,7 +25,7 @@ Set Framerate 24
 # the project's screenshot generator (examples/gen_screenshot.rs) uses.
 Set Theme { "name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC", "black": "#0C0C0C", "red": "#C50F1F", "green": "#13A10E", "yellow": "#C19C00", "blue": "#0037DA", "magenta": "#881798", "cyan": "#3A96DD", "white": "#CCCCCC", "brightBlack": "#767676", "brightRed": "#E74856", "brightGreen": "#16C60C", "brightYellow": "#F9F1A5", "brightBlue": "#3B78FF", "brightMagenta": "#B4009E", "brightCyan": "#61D6D6", "brightWhite": "#F2F2F2", "selection": "#3A96DD", "cursor": "#CCCCCC" }
 Set Padding 20
-Set TypingSpeed 60ms
+Set TypingSpeed 125ms
 
 # ── Setup (not recorded): step into the prepared repo and clear the screen ──
 Hide
@@ -44,17 +44,17 @@ Sleep 1.5s
 # ── Inspect the stray "fix" commit ─────────────────────────────────────────
 # Cursor starts on HEAD (bottom); step up one row at a time to
 # "fix: parse parenthesised expressions".
-Up@350ms 3
+Up@250ms 3
 Sleep 700ms
 Enter
 Sleep 500ms
 # Widen the detail pane (one step at a time), then scroll down to the diff.
 Ctrl+Left
-Sleep 350ms
+Sleep 125ms
 Ctrl+Left
-Sleep 350ms
+Sleep 125ms
 Ctrl+Left
-Sleep 350ms
+Sleep 125ms
 Ctrl+Left
 Sleep 1.2s
 Down@60ms 14
@@ -64,16 +64,16 @@ Sleep 700ms
 
 # ── Fold that fix into the parser commit it belongs to ─────────────────────
 Type "f"
-Sleep 900ms
-Up@350ms 4
-Sleep 700ms
+Sleep 600ms
+Up@250ms 4
+Sleep 2s
 Enter
 Sleep 1.6s
 
 # ── Drop the debug commit that should never be merged ──────────────────────
 # The fixup left the cursor on the parser commit; step down to
 # "DROPME: hack in debug tracing".
-Down@350ms 4
+Down@250ms 4
 Sleep 700ms
 Type "d"
 Sleep 900ms
@@ -83,21 +83,21 @@ Sleep 1.4s
 # ── A later fix touched the same lines, so the drop conflicts. Resolve it ───
 # (kept brief — the point is that git-tailor drops you straight into $EDITOR).
 Type "e"
-Sleep 1s
-Type "/^<<<<<<<"
+Sleep 500ms
+Type@60ms "/^<<<<<<<"
 Enter
 Sleep 150ms
 Type "3dd"
 Sleep 150ms
-Type "/^>>>>>>>"
+Type@60ms "/^>>>>>>>"
 Enter
 Sleep 150ms
 Type "dd"
-Sleep 150ms
+Sleep 250ms
 Type ":wq"
 Enter
 # Back in the resolved conflict dialog — hold so it can be read.
-Sleep 1.8s
+Sleep 2.5s
 
 # ── Continue: git-tailor lands the rebase with the conflict resolved ───────
 Enter
