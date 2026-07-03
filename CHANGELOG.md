@@ -6,6 +6,18 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Fixed
+
+- Transient footer messages are no longer wiped before they can be read — for
+  example, the error shown when reword (or commit/squash) falls back to an
+  unavailable editor such as `vi`. Such messages are now dismissed only by an
+  actual key press, not by resize or focus events (which the terminal can emit,
+  most notably on Windows, when the alternate screen is restored after an
+  external tool).
+
+
 ## [2.0.0] - 2026-07-02
 
 ### Added

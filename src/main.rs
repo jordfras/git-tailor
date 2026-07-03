@@ -65,6 +65,14 @@ macro_rules! get_head_oid_or_continue {
     };
 }
 
+/// A transient footer status is dismissed only by a real key press. Non-key
+/// events (resize, focus) still flow through `read_event` so the loop can
+/// redraw on resize, but they must not wipe a status message before it can be
+/// read.
+fn event_dismisses_status(event: &crossterm::event::Event) -> bool {
+    matches!(event, crossterm::event::Event::Key(_))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -135,6 +143,7 @@ fn main() -> Result<()> {
         })?;
 
         let event = app::read_event()?;
+        let dismiss_status = event_dismisses_status(&event);
 
         if let Some(version) = update_poller.poll() {
             app.update_notice = Some(format!("Version {version} available"));
@@ -146,7 +155,9 @@ fn main() -> Result<()> {
             if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
                 break;
             }
-            app.clear_status_message();
+            if dismiss_status {
+                app.clear_status_message();
+            }
             let result = views::commit_detail::handle_search_event(event, &mut app);
             if matches!(result, AppAction::Quit) {
                 app.should_quit = true;
@@ -159,7 +170,9 @@ fn main() -> Result<()> {
 
         let action = app.mode.parse_key(event);
 
-        app.clear_status_message();
+        if dismiss_status {
+            app.clear_status_message();
+        }
 
         // Ctrl+C: abort any in-progress rebase then quit immediately.
         if action == app::KeyCommand::ForceQuit {
