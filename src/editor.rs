@@ -18,28 +18,38 @@ use anyhow::Context as _;
 
 /// Resolve the editor command to use for editing commit messages.
 ///
-/// Walks git's canonical editor lookup chain:
+/// Gathers git's canonical editor lookup sources, in order:
 /// 1. `GIT_EDITOR` environment variable
 /// 2. `core.editor` git config setting
 /// 3. `VISUAL` environment variable
 /// 4. `EDITOR` environment variable
-/// 5. Fallback: `"vi"`
+///
+/// Unlike git, there is no `vi` fallback: if none of these is configured the
+/// call errors with guidance instead of guessing an editor that may not exist
+/// (e.g. `vi` on Windows).
 fn resolve_editor(repo: &impl GitRepo) -> anyhow::Result<String> {
-    if let Ok(e) = std::env::var("GIT_EDITOR") {
-        return Ok(e.trim().to_string());
-    }
+    let git_editor = std::env::var("GIT_EDITOR").ok();
+    let core_editor = repo.get_config_string("core.editor")?;
+    let visual = std::env::var("VISUAL").ok();
+    let editor = std::env::var("EDITOR").ok();
+    choose_editor(&[
+        git_editor.as_deref(),
+        core_editor.as_deref(),
+        visual.as_deref(),
+        editor.as_deref(),
+    ])
+}
 
-    if let Some(e) = repo.get_config_string("core.editor")? {
-        return Ok(e.trim().to_string());
-    }
-
-    for var in ["VISUAL", "EDITOR"] {
-        if let Ok(e) = std::env::var(var) {
-            return Ok(e.trim().to_string());
+/// Pick the first usable editor command from `candidates`, tried in order.
+/// Whitespace-only values are treated as unset. Errors (with guidance) when
+/// none is usable.
+fn choose_editor(candidates: &[Option<&str>]) -> anyhow::Result<String> {
+    for candidate in candidates {
+        if let Some(cmd) = candidate.map(str::trim).filter(|s| !s.is_empty()) {
+            return Ok(cmd.to_string());
         }
     }
-
-    Ok("vi".to_string())
+    anyhow::bail!("No editor configured — set core.editor or $VISUAL/$EDITOR")
 }
 
 /// Suspend the TUI, open `path` in the configured editor, then restore the TUI.
@@ -91,4 +101,31 @@ pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Res
 /// process exits.
 pub fn open_file_in_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
     launch_editor(repo, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::choose_editor;
+
+    #[test]
+    fn errs_when_no_candidate_is_usable() {
+        // No `vi` fallback: nothing configured is a hard error.
+        assert!(choose_editor(&[]).is_err());
+        assert!(choose_editor(&[None, None, None, None]).is_err());
+        // Whitespace-only values count as unset and fall through to the error.
+        assert!(choose_editor(&[None, Some("   "), Some("\t")]).is_err());
+    }
+
+    #[test]
+    fn picks_first_usable_candidate_trimmed() {
+        assert_eq!(
+            choose_editor(&[None, Some(" code --wait "), Some("vim")]).unwrap(),
+            "code --wait"
+        );
+        // Earlier entries win over later ones.
+        assert_eq!(
+            choose_editor(&[Some("emacs"), Some("vim")]).unwrap(),
+            "emacs"
+        );
+    }
 }
