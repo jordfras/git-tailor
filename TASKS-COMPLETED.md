@@ -1510,3 +1510,74 @@
   enough for now. Decide how this interacts with undo/redo (T218): a plain commit
   is additive rather than history-rewriting, so it need not be undoable in this
   task — but record the decision rather than leaving it implicit.
+
+## Architecture & Robustness
+- [X] T223 P3 feat - Add a `--clean-journal` CLI option that wipes all
+  git-tailor recovery state: delete the journal file
+  (`<gitdir>/git-tailor/journal.json`, and the `git-tailor` dir if it ends up
+  empty) and every ref git-tailor writes under `refs/git-tailor/*` — the undo
+  pins (`refs/git-tailor/undo/*`) and the in-progress pin
+  (`refs/git-tailor/orig`) — discovering refs by globbing `refs/git-tailor/*`
+  rather than from the journal contents, so stray refs are removed even if the
+  journal is missing, corrupt, or out of sync. This is a manual escape hatch for
+  when recovery state gets stuck. The option must NOT start the TUI: it performs
+  the cleanup and exits (like the static-output path), and is meant to run on its
+  own — combining it with the normal browse arguments should be rejected with a
+  clear error (or those args ignored). Write a short summary to stdout when
+  finished (e.g. whether a journal file was removed and how many refs were
+  deleted). Implementation: add the flag in `cli.rs`; branch early in `main.rs`
+  before terminal setup; enumerate-and-delete the refs via `references_glob`
+  (best-effort, continue past individual failures) and remove the journal file,
+  reusing/extending the `journal` module rather than duplicating ref names. Add
+  integration tests that seed a journal file plus undo/orig refs (including a
+  stray `refs/git-tailor/undo/*` not referenced by the journal), run the
+  cleanup, and assert the file and all refs are gone and the summary reports
+  them.
+
+## Interactivity — Commit List
+- [X] T225 P3 feat - Scroll the commit list with `Ctrl-Up` / `Ctrl-Down` without
+  moving the selection: bind `Ctrl-Up` / `Ctrl-Down` (currently unused —
+  `Ctrl-Left`/`Right` adjust the separator and `Ctrl-PageUp`/`Down` half-page
+  scroll) to scroll the list viewport by one row while keeping the selected
+  commit highlighted, like vim's `Ctrl-Y` / `Ctrl-E`. Only scroll as far as the
+  selection stays visible — the selected row must never leave the visible window.
+  Today the scroll offset always follows the selection, so this needs an
+  independent scroll offset clamped against `commit_list_visible_height` (and the
+  fragmap/detail layout). Make it behave intuitively in reverse-order mode
+  (`--reverse`) too, and document the keys in the help dialog.
+
+## Interactivity — Commit Detail View
+- [X] T224 P3 feat - Show diff context around staged/unstaged changes in the
+  commit detail view: the synthetic Staged/Unstaged rows render their diff with
+  no surrounding context, while real commits show the default context, so the
+  detail view is inconsistent. `reads::staged_diff` / `unstaged_diff` set
+  `context_lines(0)` (needed for tight fragmap span extraction), and the detail
+  view reuses that same diff. Show the same amount of context as a commit diff
+  (`commit_diff`, default 3) for the detail view while keeping the 0-context
+  spans for the fragmap — e.g. thread a context-lines parameter through the
+  synthetic-diff reads, or add a detail-specific variant mirroring the existing
+  `commit_diff` vs `commit_diff_for_fragmap` split. Relates to T166 (adjustable
+  context), which should then also apply to the staged/unstaged rows.
+
+## CLI — Shell Completion
+- [X] T140 P3 feat - Add shell completion for CLI options: use `clap_complete`
+  to generate static completion scripts (bash, zsh, fish) for all flags and
+  value_enum variants (e.g. `--squashable-scope`). NOTE: zero-setup completions
+  require distribution via a package manager (apt, brew, etc.) that can deposit
+  the script in the right system directory at install time; users installing via
+  `cargo install` will still need a manual one-time setup step.
+- [X] T141 P3 feat - Add branch/tag completion for the BASE argument: extend the
+  completion mechanism from T140 so that the positional `base` argument offers
+  branch and tag candidates by querying `git2` for local branches,
+  remote-tracking refs, and tags; degrade gracefully if the current directory is
+  not inside a git repository. Same distribution requirement as T140.
+- [X] T210 P3 feat - Add `gt completions` subcommand to generate and install
+  shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the
+  generated script to stdout; adding `--install` writes it to the conventional
+  user-local path without requiring root — bash:
+  `~/.local/share/bash-completion/completions/gt`, zsh:
+  `~/.local/share/zsh/site-functions/_gt`, fish:
+  `~/.config/fish/completions/gt.fish`; print a hint after install explaining
+  any shell-reload step needed (e.g. `source ~/.bashrc`); this removes the
+  manual setup burden for `cargo install` users and makes T140/T141 completions
+  self-contained without depending on a package manager
