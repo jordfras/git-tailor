@@ -15,13 +15,14 @@
 // TUI application entry point
 
 mod cli;
+mod completions;
 mod external_tool;
 mod loader;
 mod terminal_guard;
 mod update_check;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use git_tailor::repo::{
     AutostashContinue, AutostashRestore, CommitOutcome, ConflictState, Git2Repo, GitRepo,
     JournalStatus, RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
@@ -74,7 +75,21 @@ fn event_dismisses_status(event: &crossterm::event::Event) -> bool {
 }
 
 fn main() -> Result<()> {
+    // Dynamic shell completion: when invoked as a completion request (the
+    // COMPLETE env var is set), compute candidates and exit. Must run before
+    // anything writes to stdout or opens the repository. `bin("gt")` pins the
+    // registration to the `gt` binary (the clap command is named "git-tailor").
+    clap_complete::CompleteEnv::with_factory(Cli::command)
+        .bin("gt")
+        .complete();
+
     let cli = Cli::parse();
+
+    // Maintenance subcommands run instead of the TUI and must work outside a git
+    // repository, so handle them before opening the repo.
+    if let Some(cli::Commands::Completions { shell, install }) = &cli.command {
+        return completions::run(*shell, *install);
+    }
 
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
     git_repo.set_autostash(cli.autostash);

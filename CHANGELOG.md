@@ -8,6 +8,16 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Shell completion for `bash`, `zsh`, and `fish`. It covers all flags and value
+  options (e.g. `--theme`), and completes the base argument with branch and tag
+  names from the current repository. Install it with
+  `gt completions --shell <bash|zsh|fish> --install` (or omit `--install` to
+  print the script) — no package manager required. Candidates are computed by
+  `gt` at completion time, so they always match the installed version and the
+  repository's current refs.
+
 ### Changed
 
 - git-tailor no longer falls back to `vi` when no editor is configured. If

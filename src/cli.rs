@@ -14,7 +14,8 @@
 
 // Command-line argument definitions for the `gt` binary.
 
-use clap::Parser;
+use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::engine::ArgValueCandidates;
 
 use git_tailor::views::theme::Theme;
 
@@ -30,11 +31,18 @@ use git_tailor::views::theme::Theme;
                   git config --global merge.tool \"kdiff3\""
 )]
 pub struct Cli {
+    /// Optional maintenance subcommand (e.g. `completions`).
+    ///
+    /// When omitted, git-tailor launches its interactive TUI as usual.
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     /// A commit-ish to use as the base reference (branch, tag, or hash).
     ///
     /// When omitted, the tool resolves `origin/HEAD` to find the repository's
     /// default upstream branch (e.g. `origin/main`).  If `origin/HEAD` is not
     /// configured it falls back to `main`.
+    #[arg(add = ArgValueCandidates::new(crate::completions::base_ref_candidates))]
     pub base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).
@@ -89,4 +97,31 @@ pub struct Cli {
     /// state gets stuck.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+}
+
+/// Maintenance subcommands that run instead of the interactive TUI.
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Print or install a shell completion script for `gt`.
+    ///
+    /// Completions are computed dynamically by `gt` at completion time, so they
+    /// always match the installed version. Use `--install` to write the script
+    /// to the conventional user-local location, or omit it to print to stdout.
+    Completions {
+        /// Shell to generate the completion script for.
+        #[arg(long, value_enum)]
+        shell: CompletionShell,
+
+        /// Install into the user-local completion directory instead of printing.
+        #[arg(long)]
+        install: bool,
+    },
+}
+
+/// Shells for which `gt completions` can print/install a script.
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
 }
