@@ -8,6 +8,15 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Shell completion for `bash`, `zsh`, and `fish`, covering all flags and value
+  options (e.g. `--theme`). Run `gt completions --shell <bash|zsh|fish>` to print
+  the script, or add `--install` to write it to the conventional user-local
+  location and print how to activate it — no package manager required.
+  Completions are computed by `gt` at completion time, so they always match the
+  installed version.
+
 ### Changed
 
 - git-tailor no longer falls back to `vi` when no editor is configured. If

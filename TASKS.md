@@ -131,7 +131,7 @@ Guidelines:
   context), which should then also apply to the staged/unstaged rows.
 
 ## CLI — Shell Completion
-- [ ] T140 P3 feat - Add shell completion for CLI options: use `clap_complete`
+- [x] T140 P3 feat - Add shell completion for CLI options: use `clap_complete`
   to generate static completion scripts (bash, zsh, fish) for all flags and
   value_enum variants (e.g. `--squashable-scope`). NOTE: zero-setup completions
   require distribution via a package manager (apt, brew, etc.) that can deposit
@@ -142,9 +142,14 @@ Guidelines:
   completion mechanism from T140 so that the positional `base` argument offers
   branch and tag candidates by querying `git2` for local branches,
   remote-tracking refs, and tags; degrade gracefully if the current directory is
-  not inside a git repository. Same distribution requirement as T140.
+  not inside a git repository. NOTE: T140 already wired clap_complete's dynamic
+  completion engine, so this is now a drop-in — attach a
+  `clap_complete::engine::ArgValueCompleter` to the `base` arg in `cli.rs` and add
+  a `list_ref_names` helper in `repo/git2_impl/reads.rs` (branches + tags via
+  `git2`), opening the repo with the existing cheap `Git2Repo::open`. No change to
+  the completion mechanism is needed.
 
-- [ ] T210 P3 feat - Add `gt completions` subcommand to generate and install
+- [x] T210 P3 feat - Add `gt completions` subcommand to generate and install
   shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the
   generated script to stdout; adding `--install` writes it to the conventional
   user-local path without requiring root — bash:
