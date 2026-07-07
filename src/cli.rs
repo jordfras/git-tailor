@@ -15,6 +15,7 @@
 // Command-line argument definitions for the `gt` binary.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::engine::ArgValueCandidates;
 
 use git_tailor::views::theme::Theme;
 
@@ -41,6 +42,7 @@ pub struct Cli {
     /// When omitted, the tool resolves `origin/HEAD` to find the repository's
     /// default upstream branch (e.g. `origin/main`).  If `origin/HEAD` is not
     /// configured it falls back to `main`.
+    #[arg(add = ArgValueCandidates::new(crate::completions::base_ref_candidates))]
     pub base: Option<String>,
 
     /// Display commits in reverse order (HEAD at top).

@@ -340,6 +340,29 @@ pub(super) fn default_branch(repo: &Git2Repo) -> Result<Option<String>> {
     Ok(target.and_then(|value| value.strip_prefix("refs/remotes/").map(str::to_string)))
 }
 
+/// List local and remote-tracking branch names plus tag names, for shell
+/// completion of the base argument. Names are returned as written by git
+/// (e.g. `main`, `origin/main`, `v1.0.0`).
+pub(super) fn list_ref_names(repo: &Git2Repo) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+
+    for branch in repo.inner.branches(None)? {
+        let (branch, _kind) = branch?;
+        if let Some(name) = branch.name()? {
+            names.push(name.to_string());
+        }
+    }
+
+    let tags = repo.inner.tag_names(None)?;
+    for tag in tags.iter() {
+        if let Some(name) = tag? {
+            names.push(name.to_string());
+        }
+    }
+
+    Ok(names)
+}
+
 pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<Oid> {
     let mut revwalk = repo.inner.revwalk()?;
     revwalk.push_head()?;

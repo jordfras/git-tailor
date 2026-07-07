@@ -81,6 +81,12 @@ impl Git2Repo {
         self.autostash = enabled;
     }
 
+    /// List local/remote-tracking branch and tag names, for shell completion of
+    /// the `base` argument.
+    pub fn list_ref_names(&self) -> Result<Vec<String>> {
+        reads::list_ref_names(self)
+    }
+
     /// Path to the repository's git directory (the `.git` dir for a normal repo).
     fn git_dir(&self) -> &std::path::Path {
         self.inner.path()

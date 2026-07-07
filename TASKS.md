@@ -138,16 +138,11 @@ Guidelines:
   the script in the right system directory at install time; users installing via
   `cargo install` will still need a manual one-time setup step.
 
-- [ ] T141 P3 feat - Add branch/tag completion for the BASE argument: extend the
+- [x] T141 P3 feat - Add branch/tag completion for the BASE argument: extend the
   completion mechanism from T140 so that the positional `base` argument offers
   branch and tag candidates by querying `git2` for local branches,
   remote-tracking refs, and tags; degrade gracefully if the current directory is
-  not inside a git repository. NOTE: T140 already wired clap_complete's dynamic
-  completion engine, so this is now a drop-in — attach a
-  `clap_complete::engine::ArgValueCompleter` to the `base` arg in `cli.rs` and add
-  a `list_ref_names` helper in `repo/git2_impl/reads.rs` (branches + tags via
-  `git2`), opening the repo with the existing cheap `Git2Repo::open`. No change to
-  the completion mechanism is needed.
+  not inside a git repository. Same distribution requirement as T140.
 
 - [x] T210 P3 feat - Add `gt completions` subcommand to generate and install
   shell completion scripts: `gt completions --shell <bash|zsh|fish>` prints the

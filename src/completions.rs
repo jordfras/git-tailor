@@ -23,7 +23,24 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use clap_complete::engine::CompletionCandidate;
+use git_tailor::repo::Git2Repo;
+
 use crate::cli::CompletionShell;
+
+/// Dynamic completion candidates for the `base` argument: local and
+/// remote-tracking branch names plus tag names from the current repository.
+///
+/// Returns no candidates when not inside a git repository (or on any error), so
+/// completion degrades gracefully. Wired to the `base` arg in `cli.rs`.
+pub fn base_ref_candidates() -> Vec<CompletionCandidate> {
+    let names = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| Git2Repo::open(cwd).ok())
+        .and_then(|repo| repo.list_ref_names().ok())
+        .unwrap_or_default();
+    names.into_iter().map(CompletionCandidate::new).collect()
+}
 
 impl CompletionShell {
     /// Name understood by clap_complete's env completers.
