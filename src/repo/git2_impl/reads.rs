@@ -143,7 +143,7 @@ pub(super) fn list_commits(
     Ok(commits)
 }
 
-pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid) -> Result<CommitDiff> {
+pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
     let object = repo
         .inner
         .revparse_single(oid.long())
@@ -160,9 +160,11 @@ pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid) -> Result<CommitDiff> {
         None
     };
 
-    let diff = repo
-        .inner
-        .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), None)?;
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(context_lines);
+    let diff =
+        repo.inner
+            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
     extract_commit_diff(&diff, &commit)
 }
@@ -238,10 +240,15 @@ fn build_synthetic_diff(
     }))
 }
 
-/// Staged changes (index vs HEAD) with full context, for the detail view.
-pub(super) fn staged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+/// Staged changes (index vs HEAD) with `context_lines` of context, for the
+/// detail view.
+pub(super) fn staged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Option<CommitDiff>> {
     let head = head_tree(repo)?;
-    let diff = repo.inner.diff_tree_to_index(head.as_ref(), None, None)?;
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(context_lines);
+    let diff = repo
+        .inner
+        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
     build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
 }
 
@@ -255,9 +262,12 @@ pub(super) fn staged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDi
     build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
 }
 
-/// Unstaged changes (workdir vs index) with full context, for the detail view.
-pub(super) fn unstaged_diff(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
-    let diff = repo.inner.diff_index_to_workdir(None, None)?;
+/// Unstaged changes (workdir vs index) with `context_lines` of context, for the
+/// detail view.
+pub(super) fn unstaged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Option<CommitDiff>> {
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(context_lines);
+    let diff = repo.inner.diff_index_to_workdir(None, Some(&mut opts))?;
     build_synthetic_diff(&diff, VirtualOid::Unstaged, "(unstaged changes)")
 }
 

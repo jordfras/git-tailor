@@ -1,0 +1,80 @@
+// Copyright 2026 Thomas Johannesson
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Integration tests for the configurable diff context lines (T166): a larger
+//! context merges hunks whose context regions overlap, and a smaller one splits
+//! them apart — behaviour git computes for us when we re-diff with the new
+//! context.
+
+#[allow(dead_code)]
+mod common;
+
+use common::TestRepo;
+use git_tailor::{Oid, repo::GitRepo};
+
+/// Build a 30-line file, then change two lines far enough apart (line 5 and line
+/// 20) that they are separate hunks at small context but merge at large context.
+fn repo_with_two_distant_changes() -> (TestRepo, Oid) {
+    let test = TestRepo::new();
+    let base: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+    test.commit_file("f.txt", &base, "base");
+
+    let changed: String = (1..=30)
+        .map(|n| match n {
+            5 => "line 5 CHANGED\n".to_string(),
+            20 => "line 20 CHANGED\n".to_string(),
+            _ => format!("line {n}\n"),
+        })
+        .collect();
+    let oid = test.commit_file("f.txt", &changed, "change two distant regions");
+    (test, Oid::from(oid))
+}
+
+#[test]
+fn small_context_keeps_two_hunks() {
+    let (test, head) = repo_with_two_distant_changes();
+    let diff = test.git_repo().commit_diff(&head, 3).unwrap();
+    let file = &diff.files[0];
+    assert_eq!(
+        file.hunks.len(),
+        2,
+        "expected two separate hunks at context 3"
+    );
+}
+
+#[test]
+fn large_context_merges_into_one_hunk() {
+    let (test, head) = repo_with_two_distant_changes();
+    let diff = test.git_repo().commit_diff(&head, 10).unwrap();
+    let file = &diff.files[0];
+    assert_eq!(
+        file.hunks.len(),
+        1,
+        "expected the hunks to merge into one at context 10"
+    );
+}
+
+#[test]
+fn context_does_not_change_the_files_touched() {
+    let (test, head) = repo_with_two_distant_changes();
+    let tight = test.git_repo().commit_diff(&head, 3).unwrap();
+    let wide = test.git_repo().commit_diff(&head, 10).unwrap();
+    let paths = |d: &git_tailor::CommitDiff| {
+        d.files
+            .iter()
+            .map(|f| f.new_path.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(paths(&tight), paths(&wide));
+}

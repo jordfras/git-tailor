@@ -5,7 +5,7 @@ expression: buf
 Buffer {
     area: Rect { x: 0, y: 0, width: 120, height: 20 },
     content: [
-        "SHA        Title                                                               │Commit information                      ",
+        "SHA        Title                                                               │Commit information           context: 3 ",
         "abc123de   Initial commit                                                      │                                        ",
         "def456gh   Add feature X                                                       │Commit: abc123def456                    ",
         "ghi789jk   Fix bug in parser                                                   │                                        ",

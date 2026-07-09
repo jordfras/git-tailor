@@ -98,7 +98,7 @@ impl GitRepo for StubRepo {
     fn list_commits(&self, _from: &Oid, _to: &Oid) -> Result<Vec<CommitInfo>> {
         unimplemented!()
     }
-    fn commit_diff(&self, _oid: &Oid) -> Result<CommitDiff> {
+    fn commit_diff(&self, _oid: &Oid, _context_lines: u32) -> Result<CommitDiff> {
         match &self.commit_diff {
             Some(diff) => Ok(diff.clone()),
             None => Err(anyhow!("commit_diff not configured on StubRepo")),
@@ -107,13 +107,13 @@ impl GitRepo for StubRepo {
     fn commit_diff_for_fragmap(&self, _oid: &Oid) -> Result<CommitDiff> {
         unimplemented!()
     }
-    fn staged_diff(&self) -> Result<Option<CommitDiff>> {
+    fn staged_diff(&self, _context_lines: u32) -> Result<Option<CommitDiff>> {
         Ok(self.staged_diff.clone())
     }
     fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
         Ok(self.staged_diff.clone())
     }
-    fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
+    fn unstaged_diff(&self, _context_lines: u32) -> Result<Option<CommitDiff>> {
         Ok(self.unstaged_diff.clone())
     }
     fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {

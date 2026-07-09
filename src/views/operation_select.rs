@@ -1,0 +1,177 @@
+// Copyright 2026 Thomas Johannesson
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Operation picker dialog: a menu of the operations valid for the selected row.
+
+use super::commit_list;
+use super::dialog::{Dialog, DialogKind, TextRole};
+use super::list_nav::{self, ListNav};
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, Operation};
+use ratatui::{
+    Frame,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
+
+/// Operations offered for the currently selected row. Empty only if there is no
+/// selection at all (in practice every row yields at least undo/redo).
+fn available(app: &AppState) -> Vec<Operation> {
+    let is_oldest = app.selected_is_oldest_commit();
+    app.selected_virtual_oid()
+        .map(|oid| Operation::available_for(oid, is_oldest))
+        .unwrap_or_default()
+}
+
+/// Handle an action while in OperationSelect mode.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    let operation = match app.mode {
+        AppMode::OperationSelect { operation } => operation,
+        _ => return AppAction::Handled,
+    };
+
+    let ops = available(app);
+    let len = ops.len();
+    // Position of the highlighted operation in the (stable-while-modal) menu.
+    let mut cursor = ops.iter().position(|op| *op == operation).unwrap_or(0);
+
+    match list_nav::handle_list_navigation(action, &mut cursor, len, len, false) {
+        ListNav::Moved => {
+            if let Some(&operation) = ops.get(cursor) {
+                app.mode = AppMode::OperationSelect { operation };
+                scroll_to_operation(app, cursor);
+            }
+            AppAction::Handled
+        }
+        ListNav::Confirmed => {
+            // Close the picker, then dispatch through the commit list's handler
+            // so the operation reuses its existing entry point (some open a
+            // follow-up dialog, others return an action for main.rs to execute).
+            app.mode = AppMode::CommitList;
+            commit_list::handle_key(operation.key_command(), app)
+        }
+        ListNav::Cancelled => {
+            app.mode = AppMode::CommitList;
+            AppAction::Handled
+        }
+        ListNav::Help => {
+            app.toggle_help();
+            AppAction::Handled
+        }
+        ListNav::Unhandled => AppAction::Handled,
+    }
+}
+
+/// Scroll `dialog_scroll_offset` so the operation row at `index` is visible.
+/// Layout before the first item: blank, header, then `heading()` (which itself
+/// adds a blank / heading / blank) — five lines — then one line per operation.
+/// Compact enough to fit without scrolling on a normal terminal; this keeps the
+/// bottom rows reachable on a very short one.
+fn scroll_to_operation(app: &mut AppState, index: usize) {
+    const HEADER_LINES: usize = 5;
+    let row = HEADER_LINES + index;
+    let vh = app.dialog_visible_height;
+    if vh == 0 {
+        return;
+    }
+    if row < app.dialog_scroll_offset {
+        app.dialog_scroll_offset = row;
+    } else if row >= app.dialog_scroll_offset + vh {
+        app.dialog_scroll_offset = row + 1 - vh;
+    }
+    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+}
+
+/// Render the operation picker as a centered overlay.
+pub fn render(app: &mut AppState, frame: &mut Frame) {
+    // Header naming the row the operations apply to.
+    let header = app
+        .commits
+        .get(app.selection_index)
+        .map(|c| {
+            if c.oid.is_synthetic() {
+                format!("{} changes", c.oid.short())
+            } else {
+                format!("{} {}", c.oid.short(), c.summary)
+            }
+        })
+        .unwrap_or_default();
+
+    // Truncate by characters, not bytes, so a non-ASCII summary never slices
+    // mid-codepoint (which panics).
+    let max_header_len = 44;
+    let display_header = if header.chars().count() > max_header_len {
+        let prefix: String = header.chars().take(max_header_len - 1).collect();
+        format!("{prefix}…")
+    } else {
+        header
+    };
+
+    let selected_operation = match app.mode {
+        AppMode::OperationSelect { operation } => Some(operation),
+        _ => None,
+    };
+
+    let ops = available(app);
+
+    let mut dialog = Dialog::new(DialogKind::Info)
+        .blank()
+        .push_line(Line::from(Span::styled(
+            format!(" {display_header}"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::DIM),
+        )))
+        .heading("Choose operation:", TextRole::Highlight);
+
+    // One line per operation: marker + label column, the keyboard shortcut (so
+    // users learn the direct keys), then a muted description. Compact so all
+    // operations fit without scrolling.
+    for op in ops.iter() {
+        let selected = selected_operation == Some(*op);
+        let marker = if selected { "▸" } else { " " };
+        let label_style = if selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
+        dialog = dialog.push_line(Line::from(vec![
+            Span::styled(format!(" {} {:<12}", marker, op.label()), label_style),
+            Span::styled(
+                format!("{:<4}", op.shortcut()),
+                Style::default().fg(TextRole::Key.color()),
+            ),
+            Span::styled(
+                op.description(),
+                Style::default().fg(TextRole::Muted.color()),
+            ),
+        ]));
+    }
+
+    dialog = dialog
+        .blank()
+        .instructions(&[
+            ("Enter", Color::Cyan, "Select"),
+            ("Esc", Color::Cyan, "Cancel"),
+        ])
+        .blank();
+
+    let content_width = 50;
+    let (max_scroll, visible_height) =
+        dialog.render(frame, "Operations", content_width, app.dialog_scroll_offset);
+    app.max_dialog_scroll = max_scroll;
+    app.dialog_visible_height = visible_height;
+}

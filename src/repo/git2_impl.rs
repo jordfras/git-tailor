@@ -198,24 +198,24 @@ impl GitRepo for Git2Repo {
         reads::list_commits(self, from_oid, to_oid)
     }
 
-    fn commit_diff(&self, oid: &Oid) -> Result<CommitDiff> {
-        reads::commit_diff(self, oid)
+    fn commit_diff(&self, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
+        reads::commit_diff(self, oid, context_lines)
     }
 
     fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff> {
         reads::commit_diff_for_fragmap(self, oid)
     }
 
-    fn staged_diff(&self) -> Result<Option<CommitDiff>> {
-        reads::staged_diff(self)
+    fn staged_diff(&self, context_lines: u32) -> Result<Option<CommitDiff>> {
+        reads::staged_diff(self, context_lines)
     }
 
     fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
         reads::staged_diff_for_fragmap(self)
     }
 
-    fn unstaged_diff(&self) -> Result<Option<CommitDiff>> {
-        reads::unstaged_diff(self)
+    fn unstaged_diff(&self, context_lines: u32) -> Result<Option<CommitDiff>> {
+        reads::unstaged_diff(self, context_lines)
     }
 
     fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
@@ -552,9 +552,13 @@ impl Git2Repo {
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
     fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
         let mut overlapping: Vec<String> = Vec::new();
-        for synthetic_diff in [self.staged_diff()?, self.unstaged_diff()?]
-            .into_iter()
-            .flatten()
+        // Context lines do not affect the file list this check inspects.
+        for synthetic_diff in [
+            self.staged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
+            self.unstaged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
+        ]
+        .into_iter()
+        .flatten()
         {
             for file in &synthetic_diff.files {
                 let path = file

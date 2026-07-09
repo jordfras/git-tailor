@@ -16,11 +16,22 @@ use crate::{
     CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
-    repo::{ConflictState, StashConflictState},
+    repo::{ConflictState, DEFAULT_CONTEXT_LINES, StashConflictState},
     views::theme::Theme,
 };
 
-use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
+use super::{AppMode, Operation, PendingDrop, PendingSplit, SplitStrategy};
+
+/// Number of diff context lines shown in the commit detail view. A newtype so
+/// its default (git's 3) is preserved under `AppState`'s derived `Default`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailContextLines(pub u32);
+
+impl Default for DetailContextLines {
+    fn default() -> Self {
+        Self(DEFAULT_CONTEXT_LINES)
+    }
+}
 
 /// Application state for the TUI.
 ///
@@ -62,6 +73,8 @@ pub struct AppState {
     pub commit_list_scroll_override: Option<usize>,
     /// Visible height of the detail view area (updated during render).
     pub detail_visible_height: usize,
+    /// Diff context lines shown in the detail view, adjusted with `+` / `-`.
+    pub detail_context_lines: DetailContextLines,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
     /// Whether the current status message represents an error (red) or success (green).
@@ -252,6 +265,18 @@ impl AppState {
         }
     }
 
+    /// Show one more diff context line in the detail view (`+`). git re-computes
+    /// the diff, so hunks whose context regions now overlap render as one.
+    pub fn increase_detail_context_lines(&mut self) {
+        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_add(1);
+    }
+
+    /// Show one fewer diff context line in the detail view (`-`), with 0 as the
+    /// floor. Hunks that were merged split apart again as context shrinks.
+    pub fn decrease_detail_context_lines(&mut self) {
+        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_sub(1);
+    }
+
     /// Scroll detail view left (decrease horizontal offset).
     pub fn scroll_detail_left(&mut self) {
         if self.detail_h_scroll_offset > 0 {
@@ -432,6 +457,36 @@ impl AppState {
         false
     }
 
+    /// The `VirtualOid` of the selected row, if any. Read-only (no error side
+    /// effect), used to decide which operations the picker offers.
+    pub fn selected_virtual_oid(&self) -> Option<&VirtualOid> {
+        self.commits.get(self.selection_index).map(|c| &c.oid)
+    }
+
+    /// Whether the selected row is the oldest real commit on the branch. Commits
+    /// are stored oldest-first with the synthetic working-tree rows appended, so
+    /// the oldest is simply the first real commit.
+    pub fn selected_is_oldest_commit(&self) -> bool {
+        self.commits
+            .iter()
+            .position(|c| !c.oid.is_synthetic())
+            .is_some_and(|first_real| first_real == self.selection_index)
+    }
+
+    /// Enter the operation picker for the selected row, highlighting the first
+    /// available operation. Every real/synthetic row offers at least undo/redo,
+    /// so this only no-ops when there is no selection at all.
+    pub fn enter_operation_select(&mut self) {
+        let is_oldest = self.selected_is_oldest_commit();
+        let first = self
+            .selected_virtual_oid()
+            .map(|oid| Operation::available_for(oid, is_oldest))
+            .and_then(|ops| ops.into_iter().next());
+        if let Some(operation) = first {
+            self.enter_dialog(AppMode::OperationSelect { operation });
+        }
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
@@ -561,6 +616,7 @@ impl AppState {
                 AppMode::CommitList
             }
             AppMode::Help(_)
+            | AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
@@ -683,6 +739,33 @@ fn half_page_size(visible_height: usize) -> usize {
 mod tests {
     use super::*;
     use crate::{CommitInfo, Oid, VirtualOid};
+
+    #[test]
+    fn detail_context_lines_default_is_git_default() {
+        assert_eq!(
+            AppState::default().detail_context_lines.0,
+            DEFAULT_CONTEXT_LINES
+        );
+    }
+
+    #[test]
+    fn increase_and_decrease_detail_context_lines() {
+        let mut app = AppState::default();
+        app.increase_detail_context_lines();
+        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES + 1);
+        app.decrease_detail_context_lines();
+        app.decrease_detail_context_lines();
+        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES - 1);
+    }
+
+    #[test]
+    fn decrease_detail_context_lines_floors_at_zero() {
+        let mut app = AppState::default();
+        for _ in 0..(DEFAULT_CONTEXT_LINES + 2) {
+            app.decrease_detail_context_lines();
+        }
+        assert_eq!(app.detail_context_lines.0, 0);
+    }
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {

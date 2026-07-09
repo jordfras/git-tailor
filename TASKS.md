@@ -77,7 +77,7 @@ Guidelines:
   assets; consider caching highlighted output per commit to avoid
   re-highlighting on every render
 
-- [ ] T166 P3 feat - Increase and decrease diff context lines in commit detail
+- [X] T166 P3 feat - Increase and decrease diff context lines in commit detail
   view with `+` and `-`: pressing `+` should increase the number of context
   lines shown around each hunk (default 3, matching git's default), and `-`
   should decrease it (minimum 0); store the context line count in `AppState` and

@@ -62,7 +62,9 @@ that can set their defaults.
 
 ## Operations
 
-With a commit selected you can:
+Press **Space** on any row to open a menu of the operations available for it —
+handy while you are still learning the individual shortcut keys. With a commit
+selected you can:
 
 - **Squash** — merge it into an earlier commit (with an editable combined
   message)

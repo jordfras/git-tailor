@@ -122,6 +122,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.toggle_help();
             AppAction::Handled
         }
+        KeyCommand::OperationMenu => {
+            app.enter_operation_select();
+            AppAction::Handled
+        }
         KeyCommand::Split => {
             app.enter_split_select();
             AppAction::Handled
@@ -196,7 +200,9 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::Suspend
         | KeyCommand::Search
         | KeyCommand::SearchNext
-        | KeyCommand::SearchPrev => AppAction::Handled,
+        | KeyCommand::SearchPrev
+        | KeyCommand::IncreaseContext
+        | KeyCommand::DecreaseContext => AppAction::Handled,
         KeyCommand::SeparatorLeft => {
             app.separator_offset = app.separator_offset.saturating_sub(4);
             AppAction::Handled

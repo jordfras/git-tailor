@@ -113,10 +113,11 @@ fn check_commit_ish(git_repo: &Git2Repo, commit_ish: &str) -> CheckResult {
         .collect();
     // Append staged/unstaged working-tree changes exactly as `gt --static` does,
     // so that the comparison is made against the same row set that fragmap shows.
-    if let Some(d) = git_repo.staged_diff().expect("read staged diff") {
+    let ctx = git_tailor::repo::DEFAULT_CONTEXT_LINES;
+    if let Some(d) = git_repo.staged_diff(ctx).expect("read staged diff") {
         commit_diffs.push(d);
     }
-    if let Some(d) = git_repo.unstaged_diff().expect("read unstaged diff") {
+    if let Some(d) = git_repo.unstaged_diff(ctx).expect("read unstaged diff") {
         commit_diffs.push(d);
     }
 
