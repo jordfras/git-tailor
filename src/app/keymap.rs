@@ -54,6 +54,8 @@ pub enum KeyCommand {
     Search,
     SearchNext,
     SearchPrev,
+    IncreaseContext,
+    DecreaseContext,
     Quit,
     Confirm,
     ForceQuit,
@@ -195,6 +197,15 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::SearchPrev,
                     _ => KeyCommand::None,
                 },
+                // + / -: adjust the diff context lines shown in the detail view.
+                KeyCode::Char('+') => match self {
+                    AppMode::CommitDetail => KeyCommand::IncreaseContext,
+                    _ => KeyCommand::None,
+                },
+                KeyCode::Char('-') => match self {
+                    AppMode::CommitDetail => KeyCommand::DecreaseContext,
+                    _ => KeyCommand::None,
+                },
                 // Space: open the operation picker in the commit list; elsewhere
                 // (detail/pager view, dialogs) it keeps the less-style page-down.
                 KeyCode::Char(' ') => match self {
@@ -237,6 +248,23 @@ mod tests {
         assert_eq!(
             AppMode::CommitDetail.parse_key(press(KeyCode::Char(' '))),
             KeyCommand::PageDown
+        );
+    }
+
+    #[test]
+    fn plus_minus_adjust_context_only_in_detail_view() {
+        assert_eq!(
+            AppMode::CommitDetail.parse_key(press(KeyCode::Char('+'))),
+            KeyCommand::IncreaseContext
+        );
+        assert_eq!(
+            AppMode::CommitDetail.parse_key(press(KeyCode::Char('-'))),
+            KeyCommand::DecreaseContext
+        );
+        // Ignored in the commit list.
+        assert_eq!(
+            AppMode::CommitList.parse_key(press(KeyCode::Char('+'))),
+            KeyCommand::None
         );
     }
 }

@@ -209,13 +209,13 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
 
     // No staged changes must remain
     assert!(
-        git_repo.staged_diff().unwrap().is_none(),
+        git_repo.staged_diff(3).unwrap().is_none(),
         "no staged changes should remain after abort"
     );
 
     // No unstaged changes must remain either
     assert!(
-        git_repo.unstaged_diff().unwrap().is_none(),
+        git_repo.unstaged_diff(3).unwrap().is_none(),
         "no unstaged changes should remain after abort"
     );
 }

@@ -131,6 +131,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             advance_search_match(app, SearchDirection::Prev);
             AppAction::Handled
         }
+        KeyCommand::IncreaseContext => {
+            app.increase_detail_context_lines();
+            AppAction::Handled
+        }
+        KeyCommand::DecreaseContext => {
+            app.decrease_detail_context_lines();
+            AppAction::Handled
+        }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
             if app.search_active {
@@ -423,9 +431,17 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
     ])
     .areas(area);
 
-    // Render header
-    let header_text = "Commit information";
-    let header = Paragraph::new(header_text).style(HEADER_STYLE);
+    // Render header: title on the left, current diff context lines on the right.
+    let title = "Commit information";
+    let context = format!("context: {} ", app.detail_context_lines.0);
+    let width = header_area.width as usize;
+    let pad = width.saturating_sub(title.len() + context.len());
+    let header_line = Line::from(vec![
+        Span::raw(title.to_string()),
+        Span::raw(" ".repeat(pad)),
+        Span::raw(context),
+    ]);
+    let header = Paragraph::new(header_line).style(HEADER_STYLE);
     frame.render_widget(header, header_area);
 
     // Render content
@@ -436,23 +452,24 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
     } else {
         let selected = app.commits[app.selection_index].clone();
         let oid = selected.oid.clone();
+        let context_lines = app.detail_context_lines.0;
 
         let diff_opt = match oid {
-            VirtualOid::Staged => match repo.staged_diff() {
+            VirtualOid::Staged => match repo.staged_diff(context_lines) {
                 Ok(diff_opt) => diff_opt,
                 Err(err) => {
                     app.set_error_message(format!("Failed to load staged diff: {err}"));
                     None
                 }
             },
-            VirtualOid::Unstaged => match repo.unstaged_diff() {
+            VirtualOid::Unstaged => match repo.unstaged_diff(context_lines) {
                 Ok(diff_opt) => diff_opt,
                 Err(err) => {
                     app.set_error_message(format!("Failed to load unstaged diff: {err}"));
                     None
                 }
             },
-            VirtualOid::Real(ref real_oid) => match repo.commit_diff(real_oid) {
+            VirtualOid::Real(ref real_oid) => match repo.commit_diff(real_oid, context_lines) {
                 Ok(diff) => Some(diff),
                 Err(err) => {
                     app.set_error_message(format!("Failed to load commit diff: {err}"));
@@ -510,9 +527,14 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
             app.search_match_index = None;
         }
 
-        // Clamp scroll offsets to valid range
-        let scroll_offset = app.detail_scroll_offset.min(layout.max_scroll);
-        let h_scroll = app.detail_h_scroll_offset.min(layout.max_h_scroll);
+        // Clamp the stored scroll offsets to the current content bounds. Writing
+        // them back (not just a local copy) matters when the content shrinks —
+        // e.g. reducing the diff context lines — so the offset snaps to the new
+        // bottom instead of leaving the user stuck unable to scroll up.
+        app.detail_scroll_offset = app.detail_scroll_offset.min(layout.max_scroll);
+        app.detail_h_scroll_offset = app.detail_h_scroll_offset.min(layout.max_h_scroll);
+        let scroll_offset = app.detail_scroll_offset;
+        let h_scroll = app.detail_h_scroll_offset;
 
         let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, h_scroll as u16));
         frame.render_widget(paragraph, layout.text_area);

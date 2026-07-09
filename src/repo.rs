@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
+/// Default number of diff context lines, matching git's own default.
+pub const DEFAULT_CONTEXT_LINES: u32 = 3;
+
 /// Result of reading the crash-safety journal at startup.
 ///
 /// Crash detection keys off an in-progress record inside the journal, not the
@@ -222,8 +225,10 @@ pub trait GitRepo {
     ///
     /// For the root commit (no parents), diffs against an empty tree so all
     /// files show as additions. Returns a `CommitDiff` containing the commit
-    /// metadata and every file/hunk/line changed.
-    fn commit_diff(&self, oid: &Oid) -> Result<CommitDiff>;
+    /// metadata and every file/hunk/line changed. `context_lines` is the number
+    /// of unchanged lines shown around each hunk; git merges hunks whose context
+    /// regions overlap, so a larger value yields fewer, larger hunks.
+    fn commit_diff(&self, oid: &Oid, context_lines: u32) -> Result<CommitDiff>;
 
     /// Extract commit diff with zero context lines, suitable for fragmap analysis.
     ///
@@ -234,20 +239,20 @@ pub trait GitRepo {
     fn commit_diff_for_fragmap(&self, oid: &Oid) -> Result<CommitDiff>;
 
     /// Return a synthetic `CommitDiff` for changes staged in the index (index vs
-    /// HEAD), with full context for display in the detail view.
+    /// HEAD), with `context_lines` of surrounding context for the detail view.
     ///
     /// Returns `Ok(None)` when the index is clean (no staged changes).
-    fn staged_diff(&self) -> Result<Option<CommitDiff>>;
+    fn staged_diff(&self, context_lines: u32) -> Result<Option<CommitDiff>>;
 
     /// Like [`staged_diff`](Self::staged_diff) but with zero-context tight spans
     /// for fragmap analysis (see [`commit_diff_for_fragmap`](Self::commit_diff_for_fragmap)).
     fn staged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>>;
 
     /// Return a synthetic `CommitDiff` for unstaged working-tree changes (workdir
-    /// vs index), with full context for display in the detail view.
+    /// vs index), with `context_lines` of surrounding context for the detail view.
     ///
     /// Returns `Ok(None)` when the working tree is clean relative to the index.
-    fn unstaged_diff(&self) -> Result<Option<CommitDiff>>;
+    fn unstaged_diff(&self, context_lines: u32) -> Result<Option<CommitDiff>>;
 
     /// Like [`unstaged_diff`](Self::unstaged_diff) but with zero-context tight
     /// spans for fragmap analysis.

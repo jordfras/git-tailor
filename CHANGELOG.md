@@ -23,6 +23,10 @@ The format is based on
   split/squash/fixup/reword/move/drop, the Staged row offers commit/unstage, the
   Unstaged row offers stage, and undo/redo are always available. In the commit
   detail view `Space` still pages down.
+- Adjust the diff context lines in the commit detail view with `+` and `-`
+  (default 3, minimum 0). The diff updates immediately: increasing the context
+  merges hunks whose surrounding lines overlap into one section, and decreasing
+  it splits them apart again. The current count is shown in the detail header.
 
 ### Changed
 

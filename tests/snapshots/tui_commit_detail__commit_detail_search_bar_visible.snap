@@ -1,12 +1,11 @@
 ---
 source: tests/tui_commit_detail.rs
-assertion_line: 228
 expression: "harness.render(|frame|\n{\n    let area = frame.area();\n    views::commit_detail::render(&repo, frame, &mut app, area);\n})"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 24 },
     content: [
-        "Commit information                                                              ",
+        "Commit information                                                   context: 3 ",
         "█                                                                               ",
         "█Commit: abc123                                                                 ",
         "█                                                                               ",

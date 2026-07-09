@@ -200,7 +200,9 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::Suspend
         | KeyCommand::Search
         | KeyCommand::SearchNext
-        | KeyCommand::SearchPrev => AppAction::Handled,
+        | KeyCommand::SearchPrev
+        | KeyCommand::IncreaseContext
+        | KeyCommand::DecreaseContext => AppAction::Handled,
         KeyCommand::SeparatorLeft => {
             app.separator_offset = app.separator_offset.saturating_sub(4);
             AppAction::Handled

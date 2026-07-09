@@ -76,8 +76,8 @@ fn commit_staged_creates_a_commit_from_the_index() {
     assert_eq!(new.tree().unwrap().id(), staged_tree);
 
     // The staged change is now committed; the unstaged change remains.
-    assert!(git_repo.staged_diff().unwrap().is_none());
-    assert!(git_repo.unstaged_diff().unwrap().is_some());
+    assert!(git_repo.staged_diff(3).unwrap().is_none());
+    assert!(git_repo.unstaged_diff(3).unwrap().is_some());
 }
 
 #[test]
@@ -108,8 +108,8 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
     // the unstaged change is untouched.
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Commit");
     assert_eq!(head_commit(&test).id(), parent);
-    assert!(git_repo.staged_diff().unwrap().is_some());
-    assert!(git_repo.unstaged_diff().unwrap().is_some());
+    assert!(git_repo.staged_diff(3).unwrap().is_some());
+    assert!(git_repo.unstaged_diff(3).unwrap().is_some());
     assert_eq!(
         std::fs::read_to_string(test.repo.workdir().unwrap().join("b.txt")).unwrap(),
         "b changed\n",
@@ -119,7 +119,7 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
     // Redo re-creates the same commit.
     assert_eq!(expect_done(git_repo.redo().unwrap()), "Commit");
     assert_eq!(head_commit(&test).id(), committed);
-    assert!(git_repo.staged_diff().unwrap().is_none());
+    assert!(git_repo.staged_diff(3).unwrap().is_none());
 }
 
 #[test]

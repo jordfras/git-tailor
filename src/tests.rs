@@ -76,13 +76,13 @@ impl GitRepo for MockRepo {
     fn list_commits(&self, _: &Oid, _: &Oid) -> anyhow::Result<Vec<CommitInfo>> {
         Ok(vec![])
     }
-    fn staged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
+    fn staged_diff(&self, _context_lines: u32) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
     fn staged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
-    fn unstaged_diff(&self) -> anyhow::Result<Option<CommitDiff>> {
+    fn unstaged_diff(&self, _context_lines: u32) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
     fn unstaged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
@@ -200,7 +200,7 @@ impl GitRepo for MockRepo {
     fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
         unimplemented!()
     }
-    fn commit_diff(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
+    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
         unimplemented!()
     }
     fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {

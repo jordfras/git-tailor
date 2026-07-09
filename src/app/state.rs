@@ -16,11 +16,22 @@ use crate::{
     CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
-    repo::{ConflictState, StashConflictState},
+    repo::{ConflictState, DEFAULT_CONTEXT_LINES, StashConflictState},
     views::theme::Theme,
 };
 
 use super::{AppMode, Operation, PendingDrop, PendingSplit, SplitStrategy};
+
+/// Number of diff context lines shown in the commit detail view. A newtype so
+/// its default (git's 3) is preserved under `AppState`'s derived `Default`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailContextLines(pub u32);
+
+impl Default for DetailContextLines {
+    fn default() -> Self {
+        Self(DEFAULT_CONTEXT_LINES)
+    }
+}
 
 /// Application state for the TUI.
 ///
@@ -62,6 +73,8 @@ pub struct AppState {
     pub commit_list_scroll_override: Option<usize>,
     /// Visible height of the detail view area (updated during render).
     pub detail_visible_height: usize,
+    /// Diff context lines shown in the detail view, adjusted with `+` / `-`.
+    pub detail_context_lines: DetailContextLines,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
     /// Whether the current status message represents an error (red) or success (green).
@@ -250,6 +263,18 @@ impl AppState {
         if self.detail_scroll_offset < self.max_detail_scroll {
             self.detail_scroll_offset += 1;
         }
+    }
+
+    /// Show one more diff context line in the detail view (`+`). git re-computes
+    /// the diff, so hunks whose context regions now overlap render as one.
+    pub fn increase_detail_context_lines(&mut self) {
+        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_add(1);
+    }
+
+    /// Show one fewer diff context line in the detail view (`-`), with 0 as the
+    /// floor. Hunks that were merged split apart again as context shrinks.
+    pub fn decrease_detail_context_lines(&mut self) {
+        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_sub(1);
     }
 
     /// Scroll detail view left (decrease horizontal offset).
@@ -714,6 +739,33 @@ fn half_page_size(visible_height: usize) -> usize {
 mod tests {
     use super::*;
     use crate::{CommitInfo, Oid, VirtualOid};
+
+    #[test]
+    fn detail_context_lines_default_is_git_default() {
+        assert_eq!(
+            AppState::default().detail_context_lines.0,
+            DEFAULT_CONTEXT_LINES
+        );
+    }
+
+    #[test]
+    fn increase_and_decrease_detail_context_lines() {
+        let mut app = AppState::default();
+        app.increase_detail_context_lines();
+        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES + 1);
+        app.decrease_detail_context_lines();
+        app.decrease_detail_context_lines();
+        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES - 1);
+    }
+
+    #[test]
+    fn decrease_detail_context_lines_floors_at_zero() {
+        let mut app = AppState::default();
+        for _ in 0..(DEFAULT_CONTEXT_LINES + 2) {
+            app.decrease_detail_context_lines();
+        }
+        assert_eq!(app.detail_context_lines.0, 0);
+    }
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {

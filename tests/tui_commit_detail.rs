@@ -86,6 +86,30 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     }));
 }
 
+/// A scroll offset past the content bottom (e.g. after the diff shrinks because
+/// the context lines were reduced) is clamped in place to `max_detail_scroll`,
+/// so the user can scroll back up immediately rather than being stuck.
+#[test]
+fn test_detail_scroll_offset_clamped_to_content_bottom() {
+    let repo = make_repo_with_empty_diff("abc123def456", "Short commit");
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.selection_index = 0;
+    app.detail_scroll_offset = 9999; // far beyond the (tiny) content
+
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
+
+    assert_eq!(
+        app.detail_scroll_offset, app.max_detail_scroll,
+        "scroll offset should be clamped to the content bottom, not left stale"
+    );
+}
+
 /// Diff lines from a file with Windows (CRLF) line endings must be stripped of
 /// `\r` before rendering — a trailing carriage return in a cell causes the
 /// cursor to jump to column 0, overwriting content on real terminals.
