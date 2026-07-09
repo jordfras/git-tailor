@@ -17,6 +17,12 @@ The format is based on
   print the script) — no package manager required. Candidates are computed by
   `gt` at completion time, so they always match the installed version and the
   repository's current refs.
+- Operation picker: press `Space` on any row to open a menu of the operations
+  available for it, so you can run one without memorizing its shortcut key. The
+  menu is filtered to the selected row — a real commit offers
+  split/squash/fixup/reword/move/drop, the Staged row offers commit/unstage, the
+  Unstaged row offers stage, and undo/redo are always available. In the commit
+  detail view `Space` still pages down.
 
 ### Changed
 

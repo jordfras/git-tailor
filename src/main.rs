@@ -215,6 +215,9 @@ fn main() -> Result<()> {
             AppMode::Loading { .. } => AppAction::Handled,
             AppMode::CommitList => views::commit_list::handle_key(action, &mut app),
             AppMode::CommitDetail => views::commit_detail::handle_key(action, &mut app),
+            AppMode::OperationSelect { .. } => {
+                views::operation_select::handle_key(action, &mut app)
+            }
             AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
             AppMode::SplitFileSelect { .. } => {
                 views::split_file_select::handle_key(action, &mut app)
@@ -1290,6 +1293,7 @@ fn render_mode(
         AppMode::Loading { .. } => views::loading::render(app, frame),
         AppMode::CommitList => views::commit_list::render(app, frame),
         AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
+        AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitFileSelect { .. } => views::split_file_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),

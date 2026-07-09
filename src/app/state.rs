@@ -20,7 +20,7 @@ use crate::{
     views::theme::Theme,
 };
 
-use super::{AppMode, PendingDrop, PendingSplit, SplitStrategy};
+use super::{AppMode, Operation, PendingDrop, PendingSplit, SplitStrategy};
 
 /// Application state for the TUI.
 ///
@@ -432,6 +432,36 @@ impl AppState {
         false
     }
 
+    /// The `VirtualOid` of the selected row, if any. Read-only (no error side
+    /// effect), used to decide which operations the picker offers.
+    pub fn selected_virtual_oid(&self) -> Option<&VirtualOid> {
+        self.commits.get(self.selection_index).map(|c| &c.oid)
+    }
+
+    /// Whether the selected row is the oldest real commit on the branch. Commits
+    /// are stored oldest-first with the synthetic working-tree rows appended, so
+    /// the oldest is simply the first real commit.
+    pub fn selected_is_oldest_commit(&self) -> bool {
+        self.commits
+            .iter()
+            .position(|c| !c.oid.is_synthetic())
+            .is_some_and(|first_real| first_real == self.selection_index)
+    }
+
+    /// Enter the operation picker for the selected row, highlighting the first
+    /// available operation. Every real/synthetic row offers at least undo/redo,
+    /// so this only no-ops when there is no selection at all.
+    pub fn enter_operation_select(&mut self) {
+        let is_oldest = self.selected_is_oldest_commit();
+        let first = self
+            .selected_virtual_oid()
+            .map(|oid| Operation::available_for(oid, is_oldest))
+            .and_then(|ops| ops.into_iter().next());
+        if let Some(operation) = first {
+            self.enter_dialog(AppMode::OperationSelect { operation });
+        }
+    }
+
     /// Enter split strategy selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_split_select(&mut self) {
@@ -561,6 +591,7 @@ impl AppState {
                 AppMode::CommitList
             }
             AppMode::Help(_)
+            | AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)

@@ -46,6 +46,7 @@ pub fn render(prev_mode: &AppMode, app: &mut crate::app::AppState, frame: &mut F
 fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
     let (max_scroll, visible_height) = Dialog::new(DialogKind::Info)
         .section(" Operations")
+        .key_binding("   Space          ", "Choose an operation for this row")
         .key_binding("   p              ", "Split commit (choose strategy)")
         .key_binding("   s              ", "Squash commit (pick target)")
         .key_binding("   f              ", "Fixup commit (pick target)")
@@ -64,7 +65,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .section(" Navigation")
         .key_binding("   ↓/↑, k/j       ", "Move selection down/up")
         .key_binding("   PgDn/PgUp      ", "Move one page down/up")
-        .key_binding("   Space/b        ", "Move one page down/up")
+        .key_binding("   b              ", "Move one page up")
         .key_binding("   Ctrl-f/b       ", "Move one page down/up")
         .key_binding("   Ctrl-d/u       ", "Move half page down/up")
         .key_binding("   Ctrl-PgDn/PgUp ", "Move half page down/up")

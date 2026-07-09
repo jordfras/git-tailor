@@ -15,9 +15,11 @@
 // TUI application state management
 
 pub mod keymap;
+pub mod operation;
 pub mod state;
 
 pub use keymap::{KeyCommand, read_event};
+pub use operation::Operation;
 pub use state::AppState;
 
 use crate::{
@@ -191,6 +193,11 @@ pub enum AppMode {
     CommitList,
     /// Detailed view of a single commit.
     CommitDetail,
+    /// Operation picker dialog; lists the operations valid for the selected row
+    /// and carries the highlighted operation. The menu is dynamic (filtered by
+    /// row), so the highlighted choice is stored as the `Operation` itself
+    /// rather than an index into a list that is recomputed each frame.
+    OperationSelect { operation: Operation },
     /// Split strategy selection dialog; carries the highlighted option index.
     SplitSelect { strategy_index: usize },
     /// File picker for the "split out file" strategy; lists the commit's
@@ -238,7 +245,8 @@ impl AppMode {
         match self {
             AppMode::Loading { .. } | AppMode::CommitList | AppMode::CommitDetail => None,
             AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
-            AppMode::SplitSelect { .. }
+            AppMode::OperationSelect { .. }
+            | AppMode::SplitSelect { .. }
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)

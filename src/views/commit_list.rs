@@ -122,6 +122,10 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.toggle_help();
             AppAction::Handled
         }
+        KeyCommand::OperationMenu => {
+            app.enter_operation_select();
+            AppAction::Handled
+        }
         KeyCommand::Split => {
             app.enter_split_select();
             AppAction::Handled

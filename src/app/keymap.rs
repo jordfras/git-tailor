@@ -36,6 +36,7 @@ pub enum KeyCommand {
     NavFilePrev,
     ToggleDetail,
     ShowHelp,
+    OperationMenu,
     Split,
     Squash,
     Fixup,
@@ -55,9 +56,7 @@ pub enum KeyCommand {
     SearchPrev,
     Quit,
     Confirm,
-    /// Ctrl+C: quit immediately, aborting any in-progress rebase first.
     ForceQuit,
-    /// Ctrl+Z (Unix only): suspend the process with SIGTSTP.
     Suspend,
     SeparatorLeft,
     SeparatorRight,
@@ -196,8 +195,12 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::SearchPrev,
                     _ => KeyCommand::None,
                 },
-                // Space / b: page scroll (less convention).
-                KeyCode::Char(' ') => KeyCommand::PageDown,
+                // Space: open the operation picker in the commit list; elsewhere
+                // (detail/pager view, dialogs) it keeps the less-style page-down.
+                KeyCode::Char(' ') => match self {
+                    AppMode::CommitList => KeyCommand::OperationMenu,
+                    _ => KeyCommand::PageDown,
+                },
                 KeyCode::Char('b') => KeyCommand::PageUp,
                 // 0 / $: scroll to left/right edge (vi/less convention).
                 KeyCode::Char('0') => KeyCommand::ScrollToLeftEdge,
@@ -209,5 +212,31 @@ impl AppMode {
             };
         }
         KeyCommand::None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn press(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn space_opens_operation_menu_in_commit_list() {
+        assert_eq!(
+            AppMode::CommitList.parse_key(press(KeyCode::Char(' '))),
+            KeyCommand::OperationMenu
+        );
+    }
+
+    #[test]
+    fn space_pages_down_outside_the_commit_list() {
+        // In the pager-style detail view Space keeps its less-style page-down.
+        assert_eq!(
+            AppMode::CommitDetail.parse_key(press(KeyCode::Char(' '))),
+            KeyCommand::PageDown
+        );
     }
 }
