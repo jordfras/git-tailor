@@ -168,21 +168,10 @@ impl AppMode {
                     }
                     _ => KeyCommand::None,
                 },
-                // a / A: stage / unstage all working-tree changes (only meaningful
-                // in the commit list, gated to the synthetic Unstaged/Staged rows).
-                KeyCode::Char('a') => match self {
-                    AppMode::CommitList => KeyCommand::StageAll,
-                    _ => KeyCommand::None,
-                },
-                KeyCode::Char('A') => match self {
-                    AppMode::CommitList => KeyCommand::UnstageAll,
-                    _ => KeyCommand::None,
-                },
-                // c: commit the staged changes (gated to the Staged row).
-                KeyCode::Char('c') => match self {
-                    AppMode::CommitList => KeyCommand::CommitStaged,
-                    _ => KeyCommand::None,
-                },
+                // a / A / c: stage / unstage all changes, commit staged.
+                KeyCode::Char('a') => KeyCommand::StageAll,
+                KeyCode::Char('A') => KeyCommand::UnstageAll,
+                KeyCode::Char('c') => KeyCommand::CommitStaged,
                 // u: undo (vim convention).
                 KeyCode::Char('u') => KeyCommand::Undo,
                 KeyCode::Char('/') => match self {
@@ -249,6 +238,32 @@ mod tests {
             AppMode::CommitDetail.parse_key(press(KeyCode::Char(' '))),
             KeyCommand::PageDown
         );
+    }
+
+    #[test]
+    fn stage_keys_map_unconditionally() {
+        // `a`/`A`/`c` map the same in every mode (like split/drop/reword); which
+        // rows they apply to is enforced by the handlers, not the keymap.
+        for mode in [
+            AppMode::CommitList,
+            AppMode::CommitDetail,
+            AppMode::OperationSelect {
+                operation: crate::app::Operation::Stage,
+            },
+        ] {
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('a'))),
+                KeyCommand::StageAll
+            );
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('A'))),
+                KeyCommand::UnstageAll
+            );
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('c'))),
+                KeyCommand::CommitStaged
+            );
+        }
     }
 
     #[test]

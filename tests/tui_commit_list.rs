@@ -262,7 +262,9 @@ fn synthetic_row(oid: VirtualOid, summary: &str) -> git_tailor::CommitInfo {
 }
 
 #[test]
-fn stage_unstage_keys_map_only_in_commit_list() {
+fn stage_unstage_keys_are_distinct_from_ctrl_variants() {
+    // `a` / `A` map unconditionally (the row gating lives in the handler); only
+    // the Ctrl-modified variant carries a different, scroll meaning.
     let list = AppMode::CommitList;
     assert_eq!(
         list.parse_key(key('a', KeyModifiers::NONE)),
@@ -271,17 +273,6 @@ fn stage_unstage_keys_map_only_in_commit_list() {
     assert_eq!(
         list.parse_key(key('A', KeyModifiers::SHIFT)),
         KeyCommand::UnstageAll
-    );
-
-    // Elsewhere `a` / `A` are inert (and `Ctrl-a` keeps its scroll meaning).
-    let detail = AppMode::CommitDetail;
-    assert_eq!(
-        detail.parse_key(key('a', KeyModifiers::NONE)),
-        KeyCommand::None
-    );
-    assert_eq!(
-        detail.parse_key(key('A', KeyModifiers::SHIFT)),
-        KeyCommand::None
     );
     assert_eq!(
         list.parse_key(key('a', KeyModifiers::CONTROL)),
@@ -335,18 +326,13 @@ fn unstage_all_is_gated_to_the_staged_row() {
 }
 
 #[test]
-fn commit_key_maps_only_in_commit_list() {
+fn commit_key_is_distinct_from_ctrl_force_quit() {
+    // `c` maps unconditionally (row gating is in the handler); Ctrl-c stays the
+    // force-quit chord.
     let list = AppMode::CommitList;
     assert_eq!(
         list.parse_key(key('c', KeyModifiers::NONE)),
         KeyCommand::CommitStaged
-    );
-
-    // Elsewhere `c` is inert (and Ctrl-c stays ForceQuit).
-    let detail = AppMode::CommitDetail;
-    assert_eq!(
-        detail.parse_key(key('c', KeyModifiers::NONE)),
-        KeyCommand::None
     );
     assert_eq!(
         list.parse_key(key('c', KeyModifiers::CONTROL)),

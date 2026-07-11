@@ -21,8 +21,9 @@ The format is based on
   available for it, so you can run one without memorizing its shortcut key. The
   menu is filtered to the selected row — a real commit offers
   split/squash/fixup/reword/move/drop, the Staged row offers commit/unstage, the
-  Unstaged row offers stage, and undo/redo are always available. In the commit
-  detail view `Space` still pages down.
+  Unstaged row offers stage, and undo/redo are always available. Each entry
+  shows its shortcut key, and pressing that key inside the dialog runs the
+  operation directly. In the commit detail view `Space` still pages down.
 - Adjust the diff context lines in the commit detail view with `+` and `-`
   (default 3, minimum 0). The diff updates immediately: increasing the context
   merges hunks whose surrounding lines overlap into one section, and decreasing
