@@ -44,7 +44,7 @@ Sleep 1.5s
 # ── Inspect the stray "fix" commit ─────────────────────────────────────────
 # Cursor starts on HEAD (bottom); step up one row at a time to
 # "fix: parse parenthesised expressions".
-Up@250ms 3
+Up 3
 Sleep 700ms
 Enter
 Sleep 500ms
@@ -63,9 +63,12 @@ Type "q"
 Sleep 700ms
 
 # ── Fold that fix into the parser commit it belongs to ─────────────────────
-Type "f"
-Sleep 600ms
-Up@250ms 4
+Space
+Down 2
+Sleep 700ms
+Enter
+Sleep 400ms
+Up 4
 Sleep 2s
 Enter
 Sleep 1.6s
@@ -73,9 +76,12 @@ Sleep 1.6s
 # ── Drop the debug commit that should never be merged ──────────────────────
 # The fixup left the cursor on the parser commit; step down to
 # "DROPME: hack in debug tracing".
-Down@250ms 4
+Down 4
 Sleep 700ms
-Type "d"
+Space
+Down 5
+Sleep 700ms
+Enter
 Sleep 900ms
 Enter
 Sleep 1.4s
