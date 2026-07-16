@@ -187,3 +187,45 @@ pub enum CompletionShell {
     Zsh,
     Fish,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn palette_builtins_resolve_without_a_file() {
+        let cli = Cli::try_parse_from(["gt", "--palette", "dark+"]).expect("args parse");
+        assert!(matches!(cli.palette, PaletteArg::DarkPlus));
+        assert!(cli.resolve_palette().is_ok());
+    }
+
+    #[test]
+    fn palette_missing_file_errors_with_reading_context() {
+        let cli =
+            Cli::try_parse_from(["gt", "--palette", "/no/such/scheme.json"]).expect("args parse");
+        let err = cli
+            .resolve_palette()
+            .expect_err("a missing file must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("reading color scheme"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn palette_bad_file_content_errors_with_parsing_context() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        write!(file, "{{ this is not a scheme").expect("write temp file");
+        let path = file.path().to_str().expect("utf-8 path");
+
+        let cli = Cli::try_parse_from(["gt", "--palette", path]).expect("args parse");
+        let err = cli.resolve_palette().expect_err("bad content must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("parsing color scheme"),
+            "unexpected error: {msg}"
+        );
+    }
+}
