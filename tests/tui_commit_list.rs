@@ -67,7 +67,7 @@ fn test_commit_list_with_selection() {
 
 #[test]
 fn campbell_palette_resolves_header_to_rgb() {
-    use git_tailor::views::palette::Colors;
+    use git_tailor::views::palette::{Colors, Scheme};
     use ratatui::style::Color;
 
     let mut harness = TuiTestHarness::typical();
@@ -83,7 +83,7 @@ fn campbell_palette_resolves_header_to_rgb() {
     assert_eq!(terminal_buf.cell((0, 0)).unwrap().fg, Color::White);
 
     // With --colors campbell those slots resolve to the fixed Campbell RGB.
-    app.colors = Colors::Campbell;
+    app.colors = Colors::Fixed(Scheme::CAMPBELL);
     let campbell_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
     assert_eq!(
         campbell_buf.cell((0, 0)).unwrap().bg,

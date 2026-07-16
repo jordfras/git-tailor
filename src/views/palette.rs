@@ -12,49 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Colour palette selection (`--colors`).
+//! Color palette selection (`--colors` / `--color-scheme`).
 //!
-//! By default (`Terminal`) the UI uses the terminal's own ANSI colours, so it
-//! adopts the user's theme. A built-in palette (`Campbell` or `DarkPlus`, both
-//! Windows Terminal schemes) instead resolves every ANSI colour to a fixed RGB
-//! value, reproducing that scheme's look on *any* terminal — including light or
-//! pastel ones, where the UI (matrix, diff, bars) is otherwise unreadable
-//! because it is designed for a dark background.
+//! By default (`Terminal`) the UI uses the terminal's own ANSI colors, so it
+//! adopts the user's theme. A fixed [`Scheme`] instead resolves every ANSI
+//! color to a specific RGB value, reproducing that scheme's look on *any*
+//! terminal — including light or pastel ones, where the UI (matrix, diff, bars)
+//! is otherwise unreadable because it is designed for a dark background.
 //!
-//! Views resolve their colours through the active [`Colors`] as they render
+//! Two schemes are built in ([`Scheme::CAMPBELL`], [`Scheme::DARK_PLUS`]).
+//!
+//! Views resolve their colors through the active [`Colors`] as they render
 //! (Terminal is the identity), and `main` paints a base background with
 //! [`Colors::base_style`] so unstyled cells adopt the palette's background.
 
-use clap::ValueEnum;
 use ratatui::style::{Color, Style};
 
-/// Which colour palette to render with (`--colors` / `GT_COLORS`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+/// Which color palette to render with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Colors {
-    /// Use the terminal's own colours (adopts the user's theme). The default.
+    /// Use the terminal's own colors (adopts the user's theme). The default.
     #[default]
     Terminal,
-    /// The Windows Terminal "Campbell" scheme, applied on any terminal.
-    Campbell,
-    /// The Windows Terminal "Dark+" scheme (softer than Campbell: a lighter
-    /// `#1e1e1e` background and slightly less-saturated accents).
-    #[value(name = "dark+", alias = "dark-plus")]
-    DarkPlus,
+    /// A fixed scheme (built-in or user-supplied), applied on any terminal.
+    Fixed(Scheme),
 }
 
 impl Colors {
-    /// Resolve a colour for the active palette. `Terminal` is the identity;
-    /// `Campbell` maps each ANSI-named colour to its Campbell RGB and leaves
-    /// explicit `Rgb`/`Indexed` (and `Reset`) colours untouched.
+    /// Resolve a color for the active palette. `Terminal` is the identity; a
+    /// `Fixed` scheme maps each ANSI-named color to its RGB and leaves explicit
+    /// `Rgb`/`Indexed` (and `Reset`) colors untouched.
     pub fn resolve(self, color: Color) -> Color {
         match self {
             Colors::Terminal => color,
-            Colors::Campbell => campbell(color),
-            Colors::DarkPlus => dark_plus(color),
+            Colors::Fixed(scheme) => scheme.resolve(color),
         }
     }
 
-    /// Resolve both colours of a style (modifiers/underline untouched). Handy for
+    /// Resolve both colors of a style (modifiers/underline untouched). Handy for
     /// styles built elsewhere, e.g. the fragmap theme's output.
     pub fn resolve_style(self, style: Style) -> Style {
         Style {
@@ -65,17 +60,12 @@ impl Colors {
     }
 
     /// Base style for the whole frame: nothing for `Terminal` (keep the
-    /// terminal's own background), the scheme's fg/bg for a built-in palette so
+    /// terminal's own background), the scheme's fg/bg for a `Fixed` palette so
     /// every cell that sets no background adopts it.
     pub fn base_style(self) -> Style {
         match self {
             Colors::Terminal => Style::default(),
-            Colors::Campbell => Style::new()
-                .fg(Color::Rgb(0xcc, 0xcc, 0xcc))
-                .bg(Color::Rgb(0x0c, 0x0c, 0x0c)),
-            Colors::DarkPlus => Style::new()
-                .fg(Color::Rgb(0xcc, 0xcc, 0xcc))
-                .bg(Color::Rgb(0x1e, 0x1e, 0x1e)),
+            Colors::Fixed(scheme) => Style::new().fg(rgb(scheme.fg)).bg(rgb(scheme.bg)),
         }
     }
 
@@ -86,63 +76,112 @@ impl Colors {
     pub fn terminal_background(self) -> Option<(u8, u8, u8)> {
         match self {
             Colors::Terminal => None,
-            Colors::Campbell => Some((0x0c, 0x0c, 0x0c)),
-            Colors::DarkPlus => Some((0x1e, 0x1e, 0x1e)),
+            Colors::Fixed(scheme) => Some(scheme.bg),
         }
     }
 }
 
-/// The Campbell RGB for a ratatui colour (mirrors `examples/gen_screenshot.rs`).
-/// `Reset`, `Rgb`, and `Indexed` are returned unchanged — `Reset` is covered by
-/// the base background, and explicit colours are already specific.
-fn campbell(color: Color) -> Color {
-    let [r, g, b] = match color {
-        Color::Black => [0x0c, 0x0c, 0x0c],
-        Color::Red => [0xc5, 0x0f, 0x1f],
-        Color::Green => [0x13, 0xa1, 0x0e],
-        Color::Yellow => [0xc1, 0x9c, 0x00],
-        Color::Blue => [0x00, 0x37, 0xda],
-        Color::Magenta => [0x88, 0x17, 0x98],
-        Color::Cyan => [0x3a, 0x96, 0xdd],
-        Color::Gray => [0xcc, 0xcc, 0xcc],
-        Color::DarkGray => [0x76, 0x76, 0x76],
-        Color::LightRed => [0xe7, 0x48, 0x56],
-        Color::LightGreen => [0x16, 0xc6, 0x0c],
-        Color::LightYellow => [0xf9, 0xf1, 0xa5],
-        Color::LightBlue => [0x3b, 0x78, 0xff],
-        Color::LightMagenta => [0xb4, 0x00, 0x9e],
-        Color::LightCyan => [0x61, 0xd6, 0xd6],
-        Color::White => [0xf2, 0xf2, 0xf2],
-        // Already specific, or handled by the base background.
-        other => return other,
-    };
-    Color::Rgb(r, g, b)
+/// A fully-resolved color scheme: an RGB for each of the 16 ANSI slots plus a
+/// foreground and background.
+///
+/// `ansi` is indexed by ANSI color number: 0–7 are the normal colors
+/// (black, red, green, yellow, blue, magenta, cyan, white) and 8–15 their
+/// bright variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Scheme {
+    fg: (u8, u8, u8),
+    bg: (u8, u8, u8),
+    ansi: [(u8, u8, u8); 16],
 }
 
-/// The Dark+ RGB for a ratatui colour (Windows Terminal's "Dark+" scheme). Same
-/// ANSI-name convention as [`campbell`]; `Reset`, `Rgb`, and `Indexed` pass
-/// through unchanged.
-fn dark_plus(color: Color) -> Color {
-    let [r, g, b] = match color {
-        Color::Black => [0x00, 0x00, 0x00],
-        Color::Red => [0xcd, 0x31, 0x31],
-        Color::Green => [0x0d, 0xbc, 0x79],
-        Color::Yellow => [0xe5, 0xe5, 0x10],
-        Color::Blue => [0x24, 0x72, 0xc8],
-        Color::Magenta => [0xbc, 0x3f, 0xbc],
-        Color::Cyan => [0x11, 0xa8, 0xcd],
-        Color::Gray => [0xe5, 0xe5, 0xe5],
-        Color::DarkGray => [0x66, 0x66, 0x66],
-        Color::LightRed => [0xf1, 0x4c, 0x4c],
-        Color::LightGreen => [0x23, 0xd1, 0x8b],
-        Color::LightYellow => [0xf5, 0xf5, 0x43],
-        Color::LightBlue => [0x3b, 0x8e, 0xea],
-        Color::LightMagenta => [0xd6, 0x70, 0xd6],
-        Color::LightCyan => [0x29, 0xb8, 0xdb],
-        Color::White => [0xe5, 0xe5, 0xe5],
-        // Already specific, or handled by the base background.
-        other => return other,
+impl Scheme {
+    /// Windows Terminal's default "Campbell" scheme.
+    pub const CAMPBELL: Scheme = Scheme {
+        fg: (0xcc, 0xcc, 0xcc),
+        bg: (0x0c, 0x0c, 0x0c),
+        ansi: [
+            (0x0c, 0x0c, 0x0c), // black
+            (0xc5, 0x0f, 0x1f), // red
+            (0x13, 0xa1, 0x0e), // green
+            (0xc1, 0x9c, 0x00), // yellow
+            (0x00, 0x37, 0xda), // blue
+            (0x88, 0x17, 0x98), // magenta
+            (0x3a, 0x96, 0xdd), // cyan
+            (0xcc, 0xcc, 0xcc), // white
+            (0x76, 0x76, 0x76), // bright black
+            (0xe7, 0x48, 0x56), // bright red
+            (0x16, 0xc6, 0x0c), // bright green
+            (0xf9, 0xf1, 0xa5), // bright yellow
+            (0x3b, 0x78, 0xff), // bright blue
+            (0xb4, 0x00, 0x9e), // bright magenta
+            (0x61, 0xd6, 0xd6), // bright cyan
+            (0xf2, 0xf2, 0xf2), // bright white
+        ],
     };
+
+    /// Windows Terminal's "Dark+" scheme — softer than Campbell, with a lighter
+    /// `#1e1e1e` background and slightly less-saturated accents.
+    pub const DARK_PLUS: Scheme = Scheme {
+        fg: (0xcc, 0xcc, 0xcc),
+        bg: (0x1e, 0x1e, 0x1e),
+        ansi: [
+            (0x00, 0x00, 0x00), // black
+            (0xcd, 0x31, 0x31), // red
+            (0x0d, 0xbc, 0x79), // green
+            (0xe5, 0xe5, 0x10), // yellow
+            (0x24, 0x72, 0xc8), // blue
+            (0xbc, 0x3f, 0xbc), // magenta
+            (0x11, 0xa8, 0xcd), // cyan
+            (0xe5, 0xe5, 0xe5), // white
+            (0x66, 0x66, 0x66), // bright black
+            (0xf1, 0x4c, 0x4c), // bright red
+            (0x23, 0xd1, 0x8b), // bright green
+            (0xf5, 0xf5, 0x43), // bright yellow
+            (0x3b, 0x8e, 0xea), // bright blue
+            (0xd6, 0x70, 0xd6), // bright magenta
+            (0x29, 0xb8, 0xdb), // bright cyan
+            (0xe5, 0xe5, 0xe5), // bright white
+        ],
+    };
+
+    /// Resolve one ratatui color against this scheme. ANSI-named colors map to
+    /// their RGB; everything else (explicit `Rgb`/`Indexed`, `Reset`) passes
+    /// through — `Reset` is covered by the base background.
+    pub fn resolve(self, color: Color) -> Color {
+        match ansi_index(color) {
+            Some(i) => rgb(self.ansi[i]),
+            None => color,
+        }
+    }
+}
+
+/// The ANSI color number (0–15) a ratatui color occupies, or `None` for colors
+/// that are already specific (`Rgb`/`Indexed`) or that the base background
+/// covers (`Reset`). ratatui names `Gray`/`White` for ANSI 7/15 and
+/// `DarkGray`/bright-`Light*` for the 8–15 bright range.
+fn ansi_index(color: Color) -> Option<usize> {
+    Some(match color {
+        Color::Black => 0,
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Yellow => 3,
+        Color::Blue => 4,
+        Color::Magenta => 5,
+        Color::Cyan => 6,
+        Color::Gray => 7,
+        Color::DarkGray => 8,
+        Color::LightRed => 9,
+        Color::LightGreen => 10,
+        Color::LightYellow => 11,
+        Color::LightBlue => 12,
+        Color::LightMagenta => 13,
+        Color::LightCyan => 14,
+        Color::White => 15,
+        _ => return None,
+    })
+}
+
+fn rgb((r, g, b): (u8, u8, u8)) -> Color {
     Color::Rgb(r, g, b)
 }
 
@@ -155,70 +194,47 @@ mod tests {
         assert_eq!(Colors::Terminal.resolve(Color::Green), Color::Green);
         assert_eq!(Colors::Terminal.resolve(Color::Reset), Color::Reset);
         assert_eq!(Colors::Terminal.base_style(), Style::default());
+        assert_eq!(Colors::Terminal.terminal_background(), None);
     }
 
     #[test]
     fn campbell_maps_ansi_to_rgb_and_leaves_the_rest() {
-        assert_eq!(
-            Colors::Campbell.resolve(Color::Green),
-            Color::Rgb(0x13, 0xa1, 0x0e)
-        );
-        assert_eq!(
-            Colors::Campbell.resolve(Color::White),
-            Color::Rgb(0xf2, 0xf2, 0xf2)
-        );
+        let campbell = Colors::Fixed(Scheme::CAMPBELL);
+        assert_eq!(campbell.resolve(Color::Green), Color::Rgb(0x13, 0xa1, 0x0e));
+        assert_eq!(campbell.resolve(Color::White), Color::Rgb(0xf2, 0xf2, 0xf2));
         // Explicit RGB and Reset pass through.
-        let rgb = Color::Rgb(1, 2, 3);
-        assert_eq!(Colors::Campbell.resolve(rgb), rgb);
-        assert_eq!(Colors::Campbell.resolve(Color::Reset), Color::Reset);
+        let explicit = Color::Rgb(1, 2, 3);
+        assert_eq!(campbell.resolve(explicit), explicit);
+        assert_eq!(campbell.resolve(Color::Reset), Color::Reset);
     }
 
     #[test]
-    fn campbell_base_style_sets_scheme_fg_and_bg() {
-        let base = Colors::Campbell.base_style();
-        assert_eq!(base.fg, Some(Color::Rgb(0xcc, 0xcc, 0xcc)));
-        assert_eq!(base.bg, Some(Color::Rgb(0x0c, 0x0c, 0x0c)));
-    }
-
-    #[test]
-    fn dark_plus_maps_ansi_to_rgb_and_leaves_the_rest() {
+    fn dark_plus_uses_the_softer_background() {
+        let dark_plus = Colors::Fixed(Scheme::DARK_PLUS);
         assert_eq!(
-            Colors::DarkPlus.resolve(Color::Green),
+            dark_plus.resolve(Color::Green),
             Color::Rgb(0x0d, 0xbc, 0x79)
         );
-        // Normal white (Gray) and bright white (White) differ in Dark+.
+        // Normal white (Gray) and bright white (White) match in Dark+.
+        assert_eq!(dark_plus.resolve(Color::Gray), Color::Rgb(0xe5, 0xe5, 0xe5));
         assert_eq!(
-            Colors::DarkPlus.resolve(Color::Gray),
+            dark_plus.resolve(Color::White),
             Color::Rgb(0xe5, 0xe5, 0xe5)
         );
-        assert_eq!(
-            Colors::DarkPlus.resolve(Color::White),
-            Color::Rgb(0xe5, 0xe5, 0xe5)
-        );
-        let rgb = Color::Rgb(1, 2, 3);
-        assert_eq!(Colors::DarkPlus.resolve(rgb), rgb);
-        assert_eq!(Colors::DarkPlus.resolve(Color::Reset), Color::Reset);
-    }
-
-    #[test]
-    fn dark_plus_base_style_and_terminal_background_use_the_softer_bg() {
-        let base = Colors::DarkPlus.base_style();
+        let base = dark_plus.base_style();
         assert_eq!(base.fg, Some(Color::Rgb(0xcc, 0xcc, 0xcc)));
         assert_eq!(base.bg, Some(Color::Rgb(0x1e, 0x1e, 0x1e)));
-        assert_eq!(
-            Colors::DarkPlus.terminal_background(),
-            Some((0x1e, 0x1e, 0x1e))
-        );
+        assert_eq!(dark_plus.terminal_background(), Some((0x1e, 0x1e, 0x1e)));
     }
 
     #[test]
-    fn resolve_style_maps_both_colours_and_keeps_modifiers() {
+    fn resolve_style_maps_both_colors_and_keeps_modifiers() {
         use ratatui::style::Modifier;
         let s = Style::new()
             .fg(Color::White)
             .bg(Color::Green)
             .add_modifier(Modifier::BOLD);
-        let r = Colors::Campbell.resolve_style(s);
+        let r = Colors::Fixed(Scheme::CAMPBELL).resolve_style(s);
         assert_eq!(r.fg, Some(Color::Rgb(0xf2, 0xf2, 0xf2)));
         assert_eq!(r.bg, Some(Color::Rgb(0x13, 0xa1, 0x0e)));
         assert!(r.add_modifier.contains(Modifier::BOLD));

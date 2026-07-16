@@ -116,7 +116,8 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
-    let terminal_bg = cli.colors.terminal_background();
+    let colors = cli.resolve_colors();
+    let terminal_bg = colors.terminal_background();
     let mut terminal_guard = setup_terminal(terminal_bg)?;
     let kb_enhanced = terminal_guard.kb_enhanced();
 
@@ -127,7 +128,7 @@ fn main() -> Result<()> {
     let mut app = AppState::new();
     app.reverse = cli.reverse;
     app.theme = cli.theme.unwrap_or_default();
-    app.colors = cli.colors;
+    app.colors = colors;
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
     app.full_fragmap = cli.full;

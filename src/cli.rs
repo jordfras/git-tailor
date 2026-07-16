@@ -17,7 +17,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
-use git_tailor::views::palette::Colors;
+use git_tailor::views::palette::{Colors, Scheme};
 use git_tailor::views::theme::Theme;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
@@ -89,14 +89,14 @@ pub struct Cli {
     #[arg(long = "theme", value_enum, env = "GT_THEME")]
     pub theme: Option<Theme>,
 
-    /// Colour palette to render with.
+    /// Color palette to render with.
     ///
-    /// `terminal` (default) uses your terminal's own colours. A built-in palette
+    /// `terminal` (default) uses your terminal's own colors. A built-in palette
     /// — `campbell` (Windows Terminal's default scheme) or `dark+` (its softer
     /// Dark+ scheme) — is applied on any terminal, useful on light or pastel
     /// themes where the UI would otherwise be hard to read.
     #[arg(long = "colors", value_enum, env = "GT_COLORS", default_value_t)]
-    pub colors: Colors,
+    pub colors: ColorsArg,
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
@@ -107,6 +107,31 @@ pub struct Cli {
     /// state gets stuck.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+}
+
+impl Cli {
+    /// Resolve the runtime palette from the built-in `--colors` choice.
+    pub fn resolve_colors(&self) -> Colors {
+        match self.colors {
+            ColorsArg::Terminal => Colors::Terminal,
+            ColorsArg::Campbell => Colors::Fixed(Scheme::CAMPBELL),
+            ColorsArg::DarkPlus => Colors::Fixed(Scheme::DARK_PLUS),
+        }
+    }
+}
+
+/// The built-in `--colors` choices. A custom scheme is supplied separately via
+/// `--color-scheme`; see [`Cli::resolve_colors`].
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum ColorsArg {
+    /// Use the terminal's own colors (adopts the user's theme). The default.
+    #[default]
+    Terminal,
+    /// The Windows Terminal "Campbell" scheme, applied on any terminal.
+    Campbell,
+    /// The Windows Terminal "Dark+" scheme (softer than Campbell).
+    #[value(name = "dark+", alias = "dark-plus")]
+    DarkPlus,
 }
 
 /// Maintenance subcommands that run instead of the interactive TUI.
