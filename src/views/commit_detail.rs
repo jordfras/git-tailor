@@ -28,6 +28,7 @@ const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
+use crate::views::palette::Colors;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SearchDirection {
@@ -281,11 +282,12 @@ fn highlight_line_matches(
     line: Line<'_>,
     regex: &regex::Regex,
     is_current_match: bool,
+    colors: Colors,
 ) -> Line<'static> {
     let highlight_style = if is_current_match {
-        Style::default().fg(Color::Black).bg(Color::LightCyan)
+        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::LightCyan))
     } else {
-        Style::default().fg(Color::Black).bg(Color::Yellow)
+        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::Yellow))
     };
     let new_spans: Vec<Span<'static>> = line
         .spans
@@ -366,6 +368,7 @@ fn apply_search_highlighting(
     content: Vec<Line<'_>>,
     app: &AppState,
     regex: &regex::Regex,
+    colors: Colors,
 ) -> Vec<Line<'static>> {
     let current_match_line = app.search_match_index.map(|i| app.search_matches[i]);
     content
@@ -373,7 +376,7 @@ fn apply_search_highlighting(
         .enumerate()
         .map(|(i, line)| {
             let is_current = current_match_line == Some(i);
-            highlight_line_matches(line, regex, is_current)
+            highlight_line_matches(line, regex, is_current, colors)
         })
         .collect()
 }
@@ -384,31 +387,34 @@ fn render_search_bar(
     app: &AppState,
     search_info: Option<SearchBarInfo>,
     area: Rect,
+    colors: Colors,
 ) {
+    let dark_gray = colors.resolve(Color::DarkGray);
+    let red = colors.resolve(Color::Red);
     let mut bar_spans = vec![
-        Span::styled("/", Style::default().fg(Color::DarkGray)),
-        Span::styled(app.search_query.clone(), Style::default().fg(Color::White)),
+        Span::styled("/", Style::default().fg(dark_gray)),
+        Span::styled(
+            app.search_query.clone(),
+            Style::default().fg(colors.resolve(Color::White)),
+        ),
     ];
     if app.search_input_active {
-        bar_spans.push(Span::styled("█", Style::default().fg(Color::DarkGray)));
+        bar_spans.push(Span::styled("█", Style::default().fg(dark_gray)));
     }
     match search_info {
         Some(SearchBarInfo::NoMatches) => {
-            bar_spans.push(Span::styled(
-                "  [no matches]",
-                Style::default().fg(Color::Red),
-            ));
+            bar_spans.push(Span::styled("  [no matches]", Style::default().fg(red)));
         }
         Some(SearchBarInfo::InvalidPattern) => {
             bar_spans.push(Span::styled(
                 "  [invalid pattern]",
-                Style::default().fg(Color::Red),
+                Style::default().fg(red),
             ));
         }
         Some(SearchBarInfo::Matches { current, total }) => {
             bar_spans.push(Span::styled(
                 format!("  [{}/{}]", current + 1, total),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(dark_gray),
             ));
         }
         None => {}
@@ -441,13 +447,14 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
         Span::raw(" ".repeat(pad)),
         Span::raw(context),
     ]);
-    let header = Paragraph::new(header_line).style(HEADER_STYLE);
+    let header = Paragraph::new(header_line).style(app.colors.resolve_style(HEADER_STYLE));
     frame.render_widget(header, header_area);
 
     // Render content
     let mut search_info: Option<SearchBarInfo> = None;
     if app.commits.is_empty() {
-        let placeholder = Paragraph::new("No commits").style(Style::default().fg(Color::DarkGray));
+        let placeholder = Paragraph::new("No commits")
+            .style(Style::default().fg(app.colors.resolve(Color::DarkGray)));
         frame.render_widget(placeholder, content_area);
     } else {
         let selected = app.commits[app.selection_index].clone();
@@ -478,12 +485,12 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
             },
         };
 
-        let mut content = build_metadata_lines(&selected);
+        let mut content = build_metadata_lines(&selected, app.colors);
         if let Some(ref diff) = diff_opt
             && !diff.files.is_empty()
         {
-            content.extend(build_file_list_lines(&diff.files));
-            let (diff_lines, file_offsets) = build_diff_lines(&diff.files);
+            content.extend(build_file_list_lines(&diff.files, app.colors));
+            let (diff_lines, file_offsets) = build_diff_lines(&diff.files, app.colors);
             let diff_start = content.len();
             app.file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
             content.extend(diff_lines);
@@ -513,7 +520,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
                                 layout.max_scroll,
                             );
                         }
-                        content = apply_search_highlighting(content, app, &regex);
+                        content = apply_search_highlighting(content, app, &regex, app.colors);
                     }
                 }
                 Err(_) => {
@@ -561,7 +568,7 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
 
     // Render search bar (row above footer, only when search is active)
     if app.search_active {
-        render_search_bar(frame, app, search_info, search_bar_area);
+        render_search_bar(frame, app, search_info, search_bar_area, app.colors);
     }
 
     // Render footer
@@ -569,11 +576,12 @@ pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: 
 }
 
 /// Build the metadata section: OID, full message, author, dates, committer.
-fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
+fn build_metadata_lines(commit: &crate::CommitInfo, colors: Colors) -> Vec<Line<'static>> {
+    let label = Style::default().fg(colors.resolve(Color::Yellow));
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("Commit: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Commit: ", label),
             Span::raw(commit.oid.long().to_string()),
         ]),
         Line::from(""),
@@ -582,7 +590,7 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
     for line in commit.message.lines() {
         lines.push(Line::from(Span::styled(
             line.to_string(),
-            Style::default().fg(Color::White),
+            Style::default().fg(colors.resolve(Color::White)),
         )));
     }
 
@@ -590,7 +598,7 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
 
     if let (Some(author), Some(author_email)) = (&commit.author, &commit.author_email) {
         lines.push(Line::from(vec![
-            Span::styled("Author: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Author: ", label),
             Span::raw(format!("{} <{}>", author, author_email)),
         ]));
 
@@ -603,7 +611,7 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
                 .format(&fmt)
                 .unwrap_or_else(|_| String::from("Invalid date"));
             lines.push(Line::from(vec![
-                Span::styled("Author Date: ", Style::default().fg(Color::Yellow)),
+                Span::styled("Author Date: ", label),
                 Span::raw(formatted),
             ]));
         }
@@ -613,7 +621,7 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
         {
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled("Committer: ", Style::default().fg(Color::Yellow)),
+                Span::styled("Committer: ", label),
                 Span::raw(format!("{} <{}>", committer, committer_email)),
             ]));
         }
@@ -623,7 +631,7 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
                 .format(&fmt)
                 .unwrap_or_else(|_| String::from("Invalid date"));
             lines.push(Line::from(vec![
-                Span::styled("Commit Date: ", Style::default().fg(Color::Yellow)),
+                Span::styled("Commit Date: ", label),
                 Span::raw(formatted),
             ]));
         }
@@ -633,12 +641,12 @@ fn build_metadata_lines(commit: &crate::CommitInfo) -> Vec<Line<'static>> {
 }
 
 /// Build the "Changed Files:" section listing each file with a status indicator.
-fn build_file_list_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
+fn build_file_list_lines(files: &[crate::FileDiff], colors: Colors) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
             "Changed Files:",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(colors.resolve(Color::Yellow)),
         )),
         Line::from(""),
     ];
@@ -646,7 +654,7 @@ fn build_file_list_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
     for file in files {
         let (status, path) = get_file_status_and_path(file);
         let status_str = format_file_status(status);
-        let status_color = get_status_color(status);
+        let status_color = colors.resolve(get_status_color(status));
         lines.push(Line::from(vec![
             Span::styled(
                 format!("  {} ", status_str),
@@ -662,10 +670,14 @@ fn build_file_list_lines(files: &[crate::FileDiff]) -> Vec<Line<'static>> {
 /// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
 /// Returns the lines and a vec of indices (within the returned vec) where each
 /// file's `--- ` header starts.
-fn build_diff_lines(files: &[crate::FileDiff]) -> (Vec<Line<'static>>, Vec<usize>) {
+fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'static>>, Vec<usize>) {
+    let white = colors.resolve(Color::White);
     let mut lines = vec![
         Line::from(""),
-        Line::from(Span::styled("Diff:", Style::default().fg(Color::Yellow))),
+        Line::from(Span::styled(
+            "Diff:",
+            Style::default().fg(colors.resolve(Color::Yellow)),
+        )),
         Line::from(""),
     ];
 
@@ -678,11 +690,11 @@ fn build_diff_lines(files: &[crate::FileDiff]) -> (Vec<Line<'static>>, Vec<usize
         file_header_indices.push(lines.len());
         lines.push(Line::from(Span::styled(
             format!("--- {}", old_path),
-            Style::default().fg(Color::White),
+            Style::default().fg(white),
         )));
         lines.push(Line::from(Span::styled(
             format!("+++ {}", new_path),
-            Style::default().fg(Color::White),
+            Style::default().fg(white),
         )));
 
         for hunk in &file.hunks {
@@ -691,15 +703,19 @@ fn build_diff_lines(files: &[crate::FileDiff]) -> (Vec<Line<'static>>, Vec<usize
                     "@@ -{},{} +{},{} @@",
                     hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
                 ),
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(colors.resolve(Color::Cyan)),
             )));
 
             for diff_line in &hunk.lines {
                 use crate::DiffLineKind;
                 let (prefix, style) = match diff_line.kind {
-                    DiffLineKind::Addition => ("+", Style::default().fg(Color::Green)),
-                    DiffLineKind::Deletion => ("-", Style::default().fg(Color::Red)),
-                    DiffLineKind::Context => (" ", Style::default().fg(Color::White)),
+                    DiffLineKind::Addition => {
+                        ("+", Style::default().fg(colors.resolve(Color::Green)))
+                    }
+                    DiffLineKind::Deletion => {
+                        ("-", Style::default().fg(colors.resolve(Color::Red)))
+                    }
+                    DiffLineKind::Context => (" ", Style::default().fg(white)),
                 };
                 let content_str = diff_line.content.trim_end_matches(['\n', '\r']);
                 lines.push(Line::from(Span::styled(

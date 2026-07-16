@@ -50,7 +50,7 @@ Guidelines:
     prove identical end-state behaviour.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
-- [ ] T226 P2 bug - Make the header/footer/separator chrome readable across
+- [X] T226 P2 bug - Make the header/footer/separator chrome readable across
   terminal themes. `HEADER_STYLE`, `FOOTER_STYLE`, `SEPARATOR_STYLE` (in
   `commit_list.rs`) and the status bar in `main_view.rs` paint `fg White` on
   ANSI-indexed backgrounds (`bg Green` / `bg Blue` / `bg Cyan`), assuming those

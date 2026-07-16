@@ -69,13 +69,11 @@ pub fn render(git_repo: &impl GitRepo, app: &mut AppState, frame: &mut ratatui::
 
         // Render separator between left and right
         let sep_height = area.height.saturating_sub(1); // exclude footer row
+        let sep_style = app
+            .colors
+            .resolve_style(Style::new().fg(Color::White).bg(Color::Blue));
         let separator_spans: Vec<Line> = (0..sep_height)
-            .map(|_| {
-                Line::from(Span::styled(
-                    "│",
-                    Style::new().fg(Color::White).bg(Color::Blue),
-                ))
-            })
+            .map(|_| Line::from(Span::styled("│", sep_style)))
             .collect();
         let sep_area = Rect {
             x: left_area.x + left_width - 1,

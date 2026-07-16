@@ -72,6 +72,7 @@ const BORDER_WIDTH: u16 = 2;
 const BORDER_HEIGHT: u16 = 2;
 
 use crate::app::{AppState, KeyCommand};
+use crate::views::palette::Colors;
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -197,7 +198,7 @@ pub fn render_conflict_dialog(
 /// # Example
 ///
 /// ```ignore
-/// Dialog::new(DialogKind::Confirm)
+/// Dialog::new(DialogKind::Confirm, colors)
 ///     .heading("Drop this commit?", TextRole::Highlight)
 ///     .styled_line(format!("{short_oid}"), TextRole::Key)
 ///     .instructions(&[("Enter", Color::Cyan, "Confirm"), ("Esc", Color::Cyan, "Cancel")])
@@ -206,13 +207,15 @@ pub fn render_conflict_dialog(
 /// ```
 pub struct Dialog {
     kind: DialogKind,
+    colors: Colors,
     lines: Vec<Line<'static>>,
 }
 
 impl Dialog {
-    pub fn new(kind: DialogKind) -> Self {
+    pub fn new(kind: DialogKind, colors: Colors) -> Self {
         Self {
             kind,
+            colors,
             lines: Vec::new(),
         }
     }
@@ -231,7 +234,7 @@ impl Dialog {
         self.lines.push(Line::from(Span::styled(
             format!(" {}", text.into()),
             Style::default()
-                .fg(role.color())
+                .fg(self.colors.resolve(role.color()))
                 .add_modifier(Modifier::BOLD),
         )));
         self.lines.push(Line::from(""));
@@ -247,7 +250,7 @@ impl Dialog {
         self.lines.push(Line::from(Span::styled(
             text.into(),
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.colors.resolve(Color::Yellow))
                 .add_modifier(Modifier::BOLD),
         )));
         self
@@ -259,7 +262,7 @@ impl Dialog {
     pub fn styled_line(mut self, text: impl Into<String>, role: TextRole) -> Self {
         self.lines.push(Line::from(Span::styled(
             format!(" {}", text.into()),
-            Style::default().fg(role.color()),
+            Style::default().fg(self.colors.resolve(role.color())),
         )));
         self
     }
@@ -289,23 +292,21 @@ impl Dialog {
 
     /// Wrap `text` with indent preservation and push each chunk with the color resolved from `role`.
     pub fn wrapped_styled(mut self, text: &str, width: usize, role: TextRole) -> Self {
+        let color = self.colors.resolve(role.color());
         for chunk in wrap_text_indent(text, width) {
-            self.lines.push(Line::from(Span::styled(
-                chunk,
-                Style::default().fg(role.color()),
-            )));
+            self.lines
+                .push(Line::from(Span::styled(chunk, Style::default().fg(color))));
         }
         self
     }
 
     /// Like [`wrapped_styled`][Dialog::wrapped_styled] but also applies the `BOLD` modifier.
     pub fn wrapped_styled_bold(mut self, text: &str, width: usize, role: TextRole) -> Self {
+        let color = self.colors.resolve(role.color());
         for chunk in wrap_text_indent(text, width) {
             self.lines.push(Line::from(Span::styled(
                 chunk,
-                Style::default()
-                    .fg(role.color())
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
             )));
         }
         self
@@ -315,7 +316,10 @@ impl Dialog {
     /// the default color.
     pub fn key_binding(mut self, key: &str, desc: &str) -> Self {
         self.lines.push(Line::from(vec![
-            Span::styled(key.to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                key.to_string(),
+                Style::default().fg(self.colors.resolve(Color::Cyan)),
+            ),
             Span::raw(desc.to_string()),
         ]));
         self
@@ -328,7 +332,10 @@ impl Dialog {
     pub fn instructions(mut self, hints: &[(&str, Color, &str)]) -> Self {
         let mut spans = Vec::new();
         for (i, &(key, color, desc)) in hints.iter().enumerate() {
-            spans.push(Span::styled(format!("{key} "), Style::default().fg(color)));
+            spans.push(Span::styled(
+                format!("{key} "),
+                Style::default().fg(self.colors.resolve(color)),
+            ));
             if i + 1 < hints.len() {
                 spans.push(Span::raw(format!("{desc}   ")));
             } else {
@@ -356,7 +363,8 @@ impl Dialog {
         preferred_width: u16,
         scroll_offset: usize,
     ) -> (usize, usize) {
-        let border_color = self.kind.border_color();
+        let border_color = self.colors.resolve(self.kind.border_color());
+        let bg_color = self.colors.resolve(Color::Black);
         let area = frame.area();
         let dialog_width = preferred_width.min(area.width.saturating_sub(BORDER_WIDTH * 2));
 
@@ -367,7 +375,7 @@ impl Dialog {
                     .title(padded_title.as_str())
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(border_color))
-                    .style(Style::default().bg(Color::Black)),
+                    .style(Style::default().bg(bg_color)),
             )
             .alignment(Alignment::Left)
             .wrap(Wrap { trim: false });

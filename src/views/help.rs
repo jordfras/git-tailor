@@ -44,7 +44,7 @@ pub fn render(prev_mode: &AppMode, app: &mut crate::app::AppState, frame: &mut F
 }
 
 fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
-    let (max_scroll, visible_height) = Dialog::new(DialogKind::Info)
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Info, app.colors)
         .section(" Operations")
         .key_binding("   Space          ", "Choose an operation for this row")
         .key_binding("   p              ", "Split commit (choose strategy)")
@@ -86,7 +86,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
 }
 
 fn render_commit_detail_help(app: &mut crate::app::AppState, frame: &mut Frame) {
-    let (max_scroll, visible_height) = Dialog::new(DialogKind::Info)
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Info, app.colors)
         .section(" Search")
         .key_binding("   /              ", "Search (regex)")
         .key_binding("   n              ", "Next search match")

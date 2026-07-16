@@ -43,7 +43,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         Some((n, t)) => format!(" {message} {n}/{t}"),
         None => format!(" {message}"),
     };
-    let mut dialog = Dialog::new(DialogKind::Info)
+    let mut dialog = Dialog::new(DialogKind::Info, app.colors)
         .blank()
         .styled_line(text, TextRole::Normal);
     let hint = if skippable {

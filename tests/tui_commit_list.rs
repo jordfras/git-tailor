@@ -66,6 +66,38 @@ fn test_commit_list_with_selection() {
 }
 
 #[test]
+fn campbell_palette_resolves_header_to_rgb() {
+    use git_tailor::views::palette::Colors;
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.selection_index = 0;
+
+    // With --colors terminal the header keeps the ANSI slots (White on Green).
+    app.colors = Colors::Terminal;
+    let terminal_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert_eq!(terminal_buf.cell((0, 0)).unwrap().bg, Color::Green);
+    assert_eq!(terminal_buf.cell((0, 0)).unwrap().fg, Color::White);
+
+    // With --colors campbell those slots resolve to the fixed Campbell RGB.
+    app.colors = Colors::Campbell;
+    let campbell_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert_eq!(
+        campbell_buf.cell((0, 0)).unwrap().bg,
+        Color::Rgb(0x13, 0xa1, 0x0e),
+        "Campbell should resolve the green header background to its RGB"
+    );
+    assert_eq!(
+        campbell_buf.cell((0, 0)).unwrap().fg,
+        Color::Rgb(0xf2, 0xf2, 0xf2),
+        "Campbell should resolve the white header foreground to its RGB"
+    );
+}
+
+#[test]
 fn test_commit_list_long_summary() {
     let mut harness = TuiTestHarness::short();
 

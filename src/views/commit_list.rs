@@ -18,6 +18,7 @@ use super::hunk_groups;
 use crate::VirtualOid;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
 use crate::fragmap::TouchKind;
+use crate::views::palette::Colors;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -305,7 +306,7 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     // Store visible height for page scrolling
     app.commit_list_visible_height = layout.available_height;
 
-    let header = build_header(&layout);
+    let header = build_header(&layout, app.colors);
     let rows = build_rows(app, &layout);
 
     let constraints = build_constraints(&layout);
@@ -334,8 +335,9 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
             width: 1,
             height: sep_height,
         };
+        let sep_style = app.colors.resolve_style(SEPARATOR_STYLE);
         let sep_lines: Vec<Line> = (0..sep_height)
-            .map(|_| Line::from(Span::styled("│", SEPARATOR_STYLE)))
+            .map(|_| Line::from(Span::styled("│", sep_style)))
             .collect();
         frame.render_widget(Paragraph::new(sep_lines), sep_area);
     }
@@ -492,7 +494,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     }
 }
 
-fn build_header(layout: &LayoutInfo) -> Row<'static> {
+fn build_header(layout: &LayoutInfo, colors: Colors) -> Row<'static> {
     let cells = if layout.fragmap_col_width > 0 {
         vec![
             Cell::from("SHA"),
@@ -502,7 +504,7 @@ fn build_header(layout: &LayoutInfo) -> Row<'static> {
     } else {
         vec![Cell::from("SHA"), Cell::from("Title")]
     };
-    Row::new(cells).style(HEADER_STYLE)
+    Row::new(cells).style(colors.resolve_style(HEADER_STYLE))
 }
 
 fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
@@ -697,6 +699,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         } else {
             text_style
         };
+        let text_cell_style = app.colors.resolve_style(text_cell_style);
 
         let mut cells = vec![
             Cell::from(Span::styled(short_sha, text_cell_style)),
@@ -713,6 +716,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
                 &layout.display_clusters,
                 is_selected,
                 app.theme.as_theme(),
+                app.colors,
             ));
         }
 
@@ -743,7 +747,9 @@ fn build_move_separator_row<'a>(
     let source = app.commits.get(source_index);
     let short_oid = source.map(|c| c.oid.short()).unwrap_or("?");
 
-    let style = Style::new().fg(Color::White).bg(COLOR_ACTION_INSERT_BG);
+    let style = app
+        .colors
+        .resolve_style(Style::new().fg(Color::White).bg(COLOR_ACTION_INSERT_BG));
     let label = format!("▶ move {} here", short_oid);
 
     let mut cells = vec![
@@ -765,7 +771,9 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         } else {
             Color::Green
         };
-        let style = Style::new().fg(Color::White).bg(bg);
+        let style = app
+            .colors
+            .resolve_style(Style::new().fg(Color::White).bg(bg));
         let footer = Paragraph::new(Span::styled(format!(" {}", msg), style)).style(style);
         frame.render_widget(footer, area);
         return;
@@ -789,16 +797,20 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
 
+    let footer_style = app.colors.resolve_style(FOOTER_STYLE);
+
     // When the background check found a newer release, the notice takes over the
     // right-hand hint slot (highlighted); otherwise show the usual help hint.
     let (hint, hint_style) = match &app.update_notice {
         Some(notice) => (
             notice.as_str(),
-            FOOTER_STYLE.fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            footer_style
+                .fg(app.colors.resolve(Color::Yellow))
+                .add_modifier(Modifier::BOLD),
         ),
         None => (
             "Press 'h' for help",
-            FOOTER_STYLE.add_modifier(Modifier::DIM),
+            footer_style.add_modifier(Modifier::DIM),
         ),
     };
     let left = if app.commits.is_empty() {
@@ -816,15 +828,15 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     let line = if left_len + MIN_GAP + hint_len + RIGHT_PAD <= width {
         let padding = width - left_len - hint_len - RIGHT_PAD;
         Line::from(vec![
-            Span::styled(left, FOOTER_STYLE),
-            Span::styled(" ".repeat(padding), FOOTER_STYLE),
+            Span::styled(left, footer_style),
+            Span::styled(" ".repeat(padding), footer_style),
             Span::styled(hint, hint_style),
-            Span::styled(" ".repeat(RIGHT_PAD), FOOTER_STYLE),
+            Span::styled(" ".repeat(RIGHT_PAD), footer_style),
         ])
     } else {
-        Line::from(Span::styled(left, FOOTER_STYLE))
+        Line::from(Span::styled(left, footer_style))
     };
-    let footer = Paragraph::new(line).style(FOOTER_STYLE);
+    let footer = Paragraph::new(line).style(footer_style);
     frame.render_widget(footer, area);
 }
 
@@ -879,6 +891,9 @@ fn render_action_footer(
         None => return,
     };
 
+    let footer_style = app.colors.resolve_style(ACTION_FOOTER_STYLE);
+    let accent_style = app.colors.resolve_style(ACTION_FOOTER_ACCENT);
+
     let short_oid = source.oid.short();
 
     let hints_len: usize =
@@ -896,21 +911,18 @@ fn render_action_footer(
     };
 
     let mut spans = vec![
-        Span::styled(format!(" {label} "), ACTION_FOOTER_STYLE),
-        Span::styled(short_oid.to_string(), ACTION_FOOTER_ACCENT),
-        Span::styled(
-            format!(" \"{summary}\"{after_summary}"),
-            ACTION_FOOTER_STYLE,
-        ),
-        Span::styled(" \u{b7} ", ACTION_FOOTER_STYLE),
+        Span::styled(format!(" {label} "), footer_style),
+        Span::styled(short_oid.to_string(), accent_style),
+        Span::styled(format!(" \"{summary}\"{after_summary}"), footer_style),
+        Span::styled(" \u{b7} ", footer_style),
     ];
 
     for (key, description) in hints {
-        spans.push(Span::styled(key.to_string(), ACTION_FOOTER_ACCENT));
-        spans.push(Span::styled(description.to_string(), ACTION_FOOTER_STYLE));
+        spans.push(Span::styled(key.to_string(), accent_style));
+        spans.push(Span::styled(description.to_string(), footer_style));
     }
 
-    let footer = Paragraph::new(Line::from(spans)).style(ACTION_FOOTER_STYLE);
+    let footer = Paragraph::new(Line::from(spans)).style(footer_style);
     frame.render_widget(footer, area);
 }
 

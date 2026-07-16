@@ -17,6 +17,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
+use git_tailor::views::palette::Colors;
 use git_tailor::views::theme::Theme;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
@@ -87,6 +88,15 @@ pub struct Cli {
     /// Hunk group matrix rendering theme.
     #[arg(long = "theme", value_enum, env = "GT_THEME")]
     pub theme: Option<Theme>,
+
+    /// Colour palette to render with.
+    ///
+    /// `terminal` (default) uses your terminal's own colours. A built-in palette
+    /// such as `campbell` (Windows Terminal's default scheme) is applied on any
+    /// terminal — useful on light or pastel themes where the UI would otherwise
+    /// be hard to read.
+    #[arg(long = "colors", value_enum, env = "GT_COLORS", default_value_t)]
+    pub colors: Colors,
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///

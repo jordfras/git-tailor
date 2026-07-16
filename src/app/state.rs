@@ -17,7 +17,7 @@ use crate::{
     app::SquashMode,
     fragmap::FragMap,
     repo::{ConflictState, DEFAULT_CONTEXT_LINES, StashConflictState},
-    views::theme::Theme,
+    views::{palette::Colors, theme::Theme},
 };
 
 use super::{AppMode, Operation, PendingDrop, PendingSplit, SplitStrategy};
@@ -47,6 +47,9 @@ pub struct AppState {
     pub full_fragmap: bool,
     /// Active fragmap rendering theme.
     pub theme: Theme,
+    /// Active colour palette (--colors). Terminal (default) keeps the terminal's
+    /// own colours; a built-in palette resolves them to fixed RGB.
+    pub colors: Colors,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.
     pub reference_oid: Oid,

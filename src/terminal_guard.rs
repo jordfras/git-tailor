@@ -22,36 +22,45 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
+use std::io::{self, Write};
 
 /// Owns the terminal-mode side effects done at startup, plus the `Terminal`
 /// itself. On Drop the modes are restored unconditionally (errors ignored —
 /// best-effort cleanup for the panic / early-return paths). The happy path
 /// should call [`Self::shutdown`] explicitly so teardown errors propagate to
 /// `main`.
-pub struct TerminalGuard {
+pub(crate) struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<io::Stderr>>,
     kb_enhanced: bool,
+    /// The RGB the terminal's default background was overridden to (OSC 11) at
+    /// startup, or `None` when left untouched. Reset (OSC 111) on teardown and
+    /// re-applied around external tools by the suspend/restore path.
+    background: Option<(u8, u8, u8)>,
     /// `true` once shutdown has been performed; suppresses Drop's repeat work.
     finished: bool,
 }
 
 impl TerminalGuard {
     /// Mutable access to the underlying `Terminal`.
-    pub fn terminal(&mut self) -> &mut Terminal<CrosstermBackend<io::Stderr>> {
+    pub(crate) fn terminal(&mut self) -> &mut Terminal<CrosstermBackend<io::Stderr>> {
         &mut self.terminal
     }
 
     /// Whether keyboard enhancement flags were pushed at startup.
-    pub fn kb_enhanced(&self) -> bool {
+    pub(crate) fn kb_enhanced(&self) -> bool {
         self.kb_enhanced
+    }
+
+    /// The terminal-background override in effect, if any.
+    pub(crate) fn background(&self) -> Option<(u8, u8, u8)> {
+        self.background
     }
 
     /// Run shutdown deterministically, propagating any error. After this call
     /// Drop becomes a no-op.
-    pub fn shutdown(mut self) -> Result<()> {
+    pub(crate) fn shutdown(mut self) -> Result<()> {
         self.finished = true;
-        teardown(self.kb_enhanced)
+        teardown(self.kb_enhanced, self.background)
     }
 }
 
@@ -61,13 +70,34 @@ impl Drop for TerminalGuard {
             return;
         }
         // Panic / early-return path: errors cannot be reported meaningfully.
-        let _ = teardown(self.kb_enhanced);
+        let _ = teardown(self.kb_enhanced, self.background);
     }
+}
+
+/// Emit OSC 11 to override the terminal's *default* background, so its window
+/// padding around the text grid matches the palette. Shared with the
+/// suspend/restore path in `external_tool`.
+pub(crate) fn set_terminal_background(
+    w: &mut impl Write,
+    (r, g, b): (u8, u8, u8),
+) -> io::Result<()> {
+    write!(w, "\x1b]11;#{r:02x}{g:02x}{b:02x}\x1b\\")?;
+    w.flush()
+}
+
+/// Emit OSC 111 to reset the terminal's default background to the user's
+/// configured value, undoing [`set_terminal_background`].
+pub(crate) fn reset_terminal_background(w: &mut impl Write) -> io::Result<()> {
+    write!(w, "\x1b]111\x1b\\")?;
+    w.flush()
 }
 
 /// Reverse the side effects of [`setup_terminal`]. Writes to `io::stderr()`
 /// directly, which addresses the same fd the `CrosstermBackend` wraps.
-fn teardown(kb_enhanced: bool) -> Result<()> {
+fn teardown(kb_enhanced: bool, background: Option<(u8, u8, u8)>) -> Result<()> {
+    if background.is_some() {
+        reset_terminal_background(&mut io::stderr())?;
+    }
     if kb_enhanced {
         execute!(io::stderr(), PopKeyboardEnhancementFlags)?;
     }
@@ -79,10 +109,16 @@ fn teardown(kb_enhanced: bool) -> Result<()> {
 /// Enter raw mode + alternate screen and request keyboard enhancement when
 /// supported. Returns a [`TerminalGuard`] that owns the constructed
 /// `Terminal` and will restore all of these on Drop.
-pub fn setup_terminal() -> Result<TerminalGuard> {
+pub(crate) fn setup_terminal(background: Option<(u8, u8, u8)>) -> Result<TerminalGuard> {
     enable_raw_mode()?;
     let mut stderr = io::stderr();
     execute!(stderr, EnterAlternateScreen)?;
+    // OSC 11: override the terminal's default background so its window padding
+    // around the text grid matches the palette instead of showing the user's
+    // (possibly light) theme background as a border.
+    if let Some(rgb) = background {
+        set_terminal_background(&mut stderr, rgb)?;
+    }
     let kb_enhanced = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
     if kb_enhanced {
         execute!(
@@ -90,12 +126,13 @@ pub fn setup_terminal() -> Result<TerminalGuard> {
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         )?;
     }
-    install_panic_hook(kb_enhanced);
+    install_panic_hook(kb_enhanced, background);
     let backend = CrosstermBackend::new(stderr);
     let terminal = Terminal::new(backend)?;
     Ok(TerminalGuard {
         terminal,
         kb_enhanced,
+        background,
         finished: false,
     })
 }
@@ -103,10 +140,10 @@ pub fn setup_terminal() -> Result<TerminalGuard> {
 /// Restore the terminal *before* the default panic handler runs, so the panic
 /// message is printed on the main screen instead of being wiped when the
 /// alternate screen is left during unwind (see [`TerminalGuard`]'s Drop).
-fn install_panic_hook(kb_enhanced: bool) {
+fn install_panic_hook(kb_enhanced: bool, background: Option<(u8, u8, u8)>) {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = teardown(kb_enhanced);
+        let _ = teardown(kb_enhanced, background);
         original_hook(info);
     }));
 }

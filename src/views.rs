@@ -26,6 +26,7 @@ pub mod loading;
 pub mod main_view;
 pub mod move_select;
 pub mod operation_select;
+pub mod palette;
 pub mod recover;
 pub mod split_file_select;
 pub mod split_select;

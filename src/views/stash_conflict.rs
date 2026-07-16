@@ -63,7 +63,7 @@ pub fn render_stash_conflict(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 62;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let dialog = Dialog::new(DialogKind::Danger)
+    let dialog = Dialog::new(DialogKind::Danger, app.colors)
         .heading(
             format!("Auto-stash conflict after {label_lower}"),
             TextRole::Danger,
