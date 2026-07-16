@@ -28,10 +28,10 @@ The format is based on
   (default 3, minimum 0). The diff updates immediately: increasing the context
   merges hunks whose surrounding lines overlap into one section, and decreasing
   it splits them apart again. The current count is shown in the detail header.
-- `--colors <terminal|campbell>` (env `GT_COLORS`) chooses the color palette.
-  The default `terminal` uses your terminal's own colors; `campbell` renders a
-  fixed dark scheme (Windows Terminal's Campbell) on any terminal, keeping the
-  UI readable on light or pastel themes where it would otherwise wash out.
+- `--colors` (env `GT_COLORS`) chooses the color palette. The default
+  `terminal` uses your terminal's own colors; a built-in palette renders a
+  fixed dark scheme on any terminal, keeping the UI readable on light or pastel
+  themes where it would otherwise wash out.
 
 ### Changed
 

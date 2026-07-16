@@ -92,9 +92,9 @@ pub struct Cli {
     /// Colour palette to render with.
     ///
     /// `terminal` (default) uses your terminal's own colours. A built-in palette
-    /// such as `campbell` (Windows Terminal's default scheme) is applied on any
-    /// terminal — useful on light or pastel themes where the UI would otherwise
-    /// be hard to read.
+    /// — `campbell` (Windows Terminal's default scheme) or `dark+` (its softer
+    /// Dark+ scheme) — is applied on any terminal, useful on light or pastel
+    /// themes where the UI would otherwise be hard to read.
     #[arg(long = "colors", value_enum, env = "GT_COLORS", default_value_t)]
     pub colors: Colors,
 

@@ -15,8 +15,8 @@
 //! Colour palette selection (`--colors`).
 //!
 //! By default (`Terminal`) the UI uses the terminal's own ANSI colours, so it
-//! adopts the user's theme. A built-in palette (currently `Campbell`, Windows
-//! Terminal's default scheme) instead resolves every ANSI colour to a fixed RGB
+//! adopts the user's theme. A built-in palette (`Campbell` or `DarkPlus`, both
+//! Windows Terminal schemes) instead resolves every ANSI colour to a fixed RGB
 //! value, reproducing that scheme's look on *any* terminal — including light or
 //! pastel ones, where the UI (matrix, diff, bars) is otherwise unreadable
 //! because it is designed for a dark background.
@@ -36,6 +36,10 @@ pub enum Colors {
     Terminal,
     /// The Windows Terminal "Campbell" scheme, applied on any terminal.
     Campbell,
+    /// The Windows Terminal "Dark+" scheme (softer than Campbell: a lighter
+    /// `#1e1e1e` background and slightly less-saturated accents).
+    #[value(name = "dark+", alias = "dark-plus")]
+    DarkPlus,
 }
 
 impl Colors {
@@ -46,6 +50,7 @@ impl Colors {
         match self {
             Colors::Terminal => color,
             Colors::Campbell => campbell(color),
+            Colors::DarkPlus => dark_plus(color),
         }
     }
 
@@ -68,6 +73,9 @@ impl Colors {
             Colors::Campbell => Style::new()
                 .fg(Color::Rgb(0xcc, 0xcc, 0xcc))
                 .bg(Color::Rgb(0x0c, 0x0c, 0x0c)),
+            Colors::DarkPlus => Style::new()
+                .fg(Color::Rgb(0xcc, 0xcc, 0xcc))
+                .bg(Color::Rgb(0x1e, 0x1e, 0x1e)),
         }
     }
 
@@ -79,6 +87,7 @@ impl Colors {
         match self {
             Colors::Terminal => None,
             Colors::Campbell => Some((0x0c, 0x0c, 0x0c)),
+            Colors::DarkPlus => Some((0x1e, 0x1e, 0x1e)),
         }
     }
 }
@@ -104,6 +113,33 @@ fn campbell(color: Color) -> Color {
         Color::LightMagenta => [0xb4, 0x00, 0x9e],
         Color::LightCyan => [0x61, 0xd6, 0xd6],
         Color::White => [0xf2, 0xf2, 0xf2],
+        // Already specific, or handled by the base background.
+        other => return other,
+    };
+    Color::Rgb(r, g, b)
+}
+
+/// The Dark+ RGB for a ratatui colour (Windows Terminal's "Dark+" scheme). Same
+/// ANSI-name convention as [`campbell`]; `Reset`, `Rgb`, and `Indexed` pass
+/// through unchanged.
+fn dark_plus(color: Color) -> Color {
+    let [r, g, b] = match color {
+        Color::Black => [0x00, 0x00, 0x00],
+        Color::Red => [0xcd, 0x31, 0x31],
+        Color::Green => [0x0d, 0xbc, 0x79],
+        Color::Yellow => [0xe5, 0xe5, 0x10],
+        Color::Blue => [0x24, 0x72, 0xc8],
+        Color::Magenta => [0xbc, 0x3f, 0xbc],
+        Color::Cyan => [0x11, 0xa8, 0xcd],
+        Color::Gray => [0xe5, 0xe5, 0xe5],
+        Color::DarkGray => [0x66, 0x66, 0x66],
+        Color::LightRed => [0xf1, 0x4c, 0x4c],
+        Color::LightGreen => [0x23, 0xd1, 0x8b],
+        Color::LightYellow => [0xf5, 0xf5, 0x43],
+        Color::LightBlue => [0x3b, 0x8e, 0xea],
+        Color::LightMagenta => [0xd6, 0x70, 0xd6],
+        Color::LightCyan => [0x29, 0xb8, 0xdb],
+        Color::White => [0xe5, 0xe5, 0xe5],
         // Already specific, or handled by the base background.
         other => return other,
     };
@@ -142,6 +178,37 @@ mod tests {
         let base = Colors::Campbell.base_style();
         assert_eq!(base.fg, Some(Color::Rgb(0xcc, 0xcc, 0xcc)));
         assert_eq!(base.bg, Some(Color::Rgb(0x0c, 0x0c, 0x0c)));
+    }
+
+    #[test]
+    fn dark_plus_maps_ansi_to_rgb_and_leaves_the_rest() {
+        assert_eq!(
+            Colors::DarkPlus.resolve(Color::Green),
+            Color::Rgb(0x0d, 0xbc, 0x79)
+        );
+        // Normal white (Gray) and bright white (White) differ in Dark+.
+        assert_eq!(
+            Colors::DarkPlus.resolve(Color::Gray),
+            Color::Rgb(0xe5, 0xe5, 0xe5)
+        );
+        assert_eq!(
+            Colors::DarkPlus.resolve(Color::White),
+            Color::Rgb(0xe5, 0xe5, 0xe5)
+        );
+        let rgb = Color::Rgb(1, 2, 3);
+        assert_eq!(Colors::DarkPlus.resolve(rgb), rgb);
+        assert_eq!(Colors::DarkPlus.resolve(Color::Reset), Color::Reset);
+    }
+
+    #[test]
+    fn dark_plus_base_style_and_terminal_background_use_the_softer_bg() {
+        let base = Colors::DarkPlus.base_style();
+        assert_eq!(base.fg, Some(Color::Rgb(0xcc, 0xcc, 0xcc)));
+        assert_eq!(base.bg, Some(Color::Rgb(0x1e, 0x1e, 0x1e)));
+        assert_eq!(
+            Colors::DarkPlus.terminal_background(),
+            Some((0x1e, 0x1e, 0x1e))
+        );
     }
 
     #[test]
