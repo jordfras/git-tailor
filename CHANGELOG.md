@@ -31,7 +31,9 @@ The format is based on
 - `--colors` (env `GT_COLORS`) chooses the color palette. The default
   `terminal` uses your terminal's own colors; a built-in palette renders a
   fixed dark scheme on any terminal, keeping the UI readable on light or pastel
-  themes where it would otherwise wash out.
+  themes where it would otherwise wash out. Point `--color-scheme` (env
+  `GT_COLOR_SCHEME`) at a Windows Terminal scheme JSON file to apply any custom
+  palette.
 
 ### Changed
 

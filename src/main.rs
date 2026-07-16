@@ -116,7 +116,7 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
-    let colors = cli.resolve_colors();
+    let colors = cli.resolve_colors()?;
     let terminal_bg = colors.terminal_background();
     let mut terminal_guard = setup_terminal(terminal_bg)?;
     let kb_enhanced = terminal_guard.kb_enhanced();

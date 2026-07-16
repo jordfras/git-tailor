@@ -20,13 +20,17 @@
 //! terminal — including light or pastel ones, where the UI (matrix, diff, bars)
 //! is otherwise unreadable because it is designed for a dark background.
 //!
-//! Two schemes are built in ([`Scheme::CAMPBELL`], [`Scheme::DARK_PLUS`]).
+//! Two schemes are built in ([`Scheme::CAMPBELL`], [`Scheme::DARK_PLUS`]), and a
+//! custom one can be loaded from a Windows Terminal color-scheme JSON file via
+//! [`Scheme::from_wt_json`].
 //!
 //! Views resolve their colors through the active [`Colors`] as they render
 //! (Terminal is the identity), and `main` paints a base background with
 //! [`Colors::base_style`] so unstyled cells adopt the palette's background.
 
+use anyhow::{Context, Result, bail};
 use ratatui::style::{Color, Style};
+use serde::Deserialize;
 
 /// Which color palette to render with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,7 +86,8 @@ impl Colors {
 }
 
 /// A fully-resolved color scheme: an RGB for each of the 16 ANSI slots plus a
-/// foreground and background.
+/// foreground and background. Built-ins are `const`; custom schemes are parsed
+/// from Windows Terminal color-scheme JSON with [`Scheme::from_wt_json`].
 ///
 /// `ansi` is indexed by ANSI color number: 0–7 are the normal colors
 /// (black, red, green, yellow, blue, magenta, cyan, white) and 8–15 their
@@ -153,6 +158,38 @@ impl Scheme {
             None => color,
         }
     }
+
+    /// Parse a [Windows Terminal color-scheme] JSON object. Extra fields (name,
+    /// `cursorColor`, `selectionBackground`, …) are ignored, so any scheme
+    /// exported in this widely-used format works as-is.
+    ///
+    /// [Windows Terminal color-scheme]: https://learn.microsoft.com/windows/terminal/customize-settings/color-schemes
+    pub fn from_wt_json(json: &str) -> Result<Scheme> {
+        let raw: WtScheme = serde_json::from_str(json)
+            .context("color scheme is not valid Windows Terminal scheme JSON")?;
+        Ok(Scheme {
+            fg: parse_hex(&raw.foreground)?,
+            bg: parse_hex(&raw.background)?,
+            ansi: [
+                parse_hex(&raw.black)?,
+                parse_hex(&raw.red)?,
+                parse_hex(&raw.green)?,
+                parse_hex(&raw.yellow)?,
+                parse_hex(&raw.blue)?,
+                parse_hex(&raw.purple)?,
+                parse_hex(&raw.cyan)?,
+                parse_hex(&raw.white)?,
+                parse_hex(&raw.bright_black)?,
+                parse_hex(&raw.bright_red)?,
+                parse_hex(&raw.bright_green)?,
+                parse_hex(&raw.bright_yellow)?,
+                parse_hex(&raw.bright_blue)?,
+                parse_hex(&raw.bright_purple)?,
+                parse_hex(&raw.bright_cyan)?,
+                parse_hex(&raw.bright_white)?,
+            ],
+        })
+    }
 }
 
 /// The ANSI color number (0–15) a ratatui color occupies, or `None` for colors
@@ -183,6 +220,43 @@ fn ansi_index(color: Color) -> Option<usize> {
 
 fn rgb((r, g, b): (u8, u8, u8)) -> Color {
     Color::Rgb(r, g, b)
+}
+
+/// Parse a `#rrggbb` (or `rrggbb`) hex color into an RGB triple.
+fn parse_hex(s: &str) -> Result<(u8, u8, u8)> {
+    let h = s.strip_prefix('#').unwrap_or(s);
+    if h.len() != 6 || !h.is_ascii() {
+        bail!("invalid hex color {s:?}, expected #rrggbb");
+    }
+    let component = |range: std::ops::Range<usize>| {
+        u8::from_str_radix(&h[range], 16).map_err(|_| anyhow::anyhow!("invalid hex color {s:?}"))
+    };
+    Ok((component(0..2)?, component(2..4)?, component(4..6)?))
+}
+
+/// The subset of Windows Terminal's color-scheme JSON we consume. Unknown keys
+/// are ignored; the 16 ANSI colors plus fg/bg are required.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WtScheme {
+    background: String,
+    foreground: String,
+    black: String,
+    red: String,
+    green: String,
+    yellow: String,
+    blue: String,
+    purple: String,
+    cyan: String,
+    white: String,
+    bright_black: String,
+    bright_red: String,
+    bright_green: String,
+    bright_yellow: String,
+    bright_blue: String,
+    bright_purple: String,
+    bright_cyan: String,
+    bright_white: String,
 }
 
 #[cfg(test)]
@@ -239,4 +313,54 @@ mod tests {
         assert_eq!(r.bg, Some(Color::Rgb(0x13, 0xa1, 0x0e)));
         assert!(r.add_modifier.contains(Modifier::BOLD));
     }
+
+    #[test]
+    fn from_wt_json_parses_a_scheme_and_ignores_extra_fields() {
+        // A trimmed Campbell export, with fields WT includes that we ignore.
+        let json = r##"{
+            "name": "Campbell",
+            "cursorColor": "#FFFFFF",
+            "selectionBackground": "#FFFFFF",
+            "background": "#0C0C0C", "foreground": "#CCCCCC",
+            "black": "#0C0C0C", "red": "#C50F1F", "green": "#13A10E",
+            "yellow": "#C19C00", "blue": "#0037DA", "purple": "#881798",
+            "cyan": "#3A96DD", "white": "#CCCCCC",
+            "brightBlack": "#767676", "brightRed": "#E74856",
+            "brightGreen": "#16C60C", "brightYellow": "#F9F1A5",
+            "brightBlue": "#3B78FF", "brightPurple": "#B4009E",
+            "brightCyan": "#61D6D6", "brightWhite": "#F2F2F2"
+        }"##;
+        let scheme = Scheme::from_wt_json(json).unwrap();
+        assert_eq!(scheme, Scheme::CAMPBELL);
+    }
+
+    #[test]
+    fn from_wt_json_rejects_bad_hex_and_missing_fields() {
+        // Missing the whole set of required color keys.
+        assert!(Scheme::from_wt_json(r##"{"name": "x"}"##).is_err());
+        // Malformed hex in one field.
+        let mut bad: serde_json::Value =
+            serde_json::from_str(VALID_MINIMAL).expect("fixture parses");
+        bad["red"] = serde_json::json!("#zzzzzz");
+        assert!(Scheme::from_wt_json(&bad.to_string()).is_err());
+    }
+
+    #[test]
+    fn parse_hex_accepts_with_or_without_hash() {
+        assert_eq!(parse_hex("#0C0C0C").unwrap(), (0x0c, 0x0c, 0x0c));
+        assert_eq!(parse_hex("0c0c0c").unwrap(), (0x0c, 0x0c, 0x0c));
+        assert!(parse_hex("#fff").is_err());
+        assert!(parse_hex("#gggggg").is_err());
+    }
+
+    const VALID_MINIMAL: &str = r##"{
+        "background": "#0C0C0C", "foreground": "#CCCCCC",
+        "black": "#0C0C0C", "red": "#C50F1F", "green": "#13A10E",
+        "yellow": "#C19C00", "blue": "#0037DA", "purple": "#881798",
+        "cyan": "#3A96DD", "white": "#CCCCCC",
+        "brightBlack": "#767676", "brightRed": "#E74856",
+        "brightGreen": "#16C60C", "brightYellow": "#F9F1A5",
+        "brightBlue": "#3B78FF", "brightPurple": "#B4009E",
+        "brightCyan": "#61D6D6", "brightWhite": "#F2F2F2"
+    }"##;
 }

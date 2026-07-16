@@ -14,6 +14,9 @@
 
 // Command-line argument definitions for the `gt` binary.
 
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
@@ -94,9 +97,19 @@ pub struct Cli {
     /// `terminal` (default) uses your terminal's own colors. A built-in palette
     /// — `campbell` (Windows Terminal's default scheme) or `dark+` (its softer
     /// Dark+ scheme) — is applied on any terminal, useful on light or pastel
-    /// themes where the UI would otherwise be hard to read.
+    /// themes where the UI would otherwise be hard to read. Overridden by
+    /// `--color-scheme` when that is set.
     #[arg(long = "colors", value_enum, env = "GT_COLORS", default_value_t)]
     pub colors: ColorsArg,
+
+    /// Path to a custom color scheme (a Windows Terminal scheme JSON file).
+    ///
+    /// Loads a full palette from a Windows Terminal color-scheme JSON object —
+    /// the format published by sites like windowsterminalthemes.dev and the
+    /// iTerm2-Color-Schemes collection — and applies it on any terminal. Takes
+    /// precedence over `--colors`.
+    #[arg(long = "color-scheme", env = "GT_COLOR_SCHEME", value_name = "FILE")]
+    pub color_scheme: Option<PathBuf>,
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
@@ -110,13 +123,22 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// Resolve the runtime palette from the built-in `--colors` choice.
-    pub fn resolve_colors(&self) -> Colors {
-        match self.colors {
+    /// Resolve the color palette from `--colors` / `--color-scheme`. A
+    /// `--color-scheme` file, when given, wins over the built-in `--colors`
+    /// choice; reading or parsing it can fail, hence the `Result`.
+    pub fn resolve_colors(&self) -> Result<Colors> {
+        if let Some(path) = &self.color_scheme {
+            let json = std::fs::read_to_string(path)
+                .with_context(|| format!("reading color scheme {}", path.display()))?;
+            let scheme = Scheme::from_wt_json(&json)
+                .with_context(|| format!("parsing color scheme {}", path.display()))?;
+            return Ok(Colors::Fixed(scheme));
+        }
+        Ok(match self.colors {
             ColorsArg::Terminal => Colors::Terminal,
             ColorsArg::Campbell => Colors::Fixed(Scheme::CAMPBELL),
             ColorsArg::DarkPlus => Colors::Fixed(Scheme::DARK_PLUS),
-        }
+        })
     }
 }
 
