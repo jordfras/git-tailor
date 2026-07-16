@@ -1581,3 +1581,39 @@
   any shell-reload step needed (e.g. `source ~/.bashrc`); this removes the
   manual setup burden for `cargo install` users and makes T140/T141 completions
   self-contained without depending on a package manager
+- [-] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
+  use `syntect` (already a transitive dependency) to highlight the code portions
+  of diff hunks based on the file extension / language; convert syntect's
+  `(Style, &str)` token pairs to ratatui `Span`s with mapped foreground colors;
+  diff-specific styling (green/red for added/removed lines, hunk headers) should
+  remain and take precedence — syntax colors apply to the code content within
+  those lines; add a `syntect::parsing::SyntaxSet` and
+  `syntect::highlighting::ThemeSet` to the application state (loaded once at
+  startup) so highlighting is performed per-hunk on demand without re-loading
+  assets; consider caching highlighted output per commit to avoid
+  re-highlighting on every render. (Flags: WONT DO — `syntect` is not actually a
+  dependency and is heavy to add; the current solid-fg +/- line coloring cannot
+  coexist with per-token syntax colors without a delta-style background-tint
+  redesign; and correct highlighting needs full old/new file blobs we do not
+  store. See plan `investigate-task-t138`.)
+- [X] T166 P3 feat - Increase and decrease diff context lines in commit detail
+  view with `+` and `-`: pressing `+` should increase the number of context
+  lines shown around each hunk (default 3, matching git's default), and `-`
+  should decrease it (minimum 0); store the context line count in `AppState` and
+  pass it through to `commit_diff` (or re-render the cached diff with the new
+  context); changing the value should trigger a re-fetch or re-render of the
+  diff so the change is immediately visible; show the current context line count
+  in the footer or status line so the user knows the active value
+- [X] T226 P2 bug - Make the header/footer/separator chrome readable across
+  terminal themes. `HEADER_STYLE`, `FOOTER_STYLE`, `SEPARATOR_STYLE` (in
+  `commit_list.rs`) and the status bar in `main_view.rs` paint `fg White` on
+  ANSI-indexed backgrounds (`bg Green` / `bg Blue` / `bg Cyan`), assuming those
+  ANSI slots are dark enough for white text. On pastel themes that remap ANSI
+  green/blue to light shades (e.g. Catppuccin Mocha: blue `#89b4fa`, green
+  `#a6e3a1`) the white-on-light text washes out, as does the `DarkGray`
+  "Press 'h' for help" hint on the footer. Make the chrome contrast-safe on any
+  terminal palette — prefer self-consistent explicit RGB (or reverse-video) for
+  the bars instead of inheriting ambiguous ANSI background slots, so it is
+  readable by default. A separate opt-in flag for overall UI coloring
+  (analogous to `--theme`, which today only styles the hunk-group matrix) could
+  be a follow-up nicety but should not be the primary fix.
