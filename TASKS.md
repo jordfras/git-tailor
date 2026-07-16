@@ -65,7 +65,7 @@ Guidelines:
   be a follow-up nicety but should not be the primary fix.
 
 ## Interactivity — Commit Detail View
-- [ ] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
+- [-] T138 P3 feat - Add syntax highlighting to diff code in commit detail view:
   use `syntect` (already a transitive dependency) to highlight the code portions
   of diff hunks based on the file extension / language; convert syntect's
   `(Style, &str)` token pairs to ratatui `Span`s with mapped foreground colors;
@@ -75,7 +75,11 @@ Guidelines:
   `syntect::highlighting::ThemeSet` to the application state (loaded once at
   startup) so highlighting is performed per-hunk on demand without re-loading
   assets; consider caching highlighted output per commit to avoid
-  re-highlighting on every render
+  re-highlighting on every render. (Flags: WONT DO — `syntect` is not actually a
+  dependency and is heavy to add; the current solid-fg +/- line coloring cannot
+  coexist with per-token syntax colors without a delta-style background-tint
+  redesign; and correct highlighting needs full old/new file blobs we do not
+  store. See plan `investigate-task-t138`.)
 
 - [X] T166 P3 feat - Increase and decrease diff context lines in commit detail
   view with `+` and `-`: pressing `+` should increase the number of context
