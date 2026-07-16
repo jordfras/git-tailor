@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generates `doc/tui_example.png` — the screenshot shown in the README.
+//! Generates `doc/tui_example.png` — the screenshot shown in the README,
+//! rendered with the Dark+ palette.
 //!
 //! Rather than hand-capturing a terminal, this builds a small *synthetic* git
 //! repository in a temp dir (the same `TempDir` + `git2` approach used by the
 //! integration tests), loads it through the real `Git2Repo` + fragmap pipeline,
 //! renders the commit-list view into a ratatui `TestBackend` buffer exactly as
 //! the TUI tests do, and then rasterizes that buffer to a PNG with a bundled
-//! monospace font. Because it drives the production rendering code, the image
-//! can never drift from the real UI.
+//! monospace font, resolving colors through the shared `views::palette::Scheme`
+//! the live `--palette` option uses. Because it drives the production rendering
+//! and color code, the image can never drift from the real UI.
 //!
 //! Run with: `cargo run --example gen_screenshot`
 //!
@@ -37,6 +39,7 @@ use git_tailor::{
     fragmap,
     repo::{Git2Repo, GitRepo},
     views,
+    views::palette::Scheme,
     views::theme::Theme,
 };
 use git2::{Repository, Signature, Time};
@@ -48,6 +51,9 @@ const ROWS: u16 = 12;
 
 /// Output image location, relative to the crate root.
 const OUTPUT: &str = "doc/tui_example.png";
+
+/// Palette the screenshot is rendered with.
+const PALETTE: Scheme = Scheme::DARK_PLUS;
 
 fn main() -> Result<()> {
     let tmp = tempfile::TempDir::new()?;
@@ -71,7 +77,7 @@ fn main() -> Result<()> {
     let buffer = render_to_buffer(&mut app)?;
 
     let out = Path::new(env!("CARGO_MANIFEST_DIR")).join(OUTPUT);
-    image_render::buffer_to_png(&buffer, &out).context("rasterizing buffer to PNG")?;
+    image_render::buffer_to_png(&buffer, &out, PALETTE).context("rasterizing buffer to PNG")?;
     println!("Wrote {} ({COLS}x{ROWS} cells)", out.display());
     Ok(())
 }
@@ -291,6 +297,7 @@ mod image_render {
 
     use anyhow::Result;
     use fontdue::Font;
+    use git_tailor::views::palette::Scheme;
     use ratatui::buffer::Buffer;
     use ratatui::style::{Color, Modifier};
 
@@ -303,11 +310,8 @@ mod image_render {
     /// Outer padding around the terminal grid, in pixels.
     const MARGIN: u32 = 14;
 
-    // Windows Terminal "Campbell" palette — a familiar, readable terminal look.
-    const DEFAULT_FG: [u8; 3] = [0xcc, 0xcc, 0xcc];
-    const DEFAULT_BG: [u8; 3] = [0x0c, 0x0c, 0x0c];
-
-    pub fn buffer_to_png(buffer: &Buffer, out: &Path) -> Result<()> {
+    pub fn buffer_to_png(buffer: &Buffer, out: &Path, scheme: Scheme) -> Result<()> {
+        let default_bg = rgb(scheme.background());
         let font = Font::from_bytes(FONT_BYTES, fontdue::FontSettings::default())
             .map_err(|e| anyhow::anyhow!("loading font: {e}"))?;
 
@@ -323,12 +327,12 @@ mod image_render {
         let img_w = MARGIN * 2 + cell_w * area.width as u32;
         let img_h = MARGIN * 2 + cell_h * area.height as u32;
 
-        let mut img = image::RgbImage::from_pixel(img_w, img_h, image::Rgb(DEFAULT_BG));
+        let mut img = image::RgbImage::from_pixel(img_w, img_h, image::Rgb(default_bg));
 
         for y in 0..area.height {
             for x in 0..area.width {
                 let cell = &buffer[(x, y)];
-                let (fg, bg) = resolve_colors(cell.fg, cell.bg, cell.modifier);
+                let (fg, bg) = resolve_colors(cell.fg, cell.bg, cell.modifier, scheme);
 
                 let px0 = MARGIN + x as u32 * cell_w;
                 let py0 = MARGIN + y as u32 * cell_h;
@@ -361,9 +365,14 @@ mod image_render {
 
     /// Resolve a cell's foreground/background to concrete RGB, applying the
     /// REVERSED and DIM modifiers (BOLD is ignored — the font has one weight).
-    fn resolve_colors(fg: Color, bg: Color, modifier: Modifier) -> ([u8; 3], [u8; 3]) {
-        let mut fg = to_rgb(fg, true);
-        let mut bg = to_rgb(bg, false);
+    fn resolve_colors(
+        fg: Color,
+        bg: Color,
+        modifier: Modifier,
+        scheme: Scheme,
+    ) -> ([u8; 3], [u8; 3]) {
+        let mut fg = to_rgb(fg, true, scheme);
+        let mut bg = to_rgb(bg, false, scheme);
         if modifier.contains(Modifier::REVERSED) {
             std::mem::swap(&mut fg, &mut bg);
         }
@@ -420,56 +429,42 @@ mod image_render {
         ]
     }
 
-    fn to_rgb(color: Color, is_fg: bool) -> [u8; 3] {
+    /// Resolve a ratatui color to concrete RGB, using the shared palette
+    /// [`Scheme`] for the named ANSI slots and the scheme's own fg/bg for
+    /// `Reset`. This drives the same mapping the live TUI uses (`--palette`), so
+    /// the screenshot's colors can never drift from it.
+    fn to_rgb(color: Color, is_fg: bool, scheme: Scheme) -> [u8; 3] {
         match color {
-            Color::Reset => {
-                if is_fg {
-                    DEFAULT_FG
-                } else {
-                    DEFAULT_BG
-                }
-            }
-            Color::Black => [0x0c, 0x0c, 0x0c],
-            Color::Red => [0xc5, 0x0f, 0x1f],
-            Color::Green => [0x13, 0xa1, 0x0e],
-            Color::Yellow => [0xc1, 0x9c, 0x00],
-            Color::Blue => [0x00, 0x37, 0xda],
-            Color::Magenta => [0x88, 0x17, 0x98],
-            Color::Cyan => [0x3a, 0x96, 0xdd],
-            // ratatui `Gray` is the normal-intensity white (palette index 7).
-            Color::Gray => [0xcc, 0xcc, 0xcc],
-            Color::DarkGray => [0x76, 0x76, 0x76],
-            Color::LightRed => [0xe7, 0x48, 0x56],
-            Color::LightGreen => [0x16, 0xc6, 0x0c],
-            Color::LightYellow => [0xf9, 0xf1, 0xa5],
-            Color::LightBlue => [0x3b, 0x78, 0xff],
-            Color::LightMagenta => [0xb4, 0x00, 0x9e],
-            Color::LightCyan => [0x61, 0xd6, 0xd6],
-            Color::White => [0xf2, 0xf2, 0xf2],
+            Color::Reset => rgb(if is_fg {
+                scheme.foreground()
+            } else {
+                scheme.background()
+            }),
             Color::Rgb(r, g, b) => [r, g, b],
+            // The UI never emits indexed colors; handled defensively via the
+            // standard xterm-256 palette (system colors mirror the scheme).
             Color::Indexed(i) => xterm256(i),
+            // Named ANSI colors resolve through the scheme (yields `Rgb`).
+            named => match scheme.resolve(named) {
+                Color::Rgb(r, g, b) => [r, g, b],
+                _ => rgb(if is_fg {
+                    scheme.foreground()
+                } else {
+                    scheme.background()
+                }),
+            },
         }
     }
 
-    /// Map an xterm 256-color index to RGB (16 system + 6×6×6 cube + grayscale).
+    fn rgb((r, g, b): (u8, u8, u8)) -> [u8; 3] {
+        [r, g, b]
+    }
+
+    /// Map an xterm 256-color index to RGB (6×6×6 cube + grayscale ramp; the
+    /// 0–15 system slots fall back to a neutral gray, as the UI never uses them).
     fn xterm256(i: u8) -> [u8; 3] {
         match i {
-            0 => [0x0c, 0x0c, 0x0c],
-            1 => [0xc5, 0x0f, 0x1f],
-            2 => [0x13, 0xa1, 0x0e],
-            3 => [0xc1, 0x9c, 0x00],
-            4 => [0x00, 0x37, 0xda],
-            5 => [0x88, 0x17, 0x98],
-            6 => [0x3a, 0x96, 0xdd],
-            7 => [0xcc, 0xcc, 0xcc],
-            8 => [0x76, 0x76, 0x76],
-            9 => [0xe7, 0x48, 0x56],
-            10 => [0x16, 0xc6, 0x0c],
-            11 => [0xf9, 0xf1, 0xa5],
-            12 => [0x3b, 0x78, 0xff],
-            13 => [0xb4, 0x00, 0x9e],
-            14 => [0x61, 0xd6, 0xd6],
-            15 => [0xf2, 0xf2, 0xf2],
+            0..=15 => [0xcc, 0xcc, 0xcc],
             16..=231 => {
                 let i = i - 16;
                 let r = i / 36;

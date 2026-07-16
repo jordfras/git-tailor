@@ -149,6 +149,16 @@ impl Scheme {
         ],
     };
 
+    /// This scheme's default foreground color, as an RGB triple.
+    pub fn foreground(self) -> (u8, u8, u8) {
+        self.fg
+    }
+
+    /// This scheme's default background color, as an RGB triple.
+    pub fn background(self) -> (u8, u8, u8) {
+        self.bg
+    }
+
     /// Resolve one ratatui color against this scheme. ANSI-named colors map to
     /// their RGB; everything else (explicit `Rgb`/`Indexed`, `Reset`) passes
     /// through — `Reset` is covered by the base background.
@@ -280,6 +290,9 @@ mod tests {
         let explicit = Color::Rgb(1, 2, 3);
         assert_eq!(campbell.resolve(explicit), explicit);
         assert_eq!(campbell.resolve(Color::Reset), Color::Reset);
+        // Foreground/background accessors expose the scheme's own fg/bg.
+        assert_eq!(Scheme::CAMPBELL.foreground(), (0xcc, 0xcc, 0xcc));
+        assert_eq!(Scheme::CAMPBELL.background(), (0x0c, 0x0c, 0x0c));
     }
 
     #[test]
