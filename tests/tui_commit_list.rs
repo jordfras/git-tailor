@@ -76,13 +76,13 @@ fn campbell_palette_resolves_header_to_rgb() {
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
     app.selection_index = 0;
 
-    // With --colors terminal the header keeps the ANSI slots (White on Green).
+    // With --palette terminal the header keeps the ANSI slots (White on Green).
     app.colors = Colors::Terminal;
     let terminal_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
     assert_eq!(terminal_buf.cell((0, 0)).unwrap().bg, Color::Green);
     assert_eq!(terminal_buf.cell((0, 0)).unwrap().fg, Color::White);
 
-    // With --colors campbell those slots resolve to the fixed Campbell RGB.
+    // With --palette campbell those slots resolve to the fixed Campbell RGB.
     app.colors = Colors::Fixed(Scheme::CAMPBELL);
     let campbell_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
     assert_eq!(

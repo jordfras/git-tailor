@@ -11,7 +11,8 @@ The format is based on
 ### Added
 
 - Shell completion for `bash`, `zsh`, and `fish`. It covers all flags and value
-  options (e.g. `--theme`), and completes the base argument with branch and tag
+  options (e.g. `--matrix-theme`), and completes the base argument with branch
+  and tag
   names from the current repository. Install it with
   `gt completions --shell <bash|zsh|fish> --install` (or omit `--install` to
   print the script) — no package manager required. Candidates are computed by
@@ -28,15 +29,19 @@ The format is based on
   (default 3, minimum 0). The diff updates immediately: increasing the context
   merges hunks whose surrounding lines overlap into one section, and decreasing
   it splits them apart again. The current count is shown in the detail header.
-- `--colors` (env `GT_COLORS`) chooses the color palette. The default
-  `terminal` uses your terminal's own colors; a built-in palette renders a
-  fixed dark scheme on any terminal, keeping the UI readable on light or pastel
-  themes where it would otherwise wash out. Point `--color-scheme` (env
-  `GT_COLOR_SCHEME`) at a Windows Terminal scheme JSON file to apply any custom
-  palette.
+- `--palette` (env `GT_PALETTE`) chooses the color palette. The default
+  `terminal` uses your terminal's own colors; `campbell` and `dark+` are
+  built-in dark schemes rendered on any terminal, keeping the UI readable on
+  light or pastel themes where it would otherwise wash out. Any other value is a
+  path to a Windows Terminal color-scheme JSON file, so you can apply any custom
+  scheme.
 
 ### Changed
 
+- The hunk-group matrix theme option was renamed from `--theme` to
+  `--matrix-theme` (env `GT_THEME` → `GT_MATRIX_THEME`), to distinguish it from
+  the new `--palette` color option. The old `--theme` name and `GT_THEME` are no
+  longer accepted.
 - git-tailor no longer falls back to `vi` when no editor is configured. If
   neither `core.editor` nor the `GIT_EDITOR`/`VISUAL`/`EDITOR` environment
   variables are set, it now reports a clear error asking you to configure one,

@@ -116,7 +116,7 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
-    let colors = cli.resolve_colors()?;
+    let colors = cli.resolve_palette()?;
     let terminal_bg = colors.terminal_background();
     let mut terminal_guard = setup_terminal(terminal_bg)?;
     let kb_enhanced = terminal_guard.kb_enhanced();
@@ -127,7 +127,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::new();
     app.reverse = cli.reverse;
-    app.theme = cli.theme.unwrap_or_default();
+    app.theme = cli.matrix_theme.unwrap_or_default();
     app.colors = colors;
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
@@ -157,7 +157,7 @@ fn main() -> Result<()> {
     loop {
         terminal_guard.terminal().draw(|frame| {
             // Paint the palette's base background first so every cell that sets
-            // no background of its own adopts it (a no-op for --colors terminal).
+            // no background of its own adopts it (a no-op for --palette terminal).
             frame.render_widget(
                 ratatui::widgets::Block::new().style(app.colors.base_style()),
                 frame.area(),

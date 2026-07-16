@@ -104,8 +104,9 @@ two commits touch the same hunk group but are separated by other commits.
 
 The default **highlight** theme focuses on the selected commit: the hunk groups
 it touches are drawn at full brightness (with heavy `┃` connectors) while every
-other column is dimmed. Pass `--theme plain` for a flat look with no dimming, or
-`--theme classic` for the background-color style matching `--static` output. The
+other column is dimmed. Pass `--matrix-theme plain` for a flat look with no
+dimming, or `--matrix-theme classic` for the background-color style matching
+`--static` output. The
 `plain` and `classic` themes render the matrix much like the
 [fragmap](https://github.com/amollberg/fragmap) tool, so they may feel more
 familiar if you are coming from there.
@@ -136,7 +137,7 @@ When you select a commit, the other commits are colored relative to it:
 | Dim green | Fully squashable — every hunk group this commit touches is squashable; a good candidate to merge into another commit             |
 | Normal    | No shared hunk groups with the currently selected commit                                                                          |
 
-With `--theme plain` these same relationships are shown in yellow (squashable),
+With `--matrix-theme plain` these same relationships are shown in yellow (squashable),
 red (conflicting), and gray (fully squashable) instead.
 
 

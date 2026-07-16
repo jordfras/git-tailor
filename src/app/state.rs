@@ -47,8 +47,8 @@ pub struct AppState {
     pub full_fragmap: bool,
     /// Active fragmap rendering theme.
     pub theme: Theme,
-    /// Active colour palette (--colors). Terminal (default) keeps the terminal's
-    /// own colours; a built-in palette resolves them to fixed RGB.
+    /// Active color palette (--palette). Terminal (default) keeps the terminal's
+    /// own colors; a fixed scheme resolves them to specific RGB.
     pub colors: Colors,
     /// The reference OID (merge-base) used when the session started.
     /// Stored here so 'u' update can rescan from HEAD down to the same base.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Color palette selection (`--colors` / `--color-scheme`).
+//! Color palette selection (`--palette`).
 //!
 //! By default (`Terminal`) the UI uses the terminal's own ANSI colors, so it
 //! adopts the user's theme. A fixed [`Scheme`] instead resolves every ANSI

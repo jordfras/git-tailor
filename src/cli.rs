@@ -88,28 +88,28 @@ pub struct Cli {
     #[arg(long, conflicts_with = "base")]
     pub all: bool,
 
-    /// Hunk group matrix rendering theme.
-    #[arg(long = "theme", value_enum, env = "GT_THEME")]
-    pub theme: Option<Theme>,
-
-    /// Color palette to render with.
+    /// Rendering theme for the hunk group matrix.
     ///
-    /// `terminal` (default) uses your terminal's own colors. A built-in palette
-    /// — `campbell` (Windows Terminal's default scheme) or `dark+` (its softer
-    /// Dark+ scheme) — is applied on any terminal, useful on light or pastel
-    /// themes where the UI would otherwise be hard to read. Overridden by
-    /// `--color-scheme` when that is set.
-    #[arg(long = "colors", value_enum, env = "GT_COLORS", default_value_t)]
-    pub colors: ColorsArg,
+    /// Styles the fragmap squares, connectors, and commit row text (not the
+    /// overall colors — see `--palette`).
+    #[arg(long = "matrix-theme", value_enum, env = "GT_MATRIX_THEME")]
+    pub matrix_theme: Option<Theme>,
 
-    /// Path to a custom color scheme (a Windows Terminal scheme JSON file).
+    /// Color palette for the UI: a built-in name or a scheme file.
     ///
-    /// Loads a full palette from a Windows Terminal color-scheme JSON object —
-    /// the format published by sites like windowsterminalthemes.dev and the
-    /// iTerm2-Color-Schemes collection — and applies it on any terminal. Takes
-    /// precedence over `--colors`.
-    #[arg(long = "color-scheme", env = "GT_COLOR_SCHEME", value_name = "FILE")]
-    pub color_scheme: Option<PathBuf>,
+    /// `terminal` (default) uses your terminal's own colors. `campbell` and
+    /// `dark+` are built-in dark schemes applied on any terminal (useful on
+    /// light or pastel themes where the UI would otherwise be hard to read). Any
+    /// other value is a path to a Windows Terminal color-scheme JSON file, so you
+    /// can apply any custom scheme.
+    #[arg(
+        long = "palette",
+        env = "GT_PALETTE",
+        value_name = "terminal|campbell|dark+|FILE",
+        default_value = "terminal",
+        value_parser = parse_palette
+    )]
+    pub palette: PaletteArg,
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
@@ -123,37 +123,42 @@ pub struct Cli {
 }
 
 impl Cli {
-    /// Resolve the color palette from `--colors` / `--color-scheme`. A
-    /// `--color-scheme` file, when given, wins over the built-in `--colors`
-    /// choice; reading or parsing it can fail, hence the `Result`.
-    pub fn resolve_colors(&self) -> Result<Colors> {
-        if let Some(path) = &self.color_scheme {
-            let json = std::fs::read_to_string(path)
-                .with_context(|| format!("reading color scheme {}", path.display()))?;
-            let scheme = Scheme::from_wt_json(&json)
-                .with_context(|| format!("parsing color scheme {}", path.display()))?;
-            return Ok(Colors::Fixed(scheme));
-        }
-        Ok(match self.colors {
-            ColorsArg::Terminal => Colors::Terminal,
-            ColorsArg::Campbell => Colors::Fixed(Scheme::CAMPBELL),
-            ColorsArg::DarkPlus => Colors::Fixed(Scheme::DARK_PLUS),
+    /// Resolve the runtime palette from `--palette`. A built-in name maps to its
+    /// scheme; any other value is a path to a Windows Terminal scheme file,
+    /// which is read and parsed here (either can fail, hence the `Result`).
+    pub fn resolve_palette(&self) -> Result<Colors> {
+        Ok(match &self.palette {
+            PaletteArg::Terminal => Colors::Terminal,
+            PaletteArg::Campbell => Colors::Fixed(Scheme::CAMPBELL),
+            PaletteArg::DarkPlus => Colors::Fixed(Scheme::DARK_PLUS),
+            PaletteArg::File(path) => {
+                let json = std::fs::read_to_string(path)
+                    .with_context(|| format!("reading color scheme {}", path.display()))?;
+                let scheme = Scheme::from_wt_json(&json)
+                    .with_context(|| format!("parsing color scheme {}", path.display()))?;
+                Colors::Fixed(scheme)
+            }
         })
     }
 }
 
-/// The built-in `--colors` choices. A custom scheme is supplied separately via
-/// `--color-scheme`; see [`Cli::resolve_colors`].
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, ValueEnum)]
-pub enum ColorsArg {
-    /// Use the terminal's own colors (adopts the user's theme). The default.
-    #[default]
+/// The parsed value of `--palette`: a built-in scheme, or a path to a custom
+/// Windows Terminal scheme file. Resolved by [`Cli::resolve_palette`].
+#[derive(Clone, Debug)]
+pub enum PaletteArg {
     Terminal,
-    /// The Windows Terminal "Campbell" scheme, applied on any terminal.
     Campbell,
-    /// The Windows Terminal "Dark+" scheme (softer than Campbell).
-    #[value(name = "dark+", alias = "dark-plus")]
     DarkPlus,
+    File(PathBuf),
+}
+
+fn parse_palette(value: &str) -> std::result::Result<PaletteArg, String> {
+    Ok(match value {
+        "terminal" => PaletteArg::Terminal,
+        "campbell" => PaletteArg::Campbell,
+        "dark+" | "dark-plus" => PaletteArg::DarkPlus,
+        path => PaletteArg::File(PathBuf::from(path)),
+    })
 }
 
 /// Maintenance subcommands that run instead of the interactive TUI.
