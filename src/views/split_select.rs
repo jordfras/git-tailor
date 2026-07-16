@@ -142,12 +142,12 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         _ => 0,
     };
 
-    let mut dialog = Dialog::new(DialogKind::Info)
+    let mut dialog = Dialog::new(DialogKind::Info, app.colors)
         .blank()
         .push_line(Line::from(Span::styled(
             format!(" {display_summary}"),
             Style::default()
-                .fg(Color::White)
+                .fg(app.colors.resolve(Color::White))
                 .add_modifier(Modifier::DIM),
         )))
         .heading("Choose split strategy:", TextRole::Highlight);
@@ -157,10 +157,10 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         let marker = if selected { "▸ " } else { "  " };
         let style = if selected {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(app.colors.resolve(Color::Cyan))
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(app.colors.resolve(Color::White))
         };
 
         dialog = dialog
@@ -208,7 +208,7 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::OutFile => "split out file",
     };
 
-    let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm)
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm, app.colors)
         .heading(
             format!(
                 "This will create {} commits ({}).",

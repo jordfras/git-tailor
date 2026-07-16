@@ -21,9 +21,8 @@ Set Height 500
 # 24fps keeps the file small (vhs defaults to 50); post-render gifsicle trims
 # the rest. See demo/scripts/render.sh.
 Set Framerate 24
-# Windows Terminal "Campbell" palette — the WSL default, and the same colours
-# the project's screenshot generator (examples/gen_screenshot.rs) uses.
-Set Theme { "name": "Campbell", "background": "#0C0C0C", "foreground": "#CCCCCC", "black": "#0C0C0C", "red": "#C50F1F", "green": "#13A10E", "yellow": "#C19C00", "blue": "#0037DA", "magenta": "#881798", "cyan": "#3A96DD", "white": "#CCCCCC", "brightBlack": "#767676", "brightRed": "#E74856", "brightGreen": "#16C60C", "brightYellow": "#F9F1A5", "brightBlue": "#3B78FF", "brightMagenta": "#B4009E", "brightCyan": "#61D6D6", "brightWhite": "#F2F2F2", "selection": "#3A96DD", "cursor": "#CCCCCC" }
+# git-tailor renders its own dark palette via `--palette=dark+` (see the launch
+# below), so the demo looks consistent regardless of the recording terminal's theme.
 Set Padding 20
 Set TypingSpeed 125ms
 
@@ -36,7 +35,7 @@ Enter
 Show
 
 # ── Launch git-tailor ──────────────────────────────────────────────────────
-Type "gt"
+Type "gt --palette=dark+"
 Sleep 400ms
 Enter
 Sleep 1.5s

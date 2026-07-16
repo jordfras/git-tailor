@@ -14,6 +14,7 @@
 
 //! Suspend/restore the TUI around external processes (editor, mergetool).
 
+use crate::terminal_guard::{reset_terminal_background, set_terminal_background};
 use crossterm::{
     event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
@@ -24,12 +25,18 @@ use std::io;
 
 /// Suspend the TUI around `f`, then clear the terminal so the next draw
 /// starts from a clean buffer. Used for editors, mergetool, and SIGTSTP.
-pub fn with_tui_suspended<T>(
+///
+/// `background` is the palette's terminal-background override (see
+/// `Colors::terminal_background`): when set it is reset while `f` runs — so the
+/// external editor/mergetool sees the user's own terminal theme rather than the
+/// forced palette background — and re-applied when the TUI is restored.
+pub(crate) fn with_tui_suspended<T>(
     terminal: &mut Terminal<CrosstermBackend<io::Stderr>>,
     kb_enhanced: bool,
+    background: Option<(u8, u8, u8)>,
     f: impl FnOnce() -> T,
 ) -> io::Result<T> {
-    let result = tui_suspend_restore(kb_enhanced, f);
+    let result = tui_suspend_restore(kb_enhanced, background, f);
     terminal.clear()?;
     Ok(result)
 }
@@ -46,7 +53,11 @@ pub fn with_tui_suspended<T>(
 /// `ENABLE_VIRTUAL_TERMINAL_INPUT`), that change would persist and break arrow
 /// key handling — arrow keys would arrive as escape-sequence characters
 /// instead of virtual-key-code events.
-fn tui_suspend_restore<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
+fn tui_suspend_restore<T>(
+    kb_enhanced: bool,
+    background: Option<(u8, u8, u8)>,
+    f: impl FnOnce() -> T,
+) -> T {
     #[cfg(windows)]
     let saved_mode = save_console_input_mode();
 
@@ -55,10 +66,19 @@ fn tui_suspend_restore<T>(kb_enhanced: bool, f: impl FnOnce() -> T) -> T {
     }
     let _ = disable_raw_mode();
     let _ = execute!(io::stderr(), LeaveAlternateScreen);
+    // Reset our background override so the external tool runs against the user's
+    // real terminal theme, not the forced palette background.
+    if background.is_some() {
+        let _ = reset_terminal_background(&mut io::stderr());
+    }
 
     let result = f();
 
     let _ = execute!(io::stderr(), EnterAlternateScreen);
+    // Re-apply the background override now that the TUI is back.
+    if let Some(rgb) = background {
+        let _ = set_terminal_background(&mut io::stderr(), rgb);
+    }
 
     // On Windows, restore the exact console input mode we saved rather than
     // relying on enable_raw_mode() which would preserve any mode changes

@@ -19,7 +19,11 @@
 mod common;
 use common::TuiTestHarness;
 
-use git_tailor::{CommitInfo, VirtualOid, app::AppState, views};
+use git_tailor::{
+    CommitInfo, VirtualOid,
+    app::{AppAction, AppMode, AppState, KeyCommand},
+    views,
+};
 use ratatui::buffer::Buffer;
 
 /// A synthetic working-tree row (Staged / Unstaged) as the loader produces.
@@ -98,4 +102,51 @@ fn test_operation_picker_long_non_ascii_summary_does_not_panic() {
     app.enter_operation_select();
     let mut harness = TuiTestHarness::typical();
     let _ = harness.render(|frame| views::operation_select::render(&mut app, frame));
+}
+
+// --- shortcut keys work inside the dialog ---
+
+#[test]
+fn shortcut_runs_the_operation_and_closes_the_picker() {
+    let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
+    app.selection_index = 1; // a real commit
+    app.enter_operation_select();
+
+    // `d` (Drop) should behave like highlighting Drop and pressing Enter.
+    let action = views::operation_select::handle_key(KeyCommand::Drop, &mut app);
+    assert!(
+        matches!(action, AppAction::PrepareDropConfirm { .. }),
+        "expected a drop-confirm action, got {action:?}"
+    );
+    assert_eq!(
+        app.mode,
+        AppMode::CommitList,
+        "the picker should have closed"
+    );
+}
+
+#[test]
+fn shortcut_for_a_follow_up_dialog_transitions_to_it() {
+    let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
+    app.selection_index = 1;
+    app.enter_operation_select();
+
+    // `p` (Split) opens the split-strategy dialog, just like confirming Split.
+    let _ = views::operation_select::handle_key(KeyCommand::Split, &mut app);
+    assert!(matches!(app.mode, AppMode::SplitSelect { .. }));
+}
+
+#[test]
+fn shortcut_for_an_unavailable_operation_is_ignored() {
+    let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
+    app.commits
+        .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
+    app.selection_index = app.commits.len() - 1; // the Unstaged row
+    app.enter_operation_select();
+
+    // Split is not offered for the Unstaged row: the key is ignored and the
+    // dialog stays open.
+    let action = views::operation_select::handle_key(KeyCommand::Split, &mut app);
+    assert!(matches!(action, AppAction::Handled));
+    assert!(matches!(app.mode, AppMode::OperationSelect { .. }));
 }

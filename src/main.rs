@@ -116,7 +116,9 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
-    let mut terminal_guard = setup_terminal()?;
+    let colors = cli.resolve_palette()?;
+    let terminal_bg = colors.terminal_background();
+    let mut terminal_guard = setup_terminal(terminal_bg)?;
     let kb_enhanced = terminal_guard.kb_enhanced();
 
     // Kick off the crates.io update check immediately so it can run during the
@@ -125,7 +127,8 @@ fn main() -> Result<()> {
 
     let mut app = AppState::new();
     app.reverse = cli.reverse;
-    app.theme = cli.theme.unwrap_or_default();
+    app.theme = cli.matrix_theme.unwrap_or_default();
+    app.colors = colors;
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
     app.full_fragmap = cli.full;
@@ -153,6 +156,12 @@ fn main() -> Result<()> {
 
     loop {
         terminal_guard.terminal().draw(|frame| {
+            // Paint the palette's base background first so every cell that sets
+            // no background of its own adopts it (a no-op for --palette terminal).
+            frame.render_widget(
+                ratatui::widgets::Block::new().style(app.colors.base_style()),
+                frame.area(),
+            );
             let mode = app.mode.clone();
             render_mode(&mode, &git_repo, &mut app, frame);
         })?;
@@ -202,7 +211,7 @@ fn main() -> Result<()> {
         // Ctrl-Z (Unix only): suspend the process, then redraw when resumed.
         #[cfg(unix)]
         if action == app::KeyCommand::Suspend {
-            with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+            with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
                 // SAFETY: raise() is async-signal-safe; SIGTSTP is POSIX.
                 unsafe { libc::raise(libc::SIGTSTP) };
             })?;
@@ -522,9 +531,11 @@ fn handle_commit_staged(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
-        editor::edit_message_in_editor(git_repo, "")
-    })?;
+    let terminal_bg = terminal_guard.background();
+    let editor_result =
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+            editor::edit_message_in_editor(git_repo, "")
+        })?;
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(message) if message.trim().is_empty() => {
@@ -802,9 +813,11 @@ fn handle_rebase_continue(
             ctx.combined_message.clone()
         } else {
             let combined = ctx.combined_message.clone();
-            let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
-                editor::edit_message_in_editor(git_repo, &combined)
-            })?;
+            let terminal_bg = terminal_guard.background();
+            let editor_result =
+                with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+                    editor::edit_message_in_editor(git_repo, &combined)
+                })?;
             match editor_result {
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
@@ -854,7 +867,8 @@ fn handle_run_mergetool(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+    let terminal_bg = terminal_guard.background();
+    let result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
         mergetool::run_mergetool(git_repo, &files)
     })?;
     match result {
@@ -888,8 +902,9 @@ fn handle_run_editor(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let workdir = git_repo.workdir();
+    let terminal_bg = terminal_guard.background();
     let result: anyhow::Result<()> =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
             let workdir =
                 workdir.ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
             for file_path in &files {
@@ -936,8 +951,9 @@ fn handle_run_stash_tool(
         "Editor"
     };
     let workdir = git_repo.workdir();
+    let terminal_bg = terminal_guard.background();
     let result: anyhow::Result<bool> =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
             if use_mergetool {
                 mergetool::run_mergetool(git_repo, &files)
             } else {
@@ -1034,9 +1050,11 @@ fn handle_prepare_reword(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
-        editor::edit_message_in_editor(git_repo, &current_message)
-    })?;
+    let terminal_bg = terminal_guard.background();
+    let editor_result =
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+            editor::edit_message_in_editor(git_repo, &current_message)
+        })?;
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(new_message) if new_message.trim().is_empty() => {
@@ -1100,9 +1118,11 @@ fn handle_prepare_squash(
     let final_message = if squash_mode.keeps_target_message() {
         Some(target_message)
     } else {
-        let editor_result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, || {
-            editor::edit_message_in_editor(git_repo, &combined)
-        })?;
+        let terminal_bg = terminal_guard.background();
+        let editor_result =
+            with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+                editor::edit_message_in_editor(git_repo, &combined)
+            })?;
         match editor_result {
             Err(e) => {
                 let _ = git_repo.autostash_restore();

@@ -14,9 +14,13 @@
 
 // Command-line argument definitions for the `gt` binary.
 
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
+use git_tailor::views::palette::{Colors, Scheme};
 use git_tailor::views::theme::Theme;
 
 /// An interactive terminal tool for tidying up Git commits on a branch.
@@ -84,9 +88,28 @@ pub struct Cli {
     #[arg(long, conflicts_with = "base")]
     pub all: bool,
 
-    /// Hunk group matrix rendering theme.
-    #[arg(long = "theme", value_enum, env = "GT_THEME")]
-    pub theme: Option<Theme>,
+    /// Rendering theme for the hunk group matrix.
+    ///
+    /// Styles the fragmap squares, connectors, and commit row text (not the
+    /// overall colors — see `--palette`).
+    #[arg(long = "matrix-theme", value_enum, env = "GT_MATRIX_THEME")]
+    pub matrix_theme: Option<Theme>,
+
+    /// Color palette for the UI: a built-in name or a scheme file.
+    ///
+    /// `terminal` (default) uses your terminal's own colors. `campbell` and
+    /// `dark+` are built-in dark schemes applied on any terminal (useful on
+    /// light or pastel themes where the UI would otherwise be hard to read). Any
+    /// other value is a path to a Windows Terminal color-scheme JSON file, so you
+    /// can apply any custom scheme.
+    #[arg(
+        long = "palette",
+        env = "GT_PALETTE",
+        value_name = "terminal|campbell|dark+|FILE",
+        default_value = "terminal",
+        value_parser = parse_palette
+    )]
+    pub palette: PaletteArg,
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
@@ -97,6 +120,45 @@ pub struct Cli {
     /// state gets stuck.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+}
+
+impl Cli {
+    /// Resolve the runtime palette from `--palette`. A built-in name maps to its
+    /// scheme; any other value is a path to a Windows Terminal scheme file,
+    /// which is read and parsed here (either can fail, hence the `Result`).
+    pub fn resolve_palette(&self) -> Result<Colors> {
+        Ok(match &self.palette {
+            PaletteArg::Terminal => Colors::Terminal,
+            PaletteArg::Campbell => Colors::Fixed(Scheme::CAMPBELL),
+            PaletteArg::DarkPlus => Colors::Fixed(Scheme::DARK_PLUS),
+            PaletteArg::File(path) => {
+                let json = std::fs::read_to_string(path)
+                    .with_context(|| format!("reading color scheme {}", path.display()))?;
+                let scheme = Scheme::from_wt_json(&json)
+                    .with_context(|| format!("parsing color scheme {}", path.display()))?;
+                Colors::Fixed(scheme)
+            }
+        })
+    }
+}
+
+/// The parsed value of `--palette`: a built-in scheme, or a path to a custom
+/// Windows Terminal scheme file. Resolved by [`Cli::resolve_palette`].
+#[derive(Clone, Debug)]
+pub enum PaletteArg {
+    Terminal,
+    Campbell,
+    DarkPlus,
+    File(PathBuf),
+}
+
+fn parse_palette(value: &str) -> std::result::Result<PaletteArg, String> {
+    Ok(match value {
+        "terminal" => PaletteArg::Terminal,
+        "campbell" => PaletteArg::Campbell,
+        "dark+" | "dark-plus" => PaletteArg::DarkPlus,
+        path => PaletteArg::File(PathBuf::from(path)),
+    })
 }
 
 /// Maintenance subcommands that run instead of the interactive TUI.
@@ -124,4 +186,46 @@ pub enum CompletionShell {
     Bash,
     Zsh,
     Fish,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn palette_builtins_resolve_without_a_file() {
+        let cli = Cli::try_parse_from(["gt", "--palette", "dark+"]).expect("args parse");
+        assert!(matches!(cli.palette, PaletteArg::DarkPlus));
+        assert!(cli.resolve_palette().is_ok());
+    }
+
+    #[test]
+    fn palette_missing_file_errors_with_reading_context() {
+        let cli =
+            Cli::try_parse_from(["gt", "--palette", "/no/such/scheme.json"]).expect("args parse");
+        let err = cli
+            .resolve_palette()
+            .expect_err("a missing file must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("reading color scheme"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn palette_bad_file_content_errors_with_parsing_context() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        write!(file, "{{ this is not a scheme").expect("write temp file");
+        let path = file.path().to_str().expect("utf-8 path");
+
+        let cli = Cli::try_parse_from(["gt", "--palette", path]).expect("args parse");
+        let err = cli.resolve_palette().expect_err("bad content must error");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("parsing color scheme"),
+            "unexpected error: {msg}"
+        );
+    }
 }

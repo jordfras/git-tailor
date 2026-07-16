@@ -66,6 +66,38 @@ fn test_commit_list_with_selection() {
 }
 
 #[test]
+fn campbell_palette_resolves_header_to_rgb() {
+    use git_tailor::views::palette::{Colors, Scheme};
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.selection_index = 0;
+
+    // With --palette terminal the header keeps the ANSI slots (White on Green).
+    app.colors = Colors::Terminal;
+    let terminal_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert_eq!(terminal_buf.cell((0, 0)).unwrap().bg, Color::Green);
+    assert_eq!(terminal_buf.cell((0, 0)).unwrap().fg, Color::White);
+
+    // With --palette campbell those slots resolve to the fixed Campbell RGB.
+    app.colors = Colors::Fixed(Scheme::CAMPBELL);
+    let campbell_buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert_eq!(
+        campbell_buf.cell((0, 0)).unwrap().bg,
+        Color::Rgb(0x13, 0xa1, 0x0e),
+        "Campbell should resolve the green header background to its RGB"
+    );
+    assert_eq!(
+        campbell_buf.cell((0, 0)).unwrap().fg,
+        Color::Rgb(0xf2, 0xf2, 0xf2),
+        "Campbell should resolve the white header foreground to its RGB"
+    );
+}
+
+#[test]
 fn test_commit_list_long_summary() {
     let mut harness = TuiTestHarness::short();
 
@@ -262,7 +294,9 @@ fn synthetic_row(oid: VirtualOid, summary: &str) -> git_tailor::CommitInfo {
 }
 
 #[test]
-fn stage_unstage_keys_map_only_in_commit_list() {
+fn stage_unstage_keys_are_distinct_from_ctrl_variants() {
+    // `a` / `A` map unconditionally (the row gating lives in the handler); only
+    // the Ctrl-modified variant carries a different, scroll meaning.
     let list = AppMode::CommitList;
     assert_eq!(
         list.parse_key(key('a', KeyModifiers::NONE)),
@@ -271,17 +305,6 @@ fn stage_unstage_keys_map_only_in_commit_list() {
     assert_eq!(
         list.parse_key(key('A', KeyModifiers::SHIFT)),
         KeyCommand::UnstageAll
-    );
-
-    // Elsewhere `a` / `A` are inert (and `Ctrl-a` keeps its scroll meaning).
-    let detail = AppMode::CommitDetail;
-    assert_eq!(
-        detail.parse_key(key('a', KeyModifiers::NONE)),
-        KeyCommand::None
-    );
-    assert_eq!(
-        detail.parse_key(key('A', KeyModifiers::SHIFT)),
-        KeyCommand::None
     );
     assert_eq!(
         list.parse_key(key('a', KeyModifiers::CONTROL)),
@@ -335,18 +358,13 @@ fn unstage_all_is_gated_to_the_staged_row() {
 }
 
 #[test]
-fn commit_key_maps_only_in_commit_list() {
+fn commit_key_is_distinct_from_ctrl_force_quit() {
+    // `c` maps unconditionally (row gating is in the handler); Ctrl-c stays the
+    // force-quit chord.
     let list = AppMode::CommitList;
     assert_eq!(
         list.parse_key(key('c', KeyModifiers::NONE)),
         KeyCommand::CommitStaged
-    );
-
-    // Elsewhere `c` is inert (and Ctrl-c stays ForceQuit).
-    let detail = AppMode::CommitDetail;
-    assert_eq!(
-        detail.parse_key(key('c', KeyModifiers::NONE)),
-        KeyCommand::None
     );
     assert_eq!(
         list.parse_key(key('c', KeyModifiers::CONTROL)),

@@ -106,14 +106,17 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
 
     let remaining = state.remaining_oids.len();
 
-    let mut dialog = Dialog::new(DialogKind::Danger)
+    let mut dialog = Dialog::new(DialogKind::Danger, app.colors)
         .heading(
             format!("Merge conflict during {label_lower}"),
             TextRole::Danger,
         )
         .push_line(Line::from(vec![
             Span::raw(" Conflict in "),
-            Span::styled(short_oid.to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                short_oid.to_string(),
+                Style::default().fg(app.colors.resolve(Color::Cyan)),
+            ),
         ]));
 
     if !commit_summary.is_empty() {

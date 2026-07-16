@@ -550,22 +550,19 @@ fn test_parse_key_search_bindings() {
 
 /// / n N should NOT produce search commands in CommitList mode.
 #[test]
-fn test_parse_key_search_only_in_detail() {
+fn test_search_keys_map_unconditionally() {
+    // `/` `n` `N` map to their search commands in every mode; only the
+    // detail-view handler acts on them (they are a no-op elsewhere).
+    let press = |c: char| {
+        Event::Key(KeyEvent {
+            code: KeyCode::Char(c),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
+    };
     let mode = AppMode::CommitList;
-
-    let slash = Event::Key(KeyEvent {
-        code: KeyCode::Char('/'),
-        modifiers: KeyModifiers::NONE,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::NONE,
-    });
-    assert_eq!(mode.parse_key(slash), KeyCommand::None);
-
-    let n = Event::Key(KeyEvent {
-        code: KeyCode::Char('n'),
-        modifiers: KeyModifiers::NONE,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::NONE,
-    });
-    assert_eq!(mode.parse_key(n), KeyCommand::None);
+    assert_eq!(mode.parse_key(press('/')), KeyCommand::Search);
+    assert_eq!(mode.parse_key(press('n')), KeyCommand::SearchNext);
+    assert_eq!(mode.parse_key(press('N')), KeyCommand::SearchPrev);
 }

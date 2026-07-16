@@ -66,7 +66,7 @@ pub fn render_recover(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 62;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let mut dialog = Dialog::new(DialogKind::Danger)
+    let mut dialog = Dialog::new(DialogKind::Danger, app.colors)
         .heading(
             format!("Interrupted {label_lower} found"),
             TextRole::Highlight,

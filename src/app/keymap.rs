@@ -90,9 +90,9 @@ pub fn read_event() -> Result<Event> {
 impl AppMode {
     /// Parse a terminal event into a semantic key command for this mode.
     ///
-    /// Most keys are mode-independent (arrows, Esc, Enter). Where a key has
-    /// different meanings per mode (e.g. 'm' → Move in CommitList vs Mergetool
-    /// in RebaseConflict), this method resolves the ambiguity.
+    /// Keys map to a single command regardless of mode; the per-mode handlers
+    /// decide whether that command does anything. Only keys whose *meaning*
+    /// genuinely differs by mode are disambiguated here with a `match self`.
     pub fn parse_key(&self, event: Event) -> KeyCommand {
         if let Event::Key(KeyEvent {
             code,
@@ -152,60 +152,25 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::NavFileNext,
                     _ => KeyCommand::Fixup,
                 },
-                KeyCode::Char('F') => match self {
-                    AppMode::CommitDetail => KeyCommand::NavFilePrev,
-                    _ => KeyCommand::None,
-                },
+                KeyCode::Char('F') => KeyCommand::NavFilePrev,
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {
                     AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => KeyCommand::Mergetool,
                     _ => KeyCommand::Move,
                 },
-                KeyCode::Char('e') => match self {
-                    AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => {
-                        KeyCommand::OpenEditor
-                    }
-                    _ => KeyCommand::None,
-                },
-                // a / A: stage / unstage all working-tree changes (only meaningful
-                // in the commit list, gated to the synthetic Unstaged/Staged rows).
-                KeyCode::Char('a') => match self {
-                    AppMode::CommitList => KeyCommand::StageAll,
-                    _ => KeyCommand::None,
-                },
-                KeyCode::Char('A') => match self {
-                    AppMode::CommitList => KeyCommand::UnstageAll,
-                    _ => KeyCommand::None,
-                },
-                // c: commit the staged changes (gated to the Staged row).
-                KeyCode::Char('c') => match self {
-                    AppMode::CommitList => KeyCommand::CommitStaged,
-                    _ => KeyCommand::None,
-                },
+                KeyCode::Char('e') => KeyCommand::OpenEditor,
+                // a / A / c: stage / unstage all changes, commit staged.
+                KeyCode::Char('a') => KeyCommand::StageAll,
+                KeyCode::Char('A') => KeyCommand::UnstageAll,
+                KeyCode::Char('c') => KeyCommand::CommitStaged,
                 // u: undo (vim convention).
                 KeyCode::Char('u') => KeyCommand::Undo,
-                KeyCode::Char('/') => match self {
-                    AppMode::CommitDetail => KeyCommand::Search,
-                    _ => KeyCommand::None,
-                },
-                KeyCode::Char('n') => match self {
-                    AppMode::CommitDetail => KeyCommand::SearchNext,
-                    _ => KeyCommand::None,
-                },
-                KeyCode::Char('N') => match self {
-                    AppMode::CommitDetail => KeyCommand::SearchPrev,
-                    _ => KeyCommand::None,
-                },
-                // + / -: adjust the diff context lines shown in the detail view.
-                KeyCode::Char('+') => match self {
-                    AppMode::CommitDetail => KeyCommand::IncreaseContext,
-                    _ => KeyCommand::None,
-                },
-                KeyCode::Char('-') => match self {
-                    AppMode::CommitDetail => KeyCommand::DecreaseContext,
-                    _ => KeyCommand::None,
-                },
+                KeyCode::Char('/') => KeyCommand::Search,
+                KeyCode::Char('n') => KeyCommand::SearchNext,
+                KeyCode::Char('N') => KeyCommand::SearchPrev,
+                KeyCode::Char('+') => KeyCommand::IncreaseContext,
+                KeyCode::Char('-') => KeyCommand::DecreaseContext,
                 // Space: open the operation picker in the commit list; elsewhere
                 // (detail/pager view, dialogs) it keeps the less-style page-down.
                 KeyCode::Char(' ') => match self {
@@ -252,19 +217,44 @@ mod tests {
     }
 
     #[test]
-    fn plus_minus_adjust_context_only_in_detail_view() {
-        assert_eq!(
-            AppMode::CommitDetail.parse_key(press(KeyCode::Char('+'))),
-            KeyCommand::IncreaseContext
-        );
-        assert_eq!(
-            AppMode::CommitDetail.parse_key(press(KeyCode::Char('-'))),
-            KeyCommand::DecreaseContext
-        );
-        // Ignored in the commit list.
-        assert_eq!(
-            AppMode::CommitList.parse_key(press(KeyCode::Char('+'))),
-            KeyCommand::None
-        );
+    fn stage_keys_map_unconditionally() {
+        // `a`/`A`/`c` map the same in every mode (like split/drop/reword); which
+        // rows they apply to is enforced by the handlers, not the keymap.
+        for mode in [
+            AppMode::CommitList,
+            AppMode::CommitDetail,
+            AppMode::OperationSelect {
+                operation: crate::app::Operation::Stage,
+            },
+        ] {
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('a'))),
+                KeyCommand::StageAll
+            );
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('A'))),
+                KeyCommand::UnstageAll
+            );
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('c'))),
+                KeyCommand::CommitStaged
+            );
+        }
+    }
+
+    #[test]
+    fn plus_minus_map_to_context_commands() {
+        // `+` / `-` map unconditionally; only the detail-view handler acts on
+        // them (they are a no-op elsewhere).
+        for mode in [AppMode::CommitDetail, AppMode::CommitList] {
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('+'))),
+                KeyCommand::IncreaseContext
+            );
+            assert_eq!(
+                mode.parse_key(press(KeyCode::Char('-'))),
+                KeyCommand::DecreaseContext
+            );
+        }
     }
 }

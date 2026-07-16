@@ -68,7 +68,17 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.toggle_help();
             AppAction::Handled
         }
-        ListNav::Unhandled => AppAction::Handled,
+        ListNav::Unhandled => {
+            // A shown shortcut runs its operation directly, as if it were
+            // highlighted and confirmed. Only operations offered for this row
+            // react; any other key is ignored (the dialog stays open).
+            if ops.iter().any(|op| op.key_command() == action) {
+                app.mode = AppMode::CommitList;
+                commit_list::handle_key(action, app)
+            } else {
+                AppAction::Handled
+            }
+        }
     }
 }
 
@@ -124,12 +134,12 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
     let ops = available(app);
 
-    let mut dialog = Dialog::new(DialogKind::Info)
+    let mut dialog = Dialog::new(DialogKind::Info, app.colors)
         .blank()
         .push_line(Line::from(Span::styled(
             format!(" {display_header}"),
             Style::default()
-                .fg(Color::White)
+                .fg(app.colors.resolve(Color::White))
                 .add_modifier(Modifier::DIM),
         )))
         .heading("Choose operation:", TextRole::Highlight);
@@ -142,21 +152,21 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         let marker = if selected { "▸" } else { " " };
         let label_style = if selected {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(app.colors.resolve(Color::Cyan))
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(app.colors.resolve(Color::White))
         };
 
         dialog = dialog.push_line(Line::from(vec![
             Span::styled(format!(" {} {:<12}", marker, op.label()), label_style),
             Span::styled(
                 format!("{:<4}", op.shortcut()),
-                Style::default().fg(TextRole::Key.color()),
+                Style::default().fg(app.colors.resolve(TextRole::Key.color())),
             ),
             Span::styled(
                 op.description(),
-                Style::default().fg(TextRole::Muted.color()),
+                Style::default().fg(app.colors.resolve(TextRole::Muted.color())),
             ),
         ]));
     }

@@ -103,7 +103,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         _ => return,
     };
 
-    let mut dialog = Dialog::new(DialogKind::Info)
+    let mut dialog = Dialog::new(DialogKind::Info, app.colors)
         .blank()
         .heading("Choose file to split out:", TextRole::Highlight)
         .blank();
@@ -113,10 +113,10 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         let marker = if selected { "▸ " } else { "  " };
         let style = if selected {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(app.colors.resolve(Color::Cyan))
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(app.colors.resolve(Color::White))
         };
         dialog = dialog.push_line(Line::from(Span::styled(
             format!(" {}  {}", marker, elide_path(file, PATH_WIDTH)),

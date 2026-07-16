@@ -75,10 +75,10 @@ fn completions_run_outside_a_git_repository() {
 
 #[test]
 fn dynamic_completion_offers_theme_enum_values() {
-    // Mimic the shell asking to complete the value of `--theme` (the word at
-    // index 2 in `gt --theme <cursor>`), the way the installed stub does.
+    // Mimic the shell asking to complete the value of `--matrix-theme` (the word
+    // at index 2 in `gt --matrix-theme <cursor>`), the way the installed stub does.
     let out = gt()
-        .args(["--", "gt", "--theme", ""])
+        .args(["--", "gt", "--matrix-theme", ""])
         .env("COMPLETE", "bash")
         .env("_CLAP_COMPLETE_INDEX", "2")
         .output()

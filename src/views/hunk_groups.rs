@@ -18,6 +18,7 @@
 // cluster-matrix visualization — plus its horizontal scrollbar.
 
 use crate::fragmap::{self, TouchKind};
+use crate::views::palette::Colors;
 use crate::views::theme::{
     CommitRowRole, ConnectorRelation, ConnectorRole, FragmapTheme, SquareRelation, SquareRole,
 };
@@ -146,6 +147,7 @@ pub fn build_fragmap_cell<'a>(
     display_clusters: &[usize],
     is_selected: bool,
     theme: &dyn FragmapTheme,
+    colors: Colors,
 ) -> Cell<'a> {
     let spans: Vec<Span> = display_clusters
         .iter()
@@ -172,19 +174,19 @@ pub fn build_fragmap_cell<'a>(
             if let Some((symbol, style)) =
                 fragmap_cell_content(fragmap, commit_idx, cluster_idx, square_role, theme)
             {
-                Span::styled(symbol, base_style.patch(style))
+                Span::styled(symbol, colors.resolve_style(base_style.patch(style)))
             } else if let Some((symbol, style)) =
                 fragmap_connector_content(fragmap, commit_idx, cluster_idx, connector_role, theme)
             {
-                Span::styled(symbol, base_style.patch(style))
+                Span::styled(symbol, colors.resolve_style(base_style.patch(style)))
             } else {
-                Span::styled(" ", base_style)
+                Span::styled(" ", colors.resolve_style(base_style))
             }
         })
         .collect();
     let cell = Cell::from(Line::from(spans));
     if is_selected {
-        cell.style(Style::new().bg(COLOR_SELECTED_FRAGMAP_BG))
+        cell.style(colors.resolve_style(Style::new().bg(COLOR_SELECTED_FRAGMAP_BG)))
     } else {
         cell
     }

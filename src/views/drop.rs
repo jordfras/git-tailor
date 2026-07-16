@@ -60,7 +60,7 @@ pub fn render_drop_confirm(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 60;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm)
+    let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm, app.colors)
         .heading("Drop this commit?", TextRole::Highlight)
         .styled_line(short_oid.to_string(), TextRole::Key)
         .wrapped(&pending.commit_summary, iw.saturating_sub(1))
