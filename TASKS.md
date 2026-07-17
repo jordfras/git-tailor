@@ -52,7 +52,7 @@ Guidelines:
   unaffected regardless of backend.
 
 ## Build & CI
-- [ ] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
+- [X] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
   `.github/workflows/release.yml` that triggers on version tags (`v*`), builds
   the `gt` binary for `x86_64-unknown-linux-musl` (fully static, covers WSL2 and
   all Linux distros), `x86_64-pc-windows-msvc` (Windows native), and optionally
