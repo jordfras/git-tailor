@@ -47,17 +47,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # All four targets build natively on their runner (x86_64-musl is the
-          # same arch as the Ubuntu runner, just musl libc), so plain `cargo`
-          # works — no cross/Docker needed.
+          # Linux/Windows build natively (x86_64-musl is the same arch as the
+          # Ubuntu runner, just musl libc). macOS ships one universal binary —
+          # the arm64 and x86_64 slices lipo'd together — built on Apple Silicon,
+          # so it runs natively on any Mac and avoids the retiring macos-13 Intel
+          # runners.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-          - target: aarch64-apple-darwin
+          - target: universal-apple-darwin
             os: macos-14
-          - target: x86_64-apple-darwin
-            os: macos-13
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
