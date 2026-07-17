@@ -1,0 +1,78 @@
+name: Release
+
+# Builds pre-built `gt` binaries and attaches them to the GitHub Release.
+#
+# Normal path: pushing a `v*` tag (see RELEASE.md) creates the release and
+# uploads binaries for every target below.
+#
+# Backfill / re-run: trigger manually (Actions -> Release -> Run workflow, or
+# `gh workflow run release.yml -f tag=v2.0.0`) to build for an already-existing
+# tag without moving it.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build binaries for (e.g. v2.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # On a tag push `github.ref` is already `refs/tags/v*`; on manual
+          # dispatch we point at the tag named in the input.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # All four targets build natively on their runner (x86_64-musl is the
+          # same arch as the Ubuntu runner, just musl libc), so plain `cargo`
+          # works — no cross/Docker needed.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-13
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      # The vendored libgit2/libz C sources are compiled for musl via musl-gcc.
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: gt
+          target: ${{ matrix.target }}
+          build-tool: cargo
+          archive: gt-$tag-$target
+          checksum: sha256
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}

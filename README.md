@@ -29,6 +29,12 @@ cargo install --locked git-tailor
 
 Requires Rust 1.85 or later.
 
+Or download a pre-built `gt` binary for Linux (x86_64), Windows (x86_64), or
+macOS (Apple Silicon or Intel) from the
+[latest release](https://github.com/jordfras/git-tailor/releases/latest) — no
+Rust toolchain needed. The Linux build is statically linked and runs on any
+distribution (and WSL2).
+
 
 ## Usage
 
