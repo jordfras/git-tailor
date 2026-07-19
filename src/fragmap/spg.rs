@@ -71,14 +71,6 @@ impl SpgSpan {
         }
     }
 
-    /// The overlapping sub-interval of two spans, or `None` when the
-    /// intersection is empty.
-    pub(super) fn intersect(&self, other: &SpgSpan) -> Option<SpgSpan> {
-        let start = self.start.max(other.start);
-        let end = self.end.min(other.end);
-        (start < end).then_some(SpgSpan { start, end })
-    }
-
     pub(super) fn from_old_hunk(h: &HunkInfo) -> Self {
         let mut start = h.old_start as i64;
         if h.old_lines == 0 {
@@ -626,92 +618,15 @@ pub(super) fn build_file_clusters(
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
-    // usize::MAX as target → gen wraps to -1, never matches any active node, so
-    // the assignment output is empty and can be discarded.
-    build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, usize::MAX, poll)
-        .map(|analysis| analysis.clusters)
-}
-
-/// One cluster's claim on a sub-region of a target-commit hunk, recorded while
-/// walking the SPG path that produced the cluster.
-///
-/// The overlaps identify *which part* of the hunk relates this cluster to its
-/// neighbours on the path: the predecessor constrains the hunk's old span (the
-/// lines the hunk rewrote), the successor its new span (the lines a later
-/// commit consumed).  `None` when the neighbour is SOURCE/SINK or the
-/// intersection is empty (e.g. pure insertions have an empty old span).
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ClusterTouch {
-    /// Index into the accompanying cluster list.
-    pub(super) cluster_idx: usize,
-    /// Hunk `old_span` ∩ path-predecessor `new_span`.
-    pub(super) old_overlap: Option<SpgSpan>,
-    /// Hunk `new_span` ∩ path-successor `old_span`.
-    pub(super) new_overlap: Option<SpgSpan>,
-}
-
-/// The per-file clustering result for the commit being split.
-///
-/// Produced by [`build_file_clusters_and_assign_hunks`].
-pub(super) struct FileClusterAnalysis {
-    /// All clusters (one per unique SPG path) for this file.
-    pub(super) clusters: Vec<SpanCluster>,
-    /// Per target-commit hunk (parallel to the target's hunk list for this
-    /// file): every cluster the hunk appears in, with the sub-region of the
-    /// hunk that path claims.  A hunk can lie on multiple SPG paths with
-    /// different commit sets, so it may belong to several clusters.  Empty
-    /// when the file has no target-commit hunks.
-    pub(super) target_hunk_touches: Vec<Vec<ClusterTouch>>,
-}
-
-/// Build all `SpanCluster` entries for a single file path and simultaneously
-/// compute, for each hunk of `target_commit_idx`, which local cluster indices
-/// (within the returned clusters) it belongs to.
-///
-/// Using a single pass ensures the cluster index used for hunk assignment
-/// matches the actual position in the returned `Vec`; the old two-pass approach
-/// (`build_file_clusters` + `file_hunk_path_indices`) was wrong because
-/// `file_hunk_path_indices` returned raw path indices while `build_file_clusters`
-/// silently drops empty paths, causing an index mismatch.
-///
-/// `poll` is forwarded to the SPG builder and called after each commit
-/// generation. Return `false` from `poll` to interrupt; `None` is returned
-/// in that case.
-pub(super) fn build_file_clusters_and_assign_hunks(
-    path: &str,
-    commits_for_file: &[(usize, Vec<HunkInfo>)],
-    commit_diffs: &[CommitDiff],
-    target_commit_idx: usize,
-    poll: &mut impl FnMut() -> bool,
-) -> Option<FileClusterAnalysis> {
-    let k_hunks = commits_for_file
-        .iter()
-        .find(|(idx, _)| *idx == target_commit_idx)
-        .map(|(_, h)| h.as_slice())
-        .unwrap_or(&[]);
-    let commit_gen = target_commit_idx as i32;
-
     let spg = build_file_spg(commits_for_file, poll)?;
     let paths = spg_all_paths(&spg, poll)?;
 
     let mut clusters: Vec<SpanCluster> = Vec::new();
-    // hunk_touches[h] = every cluster that K's hunk h appears in, with the
-    // sub-region of the hunk that path claims.  A hunk can appear on multiple
-    // SPG paths with different commit_oids patterns, so it may belong to
-    // multiple clusters (and after dedup, to multiple groups).  The caller
-    // decides the final assignment.
-    let mut hunk_touches: Vec<Vec<ClusterTouch>> = vec![vec![]; k_hunks.len()];
-
-    // A path neighbour bounds a claim only when it is a real node; SOURCE and
-    // SINK span the whole file and would claim everything.
-    let is_interior = |node: &SpgNode| node.generation >= 0 && node.generation != i32::MAX;
-
     for path_nodes in &paths {
         let mut commit_oids: Vec<VirtualOid> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
-        let mut k_hunks_on_path: Vec<(usize, Option<SpgSpan>, Option<SpgSpan>)> = Vec::new();
 
-        for (node_idx, node) in path_nodes.iter().enumerate() {
+        for node in path_nodes {
             if node.is_active
                 && node.generation >= 0
                 && (node.generation as usize) < commit_diffs.len()
@@ -721,38 +636,12 @@ pub(super) fn build_file_clusters_and_assign_hunks(
                     commit_oids.push(oid.clone());
                 }
                 last_active_span = Some(node.new_span);
-
-                if node.generation == commit_gen {
-                    for (h, hunk) in k_hunks.iter().enumerate() {
-                        if SpgSpan::from_new_hunk(hunk) == node.new_span {
-                            let old_overlap = node_idx
-                                .checked_sub(1)
-                                .map(|i| &path_nodes[i])
-                                .filter(|pred| is_interior(pred))
-                                .and_then(|pred| node.old_span.intersect(&pred.new_span));
-                            let new_overlap = path_nodes
-                                .get(node_idx + 1)
-                                .filter(|succ| is_interior(succ))
-                                .and_then(|succ| node.new_span.intersect(&succ.old_span));
-                            k_hunks_on_path.push((h, old_overlap, new_overlap));
-                            break;
-                        }
-                    }
-                }
             }
         }
 
         if let Some(sp) = last_active_span
             && !commit_oids.is_empty()
         {
-            let cluster_idx = clusters.len();
-            for (h, old_overlap, new_overlap) in k_hunks_on_path {
-                hunk_touches[h].push(ClusterTouch {
-                    cluster_idx,
-                    old_overlap,
-                    new_overlap,
-                });
-            }
             clusters.push(SpanCluster {
                 spans: vec![FileSpan {
                     path: path.to_string(),
@@ -764,10 +653,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
         }
     }
 
-    Some(FileClusterAnalysis {
-        clusters,
-        target_hunk_touches: hunk_touches,
-    })
+    Some(clusters)
 }
 
 /// Enumerate all SPG paths for each file and the raw path count.

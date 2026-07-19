@@ -49,12 +49,13 @@ The format is based on
 
 ### Fixed
 
-- Split per hunk group now delivers what the matrix shows when a single hunk
-  spans several hunk-group columns (because it overlaps different commits'
-  regions). Such a hunk is split into fragments so each column gets its own
-  commit; previously the whole hunk went to one group, producing fewer commits
-  than columns — or refusing the split entirely when one hunk covered all of
-  them.
+- Split per hunk group now groups hunks by the exact set of commits their
+  lines relate to, computed directly from the diffs, so for instance a change
+  that a later commit reworks lands in the piece related to that commit. A
+  commit whose hunks all share one relation set is no longer refused (e.g. a
+  single hunk overlapping two other commits' regions): one hunk is sliced at
+  the relation boundary to make the split possible. Hunks otherwise stay
+  whole, so the resulting commits never become related to each other.
 - Auto-stash (`--autostash`) no longer silently drops an unstaged edit that keeps
   a file's size unchanged (e.g. flipping a single character). libgit2's stash
   could treat such an edit as unmodified when its timestamp collided with the

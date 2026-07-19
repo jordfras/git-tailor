@@ -190,11 +190,13 @@ fn split_per_hunk_group_one_hunk_spanning_two_columns() {
 }
 
 #[test]
-fn split_per_hunk_group_covers_more_columns_than_hunks() {
-    // K has two hunks but touches three fragmap columns: its a.txt hunk spans
-    // both A's region (line 1) and B's region (line 2) — columns {A,K} and
-    // {B,K} — and its b.txt hunk is alone in column {K}.  The split must
-    // produce three commits, not two.
+fn split_per_hunk_group_keeps_a_mixed_relation_hunk_whole() {
+    // K's a.txt hunk rewrites A's line 1 and B's line 2 in one hunk, and its
+    // b.txt hunk relates to nothing else.  Hunks are grouped whole by their
+    // relation set — the a.txt hunk's set is {A,B} — and are only ever cut
+    // when the split would otherwise be refused.  Two groups exist here, so
+    // the mixed hunk stays intact: slicing it would interleave the resulting
+    // commits, and the matrix would then relate them to each other.
     let test = common::TestRepo::new();
 
     let base = test.commit_files(&[("a.txt", "A\nB\n"), ("b.txt", "X\n")], "base");
@@ -209,36 +211,31 @@ fn split_per_hunk_group_covers_more_columns_than_hunks() {
         git_repo
             .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
             .unwrap(),
-        3,
-        "the count offered to the user must match the three matrix columns"
+        2,
+        "two relation sets: {{A,B}} and K-only"
     );
 
     git_repo
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
-    // 5 commits above base: A + B + 3 split parts.
+    // 4 commits above base: A + B + 2 split parts.
     let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
-        5,
-        "expected 5 commits above base (A + B + 3 split parts)"
+        4,
+        "expected 4 commits above base (A + B + 2 split parts)"
     );
 
-    // Part 1: only the fragment from A's column.
+    // Part 1: the whole a.txt hunk (relation set {A,B}).
     let k1_oid = commits_above_base[2];
-    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A3\nB2\n");
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A3\nB3\n");
     assert_file_contents!(&test.repo, k1_oid, "b.txt", "X\n");
 
-    // Part 2: adds the fragment from B's column.
+    // Part 2: completes the commit with the unrelated b.txt change.
     let k2_oid = commits_above_base[3];
     assert_file_contents!(&test.repo, k2_oid, "a.txt", "A3\nB3\n");
-    assert_file_contents!(&test.repo, k2_oid, "b.txt", "X\n");
-
-    // Part 3: completes the commit with the b.txt group.
-    let k3_oid = commits_above_base[4];
-    assert_file_contents!(&test.repo, k3_oid, "a.txt", "A3\nB3\n");
-    assert_file_contents!(&test.repo, k3_oid, "b.txt", "X2\n");
+    assert_file_contents!(&test.repo, k2_oid, "b.txt", "X2\n");
 }
 
 #[test]
