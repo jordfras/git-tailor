@@ -143,6 +143,105 @@ fn split_per_hunk_group_three_commits_two_groups() {
 }
 
 #[test]
+fn split_per_hunk_group_one_hunk_spanning_two_columns() {
+    // Commit A edits line 1, commit B edits line 2, and commit K rewrites both
+    // lines in ONE 0-context hunk.  In the fragmap K's hunk lies on two SPG
+    // paths — {A,K} through A's region and {B,K} through B's region — so the
+    // matrix shows K in two columns.  The split must track the hunk's parts
+    // and produce two commits, one per column, instead of refusing because
+    // the whole hunk can only be assigned to one group.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "A\nB\n", "base");
+    test.commit_file("a.txt", "A2\nB\n", "commit A");
+    test.commit_file("a.txt", "A2\nB2\n", "commit B");
+    let to_split = test.commit_file("a.txt", "A3\nB3\n", "commit K");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2,
+        "the count offered to the user must match the two matrix columns"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 4 commits above base: A + B + K-part1 + K-part2.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        4,
+        "expected 4 commits above base (A + B + 2 split parts)"
+    );
+
+    // K-part1 carries only the fragment from A's column (line 1).
+    let k1_oid = commits_above_base[2];
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A3\nB2\n");
+
+    // K-part2 completes the commit.
+    let k2_oid = commits_above_base[3];
+    assert_file_contents!(&test.repo, k2_oid, "a.txt", "A3\nB3\n");
+}
+
+#[test]
+fn split_per_hunk_group_covers_more_columns_than_hunks() {
+    // K has two hunks but touches three fragmap columns: its a.txt hunk spans
+    // both A's region (line 1) and B's region (line 2) — columns {A,K} and
+    // {B,K} — and its b.txt hunk is alone in column {K}.  The split must
+    // produce three commits, not two.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "A\nB\n"), ("b.txt", "X\n")], "base");
+    test.commit_file("a.txt", "A2\nB\n", "commit A");
+    test.commit_file("a.txt", "A2\nB2\n", "commit B");
+    let to_split = test.commit_files(&[("a.txt", "A3\nB3\n"), ("b.txt", "X2\n")], "commit K");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        3,
+        "the count offered to the user must match the three matrix columns"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 5 commits above base: A + B + 3 split parts.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        5,
+        "expected 5 commits above base (A + B + 3 split parts)"
+    );
+
+    // Part 1: only the fragment from A's column.
+    let k1_oid = commits_above_base[2];
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A3\nB2\n");
+    assert_file_contents!(&test.repo, k1_oid, "b.txt", "X\n");
+
+    // Part 2: adds the fragment from B's column.
+    let k2_oid = commits_above_base[3];
+    assert_file_contents!(&test.repo, k2_oid, "a.txt", "A3\nB3\n");
+    assert_file_contents!(&test.repo, k2_oid, "b.txt", "X\n");
+
+    // Part 3: completes the commit with the b.txt group.
+    let k3_oid = commits_above_base[4];
+    assert_file_contents!(&test.repo, k3_oid, "a.txt", "A3\nB3\n");
+    assert_file_contents!(&test.repo, k3_oid, "b.txt", "X2\n");
+}
+
+#[test]
 fn split_per_hunk_group_refuses_single_group() {
     // K is the only branch commit, touching two separate regions of one file.
     // Both hunks have commit_oids={K} in the fragmap; dedup collapses them to
