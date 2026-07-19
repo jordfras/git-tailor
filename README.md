@@ -183,16 +183,18 @@ same row.
 
 This is worth keeping in mind when splitting a commit:
 
-- **Per hunk group** cannot slice a hunk along a group boundary. A hunk is the
-  smallest unit Git can apply on its own, so when one hunk spans several groups
-  those groups stay together in the same resulting commit. The split can
-  therefore produce *fewer* commits than there are columns.
+- **Per hunk group** slices along group boundaries, even *through* a hunk: when
+  one hunk spans several groups it is divided so that each column gets its own
+  commit, matching what the matrix shows. In rare cases the same lines relate
+  to different commits in different directions (one rewrote them earlier, one
+  edited them later) — those relationships cannot be pulled apart, so the split
+  may still produce fewer commits than there are columns. And since the cut
+  points come from comparing line ranges across commits, an occasional line may
+  land in the neighbouring piece; the pieces always add up to exactly the
+  original commit.
 - **Per hunk** splits by the commit's actual diff hunks, not by columns. A hunk
-  drawn across two columns looks like two changes in the matrix, but it is a
-  single hunk and yields a single commit — it cannot be divided further.
-
-In short, the matrix shows how changes *relate* across commits; it does not
-promise that every column is independently splittable.
+  drawn across two columns looks like two changes in the matrix, but it yields
+  a single commit here — use per hunk group to split it by column.
 
 ## Attribution
 
