@@ -242,6 +242,59 @@ fn split_per_hunk_group_covers_more_columns_than_hunks() {
 }
 
 #[test]
+fn split_per_hunk_group_cross_related_lines_yield_fewer_commits_than_columns() {
+    // The documented "rare occasion" where a hunk cannot be fully pulled
+    // apart: K's one hunk rewrites line 1 (earlier edited by A) and line 2
+    // (later edited by C).  Each line relates to a different commit in a
+    // different direction, and the matrix multiplies the pairings into FOUR
+    // columns for K ({A,K}, {A,K,C}, {K}, {K,C}) even though the hunk has
+    // only two physically separable pieces.  The split must not fail: it
+    // produces the two physically correct commits — fewer than the matrix's
+    // columns — and the pieces still compose to the original commit.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "A\nB\n", "base");
+    test.commit_file("a.txt", "A2\nB\n", "commit A");
+    let to_split = test.commit_file("a.txt", "A3\nB3\n", "commit K");
+    test.commit_file("a.txt", "A3\nB4\n", "commit C");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2,
+        "only the two physically separable pieces can become commits"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 4 commits above base: A + K-part1 + K-part2 + C' (rebased C).
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        4,
+        "expected 4 commits above base (A + 2 split parts + C')"
+    );
+
+    // K-part1 carries the piece related to A (line 1).
+    let k1_oid = commits_above_base[1];
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A3\nB\n");
+
+    // K-part2 completes the commit with the piece C later edits (line 2).
+    let k2_oid = commits_above_base[2];
+    assert_file_contents!(&test.repo, k2_oid, "a.txt", "A3\nB3\n");
+
+    // C replays cleanly on top.
+    let c_prime_oid = commits_above_base[3];
+    assert_file_contents!(&test.repo, c_prime_oid, "a.txt", "A3\nB4\n");
+}
+
+#[test]
 fn split_per_hunk_group_refuses_single_group() {
     // K is the only branch commit, touching two separate regions of one file.
     // Both hunks have commit_oids={K} in the fragmap; dedup collapses them to
