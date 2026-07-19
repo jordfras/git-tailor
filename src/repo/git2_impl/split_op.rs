@@ -203,9 +203,14 @@ pub(super) fn split_commit_per_hunk_group(
             .unwrap_or_default();
         let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
         let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
-        let file_groups = assignment.get(&path);
+        let file_groups = assignment.by_file.get(&path);
         let groups_for_delta: Vec<usize> = (0..num_hunks)
-            .map(|h| file_groups.and_then(|fg| fg.get(h).copied()).unwrap_or(0))
+            .map(|h| {
+                file_groups
+                    .and_then(|fg| fg.get(h))
+                    .and_then(|a| a.whole_group())
+                    .unwrap_or(0)
+            })
             .collect();
         delta_hunk_groups.push(groups_for_delta);
     }
@@ -297,8 +302,7 @@ pub(super) fn count_split_per_hunk_group(
 ) -> Result<usize> {
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, false)?;
-    let touched: HashSet<usize> = assignment.values().flatten().copied().collect();
-    Ok(touched.len())
+    Ok(assignment.touched_groups().len())
 }
 
 pub(super) fn split_commit_out_file(
@@ -459,7 +463,7 @@ fn compute_hunk_group_assignment(
     head_oid: &Oid,
     reference_oid: &Oid,
     keep_self_when_reference: bool,
-) -> Result<HashMap<String, Vec<usize>>> {
+) -> Result<fragmap::HunkGroupAssignment> {
     let branch_commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let branch_diffs: Vec<crate::CommitDiff> = branch_commits
         .iter()
@@ -484,9 +488,8 @@ fn compute_hunk_group_assignment(
         .flatten()
         .collect();
 
-    let (_, assignment) = fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
-        .ok_or_else(|| anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid))?;
-    Ok(assignment)
+    fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
+        .ok_or_else(|| anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid))
 }
 
 /// Create one piece of a split: a commit with the given tree, parented on

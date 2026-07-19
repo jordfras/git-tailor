@@ -23,7 +23,9 @@ use std::collections::HashMap;
 
 use crate::{CommitDiff, Oid, VirtualOid};
 
+mod assignment;
 mod spg;
+pub use assignment::{HunkAssignment, HunkGroupAssignment};
 use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
 /// Build a map from every known file path to the canonical (earliest) name for
@@ -264,19 +266,14 @@ pub fn build_fragmap(
 ///
 /// Uses the same SPG clustering and deduplication as [`build_fragmap`] with
 /// `deduplicate = true`. Each hunk of `commit_oid` in `commit_diffs` is
-/// assigned to the deduplicated fragmap cluster (column) it belongs to.
-///
-/// Returns `Some((group_count, assignment))` where:
-/// - `group_count` = number of distinct groups after deduplication
-/// - `assignment[path][h]` = 0-based group index for hunk `h` of file `path`
-///   in the commit being split (indexed the same way as the 0-context full
-///   diff produced by [`GitRepo::commit_diff_for_fragmap`])
+/// assigned to the deduplicated fragmap cluster (column) it belongs to; see
+/// [`HunkGroupAssignment`] for the result shape.
 ///
 /// Returns `None` if `commit_oid` is not found in `commit_diffs`.
 pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
     commit_oid: &Oid,
-) -> Option<(usize, HashMap<String, Vec<usize>>)> {
+) -> Option<HunkGroupAssignment> {
     let k_idx = commit_diffs
         .iter()
         .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?;
@@ -302,14 +299,15 @@ pub fn assign_hunk_groups(
 
         let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
         let (file_clusters, hunk_to_local) = if has_k {
-            build_file_clusters_and_assign_hunks(
+            let analysis = build_file_clusters_and_assign_hunks(
                 path,
                 commits_for_file,
                 commit_diffs,
                 k_idx,
                 &mut || true,
             )
-            .expect("no-op poll never interrupts")
+            .expect("no-op poll never interrupts");
+            (analysis.clusters, analysis.target_hunk_clusters)
         } else {
             (
                 build_file_clusters(path, commits_for_file, commit_diffs, &mut || true)
@@ -355,21 +353,13 @@ pub fn assign_hunk_groups(
     // Phase 3: Assign each of K's hunks to exactly one dedup group.
     //
     // A hunk can belong to multiple pre-dedup clusters (via different SPG
-    // paths) which may map to different dedup groups.  We must ensure every
-    // group that K contributes to gets at least one hunk assigned, so the
-    // split produces the same number of commits as fragmap columns K touches.
-    //
-    // Strategy:
-    //  1. Compute each hunk's set of possible groups.
-    //  2. Hunks with only one possible group are assigned immediately.
-    //  3. For uncovered groups, pick the unassigned hunk with the fewest
-    //     alternatives and assign it there.
-    //  4. Remaining unassigned hunks go to their lowest possible group.
-
-    // Flatten (path, hunk_idx, possible_groups) for every hunk of K.
-    let mut candidates: Vec<(String, usize, Vec<usize>)> = Vec::new();
+    // paths) which may map to different dedup groups.  Every group that K
+    // contributes to should get at least one hunk assigned, so the split
+    // produces the same number of commits as fragmap columns K touches —
+    // see `assignment::assign_by_covering`.
+    let mut candidates: Vec<assignment::GroupCandidate> = Vec::new();
     for (path, prededup_multi) in &k_hunk_prededup {
-        for (h, prededup_indices) in prededup_multi.iter().enumerate() {
+        for (hunk_idx, prededup_indices) in prededup_multi.iter().enumerate() {
             let mut groups: Vec<usize> = prededup_indices
                 .iter()
                 .map(|&pre_idx| group_idx_for_prededup[pre_idx])
@@ -379,61 +369,15 @@ pub fn assign_hunk_groups(
             if groups.is_empty() {
                 groups.push(0);
             }
-            candidates.push((path.clone(), h, groups));
+            candidates.push(assignment::GroupCandidate {
+                path: path.clone(),
+                hunk_idx,
+                possible_groups: groups,
+            });
         }
     }
 
-    // All groups K can touch.
-    let all_touched: std::collections::BTreeSet<usize> = candidates
-        .iter()
-        .flat_map(|(_, _, gs)| gs.iter().copied())
-        .collect();
-
-    let mut assigned: Vec<Option<usize>> = vec![None; candidates.len()];
-
-    // Pass 1: hunks with only one possible group.
-    for (i, (_, _, groups)) in candidates.iter().enumerate() {
-        if groups.len() == 1 {
-            assigned[i] = Some(groups[0]);
-        }
-    }
-
-    // Pass 2: for each uncovered group, assign the best remaining hunk.
-    let mut covered: std::collections::HashSet<usize> =
-        assigned.iter().filter_map(|a| *a).collect();
-    for &g in &all_touched {
-        if covered.contains(&g) {
-            continue;
-        }
-        let best = candidates
-            .iter()
-            .enumerate()
-            .filter(|(i, (_, _, groups))| assigned[*i].is_none() && groups.contains(&g))
-            .min_by_key(|(_, (_, _, groups))| groups.len())
-            .map(|(i, _)| i);
-        if let Some(i) = best {
-            assigned[i] = Some(g);
-            covered.insert(g);
-        }
-    }
-
-    // Pass 3: remaining hunks go to their lowest possible group.
-    for (i, (_, _, groups)) in candidates.iter().enumerate() {
-        if assigned[i].is_none() {
-            assigned[i] = Some(groups[0]);
-        }
-    }
-
-    // Build the assignment map: path -> Vec<usize> (one group per hunk).
-    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
-    for (i, (path, h, _)) in candidates.iter().enumerate() {
-        let entry = assignment
-            .entry(path.clone())
-            .or_insert_with(|| vec![0; k_hunk_prededup[path].len()]);
-        entry[*h] = assigned[i].unwrap_or(0);
-    }
-
-    Some((group_count, assignment))
+    Some(assignment::assign_by_covering(&candidates, group_count))
 }
 
 impl FragMap {

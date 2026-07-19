@@ -619,18 +619,27 @@ pub(super) fn build_file_clusters(
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
     // usize::MAX as target → gen wraps to -1, never matches any active node, so
-    // the assignment output is all-usize::MAX and can be discarded.
+    // the assignment output is empty and can be discarded.
     build_file_clusters_and_assign_hunks(path, commits_for_file, commit_diffs, usize::MAX, poll)
-        .map(|(clusters, _)| clusters)
+        .map(|analysis| analysis.clusters)
+}
+
+/// The per-file clustering result for the commit being split.
+///
+/// Produced by [`build_file_clusters_and_assign_hunks`].
+pub(super) struct FileClusterAnalysis {
+    /// All clusters (one per unique SPG path) for this file.
+    pub(super) clusters: Vec<SpanCluster>,
+    /// Per target-commit hunk (parallel to the target's hunk list for this
+    /// file): all indices into `clusters` the hunk appears in.  A hunk can lie
+    /// on multiple SPG paths with different commit sets, so it may belong to
+    /// several clusters.  Empty when the file has no target-commit hunks.
+    pub(super) target_hunk_clusters: Vec<Vec<usize>>,
 }
 
 /// Build all `SpanCluster` entries for a single file path and simultaneously
-/// compute, for each hunk of `target_commit_idx`, which local cluster index
-/// (within the returned `Vec<SpanCluster>`) it belongs to.
-///
-/// The returned `Vec<usize>` is parallel to the target commit's hunk list for
-/// this file.  Elements are `usize::MAX` when no cluster was found (should not
-/// happen for a valid diff).
+/// compute, for each hunk of `target_commit_idx`, which local cluster indices
+/// (within the returned clusters) it belongs to.
 ///
 /// Using a single pass ensures the cluster index used for hunk assignment
 /// matches the actual position in the returned `Vec`; the old two-pass approach
@@ -647,7 +656,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
     commit_diffs: &[CommitDiff],
     target_commit_idx: usize,
     poll: &mut impl FnMut() -> bool,
-) -> Option<(Vec<SpanCluster>, Vec<Vec<usize>>)> {
+) -> Option<FileClusterAnalysis> {
     let k_hunks = commits_for_file
         .iter()
         .find(|(idx, _)| *idx == target_commit_idx)
@@ -712,7 +721,10 @@ pub(super) fn build_file_clusters_and_assign_hunks(
         }
     }
 
-    Some((clusters, hunk_to_clusters))
+    Some(FileClusterAnalysis {
+        clusters,
+        target_hunk_clusters: hunk_to_clusters,
+    })
 }
 
 /// Enumerate all SPG paths for each file and the raw path count.
