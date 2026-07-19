@@ -71,6 +71,14 @@ impl SpgSpan {
         }
     }
 
+    /// The overlapping sub-interval of two spans, or `None` when the
+    /// intersection is empty.
+    pub(super) fn intersect(&self, other: &SpgSpan) -> Option<SpgSpan> {
+        let start = self.start.max(other.start);
+        let end = self.end.min(other.end);
+        (start < end).then_some(SpgSpan { start, end })
+    }
+
     pub(super) fn from_old_hunk(h: &HunkInfo) -> Self {
         let mut start = h.old_start as i64;
         if h.old_lines == 0 {
@@ -624,6 +632,24 @@ pub(super) fn build_file_clusters(
         .map(|analysis| analysis.clusters)
 }
 
+/// One cluster's claim on a sub-region of a target-commit hunk, recorded while
+/// walking the SPG path that produced the cluster.
+///
+/// The overlaps identify *which part* of the hunk relates this cluster to its
+/// neighbours on the path: the predecessor constrains the hunk's old span (the
+/// lines the hunk rewrote), the successor its new span (the lines a later
+/// commit consumed).  `None` when the neighbour is SOURCE/SINK or the
+/// intersection is empty (e.g. pure insertions have an empty old span).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ClusterTouch {
+    /// Index into the accompanying cluster list.
+    pub(super) cluster_idx: usize,
+    /// Hunk `old_span` ∩ path-predecessor `new_span`.
+    pub(super) old_overlap: Option<SpgSpan>,
+    /// Hunk `new_span` ∩ path-successor `old_span`.
+    pub(super) new_overlap: Option<SpgSpan>,
+}
+
 /// The per-file clustering result for the commit being split.
 ///
 /// Produced by [`build_file_clusters_and_assign_hunks`].
@@ -631,10 +657,11 @@ pub(super) struct FileClusterAnalysis {
     /// All clusters (one per unique SPG path) for this file.
     pub(super) clusters: Vec<SpanCluster>,
     /// Per target-commit hunk (parallel to the target's hunk list for this
-    /// file): all indices into `clusters` the hunk appears in.  A hunk can lie
-    /// on multiple SPG paths with different commit sets, so it may belong to
-    /// several clusters.  Empty when the file has no target-commit hunks.
-    pub(super) target_hunk_clusters: Vec<Vec<usize>>,
+    /// file): every cluster the hunk appears in, with the sub-region of the
+    /// hunk that path claims.  A hunk can lie on multiple SPG paths with
+    /// different commit sets, so it may belong to several clusters.  Empty
+    /// when the file has no target-commit hunks.
+    pub(super) target_hunk_touches: Vec<Vec<ClusterTouch>>,
 }
 
 /// Build all `SpanCluster` entries for a single file path and simultaneously
@@ -668,18 +695,23 @@ pub(super) fn build_file_clusters_and_assign_hunks(
     let paths = spg_all_paths(&spg, poll)?;
 
     let mut clusters: Vec<SpanCluster> = Vec::new();
-    // hunk_to_clusters[h] = all cluster indices that K's hunk h appears in.
-    // A hunk can appear on multiple SPG paths with different commit_oids
-    // patterns, so it may belong to multiple clusters (and after dedup,
-    // to multiple groups).  The caller decides the final assignment.
-    let mut hunk_to_clusters: Vec<Vec<usize>> = vec![vec![]; k_hunks.len()];
+    // hunk_touches[h] = every cluster that K's hunk h appears in, with the
+    // sub-region of the hunk that path claims.  A hunk can appear on multiple
+    // SPG paths with different commit_oids patterns, so it may belong to
+    // multiple clusters (and after dedup, to multiple groups).  The caller
+    // decides the final assignment.
+    let mut hunk_touches: Vec<Vec<ClusterTouch>> = vec![vec![]; k_hunks.len()];
+
+    // A path neighbour bounds a claim only when it is a real node; SOURCE and
+    // SINK span the whole file and would claim everything.
+    let is_interior = |node: &SpgNode| node.generation >= 0 && node.generation != i32::MAX;
 
     for path_nodes in &paths {
         let mut commit_oids: Vec<VirtualOid> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
-        let mut k_hunks_on_path: Vec<usize> = Vec::new();
+        let mut k_hunks_on_path: Vec<(usize, Option<SpgSpan>, Option<SpgSpan>)> = Vec::new();
 
-        for node in path_nodes {
+        for (node_idx, node) in path_nodes.iter().enumerate() {
             if node.is_active
                 && node.generation >= 0
                 && (node.generation as usize) < commit_diffs.len()
@@ -693,7 +725,16 @@ pub(super) fn build_file_clusters_and_assign_hunks(
                 if node.generation == commit_gen {
                     for (h, hunk) in k_hunks.iter().enumerate() {
                         if SpgSpan::from_new_hunk(hunk) == node.new_span {
-                            k_hunks_on_path.push(h);
+                            let old_overlap = node_idx
+                                .checked_sub(1)
+                                .map(|i| &path_nodes[i])
+                                .filter(|pred| is_interior(pred))
+                                .and_then(|pred| node.old_span.intersect(&pred.new_span));
+                            let new_overlap = path_nodes
+                                .get(node_idx + 1)
+                                .filter(|succ| is_interior(succ))
+                                .and_then(|succ| node.new_span.intersect(&succ.old_span));
+                            k_hunks_on_path.push((h, old_overlap, new_overlap));
                             break;
                         }
                     }
@@ -705,10 +746,12 @@ pub(super) fn build_file_clusters_and_assign_hunks(
             && !commit_oids.is_empty()
         {
             let cluster_idx = clusters.len();
-            for h in k_hunks_on_path {
-                if !hunk_to_clusters[h].contains(&cluster_idx) {
-                    hunk_to_clusters[h].push(cluster_idx);
-                }
+            for (h, old_overlap, new_overlap) in k_hunks_on_path {
+                hunk_touches[h].push(ClusterTouch {
+                    cluster_idx,
+                    old_overlap,
+                    new_overlap,
+                });
             }
             clusters.push(SpanCluster {
                 spans: vec![FileSpan {
@@ -723,7 +766,7 @@ pub(super) fn build_file_clusters_and_assign_hunks(
 
     Some(FileClusterAnalysis {
         clusters,
-        target_hunk_clusters: hunk_to_clusters,
+        target_hunk_touches: hunk_touches,
     })
 }
 

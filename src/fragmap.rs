@@ -25,7 +25,9 @@ use crate::{CommitDiff, Oid, VirtualOid};
 
 mod assignment;
 mod spg;
-pub use assignment::{HunkAssignment, HunkGroupAssignment};
+pub use assignment::{
+    FragmentAssignment, HunkAssignment, HunkFragment, HunkGroupAssignment, LineRange,
+};
 use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
 
 /// Build a map from every known file path to the canonical (earliest) name for
@@ -285,20 +287,20 @@ pub fn assign_hunk_groups(
     sorted_paths.sort();
 
     // Phase 1: accumulate pre-dedup clusters (in the same order as build_fragmap)
-    // and record, for each of K's hunks, ALL pre-dedup clusters it appears in.
+    // and record, for each of K's hunks, ALL pre-dedup clusters it appears in
+    // together with the sub-region of the hunk each cluster's path claims.
     //
-    // k_hunk_prededup[path][h] = list of global pre-dedup cluster indices.
     // A hunk can appear on multiple SPG paths with different commit_oids,
     // so it may belong to multiple clusters (and after dedup, multiple groups).
     let mut pre_dedup_clusters: Vec<SpanCluster> = Vec::new();
-    let mut k_hunk_prededup: HashMap<String, Vec<Vec<usize>>> = HashMap::new();
+    let mut k_hunk_touches: HashMap<String, Vec<Vec<spg::ClusterTouch>>> = HashMap::new();
 
     for path in &sorted_paths {
         let commits_for_file = &file_commits[*path];
         let file_cluster_offset = pre_dedup_clusters.len();
 
         let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
-        let (file_clusters, hunk_to_local) = if has_k {
+        let (file_clusters, hunk_touches) = if has_k {
             let analysis = build_file_clusters_and_assign_hunks(
                 path,
                 commits_for_file,
@@ -307,7 +309,7 @@ pub fn assign_hunk_groups(
                 &mut || true,
             )
             .expect("no-op poll never interrupts");
-            (analysis.clusters, analysis.target_hunk_clusters)
+            (analysis.clusters, analysis.target_hunk_touches)
         } else {
             (
                 build_file_clusters(path, commits_for_file, commit_diffs, &mut || true)
@@ -316,17 +318,20 @@ pub fn assign_hunk_groups(
             )
         };
 
-        if has_k && !hunk_to_local.is_empty() {
-            let global_indices: Vec<Vec<usize>> = hunk_to_local
+        if has_k && !hunk_touches.is_empty() {
+            let global_touches: Vec<Vec<spg::ClusterTouch>> = hunk_touches
                 .iter()
-                .map(|locals| {
-                    locals
+                .map(|touches| {
+                    touches
                         .iter()
-                        .map(|&local| file_cluster_offset + local)
+                        .map(|touch| spg::ClusterTouch {
+                            cluster_idx: file_cluster_offset + touch.cluster_idx,
+                            ..*touch
+                        })
                         .collect()
                 })
                 .collect();
-            k_hunk_prededup.insert((*path).clone(), global_indices);
+            k_hunk_touches.insert((*path).clone(), global_touches);
         }
 
         pre_dedup_clusters.extend(file_clusters);
@@ -350,34 +355,51 @@ pub fn assign_hunk_groups(
     }
     let group_count = seen_patterns.len();
 
-    // Phase 3: Assign each of K's hunks to exactly one dedup group.
+    // Phase 3: Assign each of K's hunks — or fragments of them — to dedup
+    // groups.
     //
     // A hunk can belong to multiple pre-dedup clusters (via different SPG
     // paths) which may map to different dedup groups.  Every group that K
     // contributes to should get at least one hunk assigned, so the split
-    // produces the same number of commits as fragmap columns K touches —
-    // see `assignment::assign_by_covering`.
-    let mut candidates: Vec<assignment::GroupCandidate> = Vec::new();
-    for (path, prededup_multi) in &k_hunk_prededup {
-        for (hunk_idx, prededup_indices) in prededup_multi.iter().enumerate() {
-            let mut groups: Vec<usize> = prededup_indices
+    // produces the same number of commits as fragmap columns K touches.
+    // Where a hunk's group claims separate cleanly it is partitioned so that
+    // each column can receive its own part — see `assignment::assign_hunks`.
+    let mut all_claims: Vec<assignment::HunkClaims> = Vec::new();
+    for (path, hunk_touches) in &k_hunk_touches {
+        let k_hunks = file_commits[path]
+            .iter()
+            .find(|(idx, _)| *idx == k_idx)
+            .map(|(_, hunks)| hunks.as_slice())
+            .unwrap_or(&[]);
+        for (hunk_idx, touches) in hunk_touches.iter().enumerate() {
+            let hunk = &k_hunks[hunk_idx];
+            let claims = touches
                 .iter()
-                .map(|&pre_idx| group_idx_for_prededup[pre_idx])
+                .map(|touch| assignment::GroupClaim {
+                    group: group_idx_for_prededup[touch.cluster_idx],
+                    old_overlap: touch.old_overlap.map(spg_span_to_line_range),
+                    new_overlap: touch.new_overlap.map(spg_span_to_line_range),
+                })
                 .collect();
-            groups.sort();
-            groups.dedup();
-            if groups.is_empty() {
-                groups.push(0);
-            }
-            candidates.push(assignment::GroupCandidate {
+            all_claims.push(assignment::HunkClaims {
                 path: path.clone(),
                 hunk_idx,
-                possible_groups: groups,
+                old_span: spg_span_to_line_range(spg::SpgSpan::from_old_hunk(hunk)),
+                new_span: spg_span_to_line_range(spg::SpgSpan::from_new_hunk(hunk)),
+                claims,
             });
         }
     }
 
-    Some(assignment::assign_by_covering(&candidates, group_count))
+    Some(assignment::assign_hunks(&all_claims, group_count))
+}
+
+/// Convert an SPG span to the `u32` line-range form used by the assignment.
+fn spg_span_to_line_range(span: spg::SpgSpan) -> assignment::LineRange {
+    assignment::LineRange {
+        start: span.start.max(0) as u32,
+        end: span.end.max(0) as u32,
+    }
 }
 
 impl FragMap {

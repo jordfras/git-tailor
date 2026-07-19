@@ -21,6 +21,41 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
+use crate::fragmap::HunkFragment;
+
+/// One fragment of a hunk together with whether it is part of the selection.
+///
+/// The fragments of a hunk tile its removed and added lines in order, so a
+/// partial application interleaves them: a selected fragment contributes its
+/// added lines, an unselected one keeps its original (removed) lines.
+#[derive(Debug, Clone)]
+pub(super) struct FragmentSelection {
+    pub(super) fragment: HunkFragment,
+    pub(super) selected: bool,
+}
+
+/// Selection of a hunk — or part of it — for one intermediate split tree.
+#[derive(Debug, Clone)]
+pub(super) enum HunkSelection {
+    /// Apply the whole hunk.
+    Whole { hunk_idx: usize },
+    /// Apply only the selected fragments; the rest of the hunk keeps its
+    /// original content.  `fragments` must tile the whole hunk (0-context).
+    Partial {
+        hunk_idx: usize,
+        fragments: Vec<FragmentSelection>,
+    },
+}
+
+impl HunkSelection {
+    fn hunk_idx(&self) -> usize {
+        match self {
+            HunkSelection::Whole { hunk_idx } => *hunk_idx,
+            HunkSelection::Partial { hunk_idx, .. } => *hunk_idx,
+        }
+    }
+}
+
 /// Build the commit message for the n-th commit in a split sequence.
 ///
 /// The first line of the original message is kept and suffixed with "(n/total)".
@@ -154,23 +189,23 @@ pub(super) fn apply_single_hunk_to_tree(
     }
     Ok(base_tree.id())
 }
-/// Apply a selected subset of hunks from `full_diff` to `parent_tree`,
-/// returning the new tree OID.
+/// Apply a selected subset of hunks (or fragments of hunks) from `full_diff`
+/// to `parent_tree`, returning the new tree OID.
 ///
-/// `selected_hunks` maps each delta index to the list of hunk indices
-/// (within that delta) to apply.  Files with no selected hunks keep their
-/// original content from `parent_tree`.
+/// `selected_hunks` maps each delta index to the selections to apply within
+/// that delta.  Files with no selected hunks keep their original content from
+/// `parent_tree`.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree,
     full_diff: &git2::Diff,
-    selected_hunks: &HashMap<usize, Vec<usize>>,
+    selected_hunks: &HashMap<usize, Vec<HunkSelection>>,
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
     idx.read_tree(parent_tree)?;
 
-    for (&delta_idx, hunk_indices) in selected_hunks {
-        if hunk_indices.is_empty() {
+    for (&delta_idx, selections) in selected_hunks {
+        if selections.is_empty() {
             continue;
         }
 
@@ -203,9 +238,8 @@ pub(super) fn apply_selected_hunks_to_tree(
             }
         };
 
-        let new_content =
-            apply_multiple_hunks_to_content(&old_content, &mut patch, hunk_indices)
-                .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
+        let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
+            .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
 
         let path_bytes = file_path
             .to_str()
@@ -302,24 +336,26 @@ fn split_lines_keep_eol(data: &[u8]) -> Vec<&[u8]> {
     lines
 }
 
-/// Apply the hunks at `hunk_indices` from `patch` to `content` in a single
-/// sweep, using each hunk's original `old_start` position.  Hunks NOT listed
-/// in `hunk_indices` are preserved unchanged.
+/// Apply the selections from `patch` to `content` in a single sweep, using
+/// each hunk's original `old_start` position.  Hunks NOT listed in
+/// `selections` are preserved unchanged.
 ///
-/// `hunk_indices` need not be sorted on entry; the function sorts them by
-/// `old_start` before processing.
-fn apply_multiple_hunks_to_content(
+/// `selections` need not be sorted on entry; the function sorts them by
+/// `old_start` before processing.  Partial selections assume a 0-context
+/// patch, where a hunk is a block of removed lines followed by added lines
+/// and the selection's fragments tile both.
+fn apply_hunk_selections_to_content(
     content: &[u8],
     patch: &mut git2::Patch,
-    hunk_indices: &[usize],
+    selections: &[HunkSelection],
 ) -> Result<Vec<u8>> {
     // Sort by old_start so we can sweep top-to-bottom through the original.
-    let mut sorted: Vec<(usize, u32)> = hunk_indices
+    let mut sorted: Vec<(&HunkSelection, u32)> = selections
         .iter()
-        .map(|&i| {
+        .map(|selection| {
             patch
-                .hunk(i)
-                .map(|(h, _)| (i, h.old_start()))
+                .hunk(selection.hunk_idx())
+                .map(|(h, _)| (selection, h.old_start()))
                 .map_err(anyhow::Error::from)
         })
         .collect::<Result<_>>()?;
@@ -329,8 +365,9 @@ fn apply_multiple_hunks_to_content(
     let mut result: Vec<u8> = Vec::new();
     let mut src_pos: usize = 0;
 
-    for (hunk_idx, _) in &sorted {
-        let (hunk_header, _) = patch.hunk(*hunk_idx)?;
+    for (selection, _) in &sorted {
+        let hunk_idx = selection.hunk_idx();
+        let (hunk_header, _) = patch.hunk(hunk_idx)?;
         let old_start = hunk_header.old_start() as usize; // 1-based
         let old_count = hunk_header.old_lines() as usize;
 
@@ -345,11 +382,54 @@ fn apply_multiple_hunks_to_content(
         }
         src_pos = splice_start + old_count;
 
-        let num_lines = patch.num_lines_in_hunk(*hunk_idx)?;
-        for line_idx in 0..num_lines {
-            let line = patch.line_in_hunk(*hunk_idx, line_idx)?;
-            if matches!(line.origin(), ' ' | '+') {
-                result.extend_from_slice(line.content());
+        match selection {
+            HunkSelection::Whole { .. } => {
+                let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
+                for line_idx in 0..num_lines {
+                    let line = patch.line_in_hunk(hunk_idx, line_idx)?;
+                    if matches!(line.origin(), ' ' | '+') {
+                        result.extend_from_slice(line.content());
+                    }
+                }
+            }
+            HunkSelection::Partial { fragments, .. } => {
+                // Added lines of the hunk keyed by their 1-based new-file line.
+                let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
+                let mut added: Vec<(u32, Vec<u8>)> = Vec::new();
+                for line_idx in 0..num_lines {
+                    let line = patch.line_in_hunk(hunk_idx, line_idx)?;
+                    if line.origin() == '+' {
+                        let lineno = line
+                            .new_lineno()
+                            .context("added line has no new line number")?;
+                        added.push((lineno, line.content().to_owned()));
+                    }
+                }
+
+                // Fragments tile the hunk in order: a selected fragment
+                // contributes its added lines, an unselected one keeps its
+                // original (removed) lines.
+                for fragment_selection in fragments {
+                    let fragment = &fragment_selection.fragment;
+                    if fragment_selection.selected {
+                        for (lineno, added_line) in &added {
+                            if *lineno >= fragment.new_lines.start
+                                && *lineno < fragment.new_lines.end
+                            {
+                                result.extend_from_slice(added_line);
+                            }
+                        }
+                    } else {
+                        for old_line in fragment.old_lines.start..fragment.old_lines.end {
+                            if let Some(line) = (old_line as usize)
+                                .checked_sub(1)
+                                .and_then(|i| lines.get(i))
+                            {
+                                result.extend_from_slice(line);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -362,7 +442,125 @@ fn apply_multiple_hunks_to_content(
 
 #[cfg(test)]
 mod tests {
-    use super::{split_message, summary_suffix_message};
+    use super::{
+        FragmentSelection, HunkSelection, apply_hunk_selections_to_content, split_message,
+        summary_suffix_message,
+    };
+    use crate::fragmap::{HunkFragment, LineRange};
+
+    fn range(start: u32, end: u32) -> LineRange {
+        LineRange { start, end }
+    }
+
+    fn fragment(old: LineRange, new: LineRange, selected: bool) -> FragmentSelection {
+        FragmentSelection {
+            fragment: HunkFragment {
+                old_lines: old,
+                new_lines: new,
+            },
+            selected,
+        }
+    }
+
+    fn zero_context_patch<'b>(old: &'b [u8], new: &'b [u8]) -> git2::Patch<'b> {
+        let mut opts = git2::DiffOptions::new();
+        opts.context_lines(0).interhunk_lines(0);
+        git2::Patch::from_buffers(old, None, new, None, Some(&mut opts)).unwrap()
+    }
+
+    #[test]
+    fn partial_selection_applies_only_the_selected_fragment() {
+        let old = b"A\nB\n";
+        let new = b"A2\nB2\n";
+        let mut patch = zero_context_patch(old, new);
+        assert_eq!(patch.num_hunks(), 1);
+
+        let selections = vec![HunkSelection::Partial {
+            hunk_idx: 0,
+            fragments: vec![
+                fragment(range(1, 2), range(1, 2), true),
+                fragment(range(2, 3), range(2, 3), false),
+            ],
+        }];
+        let result = apply_hunk_selections_to_content(old, &mut patch, &selections).unwrap();
+        assert_eq!(result, b"A2\nB\n");
+    }
+
+    #[test]
+    fn partial_selection_complement_applies_the_other_fragment() {
+        let old = b"A\nB\n";
+        let new = b"A2\nB2\n";
+        let mut patch = zero_context_patch(old, new);
+
+        let selections = vec![HunkSelection::Partial {
+            hunk_idx: 0,
+            fragments: vec![
+                fragment(range(1, 2), range(1, 2), false),
+                fragment(range(2, 3), range(2, 3), true),
+            ],
+        }];
+        let result = apply_hunk_selections_to_content(old, &mut patch, &selections).unwrap();
+        assert_eq!(result, b"A\nB2\n");
+    }
+
+    #[test]
+    fn all_fragments_selected_matches_whole_selection() {
+        let old = b"keep\nA\nB\nkeep\n";
+        let new = b"keep\nA2\nB2\nkeep\n";
+        let mut patch = zero_context_patch(old, new);
+
+        let partial = vec![HunkSelection::Partial {
+            hunk_idx: 0,
+            fragments: vec![
+                fragment(range(2, 3), range(2, 3), true),
+                fragment(range(3, 4), range(3, 4), true),
+            ],
+        }];
+        let whole = vec![HunkSelection::Whole { hunk_idx: 0 }];
+
+        let via_partial = apply_hunk_selections_to_content(old, &mut patch, &partial).unwrap();
+        let via_whole = apply_hunk_selections_to_content(old, &mut patch, &whole).unwrap();
+        assert_eq!(via_partial, new.to_vec());
+        assert_eq!(via_partial, via_whole);
+    }
+
+    #[test]
+    fn partial_pure_insertion_inserts_only_selected_lines() {
+        // Pure insertion of two lines after line 1; select only the first.
+        let old = b"one\ntwo\n";
+        let new = b"one\nNEW1\nNEW2\ntwo\n";
+        let mut patch = zero_context_patch(old, new);
+
+        let selections = vec![HunkSelection::Partial {
+            hunk_idx: 0,
+            fragments: vec![
+                fragment(range(2, 2), range(2, 3), true),
+                fragment(range(2, 2), range(3, 4), false),
+            ],
+        }];
+        let result = apply_hunk_selections_to_content(old, &mut patch, &selections).unwrap();
+        assert_eq!(result, b"one\nNEW1\ntwo\n");
+    }
+
+    #[test]
+    fn uneven_fragment_sides_replace_by_fragment_alignment() {
+        // One old line replaced by three new lines, split 1:2 between the
+        // fragments; applying only the first keeps the old line's replacement
+        // partial.
+        let old = b"X\n";
+        let new = b"N1\nN2\nN3\n";
+        let mut patch = zero_context_patch(old, new);
+
+        let selections = vec![HunkSelection::Partial {
+            hunk_idx: 0,
+            fragments: vec![
+                fragment(range(1, 2), range(1, 2), true),
+                fragment(range(2, 2), range(2, 4), false),
+            ],
+        }];
+        let result = apply_hunk_selections_to_content(old, &mut patch, &selections).unwrap();
+        assert_eq!(result, b"N1\n");
+    }
 
     #[test]
     fn summary_suffix_message_summary_only() {
