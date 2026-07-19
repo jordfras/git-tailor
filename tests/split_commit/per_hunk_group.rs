@@ -242,6 +242,58 @@ fn split_per_hunk_group_covers_more_columns_than_hunks() {
 }
 
 #[test]
+fn split_per_hunk_group_one_hunk_partially_consumed_across_a_gap_commit() {
+    // Same shape as the one-hunk-two-columns case, but an unrelated commit T
+    // (touching only b.txt) sits between K and the later commit C that edits
+    // part of K's output.  In the SPG the gap generation bridges K's hunk with
+    // a full-span propagated copy, which must not blur the claim: the hunk
+    // still has a separable piece consumed by C, so the matrix's two columns
+    // must yield two split commits.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "A\nB\n"), ("b.txt", "X\n")], "base");
+    let to_split = test.commit_file("a.txt", "A2\nB2\n", "commit K");
+    test.commit_file("b.txt", "X2\n", "commit T");
+    test.commit_file("a.txt", "A2\nB3\n", "commit C");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2,
+        "the count offered to the user must match the two matrix columns"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 4 commits above base: K-part1 + K-part2 + T' + C'.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        4,
+        "expected 4 commits above base (2 split parts + T' + C')"
+    );
+
+    // K-part1 carries the piece C never touches (line 1).
+    let k1_oid = commits_above_base[0];
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "A2\nB\n");
+
+    // K-part2 completes the commit with the piece C later edits (line 2).
+    let k2_oid = commits_above_base[1];
+    assert_file_contents!(&test.repo, k2_oid, "a.txt", "A2\nB2\n");
+
+    // T and C replay cleanly on top.
+    let tip = commits_above_base[3];
+    assert_file_contents!(&test.repo, tip, "a.txt", "A2\nB3\n");
+    assert_file_contents!(&test.repo, tip, "b.txt", "X2\n");
+}
+
+#[test]
 fn split_per_hunk_group_cross_related_lines_yield_fewer_commits_than_columns() {
     // The documented "rare occasion" where a hunk cannot be fully pulled
     // apart: K's one hunk rewrites line 1 (earlier edited by A) and line 2
