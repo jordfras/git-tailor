@@ -14,6 +14,7 @@
 
 // TUI views for rendering different screens
 
+pub mod autofixup;
 pub mod commit_detail;
 pub mod commit_list;
 pub mod conflict;

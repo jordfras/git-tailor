@@ -99,7 +99,7 @@ Guidelines:
   the suspend/resume flow.
 
 ## Interactivity — Squash Commit
-- [ ] T229 P2 feat - Add bulk autosquash (mirrors `git rebase --autosquash`):
+- [X] T229 P2 feat - Add bulk "Autofixup" (mirrors `git rebase --autosquash`):
   a new action (not tied to a single selected commit) that scans the branch
   for `fixup!`/`squash!`-prefixed commits, matches each to the earlier commit
   whose summary line follows the prefix, and squashes/fixups each into its

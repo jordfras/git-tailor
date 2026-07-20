@@ -40,6 +40,7 @@ pub enum KeyCommand {
     Split,
     Squash,
     Fixup,
+    Autofixup,
     Reword,
     Drop,
     Move,
@@ -152,7 +153,10 @@ impl AppMode {
                     AppMode::CommitDetail => KeyCommand::NavFileNext,
                     _ => KeyCommand::Fixup,
                 },
-                KeyCode::Char('F') => KeyCommand::NavFilePrev,
+                KeyCode::Char('F') => match self {
+                    AppMode::CommitDetail => KeyCommand::NavFilePrev,
+                    _ => KeyCommand::Autofixup,
+                },
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
                 KeyCode::Char('m') => match self {

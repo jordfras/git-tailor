@@ -36,6 +36,7 @@ pub enum Operation {
     Commit,
     Undo,
     Redo,
+    Autofixup,
 }
 
 impl Operation {
@@ -55,6 +56,7 @@ impl Operation {
                     Operation::Reword,
                     Operation::Move,
                     Operation::Drop,
+                    Operation::Autofixup,
                     Operation::Undo,
                     Operation::Redo,
                 ];
@@ -63,10 +65,16 @@ impl Operation {
                 }
                 ops
             }
-            VirtualOid::Unstaged => vec![Operation::Stage, Operation::Undo, Operation::Redo],
+            VirtualOid::Unstaged => vec![
+                Operation::Stage,
+                Operation::Autofixup,
+                Operation::Undo,
+                Operation::Redo,
+            ],
             VirtualOid::Staged => vec![
                 Operation::Commit,
                 Operation::Unstage,
+                Operation::Autofixup,
                 Operation::Undo,
                 Operation::Redo,
             ],
@@ -88,6 +96,7 @@ impl Operation {
             Operation::Commit => "c",
             Operation::Undo => "u",
             Operation::Redo => "C-r",
+            Operation::Autofixup => "F",
         }
     }
 
@@ -105,6 +114,7 @@ impl Operation {
             Operation::Commit => KeyCommand::CommitStaged,
             Operation::Undo => KeyCommand::Undo,
             Operation::Redo => KeyCommand::Redo,
+            Operation::Autofixup => KeyCommand::Autofixup,
         }
     }
 
@@ -121,6 +131,7 @@ impl Operation {
             Operation::Commit => "Commit staged",
             Operation::Undo => "Undo",
             Operation::Redo => "Redo",
+            Operation::Autofixup => "Autofixup",
         }
     }
 
@@ -137,6 +148,7 @@ impl Operation {
             Operation::Commit => "Commit staged changes",
             Operation::Undo => "Undo last operation",
             Operation::Redo => "Redo last operation",
+            Operation::Autofixup => "Squash all fixup!/squash!",
         }
     }
 }
@@ -158,6 +170,7 @@ mod tests {
                 Operation::Reword,
                 Operation::Move,
                 Operation::Drop,
+                Operation::Autofixup,
                 Operation::Undo,
                 Operation::Redo,
             ]
@@ -178,7 +191,12 @@ mod tests {
     fn available_operations_for_the_unstaged_row() {
         assert_eq!(
             Operation::available_for(&VirtualOid::Unstaged, false),
-            vec![Operation::Stage, Operation::Undo, Operation::Redo]
+            vec![
+                Operation::Stage,
+                Operation::Autofixup,
+                Operation::Undo,
+                Operation::Redo,
+            ]
         );
     }
 
@@ -189,6 +207,7 @@ mod tests {
             vec![
                 Operation::Commit,
                 Operation::Unstage,
+                Operation::Autofixup,
                 Operation::Undo,
                 Operation::Redo,
             ]

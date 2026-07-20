@@ -73,7 +73,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
+        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -136,7 +136,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "squashed", &state.original_branch_oid)
+        .squash_finalize(&ctx, "squashed", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -197,6 +197,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         moved_commit_oid: state.moved_commit_oid,
         squash_context: state.squash_context,
         is_orphan_root: state.is_orphan_root,
+        autofixup_reference_oid: state.autofixup_reference_oid,
     };
     git_repo.rebase_abort(&conflict_state).unwrap();
 

@@ -288,6 +288,7 @@ fn build_conflict_state(
         still_unresolved: false,
         moved_commit_oid: None,
         is_orphan_root: false,
+        autofixup_reference_oid: None,
         squash_context: Some(SquashContext {
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),

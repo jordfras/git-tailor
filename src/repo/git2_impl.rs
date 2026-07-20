@@ -33,6 +33,7 @@ impl From<&Oid> for git2::Oid {
     }
 }
 
+mod autofixup_op;
 mod cherry_pick;
 mod commit_staged_op;
 mod conflict;
@@ -306,6 +307,13 @@ impl GitRepo for Git2Repo {
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        if state.autofixup_reference_oid.is_some() {
+            return self.journaled(
+                "Autofixup",
+                &state.original_branch_oid,
+                autofixup_op::continue_autofixup(self, state),
+            );
+        }
         self.journaled(
             &state.operation_label,
             &state.original_branch_oid,
@@ -469,11 +477,33 @@ impl GitRepo for Git2Repo {
         ctx: &super::SquashContext,
         message: &str,
         original_branch_oid: &Oid,
+        autofixup_reference_oid: Option<&Oid>,
     ) -> Result<super::RebaseOutcome> {
+        if let Some(reference_oid) = autofixup_reference_oid {
+            return self.journaled(
+                "Autofixup",
+                original_branch_oid,
+                autofixup_op::continue_autofixup_after_squash_finalize(
+                    self,
+                    ctx,
+                    message,
+                    original_branch_oid,
+                    reference_oid,
+                ),
+            );
+        }
         self.journaled(
             "Squash",
             original_branch_oid,
             squash_op::squash_finalize(self, ctx, message, original_branch_oid),
+        )
+    }
+
+    fn autofixup(&self, head_oid: &Oid, reference_oid: &Oid) -> Result<super::RebaseOutcome> {
+        self.journaled(
+            "Autofixup",
+            head_oid,
+            autofixup_op::autofixup(self, head_oid, reference_oid),
         )
     }
 

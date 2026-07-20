@@ -133,6 +133,10 @@ pub struct ConflictState {
     /// True when the conflicting commit should become an orphan root (no
     /// parents) after resolution. Used when dropping the root commit.
     pub is_orphan_root: bool,
+    /// Set only for an in-progress autofixup batch: the range's base, needed
+    /// to re-scan for the next fixup/target pair once this conflict resolves.
+    /// `None` for every other operation.
+    pub autofixup_reference_oid: Option<Oid>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -550,12 +554,35 @@ pub trait GitRepo {
     /// Reads the resolved index, creates the squash commit with `message`,
     /// then cherry-picks the descendants listed in `ctx`. Returns
     /// `RebaseOutcome::Complete` or `Conflict` for a descendant conflict.
+    ///
+    /// `autofixup_reference_oid` is `Some` when this finalizes a step of an
+    /// in-progress autofixup batch: once this step completes, the remaining
+    /// fixup/target pairs in the batch (down to that reference commit) are
+    /// applied before returning, so the batch keeps going through a
+    /// squash-time conflict the same way it does through a descendant one.
     fn squash_finalize(
         &self,
         ctx: &SquashContext,
         message: &str,
         original_branch_oid: &Oid,
+        autofixup_reference_oid: Option<&Oid>,
     ) -> Result<RebaseOutcome>;
+
+    /// Bulk-squash every `fixup!`/`squash!`-prefixed commit in
+    /// `reference_oid..head_oid` into the earlier commit its summary names
+    /// (see [`crate::autofixup::plan_autofixup`]), bottom-up so multiple
+    /// fixups aimed at the same target stack correctly. `squash!` pairs
+    /// combine messages non-interactively (target message, blank line,
+    /// source message — the same default text the manual squash editor
+    /// starts from); `fixup!` pairs keep the target's message unchanged.
+    /// Commits with no resolvable target are left in place.
+    ///
+    /// The whole batch is one undoable operation: on success a single undo
+    /// entry restores `head_oid`. Returns `RebaseOutcome::Conflict` if any
+    /// individual squash step conflicts; resuming via
+    /// [`rebase_continue`](Self::rebase_continue) continues the remaining
+    /// pairs in the same batch.
+    fn autofixup(&self, head_oid: &Oid, reference_oid: &Oid) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.
     ///

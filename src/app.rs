@@ -24,6 +24,7 @@ pub use state::AppState;
 
 use crate::{
     Oid,
+    autofixup::AutofixupPair,
     repo::{ConflictState, StashConflictState},
 };
 
@@ -112,6 +113,17 @@ pub enum AppAction {
     ExecuteMove {
         source_oid: Oid,
         insert_after_oid: Option<Oid>,
+    },
+    /// Begin the autofixup flow: get head_oid, compute the pair plan from the
+    /// already-loaded commits, then show the confirmation dialog.
+    PrepareAutofixupConfirm,
+    /// Execute a confirmed autofixup batch. `pairs` is the plan shown in the
+    /// confirmation dialog, reused after completion to work out where the
+    /// cursor should land (see `main.rs::autofixup_target_selection_index`).
+    ExecuteAutofixup {
+        head_oid: Oid,
+        reference_oid: Oid,
+        pairs: Vec<AutofixupPair>,
     },
 }
 
@@ -211,6 +223,8 @@ pub enum AppMode {
     SplitConfirm(PendingSplit),
     /// Confirmation dialog before dropping a commit.
     DropConfirm(PendingDrop),
+    /// Confirmation dialog before running a bulk autofixup batch.
+    AutofixupConfirm(PendingAutofixup),
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(Box<ConflictState>),
@@ -250,6 +264,7 @@ impl AppMode {
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
+            | AppMode::AutofixupConfirm(_)
             | AppMode::RebaseConflict(_)
             | AppMode::StashConflict(_)
             | AppMode::RecoverConfirm(_) => Some(AppMode::CommitList),
@@ -273,4 +288,12 @@ pub struct PendingDrop {
     pub commit_oid: Oid,
     pub commit_summary: String,
     pub head_oid: Oid,
+}
+
+/// Data retained while the user is shown the autofixup confirmation dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAutofixup {
+    pub pairs: Vec<AutofixupPair>,
+    pub head_oid: Oid,
+    pub reference_oid: Oid,
 }

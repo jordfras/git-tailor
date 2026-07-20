@@ -48,6 +48,11 @@ enum LoopAction {
     ReloadPreserving,
     /// Reload commits from HEAD, resetting selection to the natural position.
     Reload,
+    /// Reload commits from HEAD, selecting a specific (clamped) index —
+    /// for operations where "the same index" isn't a good proxy for "the
+    /// same commit" (e.g. autofixup, which can remove several commits
+    /// scattered through the list in one batch).
+    ReloadSelecting(usize),
 }
 
 /// Fetch HEAD OID from the repo, setting an error message and returning
@@ -233,6 +238,7 @@ fn main() -> Result<()> {
             }
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
+            AppMode::AutofixupConfirm(_) => views::autofixup::handle_confirm_key(action, &mut app),
             AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
             AppMode::StashConflict(_) => {
                 views::stash_conflict::handle_stash_conflict_key(action, &mut app)
@@ -254,9 +260,12 @@ fn main() -> Result<()> {
         match dispatch_result {
             LoopAction::Continue => continue,
             LoopAction::Proceed => {}
-            LoopAction::Reload | LoopAction::ReloadPreserving => {
+            LoopAction::Reload | LoopAction::ReloadPreserving | LoopAction::ReloadSelecting(_) => {
                 let preserve = matches!(dispatch_result, LoopAction::ReloadPreserving);
-                let saved_idx = app.selection_index;
+                let saved_idx = match dispatch_result {
+                    LoopAction::ReloadSelecting(idx) => idx,
+                    _ => app.selection_index,
+                };
                 match git_repo.head_oid() {
                     Err(e) => app.set_error_message(format!("Reload failed: {e}")),
                     Ok(head_oid) => {
@@ -273,7 +282,13 @@ fn main() -> Result<()> {
                             full,
                         ) {
                             Err(e) => app.set_error_message(format!("Reload failed: {e}")),
-                            Ok(true) if preserve => {
+                            Ok(true)
+                                if preserve
+                                    || matches!(
+                                        dispatch_result,
+                                        LoopAction::ReloadSelecting(_)
+                                    ) =>
+                            {
                                 app.selection_index =
                                     saved_idx.min(app.commits.len().saturating_sub(1));
                             }
@@ -472,6 +487,14 @@ fn dispatch_action(
             source_oid,
             insert_after_oid,
         } => return handle_execute_move(git_repo, app, source_oid, insert_after_oid),
+        AppAction::PrepareAutofixupConfirm => {
+            return handle_prepare_autofixup_confirm(git_repo, app);
+        }
+        AppAction::ExecuteAutofixup {
+            head_oid,
+            reference_oid,
+            pairs,
+        } => return handle_execute_autofixup(git_repo, app, head_oid, reference_oid, pairs),
         AppAction::StageAll => {
             let outcome = git_repo.stage_all();
             return Ok(report_stage_outcome(
@@ -765,6 +788,86 @@ fn handle_execute_move(
     ))
 }
 
+/// Compute the autofixup plan from the already-loaded commit list (no git
+/// call needed) and show the confirmation dialog, or report nothing to do.
+fn handle_prepare_autofixup_confirm(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+) -> Result<LoopAction> {
+    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let pairs = git_tailor::autofixup::plan_autofixup(&app.commits);
+    if pairs.is_empty() {
+        app.set_success_message("Nothing to autofixup");
+        return Ok(LoopAction::Proceed);
+    }
+    let reference_oid = app.reference_oid.clone();
+    app.enter_autofixup_confirm(pairs, head_oid, reference_oid);
+    Ok(LoopAction::Proceed)
+}
+
+/// Where the cursor should land after an autofixup batch removes `pairs`'
+/// source commits from the list (scattered removals, unlike Drop/Squash/Move
+/// which each remove or reposition exactly one commit — plain index
+/// preservation would often land on an unrelated row). If the originally
+/// selected commit was itself folded away, lands on the commit it was folded
+/// into; otherwise stays on the same commit, index-adjusted for how many
+/// earlier commits vanished. `None` when the selection wasn't a real commit
+/// (a synthetic staged/unstaged row, unaffected by autofixup either way).
+fn autofixup_target_selection_index(
+    commits: &[CommitInfo],
+    selection_index: usize,
+    pairs: &[git_tailor::autofixup::AutofixupPair],
+) -> Option<usize> {
+    let selected_oid = commits.get(selection_index)?.oid.as_oid()?;
+    let reference_oid = pairs
+        .iter()
+        .find(|p| &p.source_oid == selected_oid)
+        .map(|p| &p.target_oid)
+        .unwrap_or(selected_oid);
+    let index_of = |oid: &Oid| commits.iter().position(|c| c.oid.as_oid() == Some(oid));
+    let reference_index = index_of(reference_oid)?;
+    let removed_before = pairs
+        .iter()
+        .filter(|p| index_of(&p.source_oid).is_some_and(|i| i < reference_index))
+        .count();
+    Some(reference_index.saturating_sub(removed_before))
+}
+
+fn handle_execute_autofixup(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    head_oid: Oid,
+    reference_oid: Oid,
+    pairs: Vec<git_tailor::autofixup::AutofixupPair>,
+) -> Result<LoopAction> {
+    let target_index = autofixup_target_selection_index(&app.commits, app.selection_index, &pairs);
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
+    match git_repo.autofixup(&head_oid, &reference_oid) {
+        Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Autofixup",
+            "Commits autofixed up",
+            match target_index {
+                Some(idx) => LoopAction::ReloadSelecting(idx),
+                None => LoopAction::ReloadPreserving,
+            },
+        )),
+        Ok(RebaseOutcome::Conflict(state)) => {
+            app.enter_rebase_conflict(*state);
+            Ok(LoopAction::Continue)
+        }
+        Err(e) => {
+            let _ = git_repo.autostash_restore();
+            app.set_error_message(format!("Autofixup failed: {e}"));
+            Ok(LoopAction::Proceed)
+        }
+    }
+}
+
 fn handle_rebase_abort(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
@@ -809,7 +912,13 @@ fn handle_rebase_continue(
             });
             return Ok(LoopAction::Continue);
         }
-        let final_msg = if ctx.squash_mode.keeps_target_message() {
+        // An autofixup batch never pauses for interactive editing per pair
+        // (the confirmation dialog is the only prompt) — squash!-mode
+        // conflicts keep the non-interactive combined message computed up
+        // front, the same as fixup!-mode already does.
+        let final_msg = if ctx.squash_mode.keeps_target_message()
+            || state.autofixup_reference_oid.is_some()
+        {
             ctx.combined_message.clone()
         } else {
             let combined = ctx.combined_message.clone();
@@ -839,7 +948,12 @@ fn handle_rebase_continue(
             SquashMode::Fixup => "Commit fixed up",
             SquashMode::Squash => "Commits squashed",
         };
-        let outcome = git_repo.squash_finalize(&ctx_clone, &final_msg, &original_oid);
+        let outcome = git_repo.squash_finalize(
+            &ctx_clone,
+            &final_msg,
+            &original_oid,
+            state.autofixup_reference_oid.as_ref(),
+        );
         return Ok(handle_rebase_outcome(
             git_repo,
             app,
@@ -1318,6 +1432,7 @@ fn render_mode(
         AppMode::SplitFileSelect { .. } => views::split_file_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
+        AppMode::AutofixupConfirm(_) => views::autofixup::render_autofixup_confirm(app, frame),
         AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
         AppMode::StashConflict(_) => views::stash_conflict::render_stash_conflict(app, frame),
         AppMode::RecoverConfirm(_) => views::recover::render_recover(app, frame),
