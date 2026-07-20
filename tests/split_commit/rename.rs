@@ -96,3 +96,90 @@ fn split_per_hunk_group_rename_and_edit_in_the_same_commit() {
     let tip = commits_above_base[2];
     assert_file_contents!(&test.repo, tip, "bar.txt", k_content);
 }
+
+#[test]
+fn split_per_hunk_group_survives_a_two_hop_rename_chain() {
+    // History:
+    //   base  — creates alpha.py (20 lines)
+    //   A     — edits line 1 of alpha.py
+    //   rename1 — alpha.py -> beta.py
+    //   mid   — edits an unrelated line of beta.py
+    //   rename2 — beta.py -> gamma.py
+    //   K     — reworks A's line (reached through BOTH renames) and edits a
+    //           fresh line, under the file's third name  <-- split target
+    //
+    // `assign_hunk_groups` collapses a rename chain to one canonical
+    // (earliest) key via `build_rename_map`'s transitive lookup; this
+    // exercises that collapsing over two hops instead of one, plus the
+    // re-keying back to K's own current path (gamma.py) added alongside the
+    // single-rename fix.
+    let test = common::TestRepo::new();
+
+    let content = make_content();
+    let base = test.commit_file("alpha.py", &content, "base");
+
+    let a_content = content.replacen("line 1\n", "line 1 edited by A\n", 1);
+    test.commit_file("alpha.py", &a_content, "A: edit line 1");
+
+    test.rename_file("alpha.py", "beta.py", None, "rename1: alpha.py -> beta.py");
+
+    let mid_content = a_content.replacen("line 10\n", "line 10 edited by mid\n", 1);
+    test.commit_file("beta.py", &mid_content, "mid: edit an unrelated line");
+
+    test.rename_file("beta.py", "gamma.py", None, "rename2: beta.py -> gamma.py");
+
+    let k_content = mid_content
+        .replacen("line 1 edited by A\n", "line 1 reworked by K\n", 1)
+        .replacen("line 20\n", "line 20 edited by K\n", 1);
+    test.commit_file(
+        "gamma.py",
+        &k_content,
+        "K: rework A's line through 2 renames",
+    );
+    let to_split = test.repo.head().unwrap().target().unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2,
+        "line 1 (A-related, through 2 renames) and line 20 (unrelated) are separable"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 6 commits above base: A + rename1 + mid + rename2 + 2 split parts.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        6,
+        "expected 6 commits above base (A + rename1 + mid + rename2 + 2 split parts)"
+    );
+
+    // Each split piece must carry ONLY gamma.py, never a leftover alpha.py or
+    // beta.py from either rename hop.
+    for &oid in &commits_above_base[4..] {
+        let tree = test.repo.find_commit(oid).unwrap().tree().unwrap();
+        assert!(
+            tree.get_path(std::path::Path::new("gamma.py")).is_ok(),
+            "split piece {oid} should contain gamma.py"
+        );
+        assert!(
+            tree.get_path(std::path::Path::new("alpha.py")).is_err(),
+            "split piece {oid} should not still contain alpha.py"
+        );
+        assert!(
+            tree.get_path(std::path::Path::new("beta.py")).is_err(),
+            "split piece {oid} should not still contain beta.py"
+        );
+    }
+
+    // The final piece matches K's full state.
+    let tip = commits_above_base[5];
+    assert_file_contents!(&test.repo, tip, "gamma.py", k_content);
+}

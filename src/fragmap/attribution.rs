@@ -421,6 +421,42 @@ mod tests {
     }
 
     #[test]
+    fn chain_relation_survives_multiple_intermediate_hops() {
+        // K (idx 0) writes line 3.  Four intermediate commits perturb the
+        // file around it — insert above (shifts K forward), delete that same
+        // insertion (shifts K back), insert below (no effect), and an
+        // unrelated same-size modify far above (no effect) — before C (idx 5)
+        // finally touches K's line at its current position.  The relation
+        // must still be found after composing all four hops' shifts.
+        let commits = vec![
+            (0, vec![hunk(3, 1, 3, 1)]), // K writes line 3
+            (1, vec![hunk(1, 0, 2, 1)]), // hop1: insert above -> K shifts to 4
+            (2, vec![hunk(2, 1, 1, 0)]), // hop2: delete that insertion -> K shifts back to 3
+            (3, vec![hunk(5, 0, 6, 1)]), // hop3: insert below -> no effect
+            (4, vec![hunk(1, 1, 1, 1)]), // hop4: unrelated same-size modify -> no effect
+            (5, vec![hunk(3, 1, 3, 1)]), // C touches K's line at its current position
+        ];
+        let fragments = attribute_target_hunks(&commits, 0).unwrap();
+        assert_eq!(fragments[0][0].related, vec![5]);
+    }
+
+    #[test]
+    fn deletion_severs_a_chain_relation() {
+        // A (idx 0) writes a line at position 2; DEL (idx 1) fully deletes
+        // it; K (idx 2) later touches whatever now sits at that position —
+        // content A never produced.  The relation must not leak through: an
+        // earlier commit's contribution that gets entirely deleted
+        // contributes nothing to what replaces it.
+        let commits = vec![
+            (0, vec![hunk(2, 1, 2, 1)]), // A writes line 2
+            (1, vec![hunk(2, 1, 1, 0)]), // DEL deletes it (pure deletion)
+            (2, vec![hunk(2, 1, 2, 1)]), // K touches the same position, post-deletion
+        ];
+        let fragments = attribute_target_hunks(&commits, 2).unwrap();
+        assert_eq!(fragments[0][0].related, Vec::<usize>::new());
+    }
+
+    #[test]
     fn gap_commits_do_not_blur_attribution() {
         // K (idx 0) rewrites lines 1-2; idx 1 does not touch this file (no
         // entry); C (idx 2) edits line 2.  Attribution must be exact despite
