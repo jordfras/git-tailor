@@ -27,5 +27,7 @@ mod per_file;
 mod per_hunk;
 #[path = "split_commit/per_hunk_group.rs"]
 mod per_hunk_group;
+#[path = "split_commit/rename.rs"]
+mod rename;
 #[path = "split_commit/root_commit.rs"]
 mod root_commit;

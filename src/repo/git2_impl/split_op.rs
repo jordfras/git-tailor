@@ -181,12 +181,18 @@ pub(super) fn split_commit_per_hunk_group(
 
     // Build a 0-context full diff (parent_tree → commit_tree) for tree
     // manipulation; hunk indices here correspond to those in `assignment`.
+    // `assignment` comes from `commit_diff_for_fragmap`, which detects renames
+    // (`find_similar`) — without doing the same here, a renamed file shows up
+    // as an unrelated delete+add delta pair instead of one rename delta, so
+    // its hunk indices (and even its path) would no longer line up with
+    // `assignment` at all.
     let mut diff_opts = zero_context_diff_opts();
-    let full_diff = repo.inner.diff_tree_to_tree(
+    let mut full_diff = repo.inner.diff_tree_to_tree(
         Some(&target.parent_tree),
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
+    full_diff.find_similar(None)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 

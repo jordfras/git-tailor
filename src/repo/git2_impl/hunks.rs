@@ -217,22 +217,27 @@ pub(super) fn apply_selected_hunks_to_tree(
         let delta = full_diff
             .get_delta(delta_idx)
             .context("delta index in range")?;
+        let old_path = delta.old_file().path();
         let file_path = delta
             .new_file()
             .path()
-            .or_else(|| delta.old_file().path())
+            .or(old_path)
             .context("delta has no file path")?
             .to_owned();
 
+        // Content lives at the OLD path in `parent_tree` — for a renamed
+        // delta that differs from `file_path` (the new path), so looking it
+        // up under `file_path` fails (or silently finds the wrong file).
         let (old_content, mode) = match delta.status() {
             git2::Delta::Added => {
                 let m: u32 = delta.new_file().mode().into();
                 (Vec::new(), m)
             }
             _ => {
+                let lookup_path = old_path.context("delta has no old-side path")?;
                 let entry = parent_tree
-                    .get_path(&file_path)
-                    .with_context(|| format!("'{}' not in parent tree", file_path.display()))?;
+                    .get_path(lookup_path)
+                    .with_context(|| format!("'{}' not in parent tree", lookup_path.display()))?;
                 let blob = repo.find_blob(entry.id())?;
                 (blob.content().to_owned(), entry.filemode() as u32)
             }
@@ -251,6 +256,15 @@ pub(super) fn apply_selected_hunks_to_tree(
             // All lines removed → delete the file from the intermediate tree.
             idx.remove(&file_path, 0)?;
         } else {
+            // A rename seeded the index (via `idx.read_tree(parent_tree)`)
+            // with a stale entry under the old path; drop it before adding
+            // the content under its new path, or both would remain.
+            if delta.status() == git2::Delta::Renamed
+                && let Some(old) = old_path
+                && old != file_path.as_path()
+            {
+                idx.remove(old, 0)?;
+            }
             let new_blob_oid = repo.blob(&new_content)?;
             idx.add(&git2::IndexEntry {
                 ctime: git2::IndexTime::new(0, 0),
