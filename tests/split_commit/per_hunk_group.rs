@@ -344,6 +344,61 @@ fn split_per_hunk_group_cross_related_lines_yield_fewer_commits_than_columns() {
 }
 
 #[test]
+fn split_per_hunk_group_sandwiched_relation_is_still_splittable() {
+    // K's one hunk rewrites three lines: line 1 and line 3 both rework a
+    // region A produced, and line 2 in between relates to nobody. A cut that
+    // only ever compares "the first line" against "the union of everything
+    // else" cannot separate this hunk: the union of {line2, line3} is still
+    // {A} (line 3 is A-related), so it looks identical to line 1's own
+    // pattern and no cut is found — even though the middle line is genuinely
+    // unrelated and separable. Each fragment must be routed by its own
+    // pattern, not by a prefix/suffix comparison.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "1\n2\n3\n", "base");
+    test.commit_file("a.txt", "1A\n2\n3A\n", "commit A");
+    let to_split = test.commit_file("a.txt", "1K\n2K\n3K\n", "commit K");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2,
+        "the A-related ends and the unrelated middle are separable"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 3 commits above base: A + 2 split parts.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        3,
+        "expected 3 commits above base (A + 2 split parts)"
+    );
+
+    // One piece carries only the A-related ends (line 2 untouched).
+    let piece1 = test.repo.find_commit(commits_above_base[1]).unwrap();
+    let tree1 = piece1.tree().unwrap();
+    let blob1 = tree1.get_path(std::path::Path::new("a.txt")).unwrap();
+    let content1 = test.repo.find_blob(blob1.id()).unwrap();
+    assert_eq!(
+        std::str::from_utf8(content1.content()).unwrap(),
+        "1K\n2\n3K\n",
+        "the first piece should touch only the A-related lines"
+    );
+
+    // The final piece matches K's full state.
+    let tip = commits_above_base[2];
+    assert_file_contents!(&test.repo, tip, "a.txt", "1K\n2K\n3K\n");
+}
+
+#[test]
 fn split_per_hunk_group_refuses_single_group() {
     // K is the only branch commit, touching two separate regions of one file.
     // Both hunks have commit_oids={K} in the fragmap; dedup collapses them to

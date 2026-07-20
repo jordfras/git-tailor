@@ -280,8 +280,12 @@ pub fn build_fragmap(
 /// clustering then relates them at every seam (verified empirically; the
 /// result is far noisier than the split it replaces).  The single exception
 /// is the rescue: when every hunk shares one relation set the split would be
-/// refused, so one hunk with more than one relation set is cut at its first
-/// relation boundary — one seam — to make the commit splittable at all.
+/// refused, so one hunk with more than one distinct per-line relation pattern
+/// has each of its fragments routed to its own group by that exact pattern —
+/// the minimal cutting needed to make the commit splittable at all.  (A
+/// prefix/suffix cut is not always enough: a hunk whose two ends both relate
+/// to the same commit around an unrelated middle needs the middle carved out
+/// specifically, not lumped into whichever end it is compared against.)
 ///
 /// Returns `None` if `commit_oid` is not found in `commit_diffs`.
 pub fn assign_hunk_groups(
@@ -317,12 +321,9 @@ pub fn assign_hunk_groups(
         union.dedup();
         union
     };
-    let rest_union = |fragments: &[attribution::AttributedFragment]| hunk_union(&fragments[1..]);
-
     // Rescue check: when every hunk has the same relation set the split would
-    // be refused, so pick ONE hunk whose lines have differing relation sets to
-    // cut at its first relation boundary — a single seam that makes the commit
-    // splittable at all.
+    // be refused, so pick ONE hunk with more than one distinct per-line
+    // relation pattern — its fragments are then routed individually below.
     let distinct_unions: HashSet<Vec<usize>> = attributed
         .iter()
         .flat_map(|(_, per_hunk)| per_hunk.iter().map(|fragments| hunk_union(fragments)))
@@ -331,7 +332,9 @@ pub fn assign_hunk_groups(
     if distinct_unions.len() < 2 {
         'search: for (path, per_hunk) in &attributed {
             for (hunk_idx, fragments) in per_hunk.iter().enumerate() {
-                if fragments.len() >= 2 && fragments[0].related != rest_union(fragments) {
+                let distinct_patterns: HashSet<&Vec<usize>> =
+                    fragments.iter().map(|f| &f.related).collect();
+                if distinct_patterns.len() >= 2 {
                     cut_target = Some((path.as_str(), hunk_idx));
                     break 'search;
                 }
@@ -359,16 +362,13 @@ pub fn assign_hunk_groups(
             .enumerate()
             .map(|(hunk_idx, fragments)| {
                 if cut_target == Some((path.as_str(), hunk_idx)) {
-                    let first_group = group_of(fragments[0].related.clone(), &mut patterns);
-                    let rest_group = group_of(rest_union(fragments), &mut patterns);
-                    let mut assigned = vec![FragmentAssignment {
-                        fragment: fragments[0].fragment,
-                        group: first_group,
-                    }];
-                    assigned.extend(fragments.iter().skip(1).map(|f| FragmentAssignment {
-                        fragment: f.fragment,
-                        group: rest_group,
-                    }));
+                    let assigned: Vec<FragmentAssignment> = fragments
+                        .iter()
+                        .map(|f| FragmentAssignment {
+                            fragment: f.fragment,
+                            group: group_of(f.related.clone(), &mut patterns),
+                        })
+                        .collect();
                     HunkAssignment::Fragmented {
                         fragments: assigned,
                     }
@@ -383,6 +383,26 @@ pub fn assign_hunk_groups(
             by_file.insert(path.clone(), entries);
         }
     }
+
+    // `by_file` is keyed by canonical (earliest-name) path, needed internally
+    // to attribute a renamed file's hunks across its history. The documented
+    // contract is to key by the 0-context full diff's own paths, so re-key to
+    // K's actual path for each file — its own `new_path`, which for a commit
+    // that renames the file differs from the canonical key. Without this,
+    // callers that look up by K's current path (as `split_commit_per_hunk_group`
+    // does) silently miss on any commit that both renames a file and needs its
+    // hunks routed to more than one group.
+    let by_file: HashMap<String, Vec<HunkAssignment>> = commit_diffs[k_idx]
+        .files
+        .iter()
+        .filter_map(|file| {
+            let new_path = file.new_path.as_ref()?;
+            let canonical = canonical_path(new_path, &rename_map);
+            by_file
+                .get(canonical)
+                .map(|entries| (new_path.clone(), entries.clone()))
+        })
+        .collect();
 
     Some(HunkGroupAssignment {
         group_count: patterns.len(),
