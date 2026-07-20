@@ -1360,6 +1360,9 @@
   update the split TUI state/mode flow, add the backend split operation and
   validation/counting logic, and cover the new menu/dialog flow with TUI tests
   plus repository tests in `tests/split_commit/`.
+  (Note: T218 is a known duplicate task number — see the other T218 below,
+  "Add undo/redo of history-rewriting operations". Both were merged long ago
+  under this number; not worth renumbering now.)
 
 ## Interactivity — Commit Detail View
 - [X] T143 P3 feat - Add half-page scrolling to the commit detail view: bind
@@ -1446,6 +1449,9 @@
   contents match the pre-operation state, redo and assert they match the
   post-operation state, plus multi-level undo/redo and stale-stack invalidation.
   Depends on T216 (journal infrastructure).
+  (Note: T218 is a known duplicate task number — see the other T218 above,
+  "Add a 'split out file' split option". Both were merged long ago under this
+  number; not worth renumbering now.)
 - [X] T219 P2 feat - Add opt-in auto-stash so dirty-working-tree operations just
   work: operations that currently refuse when the working tree has staged or
   unstaged changes (`move`, `drop`, `squash`, `fixup` via `check_no_dirty_state`,
