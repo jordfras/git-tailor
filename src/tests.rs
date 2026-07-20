@@ -23,6 +23,7 @@ struct MockRepo {
     drop_ok: bool,
     move_ok: bool,
     autofixup_ok: bool,
+    autofixup_conflicts: bool,
     abort_ok: bool,
     autostash_restore_ok: bool,
     count_per_file: usize,
@@ -43,6 +44,7 @@ impl Default for MockRepo {
             drop_ok: true,
             move_ok: true,
             autofixup_ok: true,
+            autofixup_conflicts: false,
             abort_ok: true,
             autostash_restore_ok: true,
             count_per_file: 0,
@@ -267,6 +269,21 @@ impl GitRepo for MockRepo {
         unimplemented!()
     }
     fn autofixup(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+        if self.autofixup_conflicts {
+            return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: "Squash".to_string(),
+                original_branch_oid: Oid::from("a".repeat(40)),
+                new_tip_oid: Oid::from("b".repeat(40)),
+                conflicting_commit_oid: Oid::from("c".repeat(40)),
+                remaining_oids: vec![],
+                conflicting_files: vec![],
+                still_unresolved: false,
+                moved_commit_oid: None,
+                squash_context: None,
+                is_orphan_root: false,
+                autofixup_reference_oid: Some(Oid::from("d".repeat(40))),
+            })));
+        }
         if self.autofixup_ok {
             Ok(RebaseOutcome::Complete)
         } else {
@@ -716,5 +733,101 @@ mod autofixup_selection {
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
         assert_eq!(app.status_message.as_deref(), Some("Commits autofixed up"));
+    }
+
+    #[test]
+    fn execute_autofixup_stashes_the_index_when_it_hits_a_conflict() {
+        let mut repo = MockRepo {
+            autofixup_conflicts: true,
+            ..Default::default()
+        };
+        let mut app = AppState {
+            commits: commits(),
+            selection_index: 4, // F2, folded into T (index 1).
+            ..Default::default()
+        };
+
+        let result = crate::handle_execute_autofixup(
+            &mut repo,
+            &mut app,
+            Oid::from("a".repeat(40)),
+            Oid::from("b".repeat(40)),
+            pairs(),
+        );
+
+        assert!(matches!(result, Ok(LoopAction::Continue)));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(1),
+            "the target index computed up front must survive into the conflict dialog"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_swaps_reload_preserving_for_reload_selecting() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadSelecting(2)));
+        assert_eq!(
+            app.pending_autofixup_selection, None,
+            "consumed on the completing round"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_is_a_no_op_for_non_autofixup_operations() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadPreserving));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(2),
+            "not this batch's field to touch"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_falls_back_when_nothing_was_stashed() {
+        let mut app = AppState::default();
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadPreserving));
+    }
+
+    #[test]
+    fn apply_pending_selection_keeps_the_index_across_another_conflict_round() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
+        assert!(matches!(result, LoopAction::Continue));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(2),
+            "still resolving the batch; next round needs it"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_clears_stale_state_on_failure() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
+        assert!(matches!(result, LoopAction::Proceed));
+        assert_eq!(
+            app.pending_autofixup_selection, None,
+            "batch abandoned; don't leak into a later, unrelated reload"
+        );
     }
 }

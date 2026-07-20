@@ -857,6 +857,10 @@ fn handle_execute_autofixup(
             },
         )),
         Ok(RebaseOutcome::Conflict(state)) => {
+            // Carry the precomputed target index across the conflict — it
+            // still describes where the cursor should land once the *whole*
+            // batch eventually completes, however many rounds that takes.
+            app.pending_autofixup_selection = target_index;
             app.enter_rebase_conflict(*state);
             Ok(LoopAction::Continue)
         }
@@ -868,11 +872,43 @@ fn handle_execute_autofixup(
     }
 }
 
+/// Apply a pending autofixup cursor-restoration index (see
+/// `AppState::pending_autofixup_selection`) to the outcome of resolving one
+/// step of a conflicted batch. Only ever swaps a bare `ReloadPreserving` (the
+/// batch truly completed) for `ReloadSelecting`; a `Continue` (still
+/// resolving — another conflict, or a stash conflict) leaves the pending
+/// index untouched for the next round, and anything else clears it so a
+/// stale index can't leak into a later, unrelated reload.
+fn apply_pending_autofixup_selection(
+    app: &mut AppState,
+    is_autofixup: bool,
+    action: LoopAction,
+) -> LoopAction {
+    if !is_autofixup {
+        return action;
+    }
+    match action {
+        LoopAction::ReloadPreserving => match app.pending_autofixup_selection.take() {
+            Some(idx) => LoopAction::ReloadSelecting(idx),
+            None => LoopAction::ReloadPreserving,
+        },
+        LoopAction::Continue => action,
+        other => {
+            app.pending_autofixup_selection = None;
+            other
+        }
+    }
+}
+
 fn handle_rebase_abort(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     state: ConflictState,
 ) -> Result<LoopAction> {
+    // Aborting unwinds the whole (possibly autofixup) operation back to its
+    // original tip, so any pending cursor-restoration index no longer
+    // applies — clear it rather than risk it leaking into a later reload.
+    app.pending_autofixup_selection = None;
     match git_repo.rebase_abort(&state) {
         Ok(()) => {
             let restored = git_repo.autostash_restore();
@@ -899,6 +935,7 @@ fn handle_rebase_continue(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
+    let is_autofixup = state.autofixup_reference_oid.is_some();
     let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
     if let Some(ref ctx) = state.squash_context {
         let original_oid = state.original_branch_oid.clone();
@@ -954,23 +991,13 @@ fn handle_rebase_continue(
             &original_oid,
             state.autofixup_reference_oid.as_ref(),
         );
-        return Ok(handle_rebase_outcome(
-            git_repo,
-            app,
-            outcome,
-            "Squash",
-            success_msg,
-        ));
+        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
+        return Ok(apply_pending_autofixup_selection(app, is_autofixup, result));
     }
     let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
     let outcome = git_repo.rebase_continue(&state);
-    Ok(handle_rebase_outcome(
-        git_repo,
-        app,
-        outcome,
-        "Continue",
-        &success_msg,
-    ))
+    let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
+    Ok(apply_pending_autofixup_selection(app, is_autofixup, result))
 }
 
 fn handle_run_mergetool(
