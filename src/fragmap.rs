@@ -19,12 +19,17 @@
 // original fragmap tool. Without propagation, line numbers from different
 // commits refer to different file versions and cannot be compared directly.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{CommitDiff, Oid, VirtualOid};
 
+mod assignment;
+mod attribution;
 mod spg;
-use spg::{build_file_clusters, build_file_clusters_and_assign_hunks, deduplicate_clusters};
+pub use assignment::{
+    FragmentAssignment, HunkAssignment, HunkFragment, HunkGroupAssignment, LineRange,
+};
+use spg::{build_file_clusters, deduplicate_clusters};
 
 /// Build a map from every known file path to the canonical (earliest) name for
 /// that file, following rename chains across commits.
@@ -260,23 +265,33 @@ pub fn build_fragmap(
     })
 }
 
-/// Compute the fragmap-based hunk group assignment for commit `commit_oid`.
+/// Compute the hunk group assignment for splitting commit `commit_oid`.
 ///
-/// Uses the same SPG clustering and deduplication as [`build_fragmap`] with
-/// `deduplicate = true`. Each hunk of `commit_oid` in `commit_diffs` is
-/// assigned to the deduplicated fragmap cluster (column) it belongs to.
+/// Each hunk of `commit_oid` in `commit_diffs` is assigned — whole — to a
+/// group by its exact relation set: the earlier commits whose output its
+/// removed lines rewrote and the later commits that reworked its added lines,
+/// computed by composing the line maps of the intermediate diffs (see the
+/// `attribution` module).  One group per distinct relation set.
 ///
-/// Returns `Some((group_count, assignment))` where:
-/// - `group_count` = number of distinct groups after deduplication
-/// - `assignment[path][h]` = 0-based group index for hunk `h` of file `path`
-///   in the commit being split (indexed the same way as the 0-context full
-///   diff produced by [`GitRepo::commit_diff_for_fragmap`])
+/// Hunks are kept whole deliberately: 0-context hunks are separated by
+/// unchanged lines, so whole-hunk pieces are never adjacent and the resulting
+/// commits stay unrelated to each other in the matrix.  Slicing hunks into
+/// per-relation fragments — however exact — interleaves the pieces, and the
+/// clustering then relates them at every seam (verified empirically; the
+/// result is far noisier than the split it replaces).  The single exception
+/// is the rescue: when every hunk shares one relation set the split would be
+/// refused, so one hunk with more than one distinct per-line relation pattern
+/// has each of its fragments routed to its own group by that exact pattern —
+/// the minimal cutting needed to make the commit splittable at all.  (A
+/// prefix/suffix cut is not always enough: a hunk whose two ends both relate
+/// to the same commit around an unrelated middle needs the middle carved out
+/// specifically, not lumped into whichever end it is compared against.)
 ///
 /// Returns `None` if `commit_oid` is not found in `commit_diffs`.
 pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
     commit_oid: &Oid,
-) -> Option<(usize, HashMap<String, Vec<usize>>)> {
+) -> Option<HunkGroupAssignment> {
     let k_idx = commit_diffs
         .iter()
         .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?;
@@ -287,153 +302,112 @@ pub fn assign_hunk_groups(
     let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
     sorted_paths.sort();
 
-    // Phase 1: accumulate pre-dedup clusters (in the same order as build_fragmap)
-    // and record, for each of K's hunks, ALL pre-dedup clusters it appears in.
-    //
-    // k_hunk_prededup[path][h] = list of global pre-dedup cluster indices.
-    // A hunk can appear on multiple SPG paths with different commit_oids,
-    // so it may belong to multiple clusters (and after dedup, multiple groups).
-    let mut pre_dedup_clusters: Vec<SpanCluster> = Vec::new();
-    let mut k_hunk_prededup: HashMap<String, Vec<Vec<usize>>> = HashMap::new();
-
+    // Attribute every hunk, walking files alphabetically and hunks top to
+    // bottom so groups appear in a stable, positional order.
+    let mut attributed: Vec<(String, Vec<Vec<attribution::AttributedFragment>>)> = Vec::new();
     for path in &sorted_paths {
-        let commits_for_file = &file_commits[*path];
-        let file_cluster_offset = pre_dedup_clusters.len();
-
-        let has_k = commits_for_file.iter().any(|(idx, _)| *idx == k_idx);
-        let (file_clusters, hunk_to_local) = if has_k {
-            build_file_clusters_and_assign_hunks(
-                path,
-                commits_for_file,
-                commit_diffs,
-                k_idx,
-                &mut || true,
-            )
-            .expect("no-op poll never interrupts")
-        } else {
-            (
-                build_file_clusters(path, commits_for_file, commit_diffs, &mut || true)
-                    .expect("no-op poll never interrupts"),
-                vec![],
-            )
-        };
-
-        if has_k && !hunk_to_local.is_empty() {
-            let global_indices: Vec<Vec<usize>> = hunk_to_local
-                .iter()
-                .map(|locals| {
-                    locals
-                        .iter()
-                        .map(|&local| file_cluster_offset + local)
-                        .collect()
-                })
-                .collect();
-            k_hunk_prededup.insert((*path).clone(), global_indices);
-        }
-
-        pre_dedup_clusters.extend(file_clusters);
-    }
-
-    // Phase 2: compute the dedup mapping, replicating the logic of
-    // deduplicate_clusters but also building pre_idx → group_idx.
-    for cluster in &mut pre_dedup_clusters {
-        cluster.commit_oids.sort();
-    }
-    let mut seen_patterns: Vec<Vec<VirtualOid>> = Vec::new();
-    let mut group_idx_for_prededup: Vec<usize> = Vec::with_capacity(pre_dedup_clusters.len());
-    for cluster in &pre_dedup_clusters {
-        if let Some(pos) = seen_patterns.iter().position(|p| p == &cluster.commit_oids) {
-            group_idx_for_prededup.push(pos);
-        } else {
-            let new_idx = seen_patterns.len();
-            seen_patterns.push(cluster.commit_oids.clone());
-            group_idx_for_prededup.push(new_idx);
-        }
-    }
-    let group_count = seen_patterns.len();
-
-    // Phase 3: Assign each of K's hunks to exactly one dedup group.
-    //
-    // A hunk can belong to multiple pre-dedup clusters (via different SPG
-    // paths) which may map to different dedup groups.  We must ensure every
-    // group that K contributes to gets at least one hunk assigned, so the
-    // split produces the same number of commits as fragmap columns K touches.
-    //
-    // Strategy:
-    //  1. Compute each hunk's set of possible groups.
-    //  2. Hunks with only one possible group are assigned immediately.
-    //  3. For uncovered groups, pick the unassigned hunk with the fewest
-    //     alternatives and assign it there.
-    //  4. Remaining unassigned hunks go to their lowest possible group.
-
-    // Flatten (path, hunk_idx, possible_groups) for every hunk of K.
-    let mut candidates: Vec<(String, usize, Vec<usize>)> = Vec::new();
-    for (path, prededup_multi) in &k_hunk_prededup {
-        for (h, prededup_indices) in prededup_multi.iter().enumerate() {
-            let mut groups: Vec<usize> = prededup_indices
-                .iter()
-                .map(|&pre_idx| group_idx_for_prededup[pre_idx])
-                .collect();
-            groups.sort();
-            groups.dedup();
-            if groups.is_empty() {
-                groups.push(0);
-            }
-            candidates.push((path.clone(), h, groups));
+        if let Some(per_hunk) = attribution::attribute_target_hunks(&file_commits[*path], k_idx) {
+            attributed.push(((*path).clone(), per_hunk));
         }
     }
 
-    // All groups K can touch.
-    let all_touched: std::collections::BTreeSet<usize> = candidates
+    // A hunk's relation set is the union of its lines' relation sets.
+    let hunk_union = |fragments: &[attribution::AttributedFragment]| -> Vec<usize> {
+        let mut union: Vec<usize> = fragments
+            .iter()
+            .flat_map(|f| f.related.iter().copied())
+            .collect();
+        union.sort();
+        union.dedup();
+        union
+    };
+    // Rescue check: when every hunk has the same relation set the split would
+    // be refused, so pick ONE hunk with more than one distinct per-line
+    // relation pattern — its fragments are then routed individually below.
+    let distinct_unions: HashSet<Vec<usize>> = attributed
         .iter()
-        .flat_map(|(_, _, gs)| gs.iter().copied())
+        .flat_map(|(_, per_hunk)| per_hunk.iter().map(|fragments| hunk_union(fragments)))
         .collect();
-
-    let mut assigned: Vec<Option<usize>> = vec![None; candidates.len()];
-
-    // Pass 1: hunks with only one possible group.
-    for (i, (_, _, groups)) in candidates.iter().enumerate() {
-        if groups.len() == 1 {
-            assigned[i] = Some(groups[0]);
+    let mut cut_target: Option<(&str, usize)> = None;
+    if distinct_unions.len() < 2 {
+        'search: for (path, per_hunk) in &attributed {
+            for (hunk_idx, fragments) in per_hunk.iter().enumerate() {
+                let distinct_patterns: HashSet<&Vec<usize>> =
+                    fragments.iter().map(|f| &f.related).collect();
+                if distinct_patterns.len() >= 2 {
+                    cut_target = Some((path.as_str(), hunk_idx));
+                    break 'search;
+                }
+            }
         }
     }
 
-    // Pass 2: for each uncovered group, assign the best remaining hunk.
-    let mut covered: std::collections::HashSet<usize> =
-        assigned.iter().filter_map(|a| *a).collect();
-    for &g in &all_touched {
-        if covered.contains(&g) {
-            continue;
+    // Group hunks (and the cut hunk's two sides) by relation set, indexed in
+    // order of first appearance so the split pieces come out positionally.
+    let mut patterns: Vec<Vec<usize>> = Vec::new();
+    let group_of = |related: Vec<usize>, patterns: &mut Vec<Vec<usize>>| -> usize {
+        match patterns.iter().position(|p| *p == related) {
+            Some(group) => group,
+            None => {
+                patterns.push(related);
+                patterns.len() - 1
+            }
         }
-        let best = candidates
+    };
+
+    let mut by_file: HashMap<String, Vec<HunkAssignment>> = HashMap::new();
+    for (path, per_hunk) in &attributed {
+        let entries: Vec<HunkAssignment> = per_hunk
             .iter()
             .enumerate()
-            .filter(|(i, (_, _, groups))| assigned[*i].is_none() && groups.contains(&g))
-            .min_by_key(|(_, (_, _, groups))| groups.len())
-            .map(|(i, _)| i);
-        if let Some(i) = best {
-            assigned[i] = Some(g);
-            covered.insert(g);
+            .map(|(hunk_idx, fragments)| {
+                if cut_target == Some((path.as_str(), hunk_idx)) {
+                    let assigned: Vec<FragmentAssignment> = fragments
+                        .iter()
+                        .map(|f| FragmentAssignment {
+                            fragment: f.fragment,
+                            group: group_of(f.related.clone(), &mut patterns),
+                        })
+                        .collect();
+                    HunkAssignment::Fragmented {
+                        fragments: assigned,
+                    }
+                } else {
+                    HunkAssignment::Whole {
+                        group: group_of(hunk_union(fragments), &mut patterns),
+                    }
+                }
+            })
+            .collect();
+        if !entries.is_empty() {
+            by_file.insert(path.clone(), entries);
         }
     }
 
-    // Pass 3: remaining hunks go to their lowest possible group.
-    for (i, (_, _, groups)) in candidates.iter().enumerate() {
-        if assigned[i].is_none() {
-            assigned[i] = Some(groups[0]);
-        }
-    }
+    // `by_file` is keyed by canonical (earliest-name) path, needed internally
+    // to attribute a renamed file's hunks across its history. The documented
+    // contract is to key by the 0-context full diff's own paths, so re-key to
+    // K's actual path for each file — its own `new_path`, which for a commit
+    // that renames the file differs from the canonical key. Without this,
+    // callers that look up by K's current path (as `split_commit_per_hunk_group`
+    // does) silently miss on any commit that both renames a file and needs its
+    // hunks routed to more than one group.
+    let by_file: HashMap<String, Vec<HunkAssignment>> = commit_diffs[k_idx]
+        .files
+        .iter()
+        .filter_map(|file| {
+            let new_path = file.new_path.as_ref()?;
+            let canonical = canonical_path(new_path, &rename_map);
+            by_file
+                .get(canonical)
+                .map(|entries| (new_path.clone(), entries.clone()))
+        })
+        .collect();
 
-    // Build the assignment map: path -> Vec<usize> (one group per hunk).
-    let mut assignment: HashMap<String, Vec<usize>> = HashMap::new();
-    for (i, (path, h, _)) in candidates.iter().enumerate() {
-        let entry = assignment
-            .entry(path.clone())
-            .or_insert_with(|| vec![0; k_hunk_prededup[path].len()]);
-        entry[*h] = assigned[i].unwrap_or(0);
-    }
-
-    Some((group_count, assignment))
+    Some(HunkGroupAssignment {
+        group_count: patterns.len(),
+        by_file,
+    })
 }
 
 impl FragMap {

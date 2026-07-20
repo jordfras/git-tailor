@@ -173,26 +173,24 @@ collection (whose native `.itermcolors` format is *not* accepted directly).
 
 ### A single hunk can span more than one hunk group
 
-The matrix columns are not simply "one per hunk." A hunk group is a range of
-lines that one or more commits touch, and its boundaries fall wherever *any*
-commit's hunk starts or ends. So when two commits change overlapping but not
-identical line ranges, the shared region and the non-overlapping remainders each
-become a separate group — and a single hunk from one commit can then cover more
-than one group, showing up as squares in two (or more) adjacent columns on the
-same row.
+A hunk group isn't the same thing as a hunk — it's a chunk of code *and* which
+commits touched it. If your hunk overlaps only part of an earlier commit's
+change, the overlapping lines and the rest of the hunk belong to different
+commits, so they land in different hunk groups. That's why one hunk in your
+diff can show up as squares in more than one column of the same row.
 
-This is worth keeping in mind when splitting a commit:
+This matters when splitting a commit:
 
-- **Per hunk group** cannot slice a hunk along a group boundary. A hunk is the
-  smallest unit Git can apply on its own, so when one hunk spans several groups
-  those groups stay together in the same resulting commit. The split can
-  therefore produce *fewer* commits than there are columns.
-- **Per hunk** splits by the commit's actual diff hunks, not by columns. A hunk
-  drawn across two columns looks like two changes in the matrix, but it is a
-  single hunk and yields a single commit — it cannot be divided further.
-
-In short, the matrix shows how changes *relate* across commits; it does not
-promise that every column is independently splittable.
+- **Per hunk group** keeps hunks whole wherever possible, aiming for one
+  result commit per column. If a hunk truly needs to be divided to make the
+  split possible at all, git-tailor divides just that one hunk — and no
+  further, since slicing every hunk along column lines would make the
+  resulting commits look related to each other again, defeating the point of
+  splitting. So you can end up with fewer commits than columns, and the
+  columns shown after a split may differ from before — both are expected.
+- **Per hunk** splits along the commit's actual diff hunks, not by column. A
+  hunk spanning two columns still becomes one commit here — use per hunk
+  group if you want it divided by column.
 
 ## Attribution
 

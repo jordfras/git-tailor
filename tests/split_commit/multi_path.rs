@@ -98,23 +98,18 @@ fn split_per_hunk_group_multi_path_two_groups() {
 
 #[test]
 fn split_per_hunk_group_multi_path_three_groups() {
-    // Three context commits create three distinct fragmap groups for K.
+    // Hunks are grouped whole by their relation set.
     //
     //   A modifies a.txt line 2 and c.txt line 1.
     //   K modifies a.txt lines 2-4 (overlap + extension), b.txt line 1, c.txt.
     //   B (after K) modifies b.txt line 1 (overlaps K).
     //
-    // SPG produces:
-    //   a.txt: two paths {A,K} and {K} — K's hunk is on both (multi-path)
-    //   b.txt: one path {K,B}
-    //   c.txt: one path {A,K}
-    //
-    // Dedup groups: {A,K}=0, {K}=1, {K,B}=2.
-    // Without coverage-aware assignment: K's a.txt hunk → group 0 (first-wins),
-    // c.txt → group 0, b.txt → group 2.  Group 1 ({K}) has no hunk → only 2
-    // commits instead of 3.
-    //
-    // Coverage-aware fix: a.txt hunk reassigned to group 1, giving 3 commits.
+    // K's a.txt hunk rewrote A's line — its relation set is {A} even though
+    // the hunk also extends beyond A's region — so it travels whole with the
+    // other A-related change (c.txt).  The b.txt hunk relates to B.  Two
+    // relation sets → two split commits; the matrix's extra {K}-only column
+    // for the extension lines gets no commit of its own, since cutting the
+    // hunk for it would interleave the pieces and relate them to each other.
     let test = common::TestRepo::new();
 
     let base = test.commit_files(
@@ -146,45 +141,88 @@ fn split_per_hunk_group_multi_path_three_groups() {
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
         .unwrap();
 
-    // 5 commits above base: A' + K-part1 + K-part2 + K-part3 + B'
+    // 4 commits above base: A' + K-part1 + K-part2 + B'
     let commits_above_base = test.commits_from_head(base);
     assert_eq!(
         commits_above_base.len(),
-        5,
-        "expected 5 commits above base (A + 3 split parts + B'), got {}",
+        4,
+        "expected 4 commits above base (A + 2 split parts + B'), got {}",
         commits_above_base.len()
     );
 
-    let split1 = test.repo.find_commit(commits_above_base[1]).unwrap();
-    let split3 = test.repo.find_commit(commits_above_base[3]).unwrap();
-    assert!(
-        split1
-            .summary()
-            .ok()
-            .flatten()
-            .unwrap_or("")
-            .contains("(1/3)"),
-        "expected (1/3) in: {}",
-        split1.summary().ok().flatten().unwrap_or("")
-    );
-    assert!(
-        split3
-            .summary()
-            .ok()
-            .flatten()
-            .unwrap_or("")
-            .contains("(3/3)"),
-        "expected (3/3) in: {}",
-        split3.summary().ok().flatten().unwrap_or("")
-    );
+    // K-part1: the A-related changes (whole a.txt hunk + c.txt).
+    let k1_oid = commits_above_base[1];
+    assert_file_contents!(&test.repo, k1_oid, "a.txt", "L1\nK2\nK3\nK4\nL5\n");
+    assert_file_contents!(&test.repo, k1_oid, "b.txt", "B1\n");
+    assert_file_contents!(&test.repo, k1_oid, "c.txt", "CK1\n");
 
-    // Last split commit (K-part3) must match K's full tree.
-    let k3_oid = commits_above_base[3];
-    assert_file_contents!(&test.repo, k3_oid, "a.txt", "L1\nK2\nK3\nK4\nL5\n");
-    assert_file_contents!(&test.repo, k3_oid, "b.txt", "KB1\n");
-    assert_file_contents!(&test.repo, k3_oid, "c.txt", "CK1\n");
+    // K-part2: completes the commit with the B-related b.txt change.
+    let k2_oid = commits_above_base[2];
+    assert_file_contents!(&test.repo, k2_oid, "a.txt", "L1\nK2\nK3\nK4\nL5\n");
+    assert_file_contents!(&test.repo, k2_oid, "b.txt", "KB1\n");
+    assert_file_contents!(&test.repo, k2_oid, "c.txt", "CK1\n");
 
     // Rebased B' should have its b.txt content.
-    let b_prime_oid = commits_above_base[4];
+    let b_prime_oid = commits_above_base[3];
     assert_file_contents!(&test.repo, b_prime_oid, "b.txt", "BB1\n");
+}
+
+#[test]
+fn split_per_hunk_group_four_way_single_hunk() {
+    // One hunk in K carries FOUR distinct relations at once: line 1 reworks
+    // A, line 4 reworks B (two earlier relations), and lines 2-3 are fresh —
+    // later touched by C and D respectively (two later relations). This
+    // generalizes the two/three-pattern cases above to confirm the rescue
+    // cut (routing each fragment by its own pattern) scales past a binary
+    // split when a single hunk is the commit's only hunk.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("f.txt", "1\n2\n3\n4\n", "base");
+    test.commit_file("f.txt", "A1\n2\n3\n4\n", "commit A");
+    test.commit_file("f.txt", "A1\n2\n3\nB4\n", "commit B");
+    let to_split = test.commit_file("f.txt", "K1\nK2\nK3\nK4\n", "commit K");
+    test.commit_file("f.txt", "K1\nC2\nK3\nK4\n", "commit C");
+    test.commit_file("f.txt", "K1\nC2\nD3\nK4\n", "commit D");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        4,
+        "four distinct relation sets: {{A}}, {{C}}, {{D}}, {{B}}"
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // 8 commits above base: A + B + 4 split parts + rebased C' + D'.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        8,
+        "expected 8 commits above base (A + B + 4 split parts + C' + D')"
+    );
+
+    // Each piece touches exactly one line, in positional order, with zero
+    // cross-contamination between the four relations.
+    let k1_oid = commits_above_base[2];
+    assert_file_contents!(&test.repo, k1_oid, "f.txt", "K1\n2\n3\nB4\n");
+    let k2_oid = commits_above_base[3];
+    assert_file_contents!(&test.repo, k2_oid, "f.txt", "K1\nK2\n3\nB4\n");
+    let k3_oid = commits_above_base[4];
+    assert_file_contents!(&test.repo, k3_oid, "f.txt", "K1\nK2\nK3\nB4\n");
+
+    // K's final piece matches K's full state.
+    let k4_oid = commits_above_base[5];
+    assert_file_contents!(&test.repo, k4_oid, "f.txt", "K1\nK2\nK3\nK4\n");
+
+    // Rebased C' and D' still apply their own edits on top.
+    let c_prime_oid = commits_above_base[6];
+    assert_file_contents!(&test.repo, c_prime_oid, "f.txt", "K1\nC2\nK3\nK4\n");
+    let d_prime_oid = commits_above_base[7];
+    assert_file_contents!(&test.repo, d_prime_oid, "f.txt", "K1\nC2\nD3\nK4\n");
 }

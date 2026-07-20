@@ -181,17 +181,24 @@ pub(super) fn split_commit_per_hunk_group(
 
     // Build a 0-context full diff (parent_tree → commit_tree) for tree
     // manipulation; hunk indices here correspond to those in `assignment`.
+    // `assignment` comes from `commit_diff_for_fragmap`, which detects renames
+    // (`find_similar`) — without doing the same here, a renamed file shows up
+    // as an unrelated delete+add delta pair instead of one rename delta, so
+    // its hunk indices (and even its path) would no longer line up with
+    // `assignment` at all.
     let mut diff_opts = zero_context_diff_opts();
-    let full_diff = repo.inner.diff_tree_to_tree(
+    let mut full_diff = repo.inner.diff_tree_to_tree(
         Some(&target.parent_tree),
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
+    full_diff.find_similar(None)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
-    // For each (delta_idx, hunk_idx), record its group index.
-    let mut delta_hunk_groups: Vec<Vec<usize>> = Vec::new();
+    // For each (delta_idx, hunk_idx), record its assignment — a whole-hunk
+    // group, or per-fragment groups when the hunk spans several columns.
+    let mut delta_hunk_assignments: Vec<Vec<fragmap::HunkAssignment>> = Vec::new();
     let num_deltas = full_diff.deltas().len();
     for delta_idx in 0..num_deltas {
         let delta = full_diff.get_delta(delta_idx).context("delta index")?;
@@ -203,18 +210,25 @@ pub(super) fn split_commit_per_hunk_group(
             .unwrap_or_default();
         let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
         let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
-        let file_groups = assignment.get(&path);
-        let groups_for_delta: Vec<usize> = (0..num_hunks)
-            .map(|h| file_groups.and_then(|fg| fg.get(h).copied()).unwrap_or(0))
+        let file_assignments = assignment.by_file.get(&path);
+        let assignments_for_delta: Vec<fragmap::HunkAssignment> = (0..num_hunks)
+            .map(|h| {
+                file_assignments
+                    .and_then(|fa| fa.get(h))
+                    .cloned()
+                    .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
+            })
             .collect();
-        delta_hunk_groups.push(groups_for_delta);
+        delta_hunk_assignments.push(assignments_for_delta);
     }
 
     // Only group indices touched by K's hunks produce output commits — not
     // every column the full fragmap has.
     let mut touched: BTreeSet<usize> = BTreeSet::new();
-    for groups in &delta_hunk_groups {
-        touched.extend(groups);
+    for assignments in &delta_hunk_assignments {
+        for hunk_assignment in assignments {
+            touched.extend(hunk_assignment.groups());
+        }
     }
     let k_groups: Vec<usize> = touched.into_iter().collect();
     let split_count = k_groups.len();
@@ -224,19 +238,22 @@ pub(super) fn split_commit_per_hunk_group(
     }
 
     // For each touched group gk (in order), build the intermediate tree by
-    // applying all of K's hunks whose group index ≤ gk to parent_tree in one
-    // sweep (positions relative to the original, no cumulative offset issues).
+    // applying all of K's hunks — and fragments of hunks — whose group index
+    // ≤ gk to parent_tree in one sweep (positions relative to the original,
+    // no cumulative offset issues).
     let mut current_base = initial_split_base(&target.commit)?;
     for (out_pos, &gk) in k_groups.iter().enumerate() {
         let next_tree_oid = if out_pos == split_count - 1 {
             target.commit_tree.id()
         } else {
-            let mut selected: HashMap<usize, Vec<usize>> = HashMap::new();
-            for (delta_idx, hunk_groups) in delta_hunk_groups.iter().enumerate() {
-                let chosen: Vec<usize> = hunk_groups
+            let mut selected: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+            for (delta_idx, hunk_assignments) in delta_hunk_assignments.iter().enumerate() {
+                let chosen: Vec<hunks::HunkSelection> = hunk_assignments
                     .iter()
                     .enumerate()
-                    .filter_map(|(h, &g)| if g <= gk { Some(h) } else { None })
+                    .filter_map(|(h, hunk_assignment)| {
+                        hunk_selection_for_prefix(h, hunk_assignment, gk)
+                    })
                     .collect();
                 if !chosen.is_empty() {
                     selected.insert(delta_idx, chosen);
@@ -297,8 +314,7 @@ pub(super) fn count_split_per_hunk_group(
 ) -> Result<usize> {
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, false)?;
-    let touched: HashSet<usize> = assignment.values().flatten().copied().collect();
-    Ok(touched.len())
+    Ok(assignment.touched_groups().len())
 }
 
 pub(super) fn split_commit_out_file(
@@ -448,6 +464,39 @@ fn count_hunks(diff: &git2::Diff<'_>) -> Result<usize> {
     Ok(count)
 }
 
+/// The selection of hunk `hunk_idx` for the intermediate tree containing all
+/// groups ≤ `gk`: the whole hunk, a partial selection of its fragments, or
+/// `None` when nothing of it belongs yet.
+fn hunk_selection_for_prefix(
+    hunk_idx: usize,
+    hunk_assignment: &fragmap::HunkAssignment,
+    gk: usize,
+) -> Option<hunks::HunkSelection> {
+    match hunk_assignment {
+        fragmap::HunkAssignment::Whole { group } => {
+            (*group <= gk).then_some(hunks::HunkSelection::Whole { hunk_idx })
+        }
+        fragmap::HunkAssignment::Fragmented { fragments } => {
+            if !fragments.iter().any(|f| f.group <= gk) {
+                return None;
+            }
+            if fragments.iter().all(|f| f.group <= gk) {
+                return Some(hunks::HunkSelection::Whole { hunk_idx });
+            }
+            Some(hunks::HunkSelection::Partial {
+                hunk_idx,
+                fragments: fragments
+                    .iter()
+                    .map(|f| hunks::FragmentSelection {
+                        fragment: f.fragment,
+                        selected: f.group <= gk,
+                    })
+                    .collect(),
+            })
+        }
+    }
+}
+
 /// Run the fragmap hunk-group clustering for the branch `head_oid..reference_oid`
 /// and return the per-file group assignment for `commit_oid`.  When
 /// `keep_self_when_reference` is set, `commit_oid` is included even if it
@@ -459,7 +508,7 @@ fn compute_hunk_group_assignment(
     head_oid: &Oid,
     reference_oid: &Oid,
     keep_self_when_reference: bool,
-) -> Result<HashMap<String, Vec<usize>>> {
+) -> Result<fragmap::HunkGroupAssignment> {
     let branch_commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let branch_diffs: Vec<crate::CommitDiff> = branch_commits
         .iter()
@@ -484,9 +533,8 @@ fn compute_hunk_group_assignment(
         .flatten()
         .collect();
 
-    let (_, assignment) = fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
-        .ok_or_else(|| anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid))?;
-    Ok(assignment)
+    fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
+        .ok_or_else(|| anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid))
 }
 
 /// Create one piece of a split: a commit with the given tree, parented on
