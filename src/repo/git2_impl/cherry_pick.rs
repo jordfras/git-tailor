@@ -184,11 +184,8 @@ fn build_chain_conflict_state(
         conflicting_commit_oid: Oid::from(conflicting_oid),
         remaining_oids: remaining,
         conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
-        still_unresolved: false,
         moved_commit_oid: ctx.moved_commit_oid.cloned(),
-        squash_context: None,
-        is_orphan_root: false,
-        autofixup_context: None,
+        ..Default::default()
     }
 }
 
@@ -232,11 +229,9 @@ pub(super) fn replace_root_and_replay(
             conflicting_commit_oid: Oid::from(first_commit.id()),
             remaining_oids,
             conflicting_files: conflict::collect_conflict_files_from_index(&cherry_index),
-            still_unresolved: false,
             moved_commit_oid,
-            squash_context: None,
             is_orphan_root: true,
-            autofixup_context: None,
+            ..Default::default()
         };
         // Journals write-ahead, then mutates the ref/index/workdir.
         conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit, &state)?;

@@ -282,14 +282,11 @@ impl GitRepo for MockRepo {
                 conflicting_commit_oid: Oid::from("c".repeat(40)),
                 remaining_oids: vec![],
                 conflicting_files: vec![],
-                still_unresolved: false,
-                moved_commit_oid: None,
-                squash_context: None,
-                is_orphan_root: false,
                 autofixup_context: Some(git_tailor::repo::AutofixupContext {
                     reference_oid: Oid::from("d".repeat(40)),
                     message_overrides: std::collections::HashMap::new(),
                 }),
+                ..Default::default()
             })));
         }
         if self.autofixup_ok {
@@ -327,11 +324,7 @@ fn make_conflict_state() -> ConflictState {
         conflicting_commit_oid: Oid::from("d".repeat(40)),
         remaining_oids: vec![],
         conflicting_files: vec![],
-        still_unresolved: false,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
-        autofixup_context: None,
+        ..Default::default()
     }
 }
 

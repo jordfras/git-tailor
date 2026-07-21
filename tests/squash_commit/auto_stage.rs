@@ -186,20 +186,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         .expect("should conflict on a.txt");
 
     // Abort the operation
-    let conflict_state = git_tailor::repo::ConflictState {
-        operation_label: state.operation_label,
-        original_branch_oid: state.original_branch_oid,
-        new_tip_oid: state.new_tip_oid,
-        conflicting_commit_oid: state.conflicting_commit_oid,
-        remaining_oids: state.remaining_oids,
-        conflicting_files: state.conflicting_files,
-        still_unresolved: state.still_unresolved,
-        moved_commit_oid: state.moved_commit_oid,
-        squash_context: state.squash_context,
-        is_orphan_root: state.is_orphan_root,
-        autofixup_context: state.autofixup_context,
-    };
-    git_repo.rebase_abort(&conflict_state).unwrap();
+    git_repo.rebase_abort(&state).unwrap();
 
     // HEAD must be restored
     assert_eq!(
