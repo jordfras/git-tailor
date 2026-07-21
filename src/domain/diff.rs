@@ -32,7 +32,7 @@ pub enum DiffLineKind {
 }
 
 /// A single line from a diff, along with what kind of change it represents.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffLine {
     pub kind: DiffLineKind,
     /// The text content of the line (without the +/- prefix).
@@ -55,7 +55,7 @@ pub struct DiffLine {
 ///
 /// These correspond to the `@@ -old_start,old_lines +new_start,new_lines @@`
 /// header you see in unified diff output.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hunk {
     pub old_start: u32,
     pub old_lines: u32,

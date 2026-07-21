@@ -57,6 +57,18 @@ pub enum AppAction {
     PrepareSplitOutFile { commit_oid: Oid },
     /// Execute a "split out file" rewrite: peel `file_path` into its own commit.
     ExecuteSplitOutFile { commit_oid: Oid, file_path: String },
+    /// Open (or refresh, after a `+`/`-` context change) the hunk picker for
+    /// the "split out hunk(s)" strategy: load the commit's diff at
+    /// `context_lines` and show the dialog.
+    PrepareSplitOutHunks { commit_oid: Oid, context_lines: u32 },
+    /// Execute a "split out hunks" rewrite: peel the selected hunks into
+    /// their own commit. `context_lines` is the diff context `hunks`' indices
+    /// were derived at, so the backend can rebuild the same diff.
+    ExecuteSplitOutHunks {
+        commit_oid: Oid,
+        hunks: Vec<(usize, usize)>,
+        context_lines: u32,
+    },
     /// Begin the drop flow: get head_oid from repo, then show confirmation.
     PrepareDropConfirm {
         commit_oid: Oid,
@@ -143,14 +155,16 @@ pub enum SplitStrategy {
     OutFile,
     PerHunk,
     PerHunkGroup,
+    OutHunks,
 }
 
 impl SplitStrategy {
-    pub const ALL: [SplitStrategy; 4] = [
+    pub const ALL: [SplitStrategy; 5] = [
         SplitStrategy::PerFile,
         SplitStrategy::OutFile,
         SplitStrategy::PerHunk,
         SplitStrategy::PerHunkGroup,
+        SplitStrategy::OutHunks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -159,6 +173,7 @@ impl SplitStrategy {
             SplitStrategy::OutFile => "Split out file",
             SplitStrategy::PerHunk => "Per hunk",
             SplitStrategy::PerHunkGroup => "Per hunk group",
+            SplitStrategy::OutHunks => "Split out hunk(s)",
         }
     }
 
@@ -168,6 +183,7 @@ impl SplitStrategy {
             SplitStrategy::OutFile => "Peel one file into its own commit",
             SplitStrategy::PerHunk => "Create one commit per diff hunk",
             SplitStrategy::PerHunkGroup => "Create one commit per hunk group",
+            SplitStrategy::OutHunks => "Peel selected hunks into a commit",
         }
     }
 }
@@ -228,6 +244,21 @@ pub enum AppMode {
         files: Vec<String>,
         file_index: usize,
     },
+    /// Hunk picker for the "split out hunk(s)" strategy: a wide two-pane
+    /// dialog listing the commit's hunks on the left (with a diff preview of
+    /// the highlighted one on the right), letting the user toggle-select one
+    /// or more before splitting them out together.
+    SplitHunksSelect {
+        commit_oid: Oid,
+        hunks: Vec<HunkPickerEntry>,
+        hunk_index: usize,
+        selected: std::collections::HashSet<usize>,
+        /// Diff context level `hunks` was loaded at, adjustable with `+`/`-`
+        /// like the commit detail view. Re-fetching at a new level rebuilds
+        /// `hunks` from scratch and resets the selection (indices may no
+        /// longer mean the same thing once hunks merge or split apart).
+        context_lines: u32,
+    },
     /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
     SplitConfirm(PendingSplit),
     /// Confirmation dialog before dropping a commit.
@@ -271,6 +302,7 @@ impl AppMode {
             AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
             | AppMode::SplitFileSelect { .. }
+            | AppMode::SplitHunksSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::AutofixupConfirm(_)
@@ -280,6 +312,18 @@ impl AppMode {
             AppMode::Help(prev) => Some(prev.as_ref().clone()),
         }
     }
+}
+
+/// One row of the "split out hunk(s)" picker: a hunk's identity for the
+/// backend (`delta_idx`/`hunk_idx`, against the diff loaded at
+/// `repo::DEFAULT_CONTEXT_LINES`), its file path for the list label, and its
+/// own content for the preview pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HunkPickerEntry {
+    pub delta_idx: usize,
+    pub hunk_idx: usize,
+    pub file_path: String,
+    pub hunk: crate::Hunk,
 }
 
 /// Data retained while the user is shown the large-split confirmation dialog.

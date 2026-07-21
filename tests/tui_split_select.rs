@@ -19,7 +19,8 @@ mod common;
 use common::TuiTestHarness;
 
 use git_tailor::{
-    app::{AppMode, AppState},
+    Oid,
+    app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy},
     views,
 };
 
@@ -77,6 +78,61 @@ fn test_split_dialog_per_hunk_group_selected() {
         views::commit_list::render(&mut app, frame);
         views::split_select::render(&mut app, frame);
     }));
+}
+
+#[test]
+fn test_split_dialog_out_hunks_selected() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_split_select(4);
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::split_select::render(&mut app, frame);
+    }));
+}
+
+/// Confirming "Split out hunk(s)" opens the hunk picker — no repository call
+/// happens yet, unlike every other strategy which mutates the branch right
+/// away — mirroring how "Split out file" opens its own file picker first.
+#[test]
+fn test_confirm_out_hunks_returns_prepare_split_out_hunks() {
+    let mut app = make_app_in_split_select(4);
+
+    let result = views::split_select::handle_key(KeyCommand::Confirm, &mut app);
+
+    match result {
+        AppAction::PrepareSplitOutHunks {
+            commit_oid,
+            context_lines,
+        } => {
+            assert_eq!(commit_oid, Oid::from("111111111111"));
+            assert_eq!(context_lines, git_tailor::repo::DEFAULT_CONTEXT_LINES);
+        }
+        other => panic!("Expected PrepareSplitOutHunks, got {:?}", other),
+    }
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+/// Every other strategy still returns `PrepareSplit` and returns to
+/// CommitList, unaffected by adding the "Split out hunk(s)" branch.
+#[test]
+fn test_confirm_per_file_still_returns_prepare_split() {
+    let mut app = make_app_in_split_select(0);
+
+    let result = views::split_select::handle_key(KeyCommand::Confirm, &mut app);
+
+    match result {
+        AppAction::PrepareSplit {
+            strategy,
+            commit_oid,
+        } => {
+            assert!(matches!(strategy, SplitStrategy::PerFile));
+            assert_eq!(commit_oid, Oid::from("111111111111"));
+        }
+        other => panic!("Expected PrepareSplit, got {:?}", other),
+    }
+    assert_eq!(app.mode, AppMode::CommitList);
 }
 
 /// A long non-ASCII commit summary must truncate on a character boundary, not a

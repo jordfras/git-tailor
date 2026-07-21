@@ -377,6 +377,122 @@ pub(super) fn split_commit_out_file(
     )
 }
 
+pub(super) fn split_commit_out_hunks(
+    repo: &Git2Repo,
+    commit_oid: &Oid,
+    hunks: &[(usize, usize)],
+    head_oid: &Oid,
+    context_lines: u32,
+) -> Result<()> {
+    if hunks.is_empty() {
+        anyhow::bail!("No hunks selected — nothing to split out");
+    }
+
+    let target = load_split_commit(repo, commit_oid)?;
+
+    // Must match the context level the caller used to derive `hunks`'
+    // (delta_idx, hunk_idx) pairs — more context can merge adjacent hunks
+    // into one, shifting indices relative to a differently-configured diff.
+    let mut diff_opts = git2::DiffOptions::new();
+    diff_opts.context_lines(context_lines);
+    let full_diff = repo.inner.diff_tree_to_tree(
+        Some(&target.parent_tree),
+        Some(&target.commit_tree),
+        Some(&mut diff_opts),
+    )?;
+
+    let num_deltas = full_diff.deltas().len();
+    let hunk_counts: Vec<usize> = (0..num_deltas)
+        .map(|delta_idx| {
+            git2::Patch::from_diff(&full_diff, delta_idx)
+                .map(|p| p.map(|p| p.num_hunks()).unwrap_or(0))
+        })
+        .collect::<std::result::Result<_, git2::Error>>()?;
+    let total_hunks: usize = hunk_counts.iter().sum();
+
+    let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
+    for &(delta_idx, hunk_idx) in &selected {
+        let valid = hunk_counts.get(delta_idx).is_some_and(|&n| hunk_idx < n);
+        if !valid {
+            anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
+        }
+    }
+    if selected.len() >= total_hunks {
+        anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
+    }
+
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
+
+    // The "rest" tree is built via apply_selected_hunks_to_tree with the
+    // *complement* selection — every hunk not chosen. A delta absent from the
+    // selection map keeps its parent-tree (pre-commit) content unchanged, so
+    // every delta touched by the commit needs an explicit entry here, even
+    // ones with none of their hunks selected (whose entry then lists *all*
+    // their hunks, fully applying them) — otherwise such a file would
+    // silently revert to its pre-commit state in the "rest" commit instead of
+    // keeping its actual (unselected) changes.
+    let mut rest: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+    for (delta_idx, &num_hunks) in hunk_counts.iter().enumerate() {
+        let unselected: Vec<hunks::HunkSelection> = (0..num_hunks)
+            .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
+            .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
+            .collect();
+        rest.insert(delta_idx, unselected);
+    }
+
+    let rest_tree_oid =
+        hunks::apply_selected_hunks_to_tree(&repo.inner, &target.parent_tree, &full_diff, &rest)?;
+
+    // Mirrors split_commit_out_file's two-tree trick: since `rest_tree_oid`
+    // already excludes the selected hunks, replaying the full original tree
+    // back in on top represents exactly those hunks' changes — no second
+    // apply_selected_hunks_to_tree call needed.
+    let base = initial_split_base(&target.commit)?;
+    let original_message = target.commit.message().unwrap_or("split");
+    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+
+    let suffix = hunk_selection_suffix(&full_diff, &selected)?;
+    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
+    let second = commit_with_message(
+        repo,
+        &target.commit,
+        target.commit_tree.id(),
+        Some(first),
+        &peeled_message,
+    )?;
+
+    finalize_split(
+        repo,
+        target.commit_oid,
+        head_oid,
+        second,
+        "git-tailor: split out hunks",
+    )
+}
+
+/// Build the "(...)" suffix for the split-out commit's summary: the touched
+/// file's name when the selection is confined to one file (matching
+/// `split_commit_out_file`'s style), or a hunk/file count otherwise.
+fn hunk_selection_suffix(
+    full_diff: &git2::Diff,
+    selected: &HashSet<(usize, usize)>,
+) -> Result<String> {
+    let touched_deltas: BTreeSet<usize> =
+        selected.iter().map(|&(delta_idx, _)| delta_idx).collect();
+    if touched_deltas.len() == 1 {
+        let delta_idx = *touched_deltas.iter().next().expect("checked len == 1");
+        let delta = full_diff
+            .get_delta(delta_idx)
+            .context("delta index in range")?;
+        return Ok(delta_path(&delta).unwrap_or_default());
+    }
+    Ok(format!(
+        "{} hunks across {} files",
+        selected.len(),
+        touched_deltas.len()
+    ))
+}
+
 /// Resolved inputs to a split operation.  `commit_oid` is the parsed form of
 /// the caller's `&str` argument; `parent_tree` is an empty tree when `commit`
 /// is a root commit.

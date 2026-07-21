@@ -34,6 +34,7 @@ pub enum KeyCommand {
     ScrollRight,
     NavFileNext,
     NavFilePrev,
+    ToggleHunkSelect,
     ToggleDetail,
     ShowHelp,
     OperationMenu,
@@ -175,10 +176,13 @@ impl AppMode {
                 KeyCode::Char('N') => KeyCommand::SearchPrev,
                 KeyCode::Char('+') => KeyCommand::IncreaseContext,
                 KeyCode::Char('-') => KeyCommand::DecreaseContext,
-                // Space: open the operation picker in the commit list; elsewhere
-                // (detail/pager view, dialogs) it keeps the less-style page-down.
+                // Space: open the operation picker in the commit list;
+                // toggle-select a hunk in the split-out-hunks picker; elsewhere
+                // (detail/pager view, other dialogs) it keeps the less-style
+                // page-down.
                 KeyCode::Char(' ') => match self {
                     AppMode::CommitList => KeyCommand::OperationMenu,
+                    AppMode::SplitHunksSelect { .. } => KeyCommand::ToggleHunkSelect,
                     _ => KeyCommand::PageDown,
                 },
                 KeyCode::Char('b') => KeyCommand::PageUp,
@@ -217,6 +221,21 @@ mod tests {
         assert_eq!(
             AppMode::CommitDetail.parse_key(press(KeyCode::Char(' '))),
             KeyCommand::PageDown
+        );
+    }
+
+    #[test]
+    fn space_toggles_hunk_select_in_split_hunks_select() {
+        let mode = AppMode::SplitHunksSelect {
+            commit_oid: crate::Oid::from("0".repeat(40).as_str()),
+            hunks: Vec::new(),
+            hunk_index: 0,
+            selected: std::collections::HashSet::new(),
+            context_lines: 3,
+        };
+        assert_eq!(
+            mode.parse_key(press(KeyCode::Char(' '))),
+            KeyCommand::ToggleHunkSelect
         );
     }
 

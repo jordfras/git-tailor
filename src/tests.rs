@@ -15,7 +15,9 @@
 use super::*;
 use git_tailor::app::SquashMode;
 use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext};
-use git_tailor::{CommitDiff, CommitInfo};
+use git_tailor::{
+    CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
+};
 
 /// Minimal `GitRepo` stub for testing terminal-free dispatch helpers.
 struct MockRepo {
@@ -35,6 +37,8 @@ struct MockRepo {
     /// Counts `autostash_save` invocations so tests can assert the working-tree-
     /// preserving undo/redo paths skip the stash dance.
     autostash_save_calls: std::cell::Cell<usize>,
+    /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
+    commit_diff: Option<CommitDiff>,
 }
 
 impl Default for MockRepo {
@@ -54,6 +58,7 @@ impl Default for MockRepo {
             undo_skips_autostash: false,
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
+            commit_diff: None,
         }
     }
 }
@@ -205,7 +210,9 @@ impl GitRepo for MockRepo {
         unimplemented!()
     }
     fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
-        unimplemented!()
+        self.commit_diff
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
     }
     fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
@@ -220,6 +227,15 @@ impl GitRepo for MockRepo {
         unimplemented!()
     }
     fn split_commit_out_file(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    fn split_commit_out_hunks(
+        &self,
+        _: &Oid,
+        _: &[(usize, usize)],
+        _: &Oid,
+        _: u32,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
@@ -478,6 +494,126 @@ fn prepare_split_above_threshold_enters_confirm_mode() {
         Oid::from("a".repeat(40)),
     );
     assert!(matches!(app.mode, AppMode::SplitConfirm(_)));
+}
+
+/// A single-line hunk, for `handle_prepare_split_out_hunks` fixtures.
+fn one_line_hunk(old_start: u32) -> Hunk {
+    Hunk {
+        old_start,
+        old_lines: 1,
+        new_start: old_start,
+        new_lines: 1,
+        lines: vec![
+            DiffLine {
+                kind: DiffLineKind::Deletion,
+                content: "old\n".to_string(),
+            },
+            DiffLine {
+                kind: DiffLineKind::Addition,
+                content: "new\n".to_string(),
+            },
+        ],
+    }
+}
+
+/// Two files, three hunks total: a.txt has two, b.txt has one — matching the
+/// commit_diff fixture `handle_prepare_split_out_hunks` flattens into
+/// `HunkPickerEntry` rows.
+fn three_hunk_commit_diff() -> CommitDiff {
+    CommitDiff {
+        commit: CommitInfo {
+            oid: VirtualOid::Real(Oid::from("a".repeat(40))),
+            summary: String::new(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        },
+        files: vec![
+            FileDiff {
+                old_path: Some("a.txt".to_string()),
+                new_path: Some("a.txt".to_string()),
+                status: DeltaStatus::Modified,
+                hunks: vec![one_line_hunk(1), one_line_hunk(10)],
+            },
+            FileDiff {
+                old_path: Some("b.txt".to_string()),
+                new_path: Some("b.txt".to_string()),
+                status: DeltaStatus::Modified,
+                hunks: vec![one_line_hunk(1)],
+            },
+        ],
+    }
+}
+
+/// The commit's diff is flattened into one `HunkPickerEntry` per hunk, in
+/// file/hunk order, with `delta_idx`/`hunk_idx` matching that position — the
+/// exact pair the backend expects back when the split is confirmed.
+#[test]
+fn prepare_split_out_hunks_flattens_diff_into_picker_entries() {
+    let repo = MockRepo {
+        commit_diff: Some(three_hunk_commit_diff()),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    match &app.mode {
+        AppMode::SplitHunksSelect {
+            hunks,
+            context_lines,
+            ..
+        } => {
+            let ids: Vec<(usize, usize, &str)> = hunks
+                .iter()
+                .map(|h| (h.delta_idx, h.hunk_idx, h.file_path.as_str()))
+                .collect();
+            assert_eq!(ids, vec![(0, 0, "a.txt"), (0, 1, "a.txt"), (1, 0, "b.txt")]);
+            assert_eq!(*context_lines, 3);
+        }
+        other => panic!("expected SplitHunksSelect mode, got {other:?}"),
+    }
+}
+
+/// A commit with fewer than 2 hunks total refuses to open the picker — an
+/// empty or single-hunk "rest" split is meaningless.
+#[test]
+fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
+    let mut diff = three_hunk_commit_diff();
+    diff.files.truncate(1);
+    diff.files[0].hunks.truncate(1);
+    let repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(app.status_is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+/// A `commit_diff` failure surfaces as an error message rather than entering
+/// the picker with stale or empty data.
+#[test]
+fn prepare_split_out_hunks_error_sets_error_message() {
+    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(app.status_is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
 }
 
 #[test]

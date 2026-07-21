@@ -144,6 +144,15 @@ impl GitRepo for StubRepo {
     ) -> Result<()> {
         unimplemented!()
     }
+    fn split_commit_out_hunks(
+        &self,
+        _commit_oid: &Oid,
+        _hunks: &[(usize, usize)],
+        _head_oid: &Oid,
+        _context_lines: u32,
+    ) -> Result<()> {
+        unimplemented!()
+    }
     fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }

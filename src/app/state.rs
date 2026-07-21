@@ -542,6 +542,27 @@ impl AppState {
         self.exit_dialog();
     }
 
+    /// Enter the "split out hunk(s)" picker with the commit's hunks.
+    pub fn enter_split_hunks_select(
+        &mut self,
+        commit_oid: Oid,
+        hunks: Vec<crate::app::HunkPickerEntry>,
+        context_lines: u32,
+    ) {
+        self.enter_dialog(AppMode::SplitHunksSelect {
+            commit_oid,
+            hunks,
+            hunk_index: 0,
+            selected: std::collections::HashSet::new(),
+            context_lines,
+        });
+    }
+
+    /// Cancel the "split out hunk(s)" picker and return to CommitList.
+    pub fn cancel_split_hunks_select(&mut self) {
+        self.exit_dialog();
+    }
+
     /// Enter squash target selection mode.
     /// Only allowed for real commits (not staged/unstaged synthetic rows).
     pub fn enter_squash_select(&mut self) {
@@ -651,6 +672,7 @@ impl AppState {
             | AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
             | AppMode::SplitFileSelect { .. }
+            | AppMode::SplitHunksSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
             | AppMode::AutofixupConfirm(_)
