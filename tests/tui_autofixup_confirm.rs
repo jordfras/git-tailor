@@ -20,7 +20,7 @@ use common::TuiTestHarness;
 
 use git_tailor::{
     Oid,
-    app::{AppMode, AppState, PendingAutofixup, SquashMode},
+    app::{AppAction, AppMode, AppState, KeyCommand, PendingAutofixup, SquashMode},
     autofixup::AutofixupPair,
     views,
 };
@@ -169,6 +169,120 @@ fn test_autofixup_confirm_dialog_long_summary() {
         views::commit_list::render(&mut app, frame);
         views::autofixup::render_autofixup_confirm(&mut app, frame);
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Key handling (handle_confirm_key)
+// ---------------------------------------------------------------------------
+
+fn two_target_groups() -> Vec<AutofixupPair> {
+    vec![
+        pair(
+            "111111111111",
+            "fixup! Add parser",
+            "abc123def456",
+            "Add parser",
+            SquashMode::Fixup,
+        ),
+        pair(
+            "222222222222",
+            "squash! Add lexer",
+            "333333333333",
+            "Add lexer",
+            SquashMode::Squash,
+        ),
+    ]
+}
+
+fn selected_group_index(app: &AppState) -> usize {
+    match &app.mode {
+        AppMode::AutofixupConfirm(pending) => pending.selected_group,
+        other => panic!("expected AutofixupConfirm, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_autofixup_confirm_move_down_selects_next_group() {
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, Default::default());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert_eq!(selected_group_index(&app), 1);
+}
+
+#[test]
+fn test_autofixup_confirm_move_up_clamps_at_the_first_group() {
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, Default::default());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::MoveUp, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert_eq!(selected_group_index(&app), 0);
+}
+
+#[test]
+fn test_autofixup_confirm_move_down_clamps_at_the_last_group() {
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 1, Default::default());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert_eq!(selected_group_index(&app), 1);
+}
+
+#[test]
+fn test_autofixup_confirm_reword_targets_the_selected_group() {
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 1, Default::default());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::Reword, &mut app);
+    match result {
+        AppAction::PrepareAutofixupEditMessage {
+            target_summary,
+            template,
+        } => {
+            assert_eq!(target_summary, "Add lexer");
+            // Target's own message is live/editable; the source folding into
+            // it is commented out (git-autosquash style).
+            assert!(template.starts_with("Add lexer\n"));
+            assert!(template.contains("# squash! Add lexer"));
+        }
+        other => panic!("expected PrepareAutofixupEditMessage, got {other:?}"),
+    }
+    // Editing doesn't leave the confirmation dialog.
+    assert!(matches!(app.mode, AppMode::AutofixupConfirm(_)));
+}
+
+#[test]
+fn test_autofixup_confirm_enter_executes_the_whole_batch_with_overrides() {
+    let overrides = std::collections::HashMap::from([(
+        "Add parser".to_string(),
+        "Custom message\n".to_string(),
+    )]);
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, overrides.clone());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::Confirm, &mut app);
+    match result {
+        AppAction::ExecuteAutofixup {
+            head_oid,
+            reference_oid,
+            pairs,
+            message_overrides,
+        } => {
+            assert_eq!(head_oid, Oid::from("def456ghi789abcdef012"));
+            assert_eq!(reference_oid, Oid::from("000000000000abcdef012"));
+            assert_eq!(pairs.len(), 2);
+            assert_eq!(message_overrides, overrides);
+        }
+        other => panic!("expected ExecuteAutofixup, got {other:?}"),
+    }
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+#[test]
+fn test_autofixup_confirm_esc_cancels() {
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, Default::default());
+
+    let result = views::autofixup::handle_confirm_key(KeyCommand::Quit, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert_eq!(app.mode, AppMode::CommitList);
 }
 
 #[test]

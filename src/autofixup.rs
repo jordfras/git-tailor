@@ -288,6 +288,16 @@ mod tests {
     }
 
     #[test]
+    fn strip_comment_lines_on_an_all_commented_template_yields_empty() {
+        // If the user deletes the live target line too (or comments it out),
+        // the result is empty — main.rs relies on exactly this to know the
+        // edit should clear any existing override rather than store a blank
+        // message.
+        let text = "# Add parser\n# fixup! Add parser";
+        assert_eq!(strip_comment_lines(text), "");
+    }
+
+    #[test]
     fn strip_comment_lines_keeps_uncommented_additions() {
         let text = "Add parser\n\n# comment\nExtra detail the user typed\n# more comment";
         assert_eq!(
