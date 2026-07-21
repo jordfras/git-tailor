@@ -20,7 +20,8 @@ use crate::{
     views::{palette::Colors, theme::Theme},
 };
 
-use super::{AppMode, Operation, PendingDrop, PendingSplit, SplitStrategy};
+use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
+use crate::autofixup::AutofixupPair;
 
 /// Number of diff context lines shown in the commit detail view. A newtype so
 /// its default (git's 3) is preserved under `AppState`'s derived `Default`.
@@ -108,6 +109,13 @@ pub struct AppState {
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
     pub update_notice: Option<String>,
+    /// Precomputed target selection index for an in-progress autofixup batch
+    /// that hit a conflict, carried across the conflict-resolution round trip
+    /// (possibly several, if more than one pair conflicts) so the cursor still
+    /// lands on the right commit once the whole batch finally completes.
+    /// `None` once consumed or when there was nothing sensible to restore
+    /// (e.g. the original selection was a synthetic staged/unstaged row).
+    pub pending_autofixup_selection: Option<usize>,
 }
 
 impl AppState {
@@ -415,6 +423,27 @@ impl AppState {
         self.exit_dialog();
     }
 
+    /// Enter the autofixup confirmation dialog.
+    pub fn enter_autofixup_confirm(
+        &mut self,
+        pairs: Vec<AutofixupPair>,
+        head_oid: Oid,
+        reference_oid: Oid,
+    ) {
+        self.enter_dialog(AppMode::AutofixupConfirm(PendingAutofixup {
+            pairs,
+            head_oid,
+            reference_oid,
+            selected_group: 0,
+            message_overrides: std::collections::HashMap::new(),
+        }));
+    }
+
+    /// Cancel the autofixup confirmation and return to CommitList.
+    pub fn cancel_autofixup_confirm(&mut self) {
+        self.exit_dialog();
+    }
+
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
@@ -624,6 +653,7 @@ impl AppState {
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
+            | AppMode::AutofixupConfirm(_)
             | AppMode::RebaseConflict(_)
             | AppMode::StashConflict(_)
             | AppMode::RecoverConfirm(_)

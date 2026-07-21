@@ -51,6 +51,68 @@ Guidelines:
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
 
+## Interactivity — Split Commit
+- [ ] T227 P2 feat - Add a "split out hunk" split option, mirroring T218's
+  "split out file" at hunk granularity: peel one hunk out of a multi-hunk
+  commit into its own commit while the rest stay together in the original
+  commit's replacement. A bare list of file+line-range labels isn't enough to
+  pick a hunk by — the user needs to see the actual code — so instead of a
+  selection dialog, make the commit detail view's diff scrolling hunk-aware:
+  add `hunk_start_lines: Vec<usize>` alongside the existing
+  `file_start_lines` (`src/app/state.rs`, populated in
+  `src/views/commit_detail.rs`'s `build_diff_lines`) and
+  `jump_to_next_hunk`/`jump_to_prev_hunk` alongside
+  `jump_to_next_file`/`jump_to_prev_file`, reusing the same rendered diff's
+  scrolling, colors, and search. Add a key binding to split out the hunk
+  currently in view directly from the detail view. Add the backend operation
+  (`src/repo/git2_impl/split_op.rs`, reusing the existing hunk-application
+  helpers in `hunks.rs`) executing as a two-commit split (chosen hunk first
+  or otherwise consistently ordered, matching `split_commit_out_file`'s
+  approach), and cover the new navigation + split flow with TUI tests plus
+  repository tests in `tests/split_commit/`.
+
+## Interactivity — Edit Commit
+- [ ] T228 P2 feat - Add an "Edit" operation (interactive-rebase's `edit`
+  verb): pause on the selected commit with its tree checked out — as if
+  `git rebase -i` had stopped there — and drop the user into a shell to
+  freely edit files, `git add`, and `git commit` (including splitting into
+  an arbitrary number of commits with custom boundaries, e.g. via
+  `git add -p`); when the shell exits, continue. Reuse
+  `src/external_tool.rs::with_tui_suspended` (today used for `$EDITOR` and
+  the mergetool) to suspend/restore the TUI, spawning `$SHELL` (falling back
+  to a sensible default, e.g. `/bin/sh`, if unset) instead; show an on-screen
+  message before suspending explaining what to do and that exiting the shell
+  continues. On resume, detect the resulting commit chain from the original
+  parent to the new HEAD and splice it in place of the original commit,
+  replaying descendants — reuse the exact `finalize_split` /
+  `rebase_descendants` machinery `split_commit_per_*` already uses in
+  `src/repo/git2_impl/split_op.rs` (Edit is architecturally a Split whose
+  pieces are user-authored rather than computed). Needs a validation step
+  before splicing — confirm the resulting HEAD still descends from the
+  expected parent commit — and a clear, safe abort path if the user leaves
+  the repo in an unexpected state (checked out elsewhere, a merge commit,
+  etc.), in the spirit of the existing interrupted-operation journal/recovery
+  system; a no-op (shell exited with no changes) should behave as a
+  cancelled operation, not a rewrite. Make the operation undo/redo-able like
+  every other history-rewriting operation. Cover with repository tests
+  (multi-commit output, no-op case, unexpected-state abort) and TUI tests for
+  the suspend/resume flow.
+
+## Interactivity — Squash Commit
+- [X] T229 P2 feat - Add bulk "Autofixup" (mirrors `git rebase --autosquash`):
+  a new action (not tied to a single selected commit) that scans the branch
+  for `fixup!`/`squash!`-prefixed commits, matches each to the earlier commit
+  whose summary line follows the prefix, and squashes/fixups each into its
+  target in one bulk pass — bottom-up, respecting each target's position, so
+  multiple fixups for the same target stack correctly. Reuse the existing
+  squash/fixup backend (`src/repo/git2_impl/squash_op.rs`) as the primitive,
+  looping it over the computed target pairing; show one confirmation dialog
+  up front listing what will happen before running (the whole batch is a
+  single undoable operation via the existing journal, like every other
+  rewrite). Cover with repository tests (multiple fixups targeting the same
+  commit, a fixup with no matching target, mixed fixup!/squash! prefixes)
+  and a TUI test for the confirmation dialog.
+
 ## Build & CI
 - [X] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
   `.github/workflows/release.yml` that triggers on version tags (`v*`), builds

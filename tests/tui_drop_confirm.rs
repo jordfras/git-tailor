@@ -97,10 +97,7 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         conflicting_commit_oid: Oid::from(conflicting_oid),
         remaining_oids: remaining.iter().copied().map(Oid::from).collect(),
         conflicting_files: vec![],
-        still_unresolved: false,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
+        ..Default::default()
     }));
     app
 }
@@ -164,10 +161,7 @@ fn test_drop_conflict_dialog_long_summary() {
         conflicting_commit_oid: Oid::from("abc123def456"),
         remaining_oids: vec![Oid::from("111111111111"), Oid::from("222222222222")],
         conflicting_files: vec![],
-        still_unresolved: false,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
+        ..Default::default()
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -197,10 +191,7 @@ fn test_drop_conflict_dialog_with_files() {
             "src/parser/expr.rs".to_string(),
             "tests/integration.rs".to_string(),
         ],
-        still_unresolved: false,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
+        ..Default::default()
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -227,9 +218,7 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         remaining_oids: vec![],
         conflicting_files: vec!["src/parser/mod.rs".to_string()],
         still_unresolved: true,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
+        ..Default::default()
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {

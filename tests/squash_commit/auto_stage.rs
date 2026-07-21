@@ -73,7 +73,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
+        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -136,7 +136,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "squashed", &state.original_branch_oid)
+        .squash_finalize(&ctx, "squashed", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -186,19 +186,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         .expect("should conflict on a.txt");
 
     // Abort the operation
-    let conflict_state = git_tailor::repo::ConflictState {
-        operation_label: state.operation_label,
-        original_branch_oid: state.original_branch_oid,
-        new_tip_oid: state.new_tip_oid,
-        conflicting_commit_oid: state.conflicting_commit_oid,
-        remaining_oids: state.remaining_oids,
-        conflicting_files: state.conflicting_files,
-        still_unresolved: state.still_unresolved,
-        moved_commit_oid: state.moved_commit_oid,
-        squash_context: state.squash_context,
-        is_orphan_root: state.is_orphan_root,
-    };
-    git_repo.rebase_abort(&conflict_state).unwrap();
+    git_repo.rebase_abort(&state).unwrap();
 
     // HEAD must be restored
     assert_eq!(

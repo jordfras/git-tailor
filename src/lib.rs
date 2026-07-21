@@ -15,6 +15,7 @@
 // Core library for git-tailor
 
 pub mod app;
+pub mod autofixup;
 pub mod domain;
 pub mod editor;
 pub mod fragmap;

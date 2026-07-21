@@ -139,6 +139,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.enter_fixup_select();
             AppAction::Handled
         }
+        KeyCommand::Autofixup => AppAction::PrepareAutofixupConfirm,
         KeyCommand::Drop => {
             let Some(commit) = app.selected_real_commit("drop") else {
                 return AppAction::Handled;

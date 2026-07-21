@@ -22,6 +22,8 @@ struct MockRepo {
     head_ok: bool,
     drop_ok: bool,
     move_ok: bool,
+    autofixup_ok: bool,
+    autofixup_conflicts: bool,
     abort_ok: bool,
     autostash_restore_ok: bool,
     count_per_file: usize,
@@ -41,6 +43,8 @@ impl Default for MockRepo {
             head_ok: true,
             drop_ok: true,
             move_ok: true,
+            autofixup_ok: true,
+            autofixup_conflicts: false,
             abort_ok: true,
             autostash_restore_ok: true,
             count_per_file: 0,
@@ -260,8 +264,36 @@ impl GitRepo for MockRepo {
         _: &SquashContext,
         _: &str,
         _: &Oid,
+        _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
+    }
+    fn autofixup(
+        &self,
+        _: &Oid,
+        _: &Oid,
+        _: &std::collections::HashMap<String, String>,
+    ) -> anyhow::Result<RebaseOutcome> {
+        if self.autofixup_conflicts {
+            return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: "Squash".to_string(),
+                original_branch_oid: Oid::from("a".repeat(40)),
+                new_tip_oid: Oid::from("b".repeat(40)),
+                conflicting_commit_oid: Oid::from("c".repeat(40)),
+                remaining_oids: vec![],
+                conflicting_files: vec![],
+                autofixup_context: Some(git_tailor::repo::AutofixupContext {
+                    reference_oid: Oid::from("d".repeat(40)),
+                    message_overrides: std::collections::HashMap::new(),
+                }),
+                ..Default::default()
+            })));
+        }
+        if self.autofixup_ok {
+            Ok(RebaseOutcome::Complete)
+        } else {
+            Err(anyhow::anyhow!("autofixup failed"))
+        }
     }
     fn stage_file(&self, _: &str) -> anyhow::Result<()> {
         unimplemented!()
@@ -292,10 +324,7 @@ fn make_conflict_state() -> ConflictState {
         conflicting_commit_oid: Oid::from("d".repeat(40)),
         remaining_oids: vec![],
         conflicting_files: vec![],
-        still_unresolved: false,
-        moved_commit_oid: None,
-        squash_context: None,
-        is_orphan_root: false,
+        ..Default::default()
     }
 }
 
@@ -574,4 +603,234 @@ fn only_key_events_dismiss_transient_status() {
     assert!(!crate::event_dismisses_status(&Event::Resize(80, 24)));
     assert!(!crate::event_dismisses_status(&Event::FocusGained));
     assert!(!crate::event_dismisses_status(&Event::FocusLost));
+}
+
+mod autofixup_selection {
+    use super::*;
+    use git_tailor::VirtualOid;
+    use git_tailor::app::SquashMode as Mode;
+    use git_tailor::autofixup::AutofixupPair;
+
+    fn commit(oid: &str) -> CommitInfo {
+        CommitInfo {
+            oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
+            summary: String::new(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        }
+    }
+
+    fn synthetic(oid: VirtualOid) -> CommitInfo {
+        CommitInfo {
+            oid,
+            summary: String::new(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        }
+    }
+
+    fn pair(source: &str, target: &str) -> AutofixupPair {
+        AutofixupPair {
+            source_oid: Oid::new(source.repeat(40)),
+            target_oid: Oid::new(target.repeat(40)),
+            source_summary: String::new(),
+            target_summary: String::new(),
+            source_message: String::new(),
+            target_message: String::new(),
+            mode: Mode::Fixup,
+        }
+    }
+
+    // Layout: A, T(target), F1(fixup->T), C(survivor), F2(fixup->T)
+    // Batch removes F1 and F2, folding both into T.
+    fn commits() -> Vec<CommitInfo> {
+        vec![
+            commit("a"),
+            commit("t"),
+            commit("1"),
+            commit("c"),
+            commit("2"),
+        ]
+    }
+
+    fn pairs() -> Vec<AutofixupPair> {
+        vec![pair("1", "t"), pair("2", "t")]
+    }
+
+    #[test]
+    fn selection_on_a_surviving_commit_shifts_down_by_removed_commits_before_it() {
+        // C is at index 3; only F1 (index 2) is removed before it -> index 2.
+        let idx = crate::autofixup_target_selection_index(&commits(), 3, &pairs());
+        assert_eq!(idx, Some(2));
+    }
+
+    #[test]
+    fn selection_before_any_removal_is_unaffected() {
+        // T is at index 1; nothing removed before it.
+        let idx = crate::autofixup_target_selection_index(&commits(), 1, &pairs());
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn selection_on_a_folded_away_fixup_lands_on_its_target() {
+        // F2 (index 4) was folded into T (index 1); nothing removed before T.
+        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs());
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn selection_on_the_first_fixup_also_lands_on_its_target() {
+        let idx = crate::autofixup_target_selection_index(&commits(), 2, &pairs());
+        assert_eq!(idx, Some(1));
+    }
+
+    #[test]
+    fn synthetic_row_selection_falls_back_to_none() {
+        let mut cs = commits();
+        cs.push(synthetic(VirtualOid::Unstaged));
+        let idx = crate::autofixup_target_selection_index(&cs, 5, &pairs());
+        assert_eq!(idx, None, "synthetic rows aren't touched by autofixup");
+    }
+
+    #[test]
+    fn result_never_exceeds_the_commit_list_bounds() {
+        // Even in degenerate/empty inputs the caller still clamps with `.min(len-1)`
+        // before assigning to `selection_index` — verify the raw index this
+        // function returns is sane (in-bounds) for a normal batch too.
+        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs()).unwrap();
+        assert!(idx < commits().len());
+    }
+
+    #[test]
+    fn execute_autofixup_reloads_selecting_the_computed_index() {
+        let mut repo = MockRepo::default();
+        let mut app = AppState {
+            commits: commits(),
+            selection_index: 4, // F2, folded into T (index 1).
+            ..Default::default()
+        };
+
+        let result = crate::handle_execute_autofixup(
+            &mut repo,
+            &mut app,
+            Oid::from("a".repeat(40)),
+            Oid::from("b".repeat(40)),
+            pairs(),
+            std::collections::HashMap::new(),
+        );
+
+        assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
+        assert_eq!(app.status_message.as_deref(), Some("Commits autofixed up"));
+    }
+
+    #[test]
+    fn execute_autofixup_stashes_the_index_when_it_hits_a_conflict() {
+        let mut repo = MockRepo {
+            autofixup_conflicts: true,
+            ..Default::default()
+        };
+        let mut app = AppState {
+            commits: commits(),
+            selection_index: 4, // F2, folded into T (index 1).
+            ..Default::default()
+        };
+
+        let result = crate::handle_execute_autofixup(
+            &mut repo,
+            &mut app,
+            Oid::from("a".repeat(40)),
+            Oid::from("b".repeat(40)),
+            pairs(),
+            std::collections::HashMap::new(),
+        );
+
+        assert!(matches!(result, Ok(LoopAction::Continue)));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(1),
+            "the target index computed up front must survive into the conflict dialog"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_swaps_reload_preserving_for_reload_selecting() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadSelecting(2)));
+        assert_eq!(
+            app.pending_autofixup_selection, None,
+            "consumed on the completing round"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_is_a_no_op_for_non_autofixup_operations() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadPreserving));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(2),
+            "not this batch's field to touch"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_falls_back_when_nothing_was_stashed() {
+        let mut app = AppState::default();
+        let result =
+            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+        assert!(matches!(result, LoopAction::ReloadPreserving));
+    }
+
+    #[test]
+    fn apply_pending_selection_keeps_the_index_across_another_conflict_round() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
+        assert!(matches!(result, LoopAction::Continue));
+        assert_eq!(
+            app.pending_autofixup_selection,
+            Some(2),
+            "still resolving the batch; next round needs it"
+        );
+    }
+
+    #[test]
+    fn apply_pending_selection_clears_stale_state_on_failure() {
+        let mut app = AppState {
+            pending_autofixup_selection: Some(2),
+            ..Default::default()
+        };
+        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
+        assert!(matches!(result, LoopAction::Proceed));
+        assert_eq!(
+            app.pending_autofixup_selection, None,
+            "batch abandoned; don't leak into a later, unrelated reload"
+        );
+    }
 }

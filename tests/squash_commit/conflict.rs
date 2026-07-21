@@ -257,7 +257,7 @@ fn squash_finalize_after_conflict_resolution() {
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid)
+        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);

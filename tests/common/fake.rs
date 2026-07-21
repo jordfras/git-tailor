@@ -259,6 +259,15 @@ impl GitRepo for StubRepo {
         _ctx: &SquashContext,
         _message: &str,
         _original_branch_oid: &Oid,
+        _autofixup_context: Option<&git_tailor::repo::AutofixupContext>,
+    ) -> Result<RebaseOutcome> {
+        unimplemented!()
+    }
+    fn autofixup(
+        &self,
+        _head_oid: &Oid,
+        _reference_oid: &Oid,
+        _message_overrides: &std::collections::HashMap<String, String>,
     ) -> Result<RebaseOutcome> {
         unimplemented!()
     }

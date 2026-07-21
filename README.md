@@ -2,8 +2,8 @@
 ![git-tailor logo](doc/git-tailor_banner.png)
 
 An interactive terminal tool for tidying up Git commits on a branch — squash,
-reorder, split, drop, and reword commits before submitting a pull request or
-pushing to a shared branch.
+reorder, split, drop, reword, and bulk-autofixup commits before submitting a
+pull request or pushing to a shared branch.
 
 The left panel shows your commits. The right panel shows a **hunk group matrix**
 — a visual aid that instantly reveals which commits touch the same lines of
@@ -80,6 +80,10 @@ selected you can:
   or by peeling a single file out into its own commit
 - **Reword** — edit its message
 - **Drop** — delete it entirely
+- **Autofixup** — not tied to the selected commit: scans the whole branch for
+  `fixup!`/`squash!`-prefixed commits and squashes each into the commit its
+  message names, in one bulk pass, after showing a confirmation of what will
+  happen
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`
 

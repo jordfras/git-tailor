@@ -24,6 +24,7 @@ pub use state::AppState;
 
 use crate::{
     Oid,
+    autofixup::AutofixupPair,
     repo::{ConflictState, StashConflictState},
 };
 
@@ -112,6 +113,26 @@ pub enum AppAction {
     ExecuteMove {
         source_oid: Oid,
         insert_after_oid: Option<Oid>,
+    },
+    /// Begin the autofixup flow: get head_oid, compute the pair plan from the
+    /// already-loaded commits, then show the confirmation dialog.
+    PrepareAutofixupConfirm,
+    /// Open `$EDITOR` on `template` to edit the final message for the target
+    /// group identified by `target_summary` (its original, stable identity).
+    PrepareAutofixupEditMessage {
+        target_summary: String,
+        template: String,
+    },
+    /// Execute a confirmed autofixup batch. `pairs` is the plan shown in the
+    /// confirmation dialog, reused after completion to work out where the
+    /// cursor should land (see `main.rs::autofixup_target_selection_index`).
+    /// `message_overrides` carries any per-target messages the user edited
+    /// before confirming, keyed by the target's original summary text.
+    ExecuteAutofixup {
+        head_oid: Oid,
+        reference_oid: Oid,
+        pairs: Vec<AutofixupPair>,
+        message_overrides: std::collections::HashMap<String, String>,
     },
 }
 
@@ -211,6 +232,8 @@ pub enum AppMode {
     SplitConfirm(PendingSplit),
     /// Confirmation dialog before dropping a commit.
     DropConfirm(PendingDrop),
+    /// Confirmation dialog before running a bulk autofixup batch.
+    AutofixupConfirm(PendingAutofixup),
     /// Waiting for the user to resolve merge conflicts that arose during a
     /// rebase operation. Enter continues, Esc aborts the entire operation.
     RebaseConflict(Box<ConflictState>),
@@ -250,6 +273,7 @@ impl AppMode {
             | AppMode::SplitFileSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)
+            | AppMode::AutofixupConfirm(_)
             | AppMode::RebaseConflict(_)
             | AppMode::StashConflict(_)
             | AppMode::RecoverConfirm(_) => Some(AppMode::CommitList),
@@ -273,4 +297,17 @@ pub struct PendingDrop {
     pub commit_oid: Oid,
     pub commit_summary: String,
     pub head_oid: Oid,
+}
+
+/// Data retained while the user is shown the autofixup confirmation dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAutofixup {
+    pub pairs: Vec<AutofixupPair>,
+    pub head_oid: Oid,
+    pub reference_oid: Oid,
+    /// Index into `group_by_target(&pairs)` of the highlighted target group.
+    pub selected_group: usize,
+    /// User-edited final messages, keyed by the target's original summary
+    /// text (see `AutofixupContext::message_overrides`).
+    pub message_overrides: std::collections::HashMap<String, String>,
 }

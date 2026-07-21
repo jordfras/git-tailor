@@ -285,9 +285,6 @@ fn build_conflict_state(
         conflicting_commit_oid: Oid::from(inputs.source_commit.id()),
         remaining_oids: vec![],
         conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
-        still_unresolved: false,
-        moved_commit_oid: None,
-        is_orphan_root: false,
         squash_context: Some(SquashContext {
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
@@ -296,6 +293,7 @@ fn build_conflict_state(
             descendant_oids,
             squash_mode,
         }),
+        ..Default::default()
     };
     // Journals write-ahead, then mutates the ref/index/workdir.
     conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit, &state)?;
