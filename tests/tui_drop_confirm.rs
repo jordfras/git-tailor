@@ -101,7 +101,7 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         moved_commit_oid: None,
         squash_context: None,
         is_orphan_root: false,
-        autofixup_reference_oid: None,
+        autofixup_context: None,
     }));
     app
 }
@@ -169,7 +169,7 @@ fn test_drop_conflict_dialog_long_summary() {
         moved_commit_oid: None,
         squash_context: None,
         is_orphan_root: false,
-        autofixup_reference_oid: None,
+        autofixup_context: None,
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -203,7 +203,7 @@ fn test_drop_conflict_dialog_with_files() {
         moved_commit_oid: None,
         squash_context: None,
         is_orphan_root: false,
-        autofixup_reference_oid: None,
+        autofixup_context: None,
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -233,7 +233,7 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         moved_commit_oid: None,
         squash_context: None,
         is_orphan_root: false,
-        autofixup_reference_oid: None,
+        autofixup_context: None,
     }));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {

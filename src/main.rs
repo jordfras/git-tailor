@@ -490,11 +490,34 @@ fn dispatch_action(
         AppAction::PrepareAutofixupConfirm => {
             return handle_prepare_autofixup_confirm(git_repo, app);
         }
+        AppAction::PrepareAutofixupEditMessage {
+            target_summary,
+            template,
+        } => {
+            return handle_prepare_autofixup_edit_message(
+                git_repo,
+                app,
+                target_summary,
+                template,
+                terminal_guard,
+                kb_enhanced,
+            );
+        }
         AppAction::ExecuteAutofixup {
             head_oid,
             reference_oid,
             pairs,
-        } => return handle_execute_autofixup(git_repo, app, head_oid, reference_oid, pairs),
+            message_overrides,
+        } => {
+            return handle_execute_autofixup(
+                git_repo,
+                app,
+                head_oid,
+                reference_oid,
+                pairs,
+                message_overrides,
+            );
+        }
         AppAction::StageAll => {
             let outcome = git_repo.stage_all();
             return Ok(report_stage_outcome(
@@ -833,19 +856,56 @@ fn autofixup_target_selection_index(
     Some(reference_index.saturating_sub(removed_before))
 }
 
+/// Open `$EDITOR` on `template` (the target's message, with the sources being
+/// folded into it commented out — see `autofixup::edit_template`) and store
+/// the result back onto the still-open confirmation dialog as an override for
+/// `target_summary`. Does not execute anything; the batch only runs once the
+/// user confirms.
+fn handle_prepare_autofixup_edit_message(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    target_summary: String,
+    template: String,
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+) -> Result<LoopAction> {
+    let terminal_bg = terminal_guard.background();
+    let editor_result =
+        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+            editor::edit_message_in_editor(git_repo, &template)
+        })?;
+    match editor_result {
+        Ok(edited) => {
+            let message = git_tailor::autofixup::strip_comment_lines(&edited);
+            if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+                if message.is_empty() {
+                    pending.message_overrides.remove(&target_summary);
+                } else {
+                    pending
+                        .message_overrides
+                        .insert(target_summary, message + "\n");
+                }
+            }
+        }
+        Err(e) => app.set_error_message(format!("Editor error: {e}")),
+    }
+    Ok(LoopAction::Proceed)
+}
+
 fn handle_execute_autofixup(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
+    message_overrides: std::collections::HashMap<String, String>,
 ) -> Result<LoopAction> {
     let target_index = autofixup_target_selection_index(&app.commits, app.selection_index, &pairs);
     if let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e}"));
         return Ok(LoopAction::Proceed);
     }
-    match git_repo.autofixup(&head_oid, &reference_oid) {
+    match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
             app,
             git_repo.autostash_restore(),
@@ -935,7 +995,7 @@ fn handle_rebase_continue(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let is_autofixup = state.autofixup_reference_oid.is_some();
+    let is_autofixup = state.autofixup_context.is_some();
     let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
     if let Some(ref ctx) = state.squash_context {
         let original_oid = state.original_branch_oid.clone();
@@ -953,9 +1013,7 @@ fn handle_rebase_continue(
         // (the confirmation dialog is the only prompt) — squash!-mode
         // conflicts keep the non-interactive combined message computed up
         // front, the same as fixup!-mode already does.
-        let final_msg = if ctx.squash_mode.keeps_target_message()
-            || state.autofixup_reference_oid.is_some()
-        {
+        let final_msg = if ctx.squash_mode.keeps_target_message() || is_autofixup {
             ctx.combined_message.clone()
         } else {
             let combined = ctx.combined_message.clone();
@@ -989,7 +1047,7 @@ fn handle_rebase_continue(
             &ctx_clone,
             &final_msg,
             &original_oid,
-            state.autofixup_reference_oid.as_ref(),
+            state.autofixup_context.as_ref(),
         );
         let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
         return Ok(apply_pending_autofixup_selection(app, is_autofixup, result));

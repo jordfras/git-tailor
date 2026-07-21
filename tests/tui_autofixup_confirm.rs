@@ -29,20 +29,25 @@ fn pair(
     source_oid: &str,
     source_summary: &str,
     target_oid: &str,
+    target_summary: &str,
     mode: SquashMode,
 ) -> AutofixupPair {
     AutofixupPair {
         source_oid: Oid::from(source_oid),
         target_oid: Oid::from(target_oid),
         source_summary: source_summary.to_string(),
-        target_summary: String::new(),
+        target_summary: target_summary.to_string(),
         source_message: source_summary.to_string(),
-        target_message: String::new(),
+        target_message: target_summary.to_string(),
         mode,
     }
 }
 
-fn make_app_in_autofixup_confirm(pairs: Vec<AutofixupPair>) -> AppState {
+fn make_app_in_autofixup_confirm(
+    pairs: Vec<AutofixupPair>,
+    selected_group: usize,
+    message_overrides: std::collections::HashMap<String, String>,
+) -> AppState {
     let mut app = AppState::new();
     app.commits = vec![
         common::create_test_commit("abc123def456", "Add parser"),
@@ -53,6 +58,8 @@ fn make_app_in_autofixup_confirm(pairs: Vec<AutofixupPair>) -> AppState {
         pairs,
         head_oid: Oid::from("def456ghi789abcdef012"),
         reference_oid: Oid::from("000000000000abcdef012"),
+        selected_group,
+        message_overrides,
     });
     app
 }
@@ -61,12 +68,17 @@ fn make_app_in_autofixup_confirm(pairs: Vec<AutofixupPair>) -> AppState {
 fn test_autofixup_confirm_dialog_single_pair() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = make_app_in_autofixup_confirm(vec![pair(
-        "abc123def456",
-        "fixup! Add parser",
-        "def456ghi789",
-        SquashMode::Fixup,
-    )]);
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
+            "abc123def456",
+            "fixup! Add parser",
+            "def456ghi789",
+            "Add parser",
+            SquashMode::Fixup,
+        )],
+        0,
+        Default::default(),
+    );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -75,29 +87,61 @@ fn test_autofixup_confirm_dialog_single_pair() {
 }
 
 #[test]
-fn test_autofixup_confirm_dialog_multiple_pairs_mixed_modes() {
+fn test_autofixup_confirm_dialog_groups_stacked_fixups_under_one_target() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = make_app_in_autofixup_confirm(vec![
-        pair(
-            "111111111111",
-            "fixup! Add parser",
+    let mut app = make_app_in_autofixup_confirm(
+        vec![
+            pair(
+                "111111111111",
+                "fixup! Add parser",
+                "abc123def456",
+                "Add parser",
+                SquashMode::Fixup,
+            ),
+            pair(
+                "222222222222",
+                "fixup! Add parser",
+                "abc123def456",
+                "Add parser",
+                SquashMode::Fixup,
+            ),
+            pair(
+                "333333333333",
+                "squash! Add lexer",
+                "444444444444",
+                "Add lexer",
+                SquashMode::Squash,
+            ),
+        ],
+        1,
+        Default::default(),
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
+#[test]
+fn test_autofixup_confirm_dialog_shows_edited_indicator() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
             "abc123def456",
-            SquashMode::Fixup,
-        ),
-        pair(
-            "222222222222",
             "fixup! Add parser",
-            "abc123def456",
+            "def456ghi789",
+            "Add parser",
             SquashMode::Fixup,
-        ),
-        pair(
-            "333333333333",
-            "squash! Add lexer",
-            "444444444444",
-            SquashMode::Squash,
-        ),
-    ]);
+        )],
+        0,
+        std::collections::HashMap::from([(
+            "Add parser".to_string(),
+            "Add parser (with a fix)\n".to_string(),
+        )]),
+    );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -109,12 +153,17 @@ fn test_autofixup_confirm_dialog_multiple_pairs_mixed_modes() {
 fn test_autofixup_confirm_dialog_long_summary() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = make_app_in_autofixup_confirm(vec![pair(
-        "abc123def456",
-        "fixup! Refactor the entire parser module to use trait-based dispatching",
-        "def456ghi789",
-        SquashMode::Fixup,
-    )]);
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
+            "abc123def456",
+            "fixup! Refactor the entire parser module to use trait-based dispatching",
+            "def456ghi789",
+            "Add parser",
+            SquashMode::Fixup,
+        )],
+        0,
+        Default::default(),
+    );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -126,12 +175,17 @@ fn test_autofixup_confirm_dialog_long_summary() {
 fn test_autofixup_confirm_dialog_narrow_terminal() {
     let mut harness = TuiTestHarness::very_narrow();
 
-    let mut app = make_app_in_autofixup_confirm(vec![pair(
-        "abc123def456",
-        "fixup! Add parser",
-        "def456ghi789",
-        SquashMode::Fixup,
-    )]);
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
+            "abc123def456",
+            "fixup! Add parser",
+            "def456ghi789",
+            "Add parser",
+            SquashMode::Fixup,
+        )],
+        0,
+        Default::default(),
+    );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);

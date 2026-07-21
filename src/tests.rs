@@ -264,11 +264,16 @@ impl GitRepo for MockRepo {
         _: &SquashContext,
         _: &str,
         _: &Oid,
-        _: Option<&Oid>,
+        _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
     }
-    fn autofixup(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn autofixup(
+        &self,
+        _: &Oid,
+        _: &Oid,
+        _: &std::collections::HashMap<String, String>,
+    ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: "Squash".to_string(),
@@ -281,7 +286,10 @@ impl GitRepo for MockRepo {
                 moved_commit_oid: None,
                 squash_context: None,
                 is_orphan_root: false,
-                autofixup_reference_oid: Some(Oid::from("d".repeat(40))),
+                autofixup_context: Some(git_tailor::repo::AutofixupContext {
+                    reference_oid: Oid::from("d".repeat(40)),
+                    message_overrides: std::collections::HashMap::new(),
+                }),
             })));
         }
         if self.autofixup_ok {
@@ -323,7 +331,7 @@ fn make_conflict_state() -> ConflictState {
         moved_commit_oid: None,
         squash_context: None,
         is_orphan_root: false,
-        autofixup_reference_oid: None,
+        autofixup_context: None,
     }
 }
 
@@ -729,6 +737,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
+            std::collections::HashMap::new(),
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
@@ -753,6 +762,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
+            std::collections::HashMap::new(),
         );
 
         assert!(matches!(result, Ok(LoopAction::Continue)));

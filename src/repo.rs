@@ -133,10 +133,26 @@ pub struct ConflictState {
     /// True when the conflicting commit should become an orphan root (no
     /// parents) after resolution. Used when dropping the root commit.
     pub is_orphan_root: bool,
-    /// Set only for an in-progress autofixup batch: the range's base, needed
-    /// to re-scan for the next fixup/target pair once this conflict resolves.
-    /// `None` for every other operation.
-    pub autofixup_reference_oid: Option<Oid>,
+    /// Set only for an in-progress autofixup batch. `None` for every other
+    /// operation.
+    pub autofixup_context: Option<AutofixupContext>,
+}
+
+/// Extra state carried through an in-progress autofixup batch's conflict so
+/// it can be resumed correctly.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutofixupContext {
+    /// The range's base, needed to re-scan for the next fixup/target pair
+    /// once the current conflict resolves.
+    pub reference_oid: Oid,
+    /// User-edited final messages chosen up front in the confirmation dialog,
+    /// keyed by the target commit's *original* summary text (stable across
+    /// the batch's cascading rebases, unlike its OID). Applied only once —
+    /// to the last pair squashed into a given target — so an intermediate
+    /// step in a multi-fixup group never renames the target before the
+    /// remaining fixups in that group have had a chance to match it.
+    pub message_overrides: std::collections::HashMap<String, String>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -555,17 +571,17 @@ pub trait GitRepo {
     /// then cherry-picks the descendants listed in `ctx`. Returns
     /// `RebaseOutcome::Complete` or `Conflict` for a descendant conflict.
     ///
-    /// `autofixup_reference_oid` is `Some` when this finalizes a step of an
+    /// `autofixup_context` is `Some` when this finalizes a step of an
     /// in-progress autofixup batch: once this step completes, the remaining
-    /// fixup/target pairs in the batch (down to that reference commit) are
-    /// applied before returning, so the batch keeps going through a
-    /// squash-time conflict the same way it does through a descendant one.
+    /// fixup/target pairs in the batch are applied before returning, so the
+    /// batch keeps going through a squash-time conflict the same way it does
+    /// through a descendant one.
     fn squash_finalize(
         &self,
         ctx: &SquashContext,
         message: &str,
         original_branch_oid: &Oid,
-        autofixup_reference_oid: Option<&Oid>,
+        autofixup_context: Option<&AutofixupContext>,
     ) -> Result<RebaseOutcome>;
 
     /// Bulk-squash every `fixup!`/`squash!`-prefixed commit in
@@ -577,12 +593,22 @@ pub trait GitRepo {
     /// starts from); `fixup!` pairs keep the target's message unchanged.
     /// Commits with no resolvable target are left in place.
     ///
+    /// `message_overrides` (keyed by a target's original summary text) lets
+    /// the caller pin the final message for a target's whole fixup/squash
+    /// group instead of the computed default — see
+    /// [`AutofixupContext::message_overrides`].
+    ///
     /// The whole batch is one undoable operation: on success a single undo
     /// entry restores `head_oid`. Returns `RebaseOutcome::Conflict` if any
     /// individual squash step conflicts; resuming via
     /// [`rebase_continue`](Self::rebase_continue) continues the remaining
     /// pairs in the same batch.
-    fn autofixup(&self, head_oid: &Oid, reference_oid: &Oid) -> Result<RebaseOutcome>;
+    fn autofixup(
+        &self,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+        message_overrides: &std::collections::HashMap<String, String>,
+    ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.
     ///

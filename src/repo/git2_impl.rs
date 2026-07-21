@@ -307,7 +307,7 @@ impl GitRepo for Git2Repo {
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
-        if state.autofixup_reference_oid.is_some() {
+        if state.autofixup_context.is_some() {
             return self.journaled(
                 "Autofixup",
                 &state.original_branch_oid,
@@ -477,9 +477,9 @@ impl GitRepo for Git2Repo {
         ctx: &super::SquashContext,
         message: &str,
         original_branch_oid: &Oid,
-        autofixup_reference_oid: Option<&Oid>,
+        autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {
-        if let Some(reference_oid) = autofixup_reference_oid {
+        if let Some(autofixup_ctx) = autofixup_context {
             return self.journaled(
                 "Autofixup",
                 original_branch_oid,
@@ -488,7 +488,7 @@ impl GitRepo for Git2Repo {
                     ctx,
                     message,
                     original_branch_oid,
-                    reference_oid,
+                    autofixup_ctx,
                 ),
             );
         }
@@ -499,11 +499,16 @@ impl GitRepo for Git2Repo {
         )
     }
 
-    fn autofixup(&self, head_oid: &Oid, reference_oid: &Oid) -> Result<super::RebaseOutcome> {
+    fn autofixup(
+        &self,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+        message_overrides: &std::collections::HashMap<String, String>,
+    ) -> Result<super::RebaseOutcome> {
         self.journaled(
             "Autofixup",
             head_oid,
-            autofixup_op::autofixup(self, head_oid, reference_oid),
+            autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides),
         )
     }
 

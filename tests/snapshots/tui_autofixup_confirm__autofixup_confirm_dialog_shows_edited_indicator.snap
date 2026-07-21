@@ -1,6 +1,6 @@
 ---
 source: tests/tui_autofixup_confirm.rs
-assertion_line: 83
+assertion_line: 146
 expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::autofixup::render_autofixup_confirm(&mut app, frame);\n})"
 ---
 Buffer {
@@ -18,7 +18,7 @@ Buffer {
         "     │                                                                    │     ",
         "     │ ↑/↓ to select a target, r to edit its final message:               │     ",
         "     │                                                                    │     ",
-        "     │▸ Add parser (def456gh)                                             │     ",
+        "     │▸ Add parser (def456gh) (edited)                                    │     ",
         "     │    fixup! Add parser (abc123de)                                    │     ",
         "     │                                                                    │     ",
         "     │             Enter Confirm   r Edit message   Esc Cancel            │     ",
@@ -66,6 +66,8 @@ Buffer {
         x: 18, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 20, y: 12, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 28, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 29, y: 12, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
+        x: 38, y: 12, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 74, y: 12, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 75, y: 12, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 5, y: 13, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,

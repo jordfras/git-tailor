@@ -434,6 +434,8 @@ impl AppState {
             pairs,
             head_oid,
             reference_oid,
+            selected_group: 0,
+            message_overrides: std::collections::HashMap::new(),
         }));
     }
 
