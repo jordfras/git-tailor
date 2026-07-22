@@ -528,17 +528,20 @@ impl AppState {
         self.enter_dialog(AppMode::SplitSelect { strategy_index: 0 });
     }
 
-    /// Enter the "split out file" file picker with the commit's changed files.
-    pub fn enter_split_file_select(&mut self, commit_oid: Oid, files: Vec<String>) {
-        self.enter_dialog(AppMode::SplitFileSelect {
+    /// Enter the "split out file(s)" picker with the commit's changed files.
+    pub fn enter_split_files_select(&mut self, commit_oid: Oid, files: Vec<crate::FileDiff>) {
+        self.enter_dialog(AppMode::SplitFilesSelect {
             commit_oid,
             files,
             file_index: 0,
+            selected: std::collections::HashSet::new(),
+            preview_h_scroll: 0,
+            preview_v_scroll: 0,
         });
     }
 
-    /// Cancel the "split out file" file picker and return to CommitList.
-    pub fn cancel_split_file_select(&mut self) {
+    /// Cancel the "split out file(s)" picker and return to CommitList.
+    pub fn cancel_split_files_select(&mut self) {
         self.exit_dialog();
     }
 
@@ -673,7 +676,7 @@ impl AppState {
             AppMode::Help(_)
             | AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
-            | AppMode::SplitFileSelect { .. }
+            | AppMode::SplitFilesSelect { .. }
             | AppMode::SplitHunksSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)

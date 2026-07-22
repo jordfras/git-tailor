@@ -45,12 +45,12 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
             let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
-            // "Split out file" and "split out hunk(s)" each need a second
+            // "Split out file(s)" and "split out hunk(s)" each need a second
             // dialog to choose what to peel out, so they take their own flow
             // rather than the count/confirm split path.
             app.mode = AppMode::CommitList;
             match strategy {
-                SplitStrategy::OutFile => AppAction::PrepareSplitOutFile { commit_oid },
+                SplitStrategy::OutFiles => AppAction::PrepareSplitOutFiles { commit_oid },
                 SplitStrategy::OutHunks => AppAction::PrepareSplitOutHunks {
                     commit_oid,
                     context_lines: DEFAULT_CONTEXT_LINES,
@@ -210,10 +210,10 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerHunk => "per hunk",
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
         // Neither ever reaches the large-split confirmation dialog ("split out
-        // file"/"split out hunks" always produce exactly two commits, and the
-        // latter never goes through PrepareSplit/SplitConfirm at all), but the
+        // file(s)"/"split out hunks" always produce exactly two commits, and
+        // neither goes through PrepareSplit/SplitConfirm at all), but the
         // match must be total.
-        crate::app::SplitStrategy::OutFile => "split out file",
+        crate::app::SplitStrategy::OutFiles => "split out files",
         crate::app::SplitStrategy::OutHunks => "split out hunks",
     };
 

@@ -24,8 +24,8 @@ mod update_check;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use git_tailor::repo::{
-    AutostashContinue, AutostashRestore, CommitOutcome, ConflictState, Git2Repo, GitRepo,
-    JournalStatus, RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
+    AutostashContinue, AutostashRestore, CommitOutcome, ConflictState, DEFAULT_CONTEXT_LINES,
+    Git2Repo, GitRepo, JournalStatus, RebaseOutcome, StageOutcome, StashConflictState, UndoOutcome,
 };
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
@@ -233,8 +233,8 @@ fn main() -> Result<()> {
                 views::operation_select::handle_key(action, &mut app)
             }
             AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
-            AppMode::SplitFileSelect { .. } => {
-                views::split_file_select::handle_key(action, &mut app)
+            AppMode::SplitFilesSelect { .. } => {
+                views::split_files_select::handle_key(action, &mut app)
             }
             AppMode::SplitHunksSelect { .. } => {
                 views::split_hunks_select::handle_key(action, &mut app)
@@ -398,13 +398,13 @@ fn dispatch_action(
                 &head_oid,
             ));
         }
-        AppAction::PrepareSplitOutFile { commit_oid } => {
-            return handle_prepare_split_out_file(git_repo, app, commit_oid);
+        AppAction::PrepareSplitOutFiles { commit_oid } => {
+            return handle_prepare_split_out_files(git_repo, app, commit_oid);
         }
-        AppAction::ExecuteSplitOutFile {
+        AppAction::ExecuteSplitOutFiles {
             commit_oid,
-            file_path,
-        } => return handle_execute_split_out_file(git_repo, app, commit_oid, file_path),
+            file_paths,
+        } => return handle_execute_split_out_files(git_repo, app, commit_oid, file_paths),
         AppAction::PrepareSplitOutHunks {
             commit_oid,
             context_lines,
@@ -735,11 +735,10 @@ fn handle_prepare_split(
         SplitStrategy::PerHunkGroup => {
             git_repo.count_split_per_hunk_group(&commit_oid, &head_oid, &app.reference_oid)
         }
-        // "Split out file" is dispatched to its own flow before reaching here.
-        SplitStrategy::OutFile => unreachable!("OutFile uses PrepareSplitOutFile"),
-        // "Split out hunk(s)" is dispatched straight into the commit detail
-        // view from the picker, before reaching here.
-        SplitStrategy::OutHunks => unreachable!("OutHunks is handled directly by split_select"),
+        // "Split out file(s)" and "split out hunk(s)" each open their own
+        // picker dialog instead, dispatched before reaching here.
+        SplitStrategy::OutFiles => unreachable!("OutFiles uses PrepareSplitOutFiles"),
+        SplitStrategy::OutHunks => unreachable!("OutHunks uses PrepareSplitOutHunks"),
     };
     match count_result {
         Err(e) => app.set_error_message(e.to_string()),
@@ -759,17 +758,19 @@ fn handle_prepare_split(
     Ok(LoopAction::Proceed)
 }
 
-fn handle_prepare_split_out_file(
+/// Load the commit's diff so the picker can show each changed file's full
+/// diff in the preview pane, not just its path.
+fn handle_prepare_split_out_files(
     git_repo: &impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
 ) -> Result<LoopAction> {
-    match git_repo.list_commit_files(&commit_oid) {
+    match git_repo.commit_diff(&commit_oid, DEFAULT_CONTEXT_LINES) {
         Err(e) => app.set_error_message(e.to_string()),
-        Ok(files) if files.len() < 2 => {
+        Ok(diff) if diff.files.len() < 2 => {
             app.set_error_message("Commit touches fewer than 2 files — nothing to split out");
         }
-        Ok(files) => app.enter_split_file_select(commit_oid, files),
+        Ok(diff) => app.enter_split_files_select(commit_oid, diff.files),
     }
     Ok(LoopAction::Proceed)
 }
@@ -819,18 +820,18 @@ fn handle_prepare_split_out_hunks(
     Ok(LoopAction::Proceed)
 }
 
-fn handle_execute_split_out_file(
+fn handle_execute_split_out_files(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
-    file_path: String,
+    file_paths: Vec<String>,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     if let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e}"));
         return Ok(LoopAction::Proceed);
     }
-    let result = git_repo.split_commit_out_file(&commit_oid, &file_path, &head_oid);
+    let result = git_repo.split_commit_out_files(&commit_oid, &file_paths, &head_oid);
     Ok(settle_split_autostash(git_repo, app, result))
 }
 
@@ -1547,11 +1548,10 @@ fn execute_split(
         SplitStrategy::PerHunkGroup => {
             git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid)
         }
-        // "Split out file" is executed via handle_execute_split_out_file.
-        SplitStrategy::OutFile => unreachable!("OutFile uses ExecuteSplitOutFile"),
-        // "Split out hunk(s)" never reaches PrepareSplit/ExecuteSplit at all —
-        // it's executed via handle_execute_split_out_hunks once the user
-        // presses 'p' in the commit detail view.
+        // "Split out file(s)" and "split out hunk(s)" never reach
+        // PrepareSplit/ExecuteSplit at all — each is executed via its own
+        // handle_execute_split_out_* once confirmed in its picker dialog.
+        SplitStrategy::OutFiles => unreachable!("OutFiles uses ExecuteSplitOutFiles"),
         SplitStrategy::OutHunks => unreachable!("OutHunks uses ExecuteSplitOutHunks"),
     };
     settle_split_autostash(git_repo, app, result)
@@ -1598,7 +1598,7 @@ fn render_mode(
         AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
         AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
-        AppMode::SplitFileSelect { .. } => views::split_file_select::render(app, frame),
+        AppMode::SplitFilesSelect { .. } => views::split_files_select::render(app, frame),
         AppMode::SplitHunksSelect { .. } => views::split_hunks_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),

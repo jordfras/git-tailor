@@ -223,10 +223,7 @@ impl GitRepo for MockRepo {
     fn split_commit_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn list_commit_files(&self, _: &Oid) -> anyhow::Result<Vec<String>> {
-        unimplemented!()
-    }
-    fn split_commit_out_file(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_out_files(&self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn split_commit_out_hunks(
@@ -610,6 +607,106 @@ fn prepare_split_out_hunks_error_sets_error_message() {
     let mut app = AppState::default();
 
     let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(app.status_is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+/// Three files: a.txt and b.txt modified, c.txt deleted (no `new_path`) — the
+/// deleted-file case that exercises `FileDiff`'s "fall back to old_path"
+/// identity resolution used both here and in `split_files_select`.
+fn three_file_commit_diff() -> CommitDiff {
+    CommitDiff {
+        commit: CommitInfo {
+            oid: VirtualOid::Real(Oid::from("a".repeat(40))),
+            summary: String::new(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        },
+        files: vec![
+            FileDiff {
+                old_path: Some("a.txt".to_string()),
+                new_path: Some("a.txt".to_string()),
+                status: DeltaStatus::Modified,
+                hunks: vec![one_line_hunk(1)],
+            },
+            FileDiff {
+                old_path: Some("b.txt".to_string()),
+                new_path: Some("b.txt".to_string()),
+                status: DeltaStatus::Modified,
+                hunks: vec![one_line_hunk(1)],
+            },
+            FileDiff {
+                old_path: Some("c.txt".to_string()),
+                new_path: None,
+                status: DeltaStatus::Deleted,
+                hunks: vec![one_line_hunk(1)],
+            },
+        ],
+    }
+}
+
+/// The commit's diff is loaded as-is into the picker's file list, in diff
+/// order — including a deleted file, whose identity must resolve to its
+/// `old_path` since it has no `new_path`.
+#[test]
+fn prepare_split_out_files_loads_diff_into_picker_files() {
+    let repo = MockRepo {
+        commit_diff: Some(three_file_commit_diff()),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    match &app.mode {
+        AppMode::SplitFilesSelect { files, .. } => {
+            let paths: Vec<Option<&str>> = files
+                .iter()
+                .map(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+                .collect();
+            assert_eq!(paths, vec![Some("a.txt"), Some("b.txt"), Some("c.txt")]);
+        }
+        other => panic!("expected SplitFilesSelect mode, got {other:?}"),
+    }
+}
+
+/// A commit with fewer than 2 changed files refuses to open the picker — an
+/// empty or single-file "rest" split is meaningless.
+#[test]
+fn prepare_split_out_files_refuses_fewer_than_two_files() {
+    let mut diff = three_file_commit_diff();
+    diff.files.truncate(1);
+    let repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(app.status_is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+/// A `commit_diff` failure surfaces as an error message rather than entering
+/// the picker with stale or empty data.
+#[test]
+fn prepare_split_out_files_error_sets_error_message() {
+    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut app = AppState::default();
+
+    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status_is_error);

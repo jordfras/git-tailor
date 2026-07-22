@@ -73,8 +73,8 @@ pub(super) fn split_message(original: &str, n: usize, total: usize) -> String {
 }
 
 /// Append a parenthesised `suffix` to the summary line of `original`, keeping
-/// the body intact.  Used by the "split out file" operation to mark the
-/// peeled-out commit with the file name.
+/// the body intact.  Used by the "split out file(s)"/"split out hunk(s)"
+/// operations to mark the peeled-out commit with what it contains.
 pub(super) fn summary_suffix_message(original: &str, suffix: &str) -> String {
     let mut lines = original.splitn(2, '\n');
     let first = lines.next().unwrap_or("split").trim_end();

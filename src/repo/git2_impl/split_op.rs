@@ -317,41 +317,57 @@ pub(super) fn count_split_per_hunk_group(
     Ok(assignment.touched_groups().len())
 }
 
-pub(super) fn split_commit_out_file(
+/// Peel a set of selected files out of `commit_oid` into a follow-up commit,
+/// keeping everything else in the first (original-message) commit: pure tree
+/// surgery, looping a `TreeUpdateBuilder` over every selected path to revert
+/// it to its parent state (or remove it if newly added) in the "rest" tree.
+pub(super) fn split_commit_out_files(
     repo: &Git2Repo,
     commit_oid: &Oid,
-    file_path: &str,
+    file_paths: &[String],
     head_oid: &Oid,
 ) -> Result<()> {
+    if file_paths.is_empty() {
+        anyhow::bail!("No files selected — nothing to split out");
+    }
+
     let target = load_split_commit(repo, commit_oid)?;
 
     let full_diff =
         repo.inner
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
     let file_count = full_diff.deltas().len();
-    if file_count < 2 {
-        anyhow::bail!("Commit touches fewer than 2 files — nothing to split out");
+
+    let selected: HashSet<&str> = file_paths.iter().map(String::as_str).collect();
+    if selected.len() >= file_count {
+        anyhow::bail!("Every file is selected — nothing would remain in the original commit");
     }
 
-    let chosen = (0..file_count)
-        .find_map(|i| {
-            let delta = full_diff.get_delta(i)?;
-            (delta_path(&delta).as_deref() == Some(file_path)).then_some(delta)
-        })
-        .ok_or_else(|| anyhow::anyhow!("File not changed by this commit: {file_path}"))?;
+    let mut chosen_deltas = Vec::with_capacity(file_paths.len());
+    for path in file_paths {
+        let delta = (0..file_count)
+            .find_map(|i| {
+                let delta = full_diff.get_delta(i)?;
+                (delta_path(&delta).as_deref() == Some(path.as_str())).then_some(delta)
+            })
+            .ok_or_else(|| anyhow::anyhow!("File not changed by this commit: {path}"))?;
+        chosen_deltas.push(delta);
+    }
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, true))?;
 
-    // The first commit keeps every change except `file_path`.  Build its tree
-    // by taking the full commit tree and reverting just the chosen path to its
-    // parent state (or removing it when the file was newly added).  This pure
-    // tree surgery handles added/modified/deleted files and gitlinks uniformly
-    // and can never produce a merge conflict.
+    // The first commit keeps every change except the selected files. Build
+    // its tree by taking the full commit tree and reverting each selected
+    // path to its parent state (or removing it when newly added) — pure tree
+    // surgery handles added/modified/deleted files and gitlinks uniformly and
+    // can never produce a merge conflict.
     let mut builder = git2::build::TreeUpdateBuilder::new();
-    if chosen.old_file().id().is_zero() {
-        builder.remove(file_path);
-    } else {
-        builder.upsert(file_path, chosen.old_file().id(), chosen.old_file().mode());
+    for (path, delta) in file_paths.iter().zip(&chosen_deltas) {
+        if delta.old_file().id().is_zero() {
+            builder.remove(path);
+        } else {
+            builder.upsert(path, delta.old_file().id(), delta.old_file().mode());
+        }
     }
     let rest_tree_oid = builder.create_updated(&repo.inner, &target.commit_tree)?;
 
@@ -359,7 +375,12 @@ pub(super) fn split_commit_out_file(
     let original_message = target.commit.message().unwrap_or("split");
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
-    let peeled_message = hunks::summary_suffix_message(original_message, file_path);
+    let suffix = if file_paths.len() == 1 {
+        file_paths[0].clone()
+    } else {
+        format!("{} files", file_paths.len())
+    };
+    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
     let second = commit_with_message(
         repo,
         &target.commit,
@@ -373,7 +394,7 @@ pub(super) fn split_commit_out_file(
         target.commit_oid,
         head_oid,
         second,
-        "git-tailor: split out file",
+        "git-tailor: split out files",
     )
 }
 
@@ -443,10 +464,10 @@ pub(super) fn split_commit_out_hunks(
     let rest_tree_oid =
         hunks::apply_selected_hunks_to_tree(&repo.inner, &target.parent_tree, &full_diff, &rest)?;
 
-    // Mirrors split_commit_out_file's two-tree trick: since `rest_tree_oid`
-    // already excludes the selected hunks, replaying the full original tree
-    // back in on top represents exactly those hunks' changes — no second
-    // apply_selected_hunks_to_tree call needed.
+    // Two-tree trick: since `rest_tree_oid` already excludes the selected
+    // hunks, replaying the full original tree back in on top represents
+    // exactly those hunks' changes — no second apply_selected_hunks_to_tree
+    // call needed (mirrors split_commit_out_files' own use of the same trick).
     let base = initial_split_base(&target.commit)?;
     let original_message = target.commit.message().unwrap_or("split");
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
@@ -472,7 +493,7 @@ pub(super) fn split_commit_out_hunks(
 
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
 /// file's name when the selection is confined to one file (matching
-/// `split_commit_out_file`'s style), or a hunk/file count otherwise.
+/// `split_commit_out_files`' style), or a hunk/file count otherwise.
 fn hunk_selection_suffix(
     full_diff: &git2::Diff,
     selected: &HashSet<(usize, usize)>,
