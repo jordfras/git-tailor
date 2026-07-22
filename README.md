@@ -77,9 +77,13 @@ selected you can:
 - **Fixup** — like squash, but discard the selected commit's message
 - **Move** — reorder it to a new position
 - **Split** — divide it into smaller commits, by file, by hunk, by hunk group,
-  or by peeling a single file out into its own commit
+  or by picking one or more files/hunks to peel out into their own commit
 - **Reword** — edit its message
 - **Drop** — delete it entirely
+- **Edit** — check out the commit and drop into a shell to rewrite it by hand
+  (fix a few lines and `git commit --amend`, or `git reset HEAD~` and re-commit
+  in pieces to split it); on exit the following commits are replayed onto your
+  result
 - **Autofixup** — not tied to the selected commit: scans the whole branch for
   `fixup!`/`squash!`-prefixed commits and squashes each into the commit its
   message names, in one bulk pass, after showing a confirmation of what will
