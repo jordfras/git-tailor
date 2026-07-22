@@ -86,7 +86,7 @@ pub enum DeltaStatus {
 /// Represents all changes made to one file in a single commit. A file may
 /// have been added (old_path is None), deleted (new_path is None), renamed
 /// (both paths differ), or modified (both paths are the same).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDiff {
     /// Path in the old (parent) version, or None if the file was newly added.
     pub old_path: Option<String>,

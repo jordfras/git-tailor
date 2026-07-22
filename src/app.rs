@@ -23,7 +23,7 @@ pub use operation::Operation;
 pub use state::AppState;
 
 use crate::{
-    Oid,
+    FileDiff, Oid,
     autofixup::AutofixupPair,
     repo::{ConflictState, StashConflictState},
 };
@@ -52,11 +52,15 @@ pub enum AppAction {
         commit_oid: Oid,
         head_oid: Oid,
     },
-    /// Open the file picker for the "split out file" strategy: look up the
-    /// changed files in the commit, then show the second dialog.
-    PrepareSplitOutFile { commit_oid: Oid },
-    /// Execute a "split out file" rewrite: peel `file_path` into its own commit.
-    ExecuteSplitOutFile { commit_oid: Oid, file_path: String },
+    /// Open the file picker for the "split out file(s)" strategy: load the
+    /// commit's diff, then show the second dialog.
+    PrepareSplitOutFiles { commit_oid: Oid },
+    /// Execute a "split out file(s)" rewrite: peel `file_paths` into a
+    /// follow-up commit together.
+    ExecuteSplitOutFiles {
+        commit_oid: Oid,
+        file_paths: Vec<String>,
+    },
     /// Open (or refresh, after a `+`/`-` context change) the hunk picker for
     /// the "split out hunk(s)" strategy: load the commit's diff at
     /// `context_lines` and show the dialog.
@@ -152,7 +156,7 @@ pub enum AppAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitStrategy {
     PerFile,
-    OutFile,
+    OutFiles,
     PerHunk,
     PerHunkGroup,
     OutHunks,
@@ -161,7 +165,7 @@ pub enum SplitStrategy {
 impl SplitStrategy {
     pub const ALL: [SplitStrategy; 5] = [
         SplitStrategy::PerFile,
-        SplitStrategy::OutFile,
+        SplitStrategy::OutFiles,
         SplitStrategy::PerHunk,
         SplitStrategy::PerHunkGroup,
         SplitStrategy::OutHunks,
@@ -170,7 +174,7 @@ impl SplitStrategy {
     pub fn label(self) -> &'static str {
         match self {
             SplitStrategy::PerFile => "Per file",
-            SplitStrategy::OutFile => "Split out file",
+            SplitStrategy::OutFiles => "Split out file(s)",
             SplitStrategy::PerHunk => "Per hunk",
             SplitStrategy::PerHunkGroup => "Per hunk group",
             SplitStrategy::OutHunks => "Split out hunk(s)",
@@ -180,7 +184,7 @@ impl SplitStrategy {
     pub fn description(self) -> &'static str {
         match self {
             SplitStrategy::PerFile => "Create one commit per changed file",
-            SplitStrategy::OutFile => "Peel one file into its own commit",
+            SplitStrategy::OutFiles => "Peel selected files into a commit",
             SplitStrategy::PerHunk => "Create one commit per diff hunk",
             SplitStrategy::PerHunkGroup => "Create one commit per hunk group",
             SplitStrategy::OutHunks => "Peel selected hunks into a commit",
@@ -237,12 +241,22 @@ pub enum AppMode {
     OperationSelect { operation: Operation },
     /// Split strategy selection dialog; carries the highlighted option index.
     SplitSelect { strategy_index: usize },
-    /// File picker for the "split out file" strategy; lists the commit's
-    /// changed files and carries the highlighted file index.
-    SplitFileSelect {
+    /// File picker for the "split out file(s)" strategy: a wide two-pane
+    /// dialog listing the commit's changed files on the left (with a diff
+    /// preview of the highlighted one on the right), letting the user
+    /// toggle-select one or more before splitting them out together.
+    SplitFilesSelect {
         commit_oid: Oid,
-        files: Vec<String>,
+        files: Vec<FileDiff>,
         file_index: usize,
+        selected: std::collections::HashSet<usize>,
+        /// Horizontal scroll offset for the diff preview pane, reset whenever
+        /// the highlighted file changes.
+        preview_h_scroll: usize,
+        /// Vertical scroll offset for the diff preview pane (`Ctrl-↑`/`Ctrl-↓`
+        /// — plain arrows already move the file list cursor). Reset alongside
+        /// `preview_h_scroll` when the highlighted file changes.
+        preview_v_scroll: usize,
     },
     /// Hunk picker for the "split out hunk(s)" strategy: a wide two-pane
     /// dialog listing the commit's hunks on the left (with a diff preview of
@@ -310,7 +324,7 @@ impl AppMode {
             AppMode::SquashSelect { .. } | AppMode::MoveSelect { .. } => None,
             AppMode::OperationSelect { .. }
             | AppMode::SplitSelect { .. }
-            | AppMode::SplitFileSelect { .. }
+            | AppMode::SplitFilesSelect { .. }
             | AppMode::SplitHunksSelect { .. }
             | AppMode::SplitConfirm(_)
             | AppMode::DropConfirm(_)

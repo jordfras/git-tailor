@@ -19,8 +19,8 @@ mod common;
 mod dirty_state;
 #[path = "split_commit/multi_path.rs"]
 mod multi_path;
-#[path = "split_commit/out_file.rs"]
-mod out_file;
+#[path = "split_commit/out_files.rs"]
+mod out_files;
 #[path = "split_commit/out_hunks.rs"]
 mod out_hunks;
 #[path = "split_commit/per_file.rs"]

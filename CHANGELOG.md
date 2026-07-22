@@ -59,6 +59,11 @@ The format is based on
   neither `core.editor` nor the `GIT_EDITOR`/`VISUAL`/`EDITOR` environment
   variables are set, it now reports a clear error asking you to configure one,
   instead of failing cryptically on systems without `vi` (such as Windows).
+- "Split out file" is now "Split out file(s)": pick one or more changed files
+  — not just one — from a commit and peel them into their own commit together.
+  Choosing it from the split strategy menu opens a picker dialog listing the
+  commit's changed files with a diff preview of the highlighted one, mirroring
+  the "Split out hunk(s)" picker.
 
 ### Fixed
 

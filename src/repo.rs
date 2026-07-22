@@ -278,10 +278,6 @@ pub trait GitRepo {
     /// spans for fragmap analysis.
     fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>>;
 
-    /// List the paths of the files changed by `commit_oid` relative to its
-    /// first parent (all files for a root commit), in diff order.
-    fn list_commit_files(&self, commit_oid: &Oid) -> Result<Vec<String>>;
-
     /// Split a commit into one commit per changed file.
     ///
     /// Creates N new commits (one per file touched by `commit_oid`), each applying
@@ -327,23 +323,25 @@ pub trait GitRepo {
         reference_oid: &Oid,
     ) -> Result<()>;
 
-    /// Peel a single file's changes out of `commit_oid` into a follow-up commit.
+    /// Peel a set of selected files out of `commit_oid` into a follow-up commit.
     ///
-    /// Produces exactly two commits: the first keeps every other file's changes
-    /// under the original (unchanged) message; the second contains only
-    /// `file_path`'s changes, with the file name appended to its summary. All
-    /// commits between `commit_oid` (exclusive) and `head_oid` (inclusive) are
+    /// Produces exactly two commits: the first keeps every
+    /// file *not* selected under the original (unchanged) message; the second
+    /// contains only the selected files' changes, with a summary suffix
+    /// naming the file (or a file count when more than one). All commits
+    /// between `commit_oid` (exclusive) and `head_oid` (inclusive) are
     /// rebased onto the result and the branch ref is fast-forwarded.
     ///
     /// Fails if:
-    /// - the commit has fewer than 2 changed files (nothing to split out)
-    /// - `file_path` is not changed by the commit
+    /// - `file_paths` is empty
+    /// - `file_paths` contains a path not changed by the commit
+    /// - `file_paths` covers every file in the commit (nothing would remain)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_out_file(
+    fn split_commit_out_files(
         &self,
         commit_oid: &Oid,
-        file_path: &str,
+        file_paths: &[String],
         head_oid: &Oid,
     ) -> Result<()>;
 

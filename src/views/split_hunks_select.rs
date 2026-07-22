@@ -12,21 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Hunk picker dialog for the "split out hunk(s)" split strategy: a wide
-// two-pane overlay listing the commit's hunks on the left, with a diff
-// preview of the highlighted one on the right — mirroring how the main
-// window splits the commit list from the detail view.
+// Hunk picker dialog for the "split out hunk(s)" split strategy — a two-pane
+// picker (see `two_pane_picker`) listing the commit's hunks on the left, with
+// a diff preview of the highlighted one on the right.
 
 use super::list_nav::{self, ListNav};
-use super::split_file_select::elide_path;
+use super::two_pane_picker::{self, LIST_ROW_PREFIX_WIDTH};
 use crate::DiffLineKind;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
 /// Handle an action while in SplitHunksSelect mode.
@@ -97,7 +94,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         ListNav::Unhandled => match action {
-            KeyCommand::ToggleHunkSelect => {
+            KeyCommand::TogglePickerItem => {
                 if let AppMode::SplitHunksSelect { selected, .. } = &mut app.mode
                     && !selected.remove(&hunk_index)
                 {
@@ -178,6 +175,15 @@ fn scroll_to_hunk(app: &mut AppState, index: usize) {
     app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
 }
 
+const HINT_ROWS: [&[(&str, &str)]; 2] = [
+    &[("↑/↓", "Move"), ("Space", "Toggle"), ("+/-", "Context")],
+    &[
+        ("←/→ Ctrl-↑/↓", "Scroll"),
+        ("Enter", "Split"),
+        ("Esc", "Cancel"),
+    ],
+];
+
 /// Render the hunk picker as a wide, centered two-pane overlay.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
     let (hunks, hunk_index, selected, context_lines, preview_h_scroll, preview_v_scroll) =
@@ -201,260 +207,75 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
             _ => return,
         };
 
-    let area = frame.area();
-    let border_color = app.colors.resolve(Color::Cyan);
-    let bg_color = app.colors.resolve(Color::Black);
+    let title = format!("Split Out Hunk(s) — context: {context_lines}");
+    let areas = two_pane_picker::render_frame(app, frame, &title, &HINT_ROWS);
 
-    let width = area.width.saturating_sub(4).max(20).min(area.width);
-    let height = area.height.saturating_sub(4).max(10).min(area.height);
-    let dialog_area = Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let budget =
+        two_pane_picker::list_text_width(areas.list_area).saturating_sub(LIST_ROW_PREFIX_WIDTH);
+    let labels: Vec<String> = hunks
+        .iter()
+        .map(|entry| {
+            let suffix = format!(" -{},{}", entry.hunk.old_start, entry.hunk.old_lines);
+            let path_budget = budget.saturating_sub(suffix.chars().count());
+            format!(
+                "{}{suffix}",
+                two_pane_picker::elide_path(&entry.file_path, path_budget)
+            )
+        })
+        .collect();
+    two_pane_picker::render_list(app, frame, areas.list_area, &labels, hunk_index, &selected);
 
-    frame.render_widget(Clear, dialog_area);
-    let block = Block::default()
-        .title(format!(" Split Out Hunk(s) — context: {context_lines} "))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(bg_color));
-    let inner = block.inner(dialog_area);
-    frame.render_widget(block, dialog_area);
-
-    // Two rows: the hint set is too wide to fit legibly on one line at
-    // typical terminal widths.
-    let [content_area, instructions_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
-
-    let list_width = (content_area.width / 3)
-        .clamp(24, 42)
-        .min(content_area.width);
-    let [list_area, sep_area, preview_area] = Layout::horizontal([
-        Constraint::Length(list_width),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas(content_area);
-
-    render_separator(app, frame, sep_area);
-    render_hunk_list(app, frame, list_area, &hunks, hunk_index, &selected);
-    render_preview(
-        app,
+    let preview_lines = build_hunk_preview(app, hunks.get(hunk_index));
+    let (h, v) = two_pane_picker::render_preview(
         frame,
-        preview_area,
-        hunks.get(hunk_index),
+        areas.preview_area,
+        preview_lines,
         preview_h_scroll,
         preview_v_scroll,
     );
-    render_instructions(app, frame, instructions_area);
-}
-
-fn render_separator(app: &AppState, frame: &mut Frame, area: Rect) {
-    let sep_style = Style::default().fg(app.colors.resolve(Color::White));
-    let sep_lines: Vec<Line> = (0..area.height)
-        .map(|_| Line::from(Span::styled("│", sep_style)))
-        .collect();
-    frame.render_widget(Paragraph::new(sep_lines), area);
-}
-
-fn render_hunk_list(
-    app: &mut AppState,
-    frame: &mut Frame,
-    area: Rect,
-    hunks: &[crate::app::HunkPickerEntry],
-    hunk_index: usize,
-    selected: &std::collections::HashSet<usize>,
-) {
-    let [text_area, scrollbar_area] =
-        Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(area);
-
-    app.dialog_visible_height = text_area.height as usize;
-    app.max_dialog_scroll = hunks.len().saturating_sub(text_area.height as usize);
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
-
-    let inner_width = text_area.width as usize;
-    let mut lines = Vec::with_capacity(hunks.len());
-    for (i, entry) in hunks.iter().enumerate() {
-        let cursor = i == hunk_index;
-        let is_selected = selected.contains(&i);
-        let marker = if cursor { "▸" } else { " " };
-        let check = if is_selected { "[x]" } else { "[ ]" };
-        let suffix = format!(" -{},{}", entry.hunk.old_start, entry.hunk.old_lines);
-        let budget = inner_width.saturating_sub(
-            marker.chars().count() + 1 + check.chars().count() + 1 + suffix.chars().count(),
-        );
-        let path = elide_path(&entry.file_path, budget);
-        let style = if cursor {
-            Style::default()
-                .fg(app.colors.resolve(Color::Cyan))
-                .add_modifier(Modifier::BOLD)
-        } else if is_selected {
-            Style::default().fg(app.colors.resolve(Color::Green))
-        } else {
-            Style::default().fg(app.colors.resolve(Color::White))
-        };
-        lines.push(Line::from(Span::styled(
-            format!("{marker} {check} {path}{suffix}"),
-            style,
-        )));
-    }
-
-    let paragraph = Paragraph::new(lines).scroll((app.dialog_scroll_offset as u16, 0));
-    frame.render_widget(paragraph, text_area);
-
-    if app.max_dialog_scroll > 0 {
-        render_vertical_scrollbar(
-            frame,
-            scrollbar_area,
-            app.dialog_scroll_offset,
-            app.max_dialog_scroll,
-        );
-    }
-}
-
-/// Render the diff preview, scrolled to `(v_scroll, h_scroll)` and clamped to
-/// its actual content size — writing the clamped values back to `app.mode` so
-/// repeatedly scrolling past the edge doesn't grow the stored offset unbounded.
-fn render_preview(
-    app: &mut AppState,
-    frame: &mut Frame,
-    area: Rect,
-    entry: Option<&crate::app::HunkPickerEntry>,
-    h_scroll: usize,
-    v_scroll: usize,
-) {
-    let white = app.colors.resolve(Color::White);
-    let mut lines = Vec::new();
-    if let Some(entry) = entry {
-        lines.push(Line::from(Span::styled(
-            format!("{}:", entry.file_path),
-            Style::default().fg(app.colors.resolve(Color::Yellow)),
-        )));
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!(
-                "@@ -{},{} +{},{} @@",
-                entry.hunk.old_start,
-                entry.hunk.old_lines,
-                entry.hunk.new_start,
-                entry.hunk.new_lines
-            ),
-            Style::default().fg(app.colors.resolve(Color::Cyan)),
-        )));
-        for diff_line in &entry.hunk.lines {
-            let (prefix, style) = match diff_line.kind {
-                DiffLineKind::Addition => {
-                    ("+", Style::default().fg(app.colors.resolve(Color::Green)))
-                }
-                DiffLineKind::Deletion => {
-                    ("-", Style::default().fg(app.colors.resolve(Color::Red)))
-                }
-                DiffLineKind::Context => (" ", Style::default().fg(white)),
-            };
-            let content = diff_line.content.trim_end_matches(['\n', '\r']);
-            lines.push(Line::from(Span::styled(
-                format!("{prefix}{content}"),
-                style,
-            )));
-        }
-    }
-
-    let [content_row, h_scrollbar_row] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
-    let [text_col, v_scrollbar_col] =
-        Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(content_row);
-
-    let max_line_width = lines.iter().map(Line::width).max().unwrap_or(0);
-    let max_h_scroll = max_line_width.saturating_sub(text_col.width as usize);
-    let max_v_scroll = lines.len().saturating_sub(text_col.height as usize);
-    let h_scroll = h_scroll.min(max_h_scroll);
-    let v_scroll = v_scroll.min(max_v_scroll);
     if let AppMode::SplitHunksSelect {
         preview_h_scroll,
         preview_v_scroll,
         ..
     } = &mut app.mode
     {
-        *preview_h_scroll = h_scroll;
-        *preview_v_scroll = v_scroll;
-    }
-
-    let paragraph = Paragraph::new(lines).scroll((v_scroll as u16, h_scroll as u16));
-    frame.render_widget(paragraph, text_col);
-
-    if max_v_scroll > 0 {
-        render_vertical_scrollbar(frame, v_scrollbar_col, v_scroll, max_v_scroll);
-    }
-    if max_h_scroll > 0 {
-        render_horizontal_scrollbar(frame, h_scrollbar_row, h_scroll, max_h_scroll);
+        *preview_h_scroll = h;
+        *preview_v_scroll = v;
     }
 }
 
-fn render_vertical_scrollbar(
-    frame: &mut Frame,
-    area: Rect,
-    scroll_offset: usize,
-    max_scroll: usize,
-) {
-    if area.height == 0 {
-        return;
+fn build_hunk_preview(
+    app: &AppState,
+    entry: Option<&crate::app::HunkPickerEntry>,
+) -> Vec<Line<'static>> {
+    let white = app.colors.resolve(Color::White);
+    let mut lines = Vec::new();
+    let Some(entry) = entry else {
+        return lines;
+    };
+    lines.push(Line::from(Span::styled(
+        format!("{}:", entry.file_path),
+        Style::default().fg(app.colors.resolve(Color::Yellow)),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "@@ -{},{} +{},{} @@",
+            entry.hunk.old_start, entry.hunk.old_lines, entry.hunk.new_start, entry.hunk.new_lines
+        ),
+        Style::default().fg(app.colors.resolve(Color::Cyan)),
+    )));
+    for diff_line in &entry.hunk.lines {
+        let (prefix, style) = match diff_line.kind {
+            DiffLineKind::Addition => ("+", Style::default().fg(app.colors.resolve(Color::Green))),
+            DiffLineKind::Deletion => ("-", Style::default().fg(app.colors.resolve(Color::Red))),
+            DiffLineKind::Context => (" ", Style::default().fg(white)),
+        };
+        let content = diff_line.content.trim_end_matches(['\n', '\r']);
+        lines.push(Line::from(Span::styled(
+            format!("{prefix}{content}"),
+            style,
+        )));
     }
-    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
-    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-        .begin_symbol(None)
-        .end_symbol(None)
-        .track_symbol(Some("│"));
-    frame.render_stateful_widget(scrollbar, area, &mut state);
-}
-
-fn render_horizontal_scrollbar(
-    frame: &mut Frame,
-    area: Rect,
-    scroll_offset: usize,
-    max_scroll: usize,
-) {
-    if area.width == 0 {
-        return;
-    }
-    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
-    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
-        .begin_symbol(None)
-        .end_symbol(None)
-        .track_symbol(Some("─"));
-    frame.render_stateful_widget(scrollbar, area, &mut state);
-}
-
-/// Two rows of key hints — the full set doesn't fit legibly on one line at
-/// typical terminal widths.
-fn render_instructions(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key_color = app.colors.resolve(Color::Cyan);
-    let rows: [&[(&str, &str)]; 2] = [
-        &[("↑/↓", "Move"), ("Space", "Toggle"), ("+/-", "Context")],
-        &[
-            ("←/→ Ctrl-↑/↓", "Scroll"),
-            ("Enter", "Split"),
-            ("Esc", "Cancel"),
-        ],
-    ];
-    let lines: Vec<Line> = rows
-        .iter()
-        .map(|hints| {
-            let mut spans = Vec::new();
-            for (i, &(key, desc)) in hints.iter().enumerate() {
-                spans.push(Span::styled(
-                    format!("{key} "),
-                    Style::default().fg(key_color),
-                ));
-                if i + 1 < hints.len() {
-                    spans.push(Span::raw(format!("{desc}   ")));
-                } else {
-                    spans.push(Span::raw(desc.to_string()));
-                }
-            }
-            Line::from(spans).alignment(ratatui::layout::Alignment::Center)
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(lines), area);
+    lines
 }

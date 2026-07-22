@@ -114,7 +114,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.scroll_fragmap_to_right();
             AppAction::Handled
         }
-        KeyCommand::NavFileNext | KeyCommand::NavFilePrev | KeyCommand::ToggleHunkSelect => {
+        KeyCommand::NavFileNext | KeyCommand::NavFilePrev | KeyCommand::TogglePickerItem => {
             AppAction::Handled
         }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {

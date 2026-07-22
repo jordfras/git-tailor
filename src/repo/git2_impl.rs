@@ -223,10 +223,6 @@ impl GitRepo for Git2Repo {
         reads::unstaged_diff_for_fragmap(self)
     }
 
-    fn list_commit_files(&self, commit_oid: &Oid) -> Result<Vec<String>> {
-        reads::list_commit_files(self, commit_oid)
-    }
-
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Split",
@@ -256,16 +252,16 @@ impl GitRepo for Git2Repo {
         )
     }
 
-    fn split_commit_out_file(
+    fn split_commit_out_files(
         &self,
         commit_oid: &Oid,
-        file_path: &str,
+        file_paths: &[String],
         head_oid: &Oid,
     ) -> Result<()> {
         self.record_unit_undo(
             "Split",
             head_oid,
-            split_op::split_commit_out_file(self, commit_oid, file_path, head_oid),
+            split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid),
         )
     }
 

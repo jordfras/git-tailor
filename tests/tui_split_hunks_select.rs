@@ -128,13 +128,13 @@ fn test_move_down_steps_cursor() {
 fn test_toggle_hunk_select_adds_then_removes() {
     let mut app = make_app_in_hunks_select(1, &[]);
 
-    views::split_hunks_select::handle_key(KeyCommand::ToggleHunkSelect, &mut app);
+    views::split_hunks_select::handle_key(KeyCommand::TogglePickerItem, &mut app);
     match &app.mode {
         AppMode::SplitHunksSelect { selected, .. } => assert!(selected.contains(&1)),
         other => panic!("Expected SplitHunksSelect, got {:?}", other),
     }
 
-    views::split_hunks_select::handle_key(KeyCommand::ToggleHunkSelect, &mut app);
+    views::split_hunks_select::handle_key(KeyCommand::TogglePickerItem, &mut app);
     match &app.mode {
         AppMode::SplitHunksSelect { selected, .. } => assert!(!selected.contains(&1)),
         other => panic!("Expected SplitHunksSelect, got {:?}", other),

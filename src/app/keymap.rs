@@ -34,7 +34,7 @@ pub enum KeyCommand {
     ScrollRight,
     NavFileNext,
     NavFilePrev,
-    ToggleHunkSelect,
+    TogglePickerItem,
     ToggleDetail,
     ShowHelp,
     OperationMenu,
@@ -177,12 +177,14 @@ impl AppMode {
                 KeyCode::Char('+') => KeyCommand::IncreaseContext,
                 KeyCode::Char('-') => KeyCommand::DecreaseContext,
                 // Space: open the operation picker in the commit list;
-                // toggle-select a hunk in the split-out-hunks picker; elsewhere
-                // (detail/pager view, other dialogs) it keeps the less-style
-                // page-down.
+                // toggle-select a row in the split-out-hunks/files pickers;
+                // elsewhere (detail/pager view, other dialogs) it keeps the
+                // less-style page-down.
                 KeyCode::Char(' ') => match self {
                     AppMode::CommitList => KeyCommand::OperationMenu,
-                    AppMode::SplitHunksSelect { .. } => KeyCommand::ToggleHunkSelect,
+                    AppMode::SplitHunksSelect { .. } | AppMode::SplitFilesSelect { .. } => {
+                        KeyCommand::TogglePickerItem
+                    }
                     _ => KeyCommand::PageDown,
                 },
                 KeyCode::Char('b') => KeyCommand::PageUp,
@@ -237,7 +239,7 @@ mod tests {
         };
         assert_eq!(
             mode.parse_key(press(KeyCode::Char(' '))),
-            KeyCommand::ToggleHunkSelect
+            KeyCommand::TogglePickerItem
         );
     }
 
