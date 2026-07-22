@@ -80,6 +80,13 @@ pub enum AppAction {
     },
     /// Execute a confirmed drop.
     ExecuteDrop { commit_oid: Oid, head_oid: Oid },
+    /// Edit a commit in a shell: check it out, suspend the TUI, spawn `$SHELL`,
+    /// then splice the resulting chain back in. `commit_summary` is shown in the
+    /// pre-suspend instruction banner.
+    ExecuteEdit {
+        commit_oid: Oid,
+        commit_summary: String,
+    },
     /// Continue a rebase after the user resolved merge conflicts.
     RebaseContinue(ConflictState),
     /// Abort a rebase that hit conflicts.

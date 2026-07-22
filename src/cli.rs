@@ -23,16 +23,32 @@ use clap_complete::engine::ArgValueCandidates;
 use git_tailor::views::palette::{Colors, Scheme};
 use git_tailor::views::theme::Theme;
 
+/// `--help` tip. Platform-specific because the "Edit" operation opens your
+/// shell: `$SHELL` on Unix (default `/bin/sh`), `%COMSPEC%` on Windows
+/// (default `cmd.exe`).
+#[cfg(not(windows))]
+const AFTER_HELP: &str = "Tip: git-tailor uses your Git editor to edit commit messages, your \
+                          Git merge tool to resolve conflicts, and your shell for the \"Edit\" \
+                          operation. It is wise to configure them, e.g.:\n  \
+                          git config --global core.editor \"vim\"\n  \
+                          git config --global merge.tool \"kdiff3\"\n  \
+                          export SHELL=/bin/bash   # \"Edit\" opens $SHELL (default /bin/sh)";
+
+#[cfg(windows)]
+const AFTER_HELP: &str = "Tip: git-tailor uses your Git editor to edit commit messages, your \
+                          Git merge tool to resolve conflicts, and your shell for the \"Edit\" \
+                          operation. It is wise to configure them, e.g.:\n  \
+                          git config --global core.editor \"notepad\"\n  \
+                          git config --global merge.tool \"kdiff3\"\n  \
+                          set COMSPEC=powershell.exe   # \"Edit\" opens %COMSPEC% (default cmd.exe)";
+
 /// An interactive terminal tool for tidying up Git commits on a branch.
 #[derive(Parser)]
 #[command(
     //name = "gt",
     version,
     help_template = "{name} {version}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}",
-    after_help = "Tip: git-tailor uses your Git editor to edit commit messages and your Git \
-                  merge tool to resolve conflicts. It is wise to configure both, e.g.:\n  \
-                  git config --global core.editor \"vim\"\n  \
-                  git config --global merge.tool \"kdiff3\""
+    after_help = AFTER_HELP,
 )]
 pub struct Cli {
     /// Optional maintenance subcommand (e.g. `completions`).

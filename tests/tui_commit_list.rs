@@ -336,6 +336,37 @@ fn stage_all_is_gated_to_the_unstaged_row() {
 }
 
 #[test]
+fn edit_on_a_real_commit_produces_execute_edit() {
+    let mut app = AppState::new();
+    app.commits = vec![common::create_test_commit("abc123def456", "real commit")];
+    app.selection_index = 0;
+
+    match views::commit_list::handle_key(KeyCommand::Edit, &mut app) {
+        AppAction::ExecuteEdit {
+            commit_oid,
+            commit_summary,
+        } => {
+            assert_eq!(commit_oid.long(), "abc123def456");
+            assert_eq!(commit_summary, "real commit");
+        }
+        other => panic!("expected ExecuteEdit, got {other:?}"),
+    }
+}
+
+#[test]
+fn edit_is_refused_on_a_synthetic_row() {
+    let mut app = AppState::new();
+    app.commits = vec![synthetic_row(VirtualOid::Staged, "(staged changes)")];
+    app.selection_index = 0;
+
+    assert!(matches!(
+        views::commit_list::handle_key(KeyCommand::Edit, &mut app),
+        AppAction::Handled
+    ));
+    assert!(app.status_is_error);
+}
+
+#[test]
 fn unstage_all_is_gated_to_the_staged_row() {
     let mut app = AppState::new();
     app.commits = vec![

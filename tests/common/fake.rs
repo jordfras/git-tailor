@@ -181,6 +181,15 @@ impl GitRepo for StubRepo {
     ) -> Result<RebaseOutcome> {
         unimplemented!()
     }
+    fn begin_edit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
+        unimplemented!()
+    }
+    fn finish_edit(&self, _commit_oid: &Oid) -> Result<git_tailor::repo::EditOutcome> {
+        unimplemented!()
+    }
+    fn abort_edit(&self) -> Result<()> {
+        unimplemented!()
+    }
     fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
         unimplemented!()
     }
@@ -234,6 +243,9 @@ impl GitRepo for StubRepo {
     }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
+    }
+    fn is_worktree_dirty(&self) -> Result<bool> {
+        Ok(false)
     }
     fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
         unimplemented!()

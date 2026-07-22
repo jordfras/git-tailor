@@ -411,6 +411,11 @@ pub(super) fn set_in_progress(repo: &Git2Repo, state: &ConflictState) -> Result<
     Ok(())
 }
 
+/// Read the in-progress operation record, if any.
+pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<ConflictState>> {
+    Ok(load_doc(repo)?.in_progress)
+}
+
 /// Clear the in-progress record after a clean completion or abort, keeping any
 /// undo/redo stack intact, and drop the in-progress pin ref.
 pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {

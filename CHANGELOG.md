@@ -48,6 +48,15 @@ The format is based on
   the rest behind under the original message. Choosing it from the split
   strategy menu opens a picker dialog listing the commit's hunks with a diff
   preview of the highlighted one, so you can see the code before selecting.
+- "Edit" operation (`E`, or "Edit" in the operation picker), like
+  interactive-rebase's `edit`: checks out the selected commit and drops you into
+  a shell to change it by hand — fix a few lines and `git commit --amend`, or
+  `git reset HEAD~` and re-commit in pieces to split it into several commits.
+  Run `exit` when done (exit without changing the commit to cancel); git-tailor
+  then replays the following commits onto your result. If you exit with
+  uncommitted changes it re-opens the shell so nothing is ever silently
+  discarded. The edit is undoable, and an interrupted edit is recovered on the
+  next run. Requires a clean working tree unless `--autostash` is set.
 
 ### Changed
 

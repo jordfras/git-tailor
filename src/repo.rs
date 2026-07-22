@@ -136,6 +136,34 @@ pub struct ConflictState {
     /// Set only for an in-progress autofixup batch. `None` for every other
     /// operation.
     pub autofixup_context: Option<AutofixupContext>,
+    /// Set only while an "Edit" operation is in progress (the branch has been
+    /// rewound to the edited commit and checked out for a shell session).
+    /// `None` for every other operation.
+    pub edit_context: Option<EditContext>,
+}
+
+/// Extra state carried while an "Edit" (interactive shell edit of a commit) is
+/// in progress, so a crash can restore the branch even if the user left HEAD
+/// detached or on another branch from inside the shell.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditContext {
+    /// Full name of the branch ref being edited (e.g. `refs/heads/main`), so
+    /// recovery/abort can restore it by name regardless of where HEAD points.
+    pub branch_refname: String,
+}
+
+/// Result of finishing an in-progress "Edit".
+#[derive(Debug)]
+pub enum EditOutcome {
+    /// The user's authored commit chain was spliced in and descendants replayed.
+    Complete,
+    /// Replaying the original descendants onto the edited chain conflicted;
+    /// resolve via the normal conflict flow (`RebaseConflict`).
+    Conflict(Box<ConflictState>),
+    /// The user made no change (exited the shell with the commit untouched);
+    /// the branch was restored and nothing was rewritten.
+    Cancelled,
 }
 
 /// Extra state carried through an in-progress autofixup batch's conflict so
@@ -433,6 +461,34 @@ pub trait GitRepo {
         head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
+    /// Begin editing `commit_oid` (interactive-rebase's `edit`): rewind the
+    /// current branch to that commit and check it out, so the caller can drop
+    /// the user into a shell to rewrite it by hand (amend, or `git reset` +
+    /// re-commit to split it into several commits). The branch's descendants
+    /// are held via the write-ahead journal until [`Self::finish_edit`].
+    ///
+    /// Fails (leaving the branch untouched) if the working tree is dirty, or the
+    /// commit is a merge or the root commit.
+    fn begin_edit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
+
+    /// Finish an edit begun with [`Self::begin_edit`]: take the user-authored
+    /// commit chain now on the branch, validate it, replay the original
+    /// descendants onto it, and advance the branch. `commit_oid` is the commit
+    /// that was edited; the original branch tip and branch name are read from
+    /// the in-progress journal.
+    ///
+    /// Returns `Cancelled` when nothing changed, `Conflict` when replaying
+    /// descendants conflicts, or `Complete` on success. On an unexpected
+    /// repository state (uncommitted leftovers, HEAD moved off the branch, a
+    /// merge commit, or commits that don't build on the edited commit's parent)
+    /// it restores the branch to its original tip and returns an error.
+    fn finish_edit(&self, commit_oid: &Oid) -> Result<EditOutcome>;
+
+    /// Abort (or crash-recover) an in-progress edit: restore the branch to its
+    /// original tip and check it out, using the branch name and original tip
+    /// recorded in the in-progress journal. A no-op when no edit is in progress.
+    fn abort_edit(&self) -> Result<()>;
+
     /// Resume a conflicted rebase after the user has resolved conflicts.
     ///
     /// Reads the current index (which the user resolved), creates a commit
@@ -540,6 +596,11 @@ pub trait GitRepo {
     ///
     /// Bare repositories have no working directory and return `None`.
     fn workdir(&self) -> Option<std::path::PathBuf>;
+
+    /// Whether the working tree or index differs from HEAD (submodule pointer
+    /// updates ignored). Used by the Edit flow to re-prompt the shell when the
+    /// user left uncommitted changes, so they are never silently discarded.
+    fn is_worktree_dirty(&self) -> Result<bool>;
 
     /// Read the raw blob content of a specific index stage for a conflicted path.
     ///

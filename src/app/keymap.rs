@@ -45,6 +45,7 @@ pub enum KeyCommand {
     Reword,
     Drop,
     Move,
+    Edit,
     StageAll,
     UnstageAll,
     CommitStaged,
@@ -160,6 +161,7 @@ impl AppMode {
                 },
                 KeyCode::Char('r') => KeyCommand::Reword,
                 KeyCode::Char('d') => KeyCommand::Drop,
+                KeyCode::Char('E') => KeyCommand::Edit,
                 KeyCode::Char('m') => match self {
                     AppMode::RebaseConflict(_) | AppMode::StashConflict(_) => KeyCommand::Mergetool,
                     _ => KeyCommand::Move,
@@ -207,6 +209,19 @@ mod tests {
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn uppercase_e_maps_to_edit() {
+        // `E` is Edit; lowercase `e` stays the conflict-mode editor key.
+        assert_eq!(
+            AppMode::CommitList.parse_key(press(KeyCode::Char('E'))),
+            KeyCommand::Edit
+        );
+        assert_eq!(
+            AppMode::CommitList.parse_key(press(KeyCode::Char('e'))),
+            KeyCommand::OpenEditor
+        );
     }
 
     #[test]
