@@ -84,6 +84,8 @@ fn make_app_in_hunks_select_with_context(
         hunk_index,
         selected: selected.iter().copied().collect(),
         context_lines,
+        preview_h_scroll: 0,
+        preview_v_scroll: 0,
     };
     app
 }
@@ -238,4 +240,145 @@ fn test_cancel_returns_to_commit_list() {
 
     assert!(matches!(result, AppAction::Handled));
     assert_eq!(app.mode, AppMode::CommitList);
+}
+
+fn preview_scroll(app: &AppState) -> (usize, usize) {
+    match &app.mode {
+        AppMode::SplitHunksSelect {
+            preview_h_scroll,
+            preview_v_scroll,
+            ..
+        } => (*preview_h_scroll, *preview_v_scroll),
+        other => panic!("Expected SplitHunksSelect, got {:?}", other),
+    }
+}
+
+/// `←`/`→` scroll the diff preview horizontally — plain arrows are already
+/// taken by the hunk list cursor, so this (like the commit detail view) uses
+/// unmodified Left/Right rather than a modifier key.
+#[test]
+fn test_scroll_left_right_adjust_preview_h_scroll() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollRight, &mut app);
+    views::split_hunks_select::handle_key(KeyCommand::ScrollRight, &mut app);
+    assert_eq!(preview_scroll(&app), (2, 0));
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollLeft, &mut app);
+    assert_eq!(preview_scroll(&app), (1, 0));
+}
+
+#[test]
+fn test_scroll_left_floors_at_zero() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollLeft, &mut app);
+
+    assert_eq!(preview_scroll(&app), (0, 0));
+}
+
+/// `Ctrl-↑`/`Ctrl-↓` scroll the diff preview vertically — plain arrows move
+/// the hunk list cursor, so this reuses the same keys the commit list already
+/// uses for "scroll without moving the primary selection".
+#[test]
+fn test_ctrl_up_down_adjust_preview_v_scroll() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollListDown, &mut app);
+    views::split_hunks_select::handle_key(KeyCommand::ScrollListDown, &mut app);
+    assert_eq!(preview_scroll(&app), (0, 2));
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollListUp, &mut app);
+    assert_eq!(preview_scroll(&app), (0, 1));
+}
+
+#[test]
+fn test_ctrl_up_floors_at_zero() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+
+    views::split_hunks_select::handle_key(KeyCommand::ScrollListUp, &mut app);
+
+    assert_eq!(preview_scroll(&app), (0, 0));
+}
+
+/// Moving to a different hunk resets both preview scroll offsets — each
+/// hunk's content is unrelated to the last, so a stale scroll position would
+/// just look like the pane is confusingly clipped for no reason.
+#[test]
+fn test_moving_hunk_cursor_resets_preview_scroll() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+    views::split_hunks_select::handle_key(KeyCommand::ScrollRight, &mut app);
+    views::split_hunks_select::handle_key(KeyCommand::ScrollListDown, &mut app);
+    assert_eq!(preview_scroll(&app), (1, 1));
+
+    views::split_hunks_select::handle_key(KeyCommand::MoveDown, &mut app);
+
+    assert_eq!(preview_scroll(&app), (0, 0));
+}
+
+/// Rendering clamps an out-of-range scroll offset down to the content's
+/// actual size and writes the clamped value back, so repeatedly scrolling
+/// past the edge doesn't let the stored offset grow unbounded.
+#[test]
+fn test_render_clamps_preview_scroll_to_content_size() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_hunks_select(0, &[]);
+    if let AppMode::SplitHunksSelect {
+        preview_h_scroll,
+        preview_v_scroll,
+        ..
+    } = &mut app.mode
+    {
+        *preview_h_scroll = 9999;
+        *preview_v_scroll = 9999;
+    }
+
+    harness.render(|frame| {
+        views::split_hunks_select::render(&mut app, frame);
+    });
+
+    let (h, v) = preview_scroll(&app);
+    assert!(h < 9999, "h_scroll should be clamped, got {h}");
+    assert!(v < 9999, "v_scroll should be clamped, got {v}");
+}
+
+/// Snapshot: many hunks (more than fit in the list pane) show a vertical
+/// scrollbar, and a hunk with a long line shows a horizontal scrollbar in the
+/// preview pane.
+#[test]
+fn test_split_hunks_select_scrollbars_visible() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_hunks_select(0, &[]);
+
+    let mut hunks: Vec<HunkPickerEntry> = (0..30)
+        .map(|i| HunkPickerEntry {
+            delta_idx: 0,
+            hunk_idx: i,
+            file_path: format!("file{i}.txt"),
+            hunk: hunk((i as u32) * 20 + 1, "short", "short"),
+        })
+        .collect();
+    hunks[0].hunk = Hunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        lines: vec![
+            DiffLine {
+                kind: DiffLineKind::Deletion,
+                content: format!("{}\n", "x".repeat(200)),
+            },
+            DiffLine {
+                kind: DiffLineKind::Addition,
+                content: format!("{}\n", "y".repeat(200)),
+            },
+        ],
+    };
+    if let AppMode::SplitHunksSelect { hunks: h, .. } = &mut app.mode {
+        *h = hunks;
+    }
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::split_hunks_select::render(&mut app, frame);
+    }));
 }

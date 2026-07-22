@@ -26,7 +26,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
 /// Handle an action while in SplitHunksSelect mode.
@@ -45,8 +45,16 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let mut cursor = hunk_index;
     match list_nav::handle_list_navigation(action, &mut cursor, hunk_count, hunk_count, false) {
         ListNav::Moved => {
-            if let AppMode::SplitHunksSelect { hunk_index, .. } = &mut app.mode {
+            if let AppMode::SplitHunksSelect {
+                hunk_index,
+                preview_h_scroll,
+                preview_v_scroll,
+                ..
+            } = &mut app.mode
+            {
                 *hunk_index = cursor;
+                *preview_h_scroll = 0;
+                *preview_v_scroll = 0;
             }
             scroll_to_hunk(app, cursor);
             AppAction::Handled
@@ -97,6 +105,47 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 }
                 AppAction::Handled
             }
+            // Horizontal scroll of the diff preview pane. Plain arrows already
+            // move the hunk list cursor, so this reuses Left/Right (the same
+            // keys the commit detail view uses for the same purpose); vertical
+            // scroll below uses Ctrl-Up/Down instead for the same reason.
+            // Both are clamped to content size at render time.
+            KeyCommand::ScrollLeft => {
+                if let AppMode::SplitHunksSelect {
+                    preview_h_scroll, ..
+                } = &mut app.mode
+                {
+                    *preview_h_scroll = preview_h_scroll.saturating_sub(1);
+                }
+                AppAction::Handled
+            }
+            KeyCommand::ScrollRight => {
+                if let AppMode::SplitHunksSelect {
+                    preview_h_scroll, ..
+                } = &mut app.mode
+                {
+                    *preview_h_scroll = preview_h_scroll.saturating_add(1);
+                }
+                AppAction::Handled
+            }
+            KeyCommand::ScrollListUp => {
+                if let AppMode::SplitHunksSelect {
+                    preview_v_scroll, ..
+                } = &mut app.mode
+                {
+                    *preview_v_scroll = preview_v_scroll.saturating_sub(1);
+                }
+                AppAction::Handled
+            }
+            KeyCommand::ScrollListDown => {
+                if let AppMode::SplitHunksSelect {
+                    preview_v_scroll, ..
+                } = &mut app.mode
+                {
+                    *preview_v_scroll = preview_v_scroll.saturating_add(1);
+                }
+                AppAction::Handled
+            }
             // Re-fetch the commit's diff at the new context level and rebuild
             // the hunk list from scratch — hunks merging or splitting apart
             // means row indices (and any selection) can't carry over safely.
@@ -131,16 +180,26 @@ fn scroll_to_hunk(app: &mut AppState, index: usize) {
 
 /// Render the hunk picker as a wide, centered two-pane overlay.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
-    let (hunks, hunk_index, selected, context_lines) = match &app.mode {
-        AppMode::SplitHunksSelect {
-            hunks,
-            hunk_index,
-            selected,
-            context_lines,
-            ..
-        } => (hunks.clone(), *hunk_index, selected.clone(), *context_lines),
-        _ => return,
-    };
+    let (hunks, hunk_index, selected, context_lines, preview_h_scroll, preview_v_scroll) =
+        match &app.mode {
+            AppMode::SplitHunksSelect {
+                hunks,
+                hunk_index,
+                selected,
+                context_lines,
+                preview_h_scroll,
+                preview_v_scroll,
+                ..
+            } => (
+                hunks.clone(),
+                *hunk_index,
+                selected.clone(),
+                *context_lines,
+                *preview_h_scroll,
+                *preview_v_scroll,
+            ),
+            _ => return,
+        };
 
     let area = frame.area();
     let border_color = app.colors.resolve(Color::Cyan);
@@ -164,8 +223,10 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
 
+    // Two rows: the hint set is too wide to fit legibly on one line at
+    // typical terminal widths.
     let [content_area, instructions_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+        Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
 
     let list_width = (content_area.width / 3)
         .clamp(24, 42)
@@ -179,7 +240,14 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
     render_separator(app, frame, sep_area);
     render_hunk_list(app, frame, list_area, &hunks, hunk_index, &selected);
-    render_preview(app, frame, preview_area, hunks.get(hunk_index));
+    render_preview(
+        app,
+        frame,
+        preview_area,
+        hunks.get(hunk_index),
+        preview_h_scroll,
+        preview_v_scroll,
+    );
     render_instructions(app, frame, instructions_area);
 }
 
@@ -199,11 +267,14 @@ fn render_hunk_list(
     hunk_index: usize,
     selected: &std::collections::HashSet<usize>,
 ) {
-    app.dialog_visible_height = area.height as usize;
-    app.max_dialog_scroll = hunks.len().saturating_sub(area.height as usize);
+    let [text_area, scrollbar_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+
+    app.dialog_visible_height = text_area.height as usize;
+    app.max_dialog_scroll = hunks.len().saturating_sub(text_area.height as usize);
     app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
 
-    let inner_width = area.width as usize;
+    let inner_width = text_area.width as usize;
     let mut lines = Vec::with_capacity(hunks.len());
     for (i, entry) in hunks.iter().enumerate() {
         let cursor = i == hunk_index;
@@ -231,14 +302,28 @@ fn render_hunk_list(
     }
 
     let paragraph = Paragraph::new(lines).scroll((app.dialog_scroll_offset as u16, 0));
-    frame.render_widget(paragraph, area);
+    frame.render_widget(paragraph, text_area);
+
+    if app.max_dialog_scroll > 0 {
+        render_vertical_scrollbar(
+            frame,
+            scrollbar_area,
+            app.dialog_scroll_offset,
+            app.max_dialog_scroll,
+        );
+    }
 }
 
+/// Render the diff preview, scrolled to `(v_scroll, h_scroll)` and clamped to
+/// its actual content size — writing the clamped values back to `app.mode` so
+/// repeatedly scrolling past the edge doesn't grow the stored offset unbounded.
 fn render_preview(
-    app: &AppState,
+    app: &mut AppState,
     frame: &mut Frame,
     area: Rect,
     entry: Option<&crate::app::HunkPickerEntry>,
+    h_scroll: usize,
+    v_scroll: usize,
 ) {
     let white = app.colors.resolve(Color::White);
     let mut lines = Vec::new();
@@ -275,30 +360,101 @@ fn render_preview(
             )));
         }
     }
-    frame.render_widget(Paragraph::new(lines), area);
+
+    let [content_row, h_scrollbar_row] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+    let [text_col, v_scrollbar_col] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(content_row);
+
+    let max_line_width = lines.iter().map(Line::width).max().unwrap_or(0);
+    let max_h_scroll = max_line_width.saturating_sub(text_col.width as usize);
+    let max_v_scroll = lines.len().saturating_sub(text_col.height as usize);
+    let h_scroll = h_scroll.min(max_h_scroll);
+    let v_scroll = v_scroll.min(max_v_scroll);
+    if let AppMode::SplitHunksSelect {
+        preview_h_scroll,
+        preview_v_scroll,
+        ..
+    } = &mut app.mode
+    {
+        *preview_h_scroll = h_scroll;
+        *preview_v_scroll = v_scroll;
+    }
+
+    let paragraph = Paragraph::new(lines).scroll((v_scroll as u16, h_scroll as u16));
+    frame.render_widget(paragraph, text_col);
+
+    if max_v_scroll > 0 {
+        render_vertical_scrollbar(frame, v_scrollbar_col, v_scroll, max_v_scroll);
+    }
+    if max_h_scroll > 0 {
+        render_horizontal_scrollbar(frame, h_scrollbar_row, h_scroll, max_h_scroll);
+    }
 }
 
+fn render_vertical_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll_offset: usize,
+    max_scroll: usize,
+) {
+    if area.height == 0 {
+        return;
+    }
+    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
+}
+
+fn render_horizontal_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll_offset: usize,
+    max_scroll: usize,
+) {
+    if area.width == 0 {
+        return;
+    }
+    let mut state = ScrollbarState::new(max_scroll).position(scroll_offset);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("─"));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
+}
+
+/// Two rows of key hints — the full set doesn't fit legibly on one line at
+/// typical terminal widths.
 fn render_instructions(app: &AppState, frame: &mut Frame, area: Rect) {
     let key_color = app.colors.resolve(Color::Cyan);
-    let hints: [(&str, &str); 5] = [
-        ("↑/↓", "Move"),
-        ("Space", "Toggle"),
-        ("+/-", "Context"),
-        ("Enter", "Split"),
-        ("Esc", "Cancel"),
+    let rows: [&[(&str, &str)]; 2] = [
+        &[("↑/↓", "Move"), ("Space", "Toggle"), ("+/-", "Context")],
+        &[
+            ("←/→ Ctrl-↑/↓", "Scroll"),
+            ("Enter", "Split"),
+            ("Esc", "Cancel"),
+        ],
     ];
-    let mut spans = Vec::new();
-    for (i, &(key, desc)) in hints.iter().enumerate() {
-        spans.push(Span::styled(
-            format!("{key} "),
-            Style::default().fg(key_color),
-        ));
-        if i + 1 < hints.len() {
-            spans.push(Span::raw(format!("{desc}   ")));
-        } else {
-            spans.push(Span::raw(desc.to_string()));
-        }
-    }
-    let line = Line::from(spans).alignment(ratatui::layout::Alignment::Center);
-    frame.render_widget(Paragraph::new(line), area);
+    let lines: Vec<Line> = rows
+        .iter()
+        .map(|hints| {
+            let mut spans = Vec::new();
+            for (i, &(key, desc)) in hints.iter().enumerate() {
+                spans.push(Span::styled(
+                    format!("{key} "),
+                    Style::default().fg(key_color),
+                ));
+                if i + 1 < hints.len() {
+                    spans.push(Span::raw(format!("{desc}   ")));
+                } else {
+                    spans.push(Span::raw(desc.to_string()));
+                }
+            }
+            Line::from(spans).alignment(ratatui::layout::Alignment::Center)
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
 }

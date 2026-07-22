@@ -258,6 +258,15 @@ pub enum AppMode {
         /// `hunks` from scratch and resets the selection (indices may no
         /// longer mean the same thing once hunks merge or split apart).
         context_lines: u32,
+        /// Horizontal scroll offset for the diff preview pane, reset whenever
+        /// the highlighted hunk changes (each hunk's content is unrelated to
+        /// the last, so starting left-aligned avoids a confusingly clipped
+        /// view carried over from wherever the previous hunk was scrolled to).
+        preview_h_scroll: usize,
+        /// Vertical scroll offset for the diff preview pane (`Ctrl-↑`/`Ctrl-↓`
+        /// — plain arrows already move the hunk list cursor). Reset alongside
+        /// `preview_h_scroll` when the highlighted hunk changes.
+        preview_v_scroll: usize,
     },
     /// Confirmation dialog for large splits (> SPLIT_CONFIRM_THRESHOLD commits).
     SplitConfirm(PendingSplit),

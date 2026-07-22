@@ -555,6 +555,8 @@ impl AppState {
             hunk_index: 0,
             selected: std::collections::HashSet::new(),
             context_lines,
+            preview_h_scroll: 0,
+            preview_v_scroll: 0,
         });
     }
 

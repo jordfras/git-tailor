@@ -232,6 +232,8 @@ mod tests {
             hunk_index: 0,
             selected: std::collections::HashSet::new(),
             context_lines: 3,
+            preview_h_scroll: 0,
+            preview_v_scroll: 0,
         };
         assert_eq!(
             mode.parse_key(press(KeyCode::Char(' '))),
