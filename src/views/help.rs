@@ -53,6 +53,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   r              ", "Reword commit message")
         .key_binding("   d              ", "Drop commit")
         .key_binding("   m              ", "Move commit (pick new position)")
+        .key_binding("   E              ", "Edit commit in a shell")
         .key_binding("   F              ", "Autofixup (fixup!/squash! commits)")
         .key_binding("   a              ", "Stage all changes")
         .key_binding("   A              ", "Unstage all changes")

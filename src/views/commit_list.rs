@@ -160,6 +160,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 current_message: commit.message.clone(),
             }
         }
+        KeyCommand::Edit => {
+            let Some(commit) = app.selected_real_commit("edit") else {
+                return AppAction::Handled;
+            };
+            AppAction::ExecuteEdit {
+                commit_oid: commit.oid.expect_real_oid(),
+                commit_summary: commit.summary.clone(),
+            }
+        }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => AppAction::Quit,
         KeyCommand::Move => {

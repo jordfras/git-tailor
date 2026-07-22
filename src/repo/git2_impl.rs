@@ -38,6 +38,7 @@ mod cherry_pick;
 mod commit_staged_op;
 mod conflict;
 mod drop_op;
+mod edit_op;
 mod hunks;
 mod journal;
 mod move_op;
@@ -316,6 +317,27 @@ impl GitRepo for Git2Repo {
         )
     }
 
+    fn begin_edit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        edit_op::begin_edit(self, commit_oid, head_oid)
+    }
+
+    fn finish_edit(&self, commit_oid: &Oid) -> Result<super::EditOutcome> {
+        // Capture the undo base (the original branch tip) before `finish_edit`
+        // clears the in-progress record on completion.
+        let original = journal::in_progress(self)?.map(|s| s.original_branch_oid);
+        let outcome = edit_op::finish_edit(self, commit_oid)?;
+        if matches!(outcome, super::EditOutcome::Complete)
+            && let Some(original) = original
+        {
+            self.record_undo_if_changed("Edit", &original)?;
+        }
+        Ok(outcome)
+    }
+
+    fn abort_edit(&self) -> Result<()> {
+        edit_op::abort_edit(self)
+    }
+
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
         if state.autofixup_context.is_some() {
             return self.journaled(
@@ -405,6 +427,12 @@ impl GitRepo for Git2Repo {
 
     fn workdir(&self) -> Option<std::path::PathBuf> {
         reads::workdir(self)
+    }
+
+    fn is_worktree_dirty(&self) -> Result<bool> {
+        // Calls the inherent `Git2Repo::is_worktree_dirty` (inherent methods
+        // take resolution priority over trait methods), not itself.
+        Git2Repo::is_worktree_dirty(self)
     }
 
     fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {

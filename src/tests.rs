@@ -111,6 +111,15 @@ impl GitRepo for MockRepo {
             Err(anyhow::anyhow!("move failed"))
         }
     }
+    fn begin_edit(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    fn finish_edit(&self, _: &Oid) -> anyhow::Result<git_tailor::repo::EditOutcome> {
+        unimplemented!()
+    }
+    fn abort_edit(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     fn rebase_abort(&self, _: &ConflictState) -> anyhow::Result<()> {
         if self.abort_ok {
             Ok(())
@@ -252,6 +261,9 @@ impl GitRepo for MockRepo {
     }
     fn workdir(&self) -> Option<std::path::PathBuf> {
         unimplemented!()
+    }
+    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
+        Ok(false)
     }
     fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
         unimplemented!()

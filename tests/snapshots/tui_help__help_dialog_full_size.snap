@@ -1,6 +1,5 @@
 ---
 source: tests/tui_help.rs
-assertion_line: 48
 expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::help::render(&AppMode::CommitList, &mut app, frame);\n})"
 ---
 Buffer {
@@ -17,7 +16,8 @@ Buffer {
         "            │   r              Reword commit message               █            ",
         "            │   d              Drop commit                         █            ",
         "            │   m              Move commit (pick new position)     █            ",
-        "            │   F              Autofixup (fixup!/squash! commits)  █            ",
+        "            │   E              Edit commit in a shell              █            ",
+        "            │   F              Autofixup (fixup!/squash! commits)  │            ",
         "            │   a              Stage all changes                   │            ",
         "            │   A              Unstage all changes                 │            ",
         "            │   c              Commit staged changes               │            ",
@@ -27,7 +27,6 @@ Buffer {
         "            │ Views                                                │            ",
         "            │   Enter, i       Open commit detail view             │            ",
         "            │   h              Show this help dialog               │            ",
-        "            │   R, F5          Refresh commit list from HEAD       │            ",
         "            └──────────────────────────────────────────────────────┘            ",
         " 111111111111 2/2                                            Press 'h' for help ",
     ],
@@ -100,16 +99,16 @@ Buffer {
         x: 67, y: 16, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 68, y: 16, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 12, y: 17, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 13, y: 17, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 31, y: 17, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 67, y: 17, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 68, y: 17, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 12, y: 18, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 13, y: 18, fg: Yellow, bg: Black, underline: Reset, modifier: BOLD,
-        x: 19, y: 18, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 13, y: 18, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 67, y: 18, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 68, y: 18, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 12, y: 19, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 31, y: 19, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 13, y: 19, fg: Yellow, bg: Black, underline: Reset, modifier: BOLD,
+        x: 19, y: 19, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 67, y: 19, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
         x: 68, y: 19, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 12, y: 20, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,

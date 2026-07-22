@@ -77,7 +77,7 @@ Guidelines:
   and TUI `handle_key`/snapshot tests in `tests/tui_split_hunks_select.rs`.
 
 ## Interactivity — Edit Commit
-- [ ] T228 P2 feat - Add an "Edit" operation (interactive-rebase's `edit`
+- [X] T228 P2 feat - Add an "Edit" operation (interactive-rebase's `edit`
   verb): pause on the selected commit with its tree checked out — as if
   `git rebase -i` had stopped there — and drop the user into a shell to
   freely edit files, `git add`, and `git commit` (including splitting into
