@@ -29,7 +29,7 @@ use git_tailor::repo::{
 };
 use git_tailor::{
     CommitDiff, CommitInfo, Oid,
-    app::{self, AppAction, AppMode, AppState, SplitStrategy, SquashMode},
+    app::{self, AppAction, AppMode, AppState, HunkPickerEntry, SplitStrategy, SquashMode},
     editor, mergetool, views,
 };
 
@@ -236,6 +236,9 @@ fn main() -> Result<()> {
             AppMode::SplitFileSelect { .. } => {
                 views::split_file_select::handle_key(action, &mut app)
             }
+            AppMode::SplitHunksSelect { .. } => {
+                views::split_hunks_select::handle_key(action, &mut app)
+            }
             AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
             AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
             AppMode::AutofixupConfirm(_) => views::autofixup::handle_confirm_key(action, &mut app),
@@ -402,6 +405,19 @@ fn dispatch_action(
             commit_oid,
             file_path,
         } => return handle_execute_split_out_file(git_repo, app, commit_oid, file_path),
+        AppAction::PrepareSplitOutHunks {
+            commit_oid,
+            context_lines,
+        } => {
+            return handle_prepare_split_out_hunks(git_repo, app, commit_oid, context_lines);
+        }
+        AppAction::ExecuteSplitOutHunks {
+            commit_oid,
+            hunks,
+            context_lines,
+        } => {
+            return handle_execute_split_out_hunks(git_repo, app, commit_oid, hunks, context_lines);
+        }
         AppAction::PrepareDropConfirm {
             commit_oid,
             commit_summary,
@@ -721,6 +737,9 @@ fn handle_prepare_split(
         }
         // "Split out file" is dispatched to its own flow before reaching here.
         SplitStrategy::OutFile => unreachable!("OutFile uses PrepareSplitOutFile"),
+        // "Split out hunk(s)" is dispatched straight into the commit detail
+        // view from the picker, before reaching here.
+        SplitStrategy::OutHunks => unreachable!("OutHunks is handled directly by split_select"),
     };
     match count_result {
         Err(e) => app.set_error_message(e.to_string()),
@@ -755,6 +774,51 @@ fn handle_prepare_split_out_file(
     Ok(LoopAction::Proceed)
 }
 
+/// Load the commit's diff at `context_lines` and flatten it into one
+/// [`HunkPickerEntry`] per hunk, in file/hunk order — `delta_idx`/`hunk_idx`
+/// are that position, matching what the backend expects when the diff is
+/// rebuilt at the same context level. Also used to refresh the picker when
+/// the user adjusts context with `+`/`-` while it's open.
+fn handle_prepare_split_out_hunks(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    commit_oid: Oid,
+    context_lines: u32,
+) -> Result<LoopAction> {
+    match git_repo.commit_diff(&commit_oid, context_lines) {
+        Err(e) => app.set_error_message(e.to_string()),
+        Ok(diff) => {
+            let hunks: Vec<HunkPickerEntry> = diff
+                .files
+                .iter()
+                .enumerate()
+                .flat_map(|(delta_idx, file)| {
+                    let file_path = file
+                        .new_path
+                        .clone()
+                        .or_else(|| file.old_path.clone())
+                        .unwrap_or_default();
+                    file.hunks
+                        .iter()
+                        .enumerate()
+                        .map(move |(hunk_idx, hunk)| HunkPickerEntry {
+                            delta_idx,
+                            hunk_idx,
+                            file_path: file_path.clone(),
+                            hunk: hunk.clone(),
+                        })
+                })
+                .collect();
+            if hunks.len() < 2 {
+                app.set_error_message("Commit has fewer than 2 hunks — nothing to split out");
+            } else {
+                app.enter_split_hunks_select(commit_oid, hunks, context_lines);
+            }
+        }
+    }
+    Ok(LoopAction::Proceed)
+}
+
 fn handle_execute_split_out_file(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
@@ -767,6 +831,22 @@ fn handle_execute_split_out_file(
         return Ok(LoopAction::Proceed);
     }
     let result = git_repo.split_commit_out_file(&commit_oid, &file_path, &head_oid);
+    Ok(settle_split_autostash(git_repo, app, result))
+}
+
+fn handle_execute_split_out_hunks(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    commit_oid: Oid,
+    hunks: Vec<(usize, usize)>,
+    context_lines: u32,
+) -> Result<LoopAction> {
+    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    if let Err(e) = git_repo.autostash_save() {
+        app.set_error_message(format!("Auto-stash failed: {e}"));
+        return Ok(LoopAction::Proceed);
+    }
+    let result = git_repo.split_commit_out_hunks(&commit_oid, &hunks, &head_oid, context_lines);
     Ok(settle_split_autostash(git_repo, app, result))
 }
 
@@ -1469,6 +1549,10 @@ fn execute_split(
         }
         // "Split out file" is executed via handle_execute_split_out_file.
         SplitStrategy::OutFile => unreachable!("OutFile uses ExecuteSplitOutFile"),
+        // "Split out hunk(s)" never reaches PrepareSplit/ExecuteSplit at all —
+        // it's executed via handle_execute_split_out_hunks once the user
+        // presses 'p' in the commit detail view.
+        SplitStrategy::OutHunks => unreachable!("OutHunks uses ExecuteSplitOutHunks"),
     };
     settle_split_autostash(git_repo, app, result)
 }
@@ -1515,6 +1599,7 @@ fn render_mode(
         AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitFileSelect { .. } => views::split_file_select::render(app, frame),
+        AppMode::SplitHunksSelect { .. } => views::split_hunks_select::render(app, frame),
         AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
         AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
         AppMode::AutofixupConfirm(_) => views::autofixup::render_autofixup_confirm(app, frame),

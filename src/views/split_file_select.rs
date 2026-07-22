@@ -150,7 +150,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 /// is the longest run of whole trailing components that fits. If even the
 /// basename is too wide, the path's trailing characters are kept with a
 /// leading ellipsis as a last resort.
-fn elide_path(path: &str, max: usize) -> String {
+pub(super) fn elide_path(path: &str, max: usize) -> String {
     let total = path.chars().count();
     if total <= max {
         return path.to_string();

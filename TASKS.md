@@ -52,24 +52,29 @@ Guidelines:
   unaffected regardless of backend.
 
 ## Interactivity — Split Commit
-- [ ] T227 P2 feat - Add a "split out hunk" split option, mirroring T218's
-  "split out file" at hunk granularity: peel one hunk out of a multi-hunk
-  commit into its own commit while the rest stay together in the original
-  commit's replacement. A bare list of file+line-range labels isn't enough to
-  pick a hunk by — the user needs to see the actual code — so instead of a
-  selection dialog, make the commit detail view's diff scrolling hunk-aware:
-  add `hunk_start_lines: Vec<usize>` alongside the existing
-  `file_start_lines` (`src/app/state.rs`, populated in
-  `src/views/commit_detail.rs`'s `build_diff_lines`) and
-  `jump_to_next_hunk`/`jump_to_prev_hunk` alongside
-  `jump_to_next_file`/`jump_to_prev_file`, reusing the same rendered diff's
-  scrolling, colors, and search. Add a key binding to split out the hunk
-  currently in view directly from the detail view. Add the backend operation
-  (`src/repo/git2_impl/split_op.rs`, reusing the existing hunk-application
-  helpers in `hunks.rs`) executing as a two-commit split (chosen hunk first
-  or otherwise consistently ordered, matching `split_commit_out_file`'s
-  approach), and cover the new navigation + split flow with TUI tests plus
-  repository tests in `tests/split_commit/`.
+- [X] T227 P2 feat - Add a "split out hunk(s)" split option, mirroring T218's
+  "split out file" at hunk granularity: peel one or more selected hunks
+  (possibly across several files) out of a commit into their own commit while
+  the rest stay together in the original commit's replacement. Selected from
+  the split-strategy picker like every other strategy; since picking hunks
+  needs the user to see the code (a bare file+line-range label isn't enough),
+  confirming it opens a dedicated wide two-pane dialog
+  (`AppMode::SplitHunksSelect`, `src/views/split_hunks_select.rs`) — a
+  scrollable list of the commit's hunks (file path + old-side line range) on
+  the left, a colored diff preview of the highlighted hunk on the right,
+  mirroring how the main window splits the commit list from the detail view.
+  `↑`/`↓` move the cursor, `v` toggle-selects the hunk in view, `Enter` splits
+  out the marked hunks (falling back to just the hunk under the cursor when
+  nothing is explicitly marked), `Esc` cancels. The backend operation
+  (`GitRepo::split_commit_out_hunks`, `src/repo/git2_impl/split_op.rs`,
+  reusing the existing hunk-application helpers in `hunks.rs`) identifies
+  hunks as `(delta_idx, hunk_idx)` against the diff at a fixed context level
+  (`repo::DEFAULT_CONTEXT_LINES`) — the same level the picker itself loads the
+  commit's diff at, via `HunkPickerEntry` (`src/app.rs`), keeping the two
+  consistent without needing a separate zero-context diff. Executes as a
+  two-commit split via the existing "two-tree trick" (`split_commit_out_file`'s
+  approach). Covered by repository tests in `tests/split_commit/out_hunks.rs`
+  and TUI `handle_key`/snapshot tests in `tests/tui_split_hunks_select.rs`.
 
 ## Interactivity — Edit Commit
 - [ ] T228 P2 feat - Add an "Edit" operation (interactive-rebase's `edit`

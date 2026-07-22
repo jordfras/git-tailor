@@ -347,6 +347,35 @@ pub trait GitRepo {
         head_oid: &Oid,
     ) -> Result<()>;
 
+    /// Peel a set of selected hunks out of `commit_oid` into a follow-up commit.
+    ///
+    /// `hunks` identifies each selected hunk as `(delta_idx, hunk_idx)` against
+    /// the commit's diff at `context_lines` of context (`delta_idx` is the
+    /// file's position in diff order, `hunk_idx` its position within that
+    /// file) — the same context level a caller displaying the diff must use
+    /// when deriving these indices, since more context can merge what would
+    /// otherwise be separate hunks into one. Produces exactly two commits: the
+    /// first keeps everything *not* selected under the original (unchanged)
+    /// message; the second contains only the selected hunks, with a summary
+    /// suffix describing them (the file name when they're all in one file, a
+    /// hunk/file count otherwise). All commits between `commit_oid`
+    /// (exclusive) and `head_oid` (inclusive) are rebased onto the result and
+    /// the branch ref is fast-forwarded.
+    ///
+    /// Fails if:
+    /// - `hunks` is empty
+    /// - `hunks` contains an out-of-range `(delta_idx, hunk_idx)` pair
+    /// - `hunks` covers every hunk in the commit (nothing would remain)
+    /// - staged or unstaged changes share file paths with the commit being split
+    /// - a rebase conflict occurs while rebuilding descendants
+    fn split_commit_out_hunks(
+        &self,
+        commit_oid: &Oid,
+        hunks: &[(usize, usize)],
+        head_oid: &Oid,
+        context_lines: u32,
+    ) -> Result<()>;
+
     /// Count how many commits `split_commit_per_file` would produce for this commit.
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
 

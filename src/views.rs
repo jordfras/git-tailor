@@ -30,6 +30,7 @@ pub mod operation_select;
 pub mod palette;
 pub mod recover;
 pub mod split_file_select;
+pub mod split_hunks_select;
 pub mod split_select;
 pub mod squash_select;
 pub mod stash_conflict;

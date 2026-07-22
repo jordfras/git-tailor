@@ -43,6 +43,11 @@ The format is based on
   of squashing them in one at a time. Shows a confirmation dialog listing what
   will happen before running, and the whole batch is a single undoable
   operation.
+- "Split out hunk(s)" split strategy: pick one or more hunks — possibly across
+  several files — from a commit and peel them into their own commit, leaving
+  the rest behind under the original message. Choosing it from the split
+  strategy menu opens a picker dialog listing the commit's hunks with a diff
+  preview of the highlighted one, so you can see the code before selecting.
 
 ### Changed
 

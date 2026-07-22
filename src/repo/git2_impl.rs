@@ -269,6 +269,20 @@ impl GitRepo for Git2Repo {
         )
     }
 
+    fn split_commit_out_hunks(
+        &self,
+        commit_oid: &Oid,
+        hunks: &[(usize, usize)],
+        head_oid: &Oid,
+        context_lines: u32,
+    ) -> Result<()> {
+        self.record_unit_undo(
+            "Split",
+            head_oid,
+            split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines),
+        )
+    }
+
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
         split_op::count_split_per_file(self, commit_oid)
     }

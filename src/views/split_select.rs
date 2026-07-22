@@ -17,6 +17,7 @@
 use super::dialog::{Dialog, DialogKind, TextRole, handle_dialog_scroll};
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SplitStrategy};
+use crate::repo::DEFAULT_CONTEXT_LINES;
 use ratatui::{
     Frame,
     style::{Color, Modifier, Style},
@@ -44,11 +45,16 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
             let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
+            // "Split out file" and "split out hunk(s)" each need a second
+            // dialog to choose what to peel out, so they take their own flow
+            // rather than the count/confirm split path.
             app.mode = AppMode::CommitList;
-            // "Split out file" needs a second dialog to choose the file, so it
-            // takes its own flow rather than the count/confirm split path.
             match strategy {
                 SplitStrategy::OutFile => AppAction::PrepareSplitOutFile { commit_oid },
+                SplitStrategy::OutHunks => AppAction::PrepareSplitOutHunks {
+                    commit_oid,
+                    context_lines: DEFAULT_CONTEXT_LINES,
+                },
                 _ => AppAction::PrepareSplit {
                     strategy,
                     commit_oid,
@@ -203,9 +209,12 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         crate::app::SplitStrategy::PerFile => "per file",
         crate::app::SplitStrategy::PerHunk => "per hunk",
         crate::app::SplitStrategy::PerHunkGroup => "per hunk group",
-        // "Split out file" never reaches the large-split confirmation dialog
-        // (it always produces exactly two commits), but the match must be total.
+        // Neither ever reaches the large-split confirmation dialog ("split out
+        // file"/"split out hunks" always produce exactly two commits, and the
+        // latter never goes through PrepareSplit/SplitConfirm at all), but the
+        // match must be total.
         crate::app::SplitStrategy::OutFile => "split out file",
+        crate::app::SplitStrategy::OutHunks => "split out hunks",
     };
 
     let (max_scroll, visible_height) = Dialog::new(DialogKind::Confirm, app.colors)
