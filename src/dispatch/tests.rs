@@ -12,12 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use git_tailor::app::SquashMode;
+use git_tailor::Oid;
+use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
 use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
+
+use super::commit_ops::{handle_execute_drop, handle_execute_move, handle_undo};
+use super::conflict::handle_rebase_abort;
+use super::split::{
+    SPLIT_CONFIRM_THRESHOLD, handle_prepare_split, handle_prepare_split_out_files,
+    handle_prepare_split_out_hunks,
+};
+use super::{LoopAction, report_stage_outcome};
 
 /// Minimal `GitRepo` stub for testing terminal-free dispatch helpers.
 struct MockRepo {
@@ -852,6 +860,10 @@ fn only_key_events_dismiss_transient_status() {
 
 mod autofixup_selection {
     use super::*;
+    use crate::dispatch::autofixup::{
+        apply_pending_autofixup_selection, autofixup_target_selection_index,
+        handle_execute_autofixup,
+    };
     use git_tailor::VirtualOid;
     use git_tailor::app::SquashMode as Mode;
     use git_tailor::autofixup::AutofixupPair;
@@ -919,27 +931,27 @@ mod autofixup_selection {
     #[test]
     fn selection_on_a_surviving_commit_shifts_down_by_removed_commits_before_it() {
         // C is at index 3; only F1 (index 2) is removed before it -> index 2.
-        let idx = crate::autofixup_target_selection_index(&commits(), 3, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 3, &pairs());
         assert_eq!(idx, Some(2));
     }
 
     #[test]
     fn selection_before_any_removal_is_unaffected() {
         // T is at index 1; nothing removed before it.
-        let idx = crate::autofixup_target_selection_index(&commits(), 1, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 1, &pairs());
         assert_eq!(idx, Some(1));
     }
 
     #[test]
     fn selection_on_a_folded_away_fixup_lands_on_its_target() {
         // F2 (index 4) was folded into T (index 1); nothing removed before T.
-        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 4, &pairs());
         assert_eq!(idx, Some(1));
     }
 
     #[test]
     fn selection_on_the_first_fixup_also_lands_on_its_target() {
-        let idx = crate::autofixup_target_selection_index(&commits(), 2, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 2, &pairs());
         assert_eq!(idx, Some(1));
     }
 
@@ -947,7 +959,7 @@ mod autofixup_selection {
     fn synthetic_row_selection_falls_back_to_none() {
         let mut cs = commits();
         cs.push(synthetic(VirtualOid::Unstaged));
-        let idx = crate::autofixup_target_selection_index(&cs, 5, &pairs());
+        let idx = autofixup_target_selection_index(&cs, 5, &pairs());
         assert_eq!(idx, None, "synthetic rows aren't touched by autofixup");
     }
 
@@ -956,7 +968,7 @@ mod autofixup_selection {
         // Even in degenerate/empty inputs the caller still clamps with `.min(len-1)`
         // before assigning to `selection_index` — verify the raw index this
         // function returns is sane (in-bounds) for a normal batch too.
-        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs()).unwrap();
+        let idx = autofixup_target_selection_index(&commits(), 4, &pairs()).unwrap();
         assert!(idx < commits().len());
     }
 
@@ -969,7 +981,7 @@ mod autofixup_selection {
             ..Default::default()
         };
 
-        let result = crate::handle_execute_autofixup(
+        let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
             Oid::from("a".repeat(40)),
@@ -994,7 +1006,7 @@ mod autofixup_selection {
             ..Default::default()
         };
 
-        let result = crate::handle_execute_autofixup(
+        let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
             Oid::from("a".repeat(40)),
@@ -1018,7 +1030,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadSelecting(2)));
         assert_eq!(
             app.pending_autofixup_selection, None,
@@ -1033,7 +1045,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
         assert_eq!(
             app.pending_autofixup_selection,
@@ -1046,7 +1058,7 @@ mod autofixup_selection {
     fn apply_pending_selection_falls_back_when_nothing_was_stashed() {
         let mut app = AppState::default();
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
     }
 
@@ -1056,7 +1068,7 @@ mod autofixup_selection {
             pending_autofixup_selection: Some(2),
             ..Default::default()
         };
-        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
+        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
         assert!(matches!(result, LoopAction::Continue));
         assert_eq!(
             app.pending_autofixup_selection,
@@ -1071,7 +1083,7 @@ mod autofixup_selection {
             pending_autofixup_selection: Some(2),
             ..Default::default()
         };
-        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
+        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
         assert!(matches!(result, LoopAction::Proceed));
         assert_eq!(
             app.pending_autofixup_selection, None,
