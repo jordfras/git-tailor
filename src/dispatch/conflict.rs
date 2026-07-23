@@ -21,7 +21,9 @@ use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, StashConflictS
 use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
-use crate::dispatch::{LoopAction, handle_rebase_outcome, settle_autostash};
+use crate::dispatch::{
+    LoopAction, edit_message_suspended, handle_rebase_outcome, settle_autostash,
+};
 use crate::external_tool::with_tui_suspended;
 
 pub(crate) fn handle_rebase_abort(
@@ -81,11 +83,8 @@ pub(crate) fn handle_rebase_continue(
             ctx.combined_message.clone()
         } else {
             let combined = ctx.combined_message.clone();
-            let terminal_bg = terminal_guard.background();
             let editor_result =
-                with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-                    editor::edit_message_in_editor(git_repo, &combined)
-                })?;
+                edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined)?;
             match editor_result {
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
@@ -122,80 +121,117 @@ pub(crate) fn handle_rebase_continue(
     Ok(apply_pending_autofixup_selection(app, is_autofixup, result))
 }
 
-pub(crate) fn handle_run_mergetool(
+/// The display name of the external tool, for status messages.
+fn tool_name(use_mergetool: bool) -> &'static str {
+    if use_mergetool {
+        "Merge tool"
+    } else {
+        "Editor"
+    }
+}
+
+/// Outcome of running an external conflict-resolution tool.
+enum ToolRun {
+    /// The tool ran to completion (the merge tool finished, or the editor
+    /// closed). Only this variant is reachable on the editor path.
+    Finished,
+    /// No merge tool is configured — reachable on the merge-tool path only.
+    NoMergeTool,
+}
+
+/// Suspend the TUI and run the merge tool (`use_mergetool`) or `$EDITOR` over
+/// `files`. The outer `Result` is the TUI suspend/restore result, propagated
+/// with `?`; the inner is the tool's own outcome.
+fn run_tool_suspended(
+    git_repo: &impl GitRepo,
+    files: &[String],
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+    use_mergetool: bool,
+) -> std::io::Result<Result<ToolRun>> {
+    let workdir = git_repo.workdir();
+    let terminal_bg = terminal_guard.background();
+    with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+        if use_mergetool {
+            Ok(if mergetool::run_mergetool(git_repo, files)? {
+                ToolRun::Finished
+            } else {
+                ToolRun::NoMergeTool
+            })
+        } else {
+            let workdir =
+                workdir.ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+            for file_path in files {
+                editor::open_file_in_editor(git_repo, &workdir.join(file_path))?;
+            }
+            Ok(ToolRun::Finished)
+        }
+    })
+}
+
+/// Run the merge tool or editor over `files`, then refresh the conflict dialog:
+/// rebuild the mode via `build_mode` (given the still-conflicting files) and set
+/// the banner, or report "no merge tool" / a tool failure. Shared by the
+/// rebase-conflict and auto-stash-conflict paths, which differ only in the mode
+/// they rebuild.
+fn run_conflict_tool(
     git_repo: &impl GitRepo,
     app: &mut AppState,
     files: Vec<String>,
-    conflict_state: ConflictState,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
+    use_mergetool: bool,
+    build_mode: impl FnOnce(Vec<String>) -> AppMode,
 ) -> Result<LoopAction> {
-    let terminal_bg = terminal_guard.background();
-    let result = with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-        mergetool::run_mergetool(git_repo, &files)
-    })?;
-    match result {
-        Ok(true) => {
+    match run_tool_suspended(git_repo, &files, terminal_guard, kb_enhanced, use_mergetool)? {
+        Ok(ToolRun::Finished) => {
             let new_files = git_repo.read_conflicting_files();
-            app.mode = AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
-                conflicting_files: new_files,
-                still_unresolved: false,
-                ..conflict_state
-            }));
-            app.set_success_message(
-                "Merge tool finished \u{2014} press Enter when done or Esc to abort",
-            );
+            app.mode = build_mode(new_files);
+            app.set_success_message(format!(
+                "{} finished \u{2014} press Enter when done or Esc to abort",
+                tool_name(use_mergetool)
+            ));
         }
-        Ok(false) => {
+        Ok(ToolRun::NoMergeTool) => {
             app.set_error_message("No merge tool configured (set merge.tool in git config)");
         }
         Err(e) => {
-            app.set_error_message(format!("Merge tool failed: {e}"));
+            app.set_error_message(format!("{} failed: {e}", tool_name(use_mergetool)));
         }
     }
     Ok(LoopAction::Proceed)
 }
 
-pub(crate) fn handle_run_editor(
+/// Run the merge tool or editor over a rebase conflict's files, then refresh the
+/// rebase-conflict dialog with the remaining conflicts.
+pub(crate) fn handle_run_conflict_tool(
     git_repo: &impl GitRepo,
     app: &mut AppState,
     files: Vec<String>,
     conflict_state: ConflictState,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
+    use_mergetool: bool,
 ) -> Result<LoopAction> {
-    let workdir = git_repo.workdir();
-    let terminal_bg = terminal_guard.background();
-    let result: anyhow::Result<()> =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-            let workdir =
-                workdir.ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-            for file_path in &files {
-                editor::open_file_in_editor(git_repo, &workdir.join(file_path))?;
-            }
-            Ok(())
-        })?;
-    match result {
-        Ok(()) => {
-            let new_files = git_repo.read_conflicting_files();
-            app.mode = AppMode::RebaseConflict(Box::new(git_tailor::repo::ConflictState {
+    run_conflict_tool(
+        git_repo,
+        app,
+        files,
+        terminal_guard,
+        kb_enhanced,
+        use_mergetool,
+        |new_files| {
+            AppMode::RebaseConflict(Box::new(ConflictState {
                 conflicting_files: new_files,
                 still_unresolved: false,
                 ..conflict_state
-            }));
-            app.set_success_message(
-                "Editor finished \u{2014} press Enter when done or Esc to abort",
-            );
-        }
-        Err(e) => {
-            app.set_error_message(format!("Editor failed: {e}"));
-        }
-    }
-    Ok(LoopAction::Proceed)
+            }))
+        },
+    )
 }
 
-/// Run the merge tool (`use_mergetool`) or editor over the files conflicting in
-/// an auto-stash reapply, then refresh the stash-conflict dialog.
+/// Run the merge tool or editor over the files conflicting in an auto-stash
+/// reapply, then refresh the stash-conflict dialog.
 pub(crate) fn handle_run_stash_tool(
     git_repo: &impl GitRepo,
     app: &mut AppState,
@@ -208,46 +244,21 @@ pub(crate) fn handle_run_stash_tool(
         AppMode::StashConflict(s) => s.operation_label.clone(),
         _ => String::new(),
     };
-    let tool = if use_mergetool {
-        "Merge tool"
-    } else {
-        "Editor"
-    };
-    let workdir = git_repo.workdir();
-    let terminal_bg = terminal_guard.background();
-    let result: anyhow::Result<bool> =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-            if use_mergetool {
-                mergetool::run_mergetool(git_repo, &files)
-            } else {
-                let workdir = workdir
-                    .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
-                for file_path in &files {
-                    editor::open_file_in_editor(git_repo, &workdir.join(file_path))?;
-                }
-                Ok(true)
-            }
-        })?;
-    match result {
-        Ok(true) => {
-            let new_files = git_repo.read_conflicting_files();
-            app.mode = AppMode::StashConflict(Box::new(StashConflictState {
+    run_conflict_tool(
+        git_repo,
+        app,
+        files,
+        terminal_guard,
+        kb_enhanced,
+        use_mergetool,
+        |new_files| {
+            AppMode::StashConflict(Box::new(StashConflictState {
                 operation_label,
                 conflicting_files: new_files,
                 still_unresolved: false,
-            }));
-            app.set_success_message(format!(
-                "{tool} finished \u{2014} press Enter when done or Esc to abort"
-            ));
-        }
-        Ok(false) => {
-            app.set_error_message("No merge tool configured (set merge.tool in git config)");
-        }
-        Err(e) => {
-            app.set_error_message(format!("{tool} failed: {e}"));
-        }
-    }
-    Ok(LoopAction::Proceed)
+            }))
+        },
+    )
 }
 
 /// Finish a conflicting auto-stash reapply: drop the stash if everything is

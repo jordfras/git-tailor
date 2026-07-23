@@ -20,7 +20,7 @@ use git_tailor::app::{AppState, HunkPickerEntry, SplitStrategy};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 
 use crate::dispatch::{LoopAction, settle_autostash};
-use crate::get_head_oid_or_continue;
+use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
@@ -130,10 +130,7 @@ pub(crate) fn handle_execute_split_out_files(
     file_paths: Vec<String>,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_files(&commit_oid, &file_paths, &head_oid);
     Ok(settle_split_autostash(git_repo, app, result))
 }
@@ -146,10 +143,7 @@ pub(crate) fn handle_execute_split_out_hunks(
     context_lines: u32,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_hunks(&commit_oid, &hunks, &head_oid, context_lines);
     Ok(settle_split_autostash(git_repo, app, result))
 }

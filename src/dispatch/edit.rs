@@ -22,7 +22,7 @@ use git_tailor::repo::{EditOutcome, GitRepo};
 
 use crate::dispatch::{LoopAction, settle_autostash};
 use crate::external_tool::with_tui_suspended;
-use crate::get_head_oid_or_continue;
+use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 pub(crate) fn handle_execute_edit(
     git_repo: &mut impl GitRepo,
@@ -35,10 +35,7 @@ pub(crate) fn handle_execute_edit(
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     // Auto-stash only stashes under `--autostash`; otherwise it is a no-op and
     // `begin_edit`'s clean-tree check refuses a dirty working tree.
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     if let Err(e) = git_repo.begin_edit(&commit_oid, &head_oid) {
         let _ = git_repo.autostash_restore();
         app.set_error_message(format!("Edit failed: {e}"));

@@ -27,9 +27,12 @@ mod tests;
 
 use anyhow::Result;
 use git_tailor::app::{AppAction, AppState};
+use git_tailor::editor;
 use git_tailor::repo::{
     AutostashRestore, GitRepo, RebaseOutcome, StageOutcome, StashConflictState,
 };
+
+use crate::external_tool::with_tui_suspended;
 
 use autofixup::{
     handle_execute_autofixup, handle_prepare_autofixup_confirm,
@@ -41,7 +44,7 @@ use commit_ops::{
 };
 use conflict::{
     handle_autostash_abort, handle_autostash_continue, handle_rebase_abort, handle_rebase_continue,
-    handle_run_editor, handle_run_mergetool, handle_run_stash_tool,
+    handle_run_conflict_tool, handle_run_stash_tool,
 };
 use edit::handle_execute_edit;
 use split::{
@@ -80,6 +83,20 @@ macro_rules! get_head_oid_or_continue {
                 $app.set_error_message(format!("Failed to get HEAD: {e}"));
                 return Ok(LoopAction::Continue);
             }
+        }
+    };
+}
+
+/// Auto-stash the working tree before a history-rewriting operation, setting an
+/// error message and returning `LoopAction::Proceed` from the enclosing function
+/// if the stash fails. Used by the dispatch handlers; `LoopAction` must be in
+/// scope at the call site.
+#[macro_export]
+macro_rules! autostash_save_or_bail {
+    ($git_repo:expr, $app:expr) => {
+        if let Err(e) = $git_repo.autostash_save() {
+            $app.set_error_message(format!("Auto-stash failed: {e}"));
+            return Ok(LoopAction::Proceed);
         }
     };
 }
@@ -167,26 +184,28 @@ pub(crate) fn dispatch_action(
             files,
             conflict_state,
         } => {
-            return handle_run_mergetool(
+            return handle_run_conflict_tool(
                 git_repo,
                 app,
                 files,
                 conflict_state,
                 terminal_guard,
                 kb_enhanced,
+                true,
             );
         }
         AppAction::RunEditor {
             files,
             conflict_state,
         } => {
-            return handle_run_editor(
+            return handle_run_conflict_tool(
                 git_repo,
                 app,
                 files,
                 conflict_state,
                 terminal_guard,
                 kb_enhanced,
+                false,
             );
         }
         AppAction::AutostashContinue => return handle_autostash_continue(git_repo, app),
@@ -346,6 +365,22 @@ pub(crate) fn settle_autostash(
             done
         }
     }
+}
+
+/// Suspend the TUI and run the user's `$EDITOR` seeded with `seed`, returning
+/// the editor's own result (`Ok(message)` or its error, which callers handle
+/// distinctly — cancel, restore auto-stash, etc.). The outer `Result` is the
+/// TUI suspend/restore result, propagated with `?`.
+pub(crate) fn edit_message_suspended(
+    git_repo: &impl GitRepo,
+    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
+    kb_enhanced: bool,
+    seed: &str,
+) -> std::io::Result<Result<String>> {
+    let terminal_bg = terminal_guard.background();
+    with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
+        editor::edit_message_in_editor(git_repo, seed)
+    })
 }
 
 /// Reduce a rebase result to its UI side effect.

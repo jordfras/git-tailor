@@ -19,10 +19,8 @@ use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{GitRepo, RebaseOutcome};
 use git_tailor::{CommitInfo, Oid};
 
-use crate::dispatch::{LoopAction, settle_autostash};
-use crate::external_tool::with_tui_suspended;
-use crate::get_head_oid_or_continue;
-use git_tailor::editor;
+use crate::dispatch::{LoopAction, edit_message_suspended, settle_autostash};
+use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Compute the autofixup plan from the already-loaded commit list (no git
 /// call needed) and show the confirmation dialog, or report nothing to do.
@@ -82,11 +80,7 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let terminal_bg = terminal_guard.background();
-    let editor_result =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-            editor::edit_message_in_editor(git_repo, &template)
-        })?;
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template)?;
     match editor_result {
         Ok(edited) => {
             let message = git_tailor::autofixup::strip_comment_lines(&edited);
@@ -114,10 +108,7 @@ pub(crate) fn handle_execute_autofixup(
     message_overrides: std::collections::HashMap<String, String>,
 ) -> Result<LoopAction> {
     let target_index = autofixup_target_selection_index(&app.commits, app.selection_index, &pairs);
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
             app,

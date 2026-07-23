@@ -18,12 +18,12 @@
 use anyhow::Result;
 use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode};
-use git_tailor::editor;
 use git_tailor::repo::{AutostashRestore, CommitOutcome, GitRepo, UndoOutcome};
 
-use crate::dispatch::{LoopAction, handle_rebase_outcome, settle_autostash};
-use crate::external_tool::with_tui_suspended;
-use crate::get_head_oid_or_continue;
+use crate::dispatch::{
+    LoopAction, edit_message_suspended, handle_rebase_outcome, settle_autostash,
+};
+use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Commit the staged changes: open the editor for a message (reusing the reword
 /// editor flow), then create the commit. An empty message cancels.
@@ -33,11 +33,7 @@ pub(crate) fn handle_commit_staged(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let terminal_bg = terminal_guard.background();
-    let editor_result =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-            editor::edit_message_in_editor(git_repo, "")
-        })?;
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "")?;
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(message) if message.trim().is_empty() => {
@@ -135,10 +131,7 @@ pub(crate) fn handle_execute_drop(
     commit_oid: Oid,
     head_oid: Oid,
 ) -> Result<LoopAction> {
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
     Ok(handle_rebase_outcome(
         git_repo,
@@ -156,10 +149,7 @@ pub(crate) fn handle_execute_move(
     insert_after_oid: Option<Oid>,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     let outcome = git_repo.move_commit(&source_oid, insert_after_oid.as_ref(), &head_oid);
     Ok(handle_rebase_outcome(
         git_repo,
@@ -179,11 +169,8 @@ pub(crate) fn handle_prepare_reword(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let terminal_bg = terminal_guard.background();
     let editor_result =
-        with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-            editor::edit_message_in_editor(git_repo, &current_message)
-        })?;
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message)?;
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(new_message) if new_message.trim().is_empty() => {
@@ -213,10 +200,7 @@ pub(crate) fn handle_prepare_squash(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
+    autostash_save_or_bail!(git_repo, app);
     let label = squash_mode.label();
     let message_for_context = if squash_mode.keeps_target_message() {
         target_message.clone()
@@ -247,11 +231,8 @@ pub(crate) fn handle_prepare_squash(
     let final_message = if squash_mode.keeps_target_message() {
         Some(target_message)
     } else {
-        let terminal_bg = terminal_guard.background();
         let editor_result =
-            with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
-                editor::edit_message_in_editor(git_repo, &combined)
-            })?;
+            edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined)?;
         match editor_result {
             Err(e) => {
                 let _ = git_repo.autostash_restore();

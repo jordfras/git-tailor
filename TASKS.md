@@ -64,7 +64,7 @@ Guidelines:
   — `StubRepo` becomes a `RepoRead`-only stub. Orthogonal to T222 (which adds a
   *lower* `GitBackend` seam below `GitRepo`); this segregates the surface *above*
   it. Pure refactor, behaviour-preserving.
-- [ ] T231 P2 refactor - Factor repeated dispatch-handler scaffolding
+- [X] T231 P2 refactor - Factor repeated dispatch-handler scaffolding
   (`src/dispatch/*`). (a) The `autostash_save()`-guard block is copied verbatim 8×
   (commit_ops.rs, split.rs, edit.rs, autofixup.rs) → one helper. (b) The "suspend
   TUI + `$EDITOR` on a message + empty/unchanged match" appears 5× (commit_ops.rs
