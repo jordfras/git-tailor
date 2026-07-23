@@ -19,7 +19,7 @@ use anyhow::{Context, Result};
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{ChainCtx, CherryPickResult, replace_root_and_replay};
+use super::cherry_pick::{ChainCtx, advance_and_finish, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn move_commit(
@@ -76,14 +76,13 @@ pub(super) fn move_commit(
         original_branch_oid: &original_branch_oid,
         moved_commit_oid: Some(commit_oid),
     };
-    match repo.cherry_pick_chain(chain_base, &reordered, &ctx)? {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: move commit")?;
-            repo.checkout_head(&original_branch_oid)?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
-    }
+    let result = repo.cherry_pick_chain(chain_base, &reordered, &ctx)?;
+    advance_and_finish(
+        repo,
+        result,
+        &original_branch_oid,
+        "git-tailor: move commit",
+    )
 }
 
 /// Build the chain for moving `commit_git_oid` to the root position.
@@ -98,12 +97,9 @@ fn plan_move_to_root(
 ) -> Result<(git2::Oid, Vec<git2::Oid>)> {
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
-    let mut revwalk = repo.inner.revwalk()?;
-    revwalk.push(head_git_oid)?;
-    let mut all_oids: Vec<git2::Oid> = revwalk
-        .collect::<Result<Vec<_>, git2::Error>>()
+    let all_oids = repo
+        .all_commit_oids_oldest_first(head_git_oid)
         .context("Failed to walk commits for root-position move")?;
-    all_oids.reverse(); // oldest first: [root, …, HEAD]
 
     let parent_tree = commit.parent(0)?.tree()?;
     let commit_tree = commit.tree()?;
@@ -111,9 +107,7 @@ fn plan_move_to_root(
         .inner
         .diff_tree_to_tree(Some(&parent_tree), Some(&commit_tree), None)?;
 
-    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
-    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
-    let mut new_idx = repo.inner.apply_to_tree(&empty_tree, &diff, None)?;
+    let mut new_idx = repo.inner.apply_to_tree(&repo.empty_tree()?, &diff, None)?;
     if new_idx.has_conflicts() {
         anyhow::bail!("Unexpected conflict creating new root from moved commit");
     }
@@ -152,14 +146,9 @@ fn move_root_to_later(
     original_branch_oid: Oid,
     moved_commit_oid: Oid,
 ) -> Result<RebaseOutcome> {
-    let mut revwalk = repo.inner.revwalk()?;
-    revwalk.push(head_git_oid)?;
-    let mut all_oids: Vec<git2::Oid> = revwalk
-        .collect::<Result<Vec<_>, git2::Error>>()
-        .context("Failed to walk commits for root-move")?;
-    all_oids.reverse();
-
-    let mut reordered: Vec<git2::Oid> = all_oids
+    let mut reordered: Vec<git2::Oid> = repo
+        .all_commit_oids_oldest_first(head_git_oid)
+        .context("Failed to walk commits for root-move")?
         .into_iter()
         .filter(|&oid| oid != commit_git_oid)
         .collect();

@@ -716,4 +716,21 @@ impl Git2Repo {
         repo.checkout_head(Some(&mut checkout))?;
         Ok(())
     }
+
+    /// The empty (no-entries) git tree — the three-way-merge base for building
+    /// an orphan root (a commit with no parent to diff against).
+    fn empty_tree(&self) -> Result<git2::Tree<'_>> {
+        let oid = self.inner.treebuilder(None)?.write()?;
+        Ok(self.inner.find_tree(oid)?)
+    }
+
+    /// Walk the entire ancestry of `head` and return the commit OIDs oldest-first
+    /// (`[root, …, head]`).
+    fn all_commit_oids_oldest_first(&self, head: git2::Oid) -> Result<Vec<git2::Oid>> {
+        let mut revwalk = self.inner.revwalk()?;
+        revwalk.push(head)?;
+        let mut oids: Vec<git2::Oid> = revwalk.collect::<Result<Vec<_>, git2::Error>>()?;
+        oids.reverse();
+        Ok(oids)
+    }
 }

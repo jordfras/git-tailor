@@ -533,8 +533,7 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
         anyhow::bail!("Cannot split a merge commit");
     }
     let parent_tree = if commit.parent_count() == 0 {
-        let empty_oid = repo.inner.treebuilder(None)?.write()?;
-        repo.inner.find_tree(empty_oid)?
+        repo.empty_tree()?
     } else {
         commit.parent(0)?.tree()?
     };

@@ -77,7 +77,7 @@ Guidelines:
   parameterized by the tool closure and target-state builder. (d) drop/move
   handlers are line-for-line identical but the git call + labels → a shared
   wrapper. Pure refactor; MockRepo dispatch tests already cover these paths.
-- [ ] T232 P2 refactor - Factor the `cherry_pick_chain` "finish" wrappers
+- [X] T232 P2 refactor - Factor the `cherry_pick_chain` "finish" wrappers
   (`src/repo/git2_impl/*`). The Complete/Conflict result match is inlined 6×
   (drop_op.rs:57, move_op.rs:79, cherry_pick.rs:258, squash_op.rs:318,
   conflict.rs:79, edit_op.rs:155); squash already extracted `replay_and_advance` —
