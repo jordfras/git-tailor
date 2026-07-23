@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use git_tailor::repo::GitRepo;
+use git_tailor::repo::RepoRead;
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
     app::{AppMode, AppState},
@@ -31,7 +31,7 @@ use crate::terminal_guard::TerminalGuard;
 type CommitsWithDiffs = Vec<(CommitInfo, Option<CommitDiff>)>;
 
 pub fn load_initial_commits(
-    git_repo: &impl GitRepo,
+    git_repo: &impl RepoRead,
     cli: &Cli,
 ) -> Result<Option<(Vec<CommitInfo>, Oid, bool)>> {
     let head_oid = git_repo.head_oid()?;
@@ -70,7 +70,7 @@ pub fn load_initial_commits(
 ///
 /// Returns `(head_oid, reference_oid, include_reference_oid)`, or `Ok(None)`
 /// when there are definitely no commits to display.
-pub fn resolve_oid_bounds(git_repo: &impl GitRepo, cli: &Cli) -> Result<Option<(Oid, Oid, bool)>> {
+pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<(Oid, Oid, bool)>> {
     let head_oid = git_repo.head_oid()?;
 
     if cli.all {
@@ -93,7 +93,7 @@ pub fn resolve_oid_bounds(git_repo: &impl GitRepo, cli: &Cli) -> Result<Option<(
     Ok(Some((head_oid, reference_oid, false)))
 }
 
-fn resolve_base_branch(git_repo: &impl GitRepo, cli: &Cli) -> Result<String> {
+fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
     if let Some(base) = &cli.base {
         return Ok(base.clone());
     }
@@ -114,7 +114,7 @@ fn resolve_base_branch(git_repo: &impl GitRepo, cli: &Cli) -> Result<String> {
 ///
 /// Returns `Ok(false)` if the user pressed Ctrl-C during loading.
 pub fn load_with_progress(
-    git_repo: &impl GitRepo,
+    git_repo: &impl RepoRead,
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
     from_oid: &Oid,
@@ -197,7 +197,7 @@ pub fn load_with_progress(
 /// Returns `Ok(None)` if the user pressed Ctrl-C, `Ok(Some(raw))` on success.
 /// The returned vec is in reverse-chronological order (newest first).
 fn walk_commits(
-    git_repo: &impl GitRepo,
+    git_repo: &impl RepoRead,
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
     from_oid: &Oid,

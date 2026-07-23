@@ -37,7 +37,7 @@ use git_tailor::{
     VirtualOid,
     app::AppState,
     fragmap,
-    repo::{Git2Repo, GitRepo},
+    repo::{Git2Repo, RepoRead},
     views,
     views::palette::Scheme,
     views::theme::Theme,

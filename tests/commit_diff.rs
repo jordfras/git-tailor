@@ -15,7 +15,7 @@
 #[allow(dead_code)]
 mod common;
 
-use git_tailor::{DiffLineKind, Oid, VirtualOid, repo::GitRepo};
+use git_tailor::{DiffLineKind, Oid, VirtualOid, repo::RepoRead};
 
 #[test]
 fn test_commit_diff_root_commit_all_additions() {

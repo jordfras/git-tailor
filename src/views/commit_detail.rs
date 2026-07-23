@@ -35,7 +35,7 @@ enum SearchDirection {
     Next,
     Prev,
 }
-use crate::repo::GitRepo;
+use crate::repo::RepoRead;
 
 /// Transient info about the search bar, computed during render.
 enum SearchBarInfo {
@@ -425,7 +425,7 @@ fn render_search_bar(
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
-pub fn render(repo: &impl GitRepo, frame: &mut Frame, app: &mut AppState, area: Rect) {
+pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
     let search_bar_height: u16 = if app.search_active { 1 } else { 0 };

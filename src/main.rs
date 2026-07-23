@@ -24,7 +24,9 @@ mod update_check;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use git_tailor::repo::{AutostashRestore, Git2Repo, GitRepo, JournalStatus, StashConflictState};
+use git_tailor::repo::{
+    AutostashRestore, Git2Repo, GitRepo, JournalStatus, RepoRead, StashConflictState,
+};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState},

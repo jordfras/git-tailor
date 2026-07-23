@@ -22,7 +22,7 @@ mod common;
 
 use common::TestRepo;
 use git_tailor::Oid;
-use git_tailor::repo::{EditOutcome, GitRepo};
+use git_tailor::repo::{EditOutcome, GitRepo, RepoRead};
 
 /// A four-commit history: base(root) → c1 → edited → c3(head). `edited` is the
 /// middle commit we exercise; its parent is c1 and its descendant is c3.

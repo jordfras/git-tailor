@@ -50,7 +50,7 @@ Guidelines:
     prove identical end-state behaviour.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
-- [ ] T230 P2 refactor - Interface-segregate the `GitRepo` god trait (54 methods,
+- [X] T230 P2 refactor - Interface-segregate the `GitRepo` god trait (54 methods,
   `src/repo.rs`). Split it into focused traits: `RepoRead` (the 17 read/query
   methods) plus mutation traits (`SplitOps`, `SquashOps`, `RewriteOps` =
   drop/move/reword/edit, `RebaseOps`, `JournalOps`, `UndoOps`, `StagingOps`,

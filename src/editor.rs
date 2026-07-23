@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::repo::GitRepo;
+use crate::repo::RepoRead;
 
 use anyhow::Context as _;
 
@@ -27,7 +27,7 @@ use anyhow::Context as _;
 /// Unlike git, there is no `vi` fallback: if none of these is configured the
 /// call errors with guidance instead of guessing an editor that may not exist
 /// (e.g. `vi` on Windows).
-fn resolve_editor(repo: &impl GitRepo) -> anyhow::Result<String> {
+fn resolve_editor(repo: &impl RepoRead) -> anyhow::Result<String> {
     let git_editor = std::env::var("GIT_EDITOR").ok();
     let core_editor = repo.get_config_string("core.editor")?;
     let visual = std::env::var("VISUAL").ok();
@@ -59,7 +59,7 @@ fn choose_editor(candidates: &[Option<&str>]) -> anyhow::Result<String> {
 /// terminal editors (e.g. `vim`) and GUI editors that manage their own window
 /// (e.g. `code --wait`).  The TUI is restored unconditionally so the app is
 /// never left in a broken state.
-fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
+fn launch_editor(repo: &impl RepoRead, path: &std::path::Path) -> anyhow::Result<()> {
     let editor_cmd = resolve_editor(repo)?;
     let mut parts = shell_words::split(&editor_cmd)
         .with_context(|| format!("failed to parse editor command `{editor_cmd}`"))?;
@@ -81,7 +81,7 @@ fn launch_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<
 }
 
 /// Open `message` in the configured editor and return the edited result.
-pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Result<String> {
+pub fn edit_message_in_editor(repo: &impl RepoRead, message: &str) -> anyhow::Result<String> {
     use std::io::Write as _;
 
     let mut tmpfile =
@@ -99,7 +99,7 @@ pub fn edit_message_in_editor(repo: &impl GitRepo, message: &str) -> anyhow::Res
 ///
 /// `path` should be the absolute path to the file.  Returns when the editor
 /// process exits.
-pub fn open_file_in_editor(repo: &impl GitRepo, path: &std::path::Path) -> anyhow::Result<()> {
+pub fn open_file_in_editor(repo: &impl RepoRead, path: &std::path::Path) -> anyhow::Result<()> {
     launch_editor(repo, path)
 }
 

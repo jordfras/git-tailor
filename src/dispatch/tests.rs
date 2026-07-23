@@ -14,7 +14,7 @@
 
 use git_tailor::Oid;
 use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
-use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext};
+use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, RepoRead, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
@@ -82,7 +82,7 @@ fn mock_stage_outcome(ok: bool, changed: bool) -> anyhow::Result<git_tailor::rep
     })
 }
 
-impl GitRepo for MockRepo {
+impl RepoRead for MockRepo {
     fn head_oid(&self) -> anyhow::Result<Oid> {
         if self.head_ok {
             Ok(Oid::from("a".repeat(40)))
@@ -105,6 +105,48 @@ impl GitRepo for MockRepo {
     fn unstaged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
+    fn commit_diff_for_fragmap(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
+        unimplemented!()
+    }
+    fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
+        unimplemented!()
+    }
+    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
+        self.commit_diff
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
+    }
+    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
+        unimplemented!()
+    }
+    fn workdir(&self) -> Option<std::path::PathBuf> {
+        unimplemented!()
+    }
+    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
+        unimplemented!()
+    }
+    fn read_conflicting_files(&self) -> Vec<String> {
+        unimplemented!()
+    }
+    fn default_branch(&self) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    fn root_commit_oid(&self) -> anyhow::Result<Oid> {
+        unimplemented!()
+    }
+    fn commit_walker<'a>(
+        &'a self,
+        _from_oid: &Oid,
+        _to_oid: &Oid,
+    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
+        unimplemented!()
+    }
+}
+
+impl GitRepo for MockRepo {
     fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)
@@ -220,17 +262,6 @@ impl GitRepo for MockRepo {
             Err(anyhow::anyhow!("count failed"))
         }
     }
-    fn commit_diff_for_fragmap(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
-        self.commit_diff
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
-    }
     fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -261,22 +292,7 @@ impl GitRepo for MockRepo {
     fn reword_commit(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
-        unimplemented!()
-    }
     fn rebase_continue(&self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
         unimplemented!()
     }
     fn squash_commits(&self, _: &Oid, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<RebaseOutcome> {
@@ -332,19 +348,6 @@ impl GitRepo for MockRepo {
         unimplemented!()
     }
     fn auto_stage_resolved_conflicts(&self, _: &[String]) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn default_branch(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    fn root_commit_oid(&self) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_walker<'a>(
-        &'a self,
-        _from_oid: &Oid,
-        _to_oid: &Oid,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
 }

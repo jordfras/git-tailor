@@ -238,12 +238,12 @@ pub enum AutostashContinue {
     StillUnresolved { files: Vec<String> },
 }
 
-/// Abstraction over git repository operations.
-///
-/// Isolates the `git2` crate to the `repo::git2_impl` module. Callers work
-/// through this trait so that the real `Git2Repo` implementation can be
-/// swapped with a mock or fake in tests.
-pub trait GitRepo {
+/// Read-only git queries: HEAD/refs, commit walking, diffs, config, and index
+/// inspection. No method mutates history or the working tree, so consumers that
+/// only render or load (the loader, the detail/main views, the editor resolver)
+/// depend on this narrow trait rather than the full [`GitRepo`] surface — and
+/// their test doubles need only implement these.
+pub trait RepoRead {
     /// Returns the OID that HEAD currently points at.
     ///
     /// Fails if HEAD is detached or does not resolve to a direct commit
@@ -306,6 +306,69 @@ pub trait GitRepo {
     /// spans for fragmap analysis.
     fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>>;
 
+    /// Read a string value from the repository's git configuration.
+    ///
+    /// Returns `Ok(None)` when the key does not exist.
+    fn get_config_string(&self, key: &str) -> Result<Option<String>>;
+
+    /// Return the path of the repository's working directory, if any.
+    ///
+    /// Bare repositories have no working directory and return `None`.
+    fn workdir(&self) -> Option<std::path::PathBuf>;
+
+    /// Whether the working tree or index differs from HEAD (submodule pointer
+    /// updates ignored). Used by the Edit flow to re-prompt the shell when the
+    /// user left uncommitted changes, so they are never silently discarded.
+    fn is_worktree_dirty(&self) -> Result<bool>;
+
+    /// Read the raw blob content of a specific index stage for a conflicted path.
+    ///
+    /// Stage 1 = base (common ancestor), 2 = ours, 3 = theirs.
+    /// Returns `None` when that stage entry does not exist for the path.
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>>;
+
+    /// Return the list of paths that currently have conflict markers in the index
+    /// (entries with stage > 0), sorted alphabetically and deduplicated.
+    fn read_conflicting_files(&self) -> Vec<String>;
+
+    /// Return the OID of the root (parentless) commit reachable from HEAD.
+    ///
+    /// Walks the ancestry of HEAD until it finds a commit with no parents.
+    /// For repositories with a single linear history this is the initial commit.
+    fn root_commit_oid(&self) -> Result<Oid>;
+
+    /// Return the name of the repository's default upstream branch.
+    ///
+    /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
+    /// that `git remote set-head origin --auto` sets) and strips the
+    /// `refs/remotes/` prefix so the returned value can be passed directly to
+    /// `find_reference_point`.  For example when `origin/HEAD` points to
+    /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
+    ///
+    /// Returns `Ok(None)` when the remote tracking ref is absent or has no symbolic
+    /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
+    /// never set).
+    fn default_branch(&self) -> Result<Option<String>>;
+
+    /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
+    ///
+    /// Unlike `list_commits`, this streams one `CommitInfo` per `.next()` call
+    /// so callers can render progress between iterations. The OID range and
+    /// result ordering are identical to `list_commits`.
+    fn commit_walker<'a>(
+        &'a self,
+        from_oid: &Oid,
+        to_oid: &Oid,
+    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
+}
+
+/// Abstraction over git repository operations.
+///
+/// Isolates the `git2` crate to the `repo::git2_impl` module. Callers work
+/// through this trait so that the real `Git2Repo` implementation can be
+/// swapped with a mock or fake in tests. Extends [`RepoRead`]; this trait adds
+/// every history-mutating and journal/undo operation.
+pub trait GitRepo: RepoRead {
     /// Split a commit into one commit per changed file.
     ///
     /// Creates N new commits (one per file touched by `commit_oid`), each applying
@@ -428,11 +491,6 @@ pub trait GitRepo {
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
     fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()>;
-
-    /// Read a string value from the repository's git configuration.
-    ///
-    /// Returns `Ok(None)` when the key does not exist.
-    fn get_config_string(&self, key: &str) -> Result<Option<String>>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
     /// its parent.
@@ -592,26 +650,6 @@ pub trait GitRepo {
     /// original dirty changes there (always conflict-free), and drop the stash.
     fn autostash_conflict_abort(&mut self) -> Result<()>;
 
-    /// Return the path of the repository's working directory, if any.
-    ///
-    /// Bare repositories have no working directory and return `None`.
-    fn workdir(&self) -> Option<std::path::PathBuf>;
-
-    /// Whether the working tree or index differs from HEAD (submodule pointer
-    /// updates ignored). Used by the Edit flow to re-prompt the shell when the
-    /// user left uncommitted changes, so they are never silently discarded.
-    fn is_worktree_dirty(&self) -> Result<bool>;
-
-    /// Read the raw blob content of a specific index stage for a conflicted path.
-    ///
-    /// Stage 1 = base (common ancestor), 2 = ours, 3 = theirs.
-    /// Returns `None` when that stage entry does not exist for the path.
-    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>>;
-
-    /// Return the list of paths that currently have conflict markers in the index
-    /// (entries with stage > 0), sorted alphabetically and deduplicated.
-    fn read_conflicting_files(&self) -> Vec<String>;
-
     /// Squash two commits into one.
     ///
     /// Creates a single commit that combines `target_oid` (older) and
@@ -715,36 +753,6 @@ pub trait GitRepo {
     /// `<<<<<<<` marker is absent, so that `index.has_conflicts()` reflects
     /// the actual resolution state.
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
-
-    /// Return the OID of the root (parentless) commit reachable from HEAD.
-    ///
-    /// Walks the ancestry of HEAD until it finds a commit with no parents.
-    /// For repositories with a single linear history this is the initial commit.
-    fn root_commit_oid(&self) -> Result<Oid>;
-
-    /// Return the name of the repository's default upstream branch.
-    ///
-    /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
-    /// that `git remote set-head origin --auto` sets) and strips the
-    /// `refs/remotes/` prefix so the returned value can be passed directly to
-    /// `find_reference_point`.  For example when `origin/HEAD` points to
-    /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
-    ///
-    /// Returns `Ok(None)` when the remote tracking ref is absent or has no symbolic
-    /// target (e.g. the repo has no remote configured, or `origin/HEAD` was
-    /// never set).
-    fn default_branch(&self) -> Result<Option<String>>;
-
-    /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
-    ///
-    /// Unlike `list_commits`, this streams one `CommitInfo` per `.next()` call
-    /// so callers can render progress between iterations. The OID range and
-    /// result ordering are identical to `list_commits`.
-    fn commit_walker<'a>(
-        &'a self,
-        from_oid: &Oid,
-        to_oid: &Oid,
-    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
 }
 
 impl ConflictState {
