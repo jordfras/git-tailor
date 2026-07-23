@@ -50,6 +50,79 @@ Guidelines:
     prove identical end-state behaviour.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
+- [ ] T230 P2 refactor - Interface-segregate the `GitRepo` god trait (54 methods,
+  `src/repo.rs`). Split it into focused traits: `RepoRead` (the 17 read/query
+  methods) plus mutation traits (`SplitOps`, `SquashOps`, `RewriteOps` =
+  drop/move/reword/edit, `RebaseOps`, `JournalOps`, `UndoOps`, `StagingOps`,
+  `StashOps`), keeping a bundle `trait GitRepo: RepoRead + SplitOps + … {}` with a
+  blanket impl so existing `&impl GitRepo` bounds keep compiling. `Git2Repo`'s impl
+  is already a thin delegation layer, so the impl regroups rather than changes.
+  Then narrow the read-only consumers (`loader.rs`, `views/commit_detail.rs`,
+  `views/main_view.rs`, `editor.rs`) to `&impl RepoRead`, and shrink the test
+  doubles: today 74 `unimplemented!()` stubs across `StubRepo`
+  (`tests/common/fake.rs`, 49/54) and `MockRepo` (`src/dispatch/tests.rs`, 25/54)
+  — `StubRepo` becomes a `RepoRead`-only stub. Orthogonal to T222 (which adds a
+  *lower* `GitBackend` seam below `GitRepo`); this segregates the surface *above*
+  it. Pure refactor, behaviour-preserving.
+- [ ] T231 P2 refactor - Factor repeated dispatch-handler scaffolding
+  (`src/dispatch/*`). (a) The `autostash_save()`-guard block is copied verbatim 8×
+  (commit_ops.rs, split.rs, edit.rs, autofixup.rs) → one helper. (b) The "suspend
+  TUI + `$EDITOR` on a message + empty/unchanged match" appears 5× (commit_ops.rs
+  commit-staged/reword/squash, conflict.rs squash-continue, autofixup.rs edit
+  message) → a helper returning an `EditedMessage { Text | Empty | Unchanged }`.
+  (c) `handle_run_mergetool` / `handle_run_editor` / `handle_run_stash_tool`
+  (conflict.rs) are three near-identical "suspend → run tool → refresh
+  conflicting-files → rebuild conflict-state → banner" flows (the stash one is
+  already the merged `use_mergetool: bool` shape) → one `run_conflict_tool`
+  parameterized by the tool closure and target-state builder. (d) drop/move
+  handlers are line-for-line identical but the git call + labels → a shared
+  wrapper. Pure refactor; MockRepo dispatch tests already cover these paths.
+- [ ] T232 P2 refactor - Factor the `cherry_pick_chain` "finish" wrappers
+  (`src/repo/git2_impl/*`). The Complete/Conflict result match is inlined 6×
+  (drop_op.rs:57, move_op.rs:79, cherry_pick.rs:258, squash_op.rs:318,
+  conflict.rs:79, edit_op.rs:155); squash already extracted `replay_and_advance` —
+  generalize it to `advance_and_finish(repo, chain_result, checkout_target,
+  log_msg)` and route the other five through it. Also collapse the 3× `ConflictState`
+  construction (cherry_pick.rs:167/225, squash_op.rs:281) into one builder, and the
+  3× `revwalk push→collect→reverse` idiom (drop_op.rs:75, move_op.rs:101/155) and
+  4× empty-tree build into small helpers. Pure refactor; covered by existing
+  integration tests.
+- [ ] T233 P3 refactor - Replace the `ConflictState` fat union with honest per-op
+  state (`src/repo.rs:103`). It carries the common conflict fields plus four
+  op-specific optional payloads (`moved_commit_oid`, `squash_context`,
+  `autofixup_context`, `edit_context`) + an `is_orphan_root` flag, with consumers
+  branching on which is `Some`; it is also abused by `begin_edit` (edit_op.rs) to
+  journal an in-progress edit that has *no conflict*. Move toward an
+  enum-of-contexts and separate the "in-progress journal record" from "conflict
+  awaiting resolution". Touches journal serialization + crash recovery → do TDD
+  against `tests/undo.rs` and the edit/recovery tests. Higher risk.
+- [ ] T234 P3 refactor - Break up the `AppState` god-struct (`src/app/state.rs`, 34
+  flat fields). Extract the three structurally identical scroll-triples (detail
+  V/H, dialog, commit-list override) into a reusable `ScrollState`; group the
+  detail-view, search, and status fields into sub-structs; and move
+  `pending_autofixup_selection` off `AppState` (the one transient-per-op field that
+  leaks into cross-cutting state). Separately, lift the self-contained ~10-function
+  detail search subsystem out of `views/commit_detail.rs` (929 lines) into its own
+  module. Pure refactor.
+- [ ] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
+  and `split_op.rs` (`finalize_split`) use the older `rebase_descendants`
+  (cherry_pick.rs:28) that **bails** on conflict, while drop/move/squash/edit use
+  the conflict-aware `cherry_pick_chain`. Migrate split and reword onto
+  `cherry_pick_chain`, removing the divergent mechanism. NOTE: not purely internal —
+  it upgrades split/reword to produce a recoverable `RebaseConflict` instead of a
+  hard error, so add an integration test exercising a descendant conflict for both.
+- [ ] T236 P3 refactor - Split the two grab-bag files in the git2 layer if they keep
+  growing: `git2_impl/journal.rs` (816 lines: on-disk doc IO, the undo/redo model,
+  gc-pin reconciliation, autostash-record storage, startup classification) and
+  `git2_impl/reads.rs` (512 lines, ~28 functions). Cohesive enough today — low
+  priority; split along the responsibility lines above only when warranted.
+- [ ] T237 P3 refactor - Reduce view-layer duplication. Four near-duplicate
+  `scroll_to_*` viewport helpers (operation_select.rs:90, split_select.rs:80,
+  split_files_select.rs:165, split_hunks_select.rs:165) → one shared helper. The
+  `reverse` up/down mirroring is duplicated across three modules (commit_list.rs
+  handle_key, list_nav.rs, move_select.rs); `move_select.rs` reimplements
+  `list_nav` navigation by hand (justified by its insertion-separator semantics, so
+  extract the shared paging/mirroring math it can reuse). Pure refactor.
 
 ## Interactivity — Split Commit
 - [X] T227 P2 feat - Add a "split out hunk(s)" split option, mirroring T218's
