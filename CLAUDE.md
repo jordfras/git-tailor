@@ -36,7 +36,9 @@ git-tailor/
 │   │   ├── split.rs        # Split handlers (per-file/hunk/group, out-file(s)/hunk(s))
 │   │   ├── edit.rs         # Edit handler: suspend TUI, spawn $SHELL, splice result
 │   │   ├── conflict.rs     # Rebase/merge-tool/editor/stash conflict resolution handlers
-│   │   ├── commit_ops.rs   # Drop/move/reword/squash/commit-staged/undo/redo handlers
+│   │   ├── rewrite.rs      # Single-commit history rewrites: drop/move/reword/squash
+│   │   ├── undo.rs         # Undo/redo handlers (operation-agnostic, journal-driven)
+│   │   ├── staging.rs      # Stage-all/unstage-all/commit-staged handlers
 │   │   ├── autofixup.rs    # Bulk autofixup handler + cursor-restoration logic
 │   │   └── tests.rs        # Dispatch-handler unit tests (MockRepo stubs)
 │   ├── app.rs              # AppMode enum, AppAction enum, SquashMode

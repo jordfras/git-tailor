@@ -19,13 +19,13 @@ use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
 
-use super::commit_ops::{handle_execute_drop, handle_execute_move, handle_undo};
-use super::conflict::handle_rebase_abort;
-use super::split::{
-    SPLIT_CONFIRM_THRESHOLD, handle_prepare_split, handle_prepare_split_out_files,
-    handle_prepare_split_out_hunks,
-};
-use super::{LoopAction, report_stage_outcome};
+// The handlers under test live in sibling submodules (rewrite, undo, conflict,
+// split) but dispatch.rs re-`use`s them all for dispatch_action, so `super::*`
+// pulls them in — along with LoopAction and report_stage_outcome. Only
+// SPLIT_CONFIRM_THRESHOLD is private to split.rs (never re-used here) and must be
+// imported directly.
+use super::split::SPLIT_CONFIRM_THRESHOLD;
+use super::*;
 
 /// Minimal `GitRepo` stub for testing terminal-free dispatch helpers.
 struct MockRepo {

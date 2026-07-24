@@ -17,10 +17,12 @@
 // per-operation submodule; the shared control-flow helpers live here.
 
 mod autofixup;
-mod commit_ops;
 mod conflict;
 mod edit;
+mod rewrite;
 mod split;
+mod staging;
+mod undo;
 
 #[cfg(test)]
 mod tests;
@@ -38,19 +40,20 @@ use autofixup::{
     handle_execute_autofixup, handle_prepare_autofixup_confirm,
     handle_prepare_autofixup_edit_message,
 };
-use commit_ops::{
-    handle_commit_staged, handle_execute_drop, handle_execute_move, handle_prepare_reword,
-    handle_prepare_squash, handle_redo, handle_undo,
-};
 use conflict::{
     handle_autostash_abort, handle_autostash_continue, handle_rebase_abort, handle_rebase_continue,
     handle_run_conflict_tool, handle_run_stash_tool,
 };
 use edit::handle_execute_edit;
+use rewrite::{
+    handle_execute_drop, handle_execute_move, handle_prepare_reword, handle_prepare_squash,
+};
 use split::{
     execute_split, handle_execute_split_out_files, handle_execute_split_out_hunks,
     handle_prepare_split, handle_prepare_split_out_files, handle_prepare_split_out_hunks,
 };
+use staging::{handle_commit_staged, handle_stage_all, handle_unstage_all};
+use undo::{handle_redo, handle_undo};
 
 /// Loop-control signal returned by [`dispatch_action`].
 pub(crate) enum LoopAction {
@@ -283,24 +286,8 @@ pub(crate) fn dispatch_action(
                 message_overrides,
             );
         }
-        AppAction::StageAll => {
-            let outcome = git_repo.stage_all();
-            return Ok(report_stage_outcome(
-                app,
-                outcome,
-                "Staged all changes",
-                "Nothing to stage",
-            ));
-        }
-        AppAction::UnstageAll => {
-            let outcome = git_repo.unstage_all();
-            return Ok(report_stage_outcome(
-                app,
-                outcome,
-                "Unstaged all changes",
-                "Nothing to unstage",
-            ));
-        }
+        AppAction::StageAll => return handle_stage_all(git_repo, app),
+        AppAction::UnstageAll => return handle_unstage_all(git_repo, app),
         AppAction::PrepareCommitStaged => {
             return handle_commit_staged(git_repo, app, terminal_guard, kb_enhanced);
         }

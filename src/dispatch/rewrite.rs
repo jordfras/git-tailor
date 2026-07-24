@@ -12,118 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Side-effect handlers for the single-commit operations: commit staged, undo,
-// redo, drop, move, reword, and squash/fixup.
+// Side-effect handlers for the single-commit history rewrites: drop, move,
+// reword, and squash/fixup. (Split and Edit are richer multi-step flows and
+// live in their own modules.)
 
 use anyhow::Result;
 use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode};
-use git_tailor::repo::{AutostashRestore, CommitOutcome, GitRepo, UndoOutcome};
+use git_tailor::repo::GitRepo;
 
-use crate::dispatch::{
-    LoopAction, edit_message_suspended, handle_rebase_outcome, settle_autostash,
-};
+use crate::dispatch::{LoopAction, edit_message_suspended, handle_rebase_outcome};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
-
-/// Commit the staged changes: open the editor for a message (reusing the reword
-/// editor flow), then create the commit. An empty message cancels.
-pub(crate) fn handle_commit_staged(
-    git_repo: &impl GitRepo,
-    app: &mut AppState,
-    terminal_guard: &mut crate::terminal_guard::TerminalGuard,
-    kb_enhanced: bool,
-) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "");
-    match editor_result {
-        Err(e) => app.set_error_message(format!("Editor error: {e}")),
-        Ok(message) if message.trim().is_empty() => {
-            app.set_success_message("Commit cancelled: message is empty");
-        }
-        Ok(message) => match git_repo.commit_staged(&message) {
-            Ok(CommitOutcome::Committed) => {
-                app.set_success_message("Committed staged changes");
-                return Ok(LoopAction::Reload);
-            }
-            Ok(CommitOutcome::NothingStaged) => app.set_error_message("Nothing staged to commit"),
-            Err(e) => app.set_error_message(format!("Commit failed: {e}")),
-        },
-    }
-    Ok(LoopAction::Proceed)
-}
-
-pub(crate) fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    // A working-tree-preserving undo (stage/unstage all, or a commit's soft
-    // reset) restores the very state that auto-stash would squirrel away and
-    // reapply — running the stash dance would negate it — so bypass it for those.
-    let skip_autostash = git_repo.pending_undo_skips_autostash().unwrap_or(false);
-    if !skip_autostash && let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
-    let outcome = git_repo.undo();
-    let restored = if skip_autostash {
-        Ok(AutostashRestore::Done)
-    } else {
-        git_repo.autostash_restore()
-    };
-    match outcome {
-        Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
-            app,
-            restored,
-            "Undo",
-            &format!("Undid {}", label.to_lowercase()),
-            LoopAction::Reload,
-        )),
-        Ok(UndoOutcome::Empty) => {
-            app.set_error_message("Nothing to undo");
-            Ok(LoopAction::Proceed)
-        }
-        Ok(UndoOutcome::Stale) => {
-            app.set_error_message("Undo history no longer matches the branch — discarded");
-            Ok(LoopAction::Reload)
-        }
-        Err(e) => {
-            app.set_error_message(format!("Undo failed: {e}"));
-            Ok(LoopAction::Proceed)
-        }
-    }
-}
-
-pub(crate) fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    // See handle_undo: skip the auto-stash dance for a working-tree-preserving redo.
-    let skip_autostash = git_repo.pending_redo_skips_autostash().unwrap_or(false);
-    if !skip_autostash && let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
-        return Ok(LoopAction::Proceed);
-    }
-    let outcome = git_repo.redo();
-    let restored = if skip_autostash {
-        Ok(AutostashRestore::Done)
-    } else {
-        git_repo.autostash_restore()
-    };
-    match outcome {
-        Ok(UndoOutcome::Done { label }) => Ok(settle_autostash(
-            app,
-            restored,
-            "Redo",
-            &format!("Redid {}", label.to_lowercase()),
-            LoopAction::Reload,
-        )),
-        Ok(UndoOutcome::Empty) => {
-            app.set_error_message("Nothing to redo");
-            Ok(LoopAction::Proceed)
-        }
-        Ok(UndoOutcome::Stale) => {
-            app.set_error_message("Redo history no longer matches the branch — discarded");
-            Ok(LoopAction::Reload)
-        }
-        Err(e) => {
-            app.set_error_message(format!("Redo failed: {e}"));
-            Ok(LoopAction::Proceed)
-        }
-    }
-}
 
 pub(crate) fn handle_execute_drop(
     git_repo: &mut impl GitRepo,
