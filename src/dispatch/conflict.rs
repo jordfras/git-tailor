@@ -84,7 +84,7 @@ pub(crate) fn handle_rebase_continue(
         } else {
             let combined = ctx.combined_message.clone();
             let editor_result =
-                edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined)?;
+                edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
             match editor_result {
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
@@ -140,15 +140,15 @@ enum ToolRun {
 }
 
 /// Suspend the TUI and run the merge tool (`use_mergetool`) or `$EDITOR` over
-/// `files`. The outer `Result` is the TUI suspend/restore result, propagated
-/// with `?`; the inner is the tool's own outcome.
+/// `files`. Either failure — suspending/restoring the TUI, or the tool itself —
+/// comes back as `Err` for the caller to show; neither is fatal.
 fn run_tool_suspended(
     git_repo: &impl GitRepo,
     files: &[String],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
     use_mergetool: bool,
-) -> std::io::Result<Result<ToolRun>> {
+) -> Result<ToolRun> {
     let workdir = git_repo.workdir();
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
@@ -166,7 +166,7 @@ fn run_tool_suspended(
             }
             Ok(ToolRun::Finished)
         }
-    })
+    })?
 }
 
 /// Run the merge tool or editor over `files`, then refresh the conflict dialog:
@@ -183,7 +183,7 @@ fn run_conflict_tool(
     use_mergetool: bool,
     build_mode: impl FnOnce(Vec<String>) -> AppMode,
 ) -> Result<LoopAction> {
-    match run_tool_suspended(git_repo, &files, terminal_guard, kb_enhanced, use_mergetool)? {
+    match run_tool_suspended(git_repo, &files, terminal_guard, kb_enhanced, use_mergetool) {
         Ok(ToolRun::Finished) => {
             let new_files = git_repo.read_conflicting_files();
             app.mode = build_mode(new_files);

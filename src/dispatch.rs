@@ -367,20 +367,20 @@ pub(crate) fn settle_autostash(
     }
 }
 
-/// Suspend the TUI and run the user's `$EDITOR` seeded with `seed`, returning
-/// the editor's own result (`Ok(message)` or its error, which callers handle
-/// distinctly — cancel, restore auto-stash, etc.). The outer `Result` is the
-/// TUI suspend/restore result, propagated with `?`.
+/// Suspend the TUI and run the user's `$EDITOR` seeded with `seed`, returning the
+/// edited message. Either failure — suspending/restoring the TUI, or the editor
+/// process itself — comes back as `Err` for the caller to show; neither is
+/// fatal.
 pub(crate) fn edit_message_suspended(
     git_repo: &impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
     seed: &str,
-) -> std::io::Result<Result<String>> {
+) -> Result<String> {
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
         editor::edit_message_in_editor(git_repo, seed)
-    })
+    })?
 }
 
 /// Reduce a rebase result to its UI side effect.

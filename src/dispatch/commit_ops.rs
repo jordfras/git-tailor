@@ -33,7 +33,7 @@ pub(crate) fn handle_commit_staged(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "")?;
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "");
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(message) if message.trim().is_empty() => {
@@ -170,7 +170,7 @@ pub(crate) fn handle_prepare_reword(
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     let editor_result =
-        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message)?;
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message);
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e}")),
         Ok(new_message) if new_message.trim().is_empty() => {
@@ -232,7 +232,7 @@ pub(crate) fn handle_prepare_squash(
         Some(target_message)
     } else {
         let editor_result =
-            edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined)?;
+            edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
         match editor_result {
             Err(e) => {
                 let _ = git_repo.autostash_restore();

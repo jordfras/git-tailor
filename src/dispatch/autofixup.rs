@@ -80,7 +80,7 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template)?;
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
     match editor_result {
         Ok(edited) => {
             let message = git_tailor::autofixup::strip_comment_lines(&edited);
