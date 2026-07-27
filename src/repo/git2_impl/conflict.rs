@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 
 use super::super::{ConflictState, RebaseOutcome};
 use super::Git2Repo;
-use super::cherry_pick::{ChainCtx, CherryPickResult};
+use super::cherry_pick::{ChainCtx, advance_and_finish};
 
 pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
@@ -76,15 +76,14 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
         original_branch_oid: &state.original_branch_oid,
         moved_commit_oid: state.moved_commit_oid.as_ref(),
     };
-    match repo.cherry_pick_chain(new_tip, &remaining, &ctx)? {
-        CherryPickResult::Complete(final_tip) => {
-            let label = state.operation_label.to_lowercase();
-            repo.advance_branch_ref(final_tip, &format!("git-tailor: {label} (continue)"))?;
-            repo.checkout_head(&state.original_branch_oid)?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict(new_state) => Ok(RebaseOutcome::Conflict(new_state)),
-    }
+    let result = repo.cherry_pick_chain(new_tip, &remaining, &ctx)?;
+    let label = state.operation_label.to_lowercase();
+    advance_and_finish(
+        repo,
+        result,
+        &state.original_branch_oid,
+        &format!("git-tailor: {label} (continue)"),
+    )
 }
 
 pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()> {

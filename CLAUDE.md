@@ -26,12 +26,21 @@ git-tailor/
 ├── Cargo.toml              # package manifest
 ├── src/
 │   ├── lib.rs              # Library root (re-exports domain types, module declarations)
-│   ├── main.rs             # Binary entry point (event loop, side effects)
+│   ├── main.rs             # Binary entry point (bootstrap, event loop, journal recovery, rendering)
 │   ├── cli.rs              # Command-line argument definitions (clap)
 │   ├── loader.rs           # Startup loading: commit walking, progress display
 │   ├── terminal_guard.rs   # RAII guard owning TUI terminal setup / teardown
 │   ├── external_tool.rs    # Suspend/restore TUI around external processes
-│   ├── tests.rs            # In-library unit tests (MockRepo stubs)
+│   ├── dispatch.rs         # AppAction dispatch: LoopAction, dispatch_action, shared helpers
+│   ├── dispatch/
+│   │   ├── split.rs        # Split handlers (per-file/hunk/group, out-file(s)/hunk(s))
+│   │   ├── edit.rs         # Edit handler: suspend TUI, spawn $SHELL, splice result
+│   │   ├── conflict.rs     # Rebase/merge-tool/editor/stash conflict resolution handlers
+│   │   ├── rewrite.rs      # Single-commit history rewrites: drop/move/reword/squash
+│   │   ├── undo.rs         # Undo/redo handlers (operation-agnostic, journal-driven)
+│   │   ├── staging.rs      # Stage-all/unstage-all/commit-staged handlers
+│   │   ├── autofixup.rs    # Bulk autofixup handler + cursor-restoration logic
+│   │   └── tests.rs        # Dispatch-handler unit tests (MockRepo stubs)
 │   ├── app.rs              # AppMode enum, AppAction enum, SquashMode
 │   ├── app/
 │   │   ├── keymap.rs       # KeyCommand enum + read_event()
@@ -223,11 +232,13 @@ loop {
         CommitDetail => views::commit_detail::handle_key(action, &mut app),
         // ... other modes dispatch to their view module
     };
-    match result {
-        AppAction::Handled => {}
-        AppAction::Quit => app.should_quit = true,
-        AppAction::ReloadCommits => reload_commits(&git_repo, &mut app),
-        // ... other side effects executed by main.rs
+    // dispatch::dispatch_action performs the git side effect the action
+    // requested (delegating to the per-operation handlers in dispatch/*),
+    // and returns a LoopAction telling main.rs what to do next.
+    match dispatch::dispatch_action(result, &mut app, &mut git_repo, ...)? {
+        LoopAction::Continue => continue,
+        LoopAction::Proceed => {}
+        LoopAction::Reload | ReloadPreserving | ReloadSelecting(_) => reload_commits(...),
     }
     if app.should_quit { break; }
 }

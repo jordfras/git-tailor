@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Result, anyhow};
-use git_tailor::{
-    CommitDiff, CommitInfo, Oid,
-    app::SquashMode,
-    repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext},
-};
+use git_tailor::{CommitDiff, CommitInfo, Oid, repo::RepoRead};
 
 /// Builder for a configurable [`StubRepo`].
 ///
@@ -44,19 +40,19 @@ impl StubRepoBuilder {
         }
     }
 
-    /// Configure the diff returned by [`GitRepo::commit_diff`] for any OID.
+    /// Configure the diff returned by [`RepoRead::commit_diff`] for any OID.
     pub fn with_commit_diff(mut self, diff: CommitDiff) -> Self {
         self.commit_diff = Some(diff);
         self
     }
 
-    /// Configure the diff returned by [`GitRepo::staged_diff`].
+    /// Configure the diff returned by [`RepoRead::staged_diff`].
     pub fn with_staged_diff(mut self, diff: CommitDiff) -> Self {
         self.staged_diff = Some(diff);
         self
     }
 
-    /// Configure the diff returned by [`GitRepo::unstaged_diff`].
+    /// Configure the diff returned by [`RepoRead::unstaged_diff`].
     pub fn with_unstaged_diff(mut self, diff: CommitDiff) -> Self {
         self.unstaged_diff = Some(diff);
         self
@@ -77,10 +73,12 @@ impl Default for StubRepoBuilder {
     }
 }
 
-/// Configurable `GitRepo` stub produced by [`StubRepoBuilder`].
+/// Configurable [`RepoRead`] stub produced by [`StubRepoBuilder`].
 ///
-/// Methods set via the builder return their configured values; all other
-/// methods panic with `unimplemented!()`.
+/// It implements only the read side of the repository — enough to drive the
+/// rendering/view code under test. Diff-returning methods set via the builder
+/// return their configured values; all other reads panic with
+/// `unimplemented!()`.
 #[derive(Default)]
 pub struct StubRepo {
     commit_diff: Option<CommitDiff>,
@@ -88,7 +86,7 @@ pub struct StubRepo {
     unstaged_diff: Option<CommitDiff>,
 }
 
-impl GitRepo for StubRepo {
+impl RepoRead for StubRepo {
     fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
@@ -119,126 +117,7 @@ impl GitRepo for StubRepo {
     fn unstaged_diff_for_fragmap(&self) -> Result<Option<CommitDiff>> {
         Ok(self.unstaged_diff.clone())
     }
-    fn split_commit_per_file(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_out_files(
-        &self,
-        _commit_oid: &Oid,
-        _file_paths: &[String],
-        _head_oid: &Oid,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_out_hunks(
-        &self,
-        _commit_oid: &Oid,
-        _hunks: &[(usize, usize)],
-        _head_oid: &Oid,
-        _context_lines: u32,
-    ) -> Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(
-        &self,
-        _commit_oid: &Oid,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-    ) -> Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _commit_oid: &Oid, _new_message: &str, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
     fn get_config_string(&self, _key: &str) -> Result<Option<String>> {
-        unimplemented!()
-    }
-    fn drop_commit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn move_commit(
-        &self,
-        _commit_oid: &Oid,
-        _insert_after_oid: Option<&Oid>,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn begin_edit(&self, _commit_oid: &Oid, _head_oid: &Oid) -> Result<()> {
-        unimplemented!()
-    }
-    fn finish_edit(&self, _commit_oid: &Oid) -> Result<git_tailor::repo::EditOutcome> {
-        unimplemented!()
-    }
-    fn abort_edit(&self) -> Result<()> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _state: &ConflictState) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _state: &ConflictState) -> Result<()> {
-        unimplemented!()
-    }
-    fn read_journal(&self) -> Result<git_tailor::repo::JournalStatus> {
-        unimplemented!()
-    }
-    fn clear_journal(&self) -> Result<()> {
-        unimplemented!()
-    }
-    fn prune_stale_journal(&self) -> Result<()> {
-        unimplemented!()
-    }
-    fn clean_journal(&self) -> Result<git_tailor::repo::JournalCleanSummary> {
-        unimplemented!()
-    }
-    fn undo(&self) -> Result<git_tailor::repo::UndoOutcome> {
-        unimplemented!()
-    }
-    fn redo(&self) -> Result<git_tailor::repo::UndoOutcome> {
-        unimplemented!()
-    }
-    fn pending_undo_skips_autostash(&self) -> Result<bool> {
-        unimplemented!()
-    }
-    fn pending_redo_skips_autostash(&self) -> Result<bool> {
-        unimplemented!()
-    }
-    fn stage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
-        unimplemented!()
-    }
-    fn unstage_all(&self) -> Result<git_tailor::repo::StageOutcome> {
-        unimplemented!()
-    }
-    fn commit_staged(&self, _message: &str) -> Result<git_tailor::repo::CommitOutcome> {
-        unimplemented!()
-    }
-    fn autostash_save(&mut self) -> Result<()> {
-        unimplemented!()
-    }
-    fn autostash_restore(&mut self) -> Result<git_tailor::repo::AutostashRestore> {
-        unimplemented!()
-    }
-    fn autostash_conflict_continue(&mut self) -> Result<git_tailor::repo::AutostashContinue> {
-        unimplemented!()
-    }
-    fn autostash_conflict_abort(&mut self) -> Result<()> {
         unimplemented!()
     }
     fn workdir(&self) -> Option<std::path::PathBuf> {
@@ -253,53 +132,11 @@ impl GitRepo for StubRepo {
     fn read_conflicting_files(&self) -> Vec<String> {
         unimplemented!()
     }
-    fn squash_commits(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _message: &str,
-        _head_oid: &Oid,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _source_oid: &Oid,
-        _target_oid: &Oid,
-        _combined_message: &str,
-        _squash_mode: SquashMode,
-        _head_oid: &Oid,
-    ) -> Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _ctx: &SquashContext,
-        _message: &str,
-        _original_branch_oid: &Oid,
-        _autofixup_context: Option<&git_tailor::repo::AutofixupContext>,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn autofixup(
-        &self,
-        _head_oid: &Oid,
-        _reference_oid: &Oid,
-        _message_overrides: &std::collections::HashMap<String, String>,
-    ) -> Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn stage_file(&self, _path: &str) -> Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _files: &[String]) -> Result<()> {
+    fn root_commit_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
     fn default_branch(&self) -> Result<Option<String>> {
         Ok(None)
-    }
-    fn root_commit_oid(&self) -> Result<Oid> {
-        unimplemented!()
     }
     fn commit_walker<'a>(
         &'a self,

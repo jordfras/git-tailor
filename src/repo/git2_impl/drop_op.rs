@@ -18,7 +18,7 @@ use anyhow::Result;
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
-use super::cherry_pick::{ChainCtx, CherryPickResult, replace_root_and_replay};
+use super::cherry_pick::{ChainCtx, advance_and_finish, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn drop_commit(
@@ -54,14 +54,13 @@ pub(super) fn drop_commit(
         original_branch_oid: &original_branch_oid,
         moved_commit_oid: None,
     };
-    match repo.cherry_pick_chain(parent_oid, &descendants, &ctx)? {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: drop commit")?;
-            repo.checkout_head(&original_branch_oid)?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
-    }
+    let result = repo.cherry_pick_chain(parent_oid, &descendants, &ctx)?;
+    advance_and_finish(
+        repo,
+        result,
+        &original_branch_oid,
+        "git-tailor: drop commit",
+    )
 }
 
 /// Drop the root commit (parent_count == 0) by three-way merging the first
@@ -72,12 +71,8 @@ fn drop_root_commit(
     head_git_oid: git2::Oid,
     original_branch_oid: Oid,
 ) -> Result<RebaseOutcome> {
-    let mut revwalk = repo.inner.revwalk()?;
-    revwalk.push(head_git_oid)?;
-    let mut all_oids: Vec<git2::Oid> = revwalk.collect::<Result<Vec<_>, git2::Error>>()?;
-    all_oids.reverse();
-
-    let descendants: Vec<git2::Oid> = all_oids
+    let descendants: Vec<git2::Oid> = repo
+        .all_commit_oids_oldest_first(head_git_oid)?
         .into_iter()
         .filter(|&oid| oid != commit_git_oid)
         .collect();

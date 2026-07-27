@@ -20,7 +20,7 @@ use anyhow::Result;
 
 use super::super::{ConflictState, RebaseOutcome, SquashContext};
 use super::Git2Repo;
-use super::cherry_pick::{ChainCtx, CherryPickResult};
+use super::cherry_pick::{ChainCtx, ConflictBase, advance_and_finish, base_conflict_state};
 use super::conflict;
 use crate::Oid;
 use crate::app::SquashMode;
@@ -279,12 +279,6 @@ fn build_conflict_state(
         .collect();
 
     let state = ConflictState {
-        operation_label: squash_mode.label().to_string(),
-        original_branch_oid: inputs.head_oid.clone(),
-        new_tip_oid: Oid::from(inputs.target_commit.id()),
-        conflicting_commit_oid: Oid::from(inputs.source_commit.id()),
-        remaining_oids: vec![],
-        conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
         squash_context: Some(SquashContext {
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
@@ -293,7 +287,14 @@ fn build_conflict_state(
             descendant_oids,
             squash_mode,
         }),
-        ..Default::default()
+        ..base_conflict_state(ConflictBase {
+            label: squash_mode.label(),
+            original_branch_oid: inputs.head_oid.clone(),
+            new_tip: inputs.target_commit.id(),
+            conflicting_commit: inputs.source_commit.id(),
+            remaining_oids: vec![],
+            index: cherry_index,
+        })
     };
     // Journals write-ahead, then mutates the ref/index/workdir.
     conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit, &state)?;
@@ -315,14 +316,8 @@ fn replay_and_advance(
         original_branch_oid: &original_branch_oid,
         moved_commit_oid: None,
     };
-    match repo.cherry_pick_chain(squash_oid, descendants, &ctx)? {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, advance_msg)?;
-            repo.checkout_head(&original_branch_oid)?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
-    }
+    let result = repo.cherry_pick_chain(squash_oid, descendants, &ctx)?;
+    advance_and_finish(repo, result, &original_branch_oid, advance_msg)
 }
 
 /// Apply source's changes onto the target tree, accounting for renames between

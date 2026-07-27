@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use git_tailor::app::SquashMode;
-use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, SquashContext};
+use git_tailor::Oid;
+use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
+use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
+
+use super::conflict::ToolRun;
+use super::split::SPLIT_CONFIRM_THRESHOLD;
+use super::*;
 
 /// Minimal `GitRepo` stub for testing terminal-free dispatch helpers.
 struct MockRepo {
@@ -39,6 +43,8 @@ struct MockRepo {
     autostash_save_calls: std::cell::Cell<usize>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     commit_diff: Option<CommitDiff>,
+    /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
+    conflicting_files: Vec<String>,
 }
 
 impl Default for MockRepo {
@@ -59,6 +65,7 @@ impl Default for MockRepo {
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
             commit_diff: None,
+            conflicting_files: Vec::new(),
         }
     }
 }
@@ -74,7 +81,7 @@ fn mock_stage_outcome(ok: bool, changed: bool) -> anyhow::Result<git_tailor::rep
     })
 }
 
-impl GitRepo for MockRepo {
+impl RepoRead for MockRepo {
     fn head_oid(&self) -> anyhow::Result<Oid> {
         if self.head_ok {
             Ok(Oid::from("a".repeat(40)))
@@ -97,6 +104,48 @@ impl GitRepo for MockRepo {
     fn unstaged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
         Ok(None)
     }
+    fn commit_diff_for_fragmap(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
+        unimplemented!()
+    }
+    fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
+        unimplemented!()
+    }
+    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
+        self.commit_diff
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
+    }
+    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
+        unimplemented!()
+    }
+    fn workdir(&self) -> Option<std::path::PathBuf> {
+        unimplemented!()
+    }
+    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
+        unimplemented!()
+    }
+    fn read_conflicting_files(&self) -> Vec<String> {
+        self.conflicting_files.clone()
+    }
+    fn default_branch(&self) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    fn root_commit_oid(&self) -> anyhow::Result<Oid> {
+        unimplemented!()
+    }
+    fn commit_walker<'a>(
+        &'a self,
+        _from_oid: &Oid,
+        _to_oid: &Oid,
+    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
+        unimplemented!()
+    }
+}
+
+impl RepoWrite for MockRepo {
     fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)
@@ -212,17 +261,6 @@ impl GitRepo for MockRepo {
             Err(anyhow::anyhow!("count failed"))
         }
     }
-    fn commit_diff_for_fragmap(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
-        self.commit_diff
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
-    }
     fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -253,22 +291,7 @@ impl GitRepo for MockRepo {
     fn reword_commit(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
-        unimplemented!()
-    }
     fn rebase_continue(&self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
         unimplemented!()
     }
     fn squash_commits(&self, _: &Oid, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<RebaseOutcome> {
@@ -324,19 +347,6 @@ impl GitRepo for MockRepo {
         unimplemented!()
     }
     fn auto_stage_resolved_conflicts(&self, _: &[String]) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn default_branch(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    fn root_commit_oid(&self) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_walker<'a>(
-        &'a self,
-        _from_oid: &Oid,
-        _to_oid: &Oid,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
 }
@@ -850,8 +860,117 @@ fn only_key_events_dismiss_transient_status() {
     assert!(!crate::event_dismisses_status(&Event::FocusLost));
 }
 
+#[test]
+fn conflict_tool_finished_refreshes_rebase_dialog() {
+    // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
+    // with the still-conflicting files and a success banner naming the tool.
+    let repo = MockRepo {
+        conflicting_files: vec!["a.txt".to_string()],
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Merge tool",
+        Ok(ToolRun::Finished),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    match &app.mode {
+        AppMode::RebaseConflict(state) => {
+            assert_eq!(state.conflicting_files, vec!["a.txt".to_string()]);
+            assert!(!state.still_unresolved);
+        }
+        other => panic!("expected RebaseConflict mode, got {other:?}"),
+    }
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Merge tool finished")
+    );
+    assert!(!app.status_is_error);
+}
+
+#[test]
+fn conflict_tool_no_merge_tool_sets_error() {
+    let repo = MockRepo::default();
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Merge tool",
+        Ok(ToolRun::NoMergeTool),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert!(app.status_is_error);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("No merge tool configured")
+    );
+}
+
+#[test]
+fn conflict_tool_failure_reports_the_tool_name() {
+    let repo = MockRepo::default();
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Editor",
+        Err(anyhow::anyhow!("boom")),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert!(app.status_is_error);
+    let msg = app.status_message.as_deref().unwrap_or("");
+    assert!(msg.contains("Editor failed"), "unexpected message: {msg}");
+    assert!(msg.contains("boom"), "unexpected message: {msg}");
+}
+
+#[test]
+fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
+    let repo = MockRepo {
+        conflicting_files: vec!["b.txt".to_string()],
+        ..MockRepo::default()
+    };
+    // handle_run_stash_tool reads the operation label off the current mode.
+    let mut app = AppState {
+        mode: AppMode::StashConflict(Box::new(StashConflictState {
+            operation_label: "Drop".to_string(),
+            conflicting_files: vec![],
+            still_unresolved: true,
+        })),
+        ..Default::default()
+    };
+    let action = handle_run_stash_tool(&repo, &mut app, "Editor", Ok(ToolRun::Finished));
+    assert!(matches!(action, LoopAction::Proceed));
+    match &app.mode {
+        AppMode::StashConflict(state) => {
+            assert_eq!(state.operation_label, "Drop");
+            assert_eq!(state.conflicting_files, vec!["b.txt".to_string()]);
+            assert!(!state.still_unresolved);
+        }
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Editor finished")
+    );
+}
+
 mod autofixup_selection {
     use super::*;
+    use crate::dispatch::autofixup::{
+        apply_pending_autofixup_selection, autofixup_target_selection_index,
+        handle_execute_autofixup,
+    };
     use git_tailor::VirtualOid;
     use git_tailor::app::SquashMode as Mode;
     use git_tailor::autofixup::AutofixupPair;
@@ -919,27 +1038,27 @@ mod autofixup_selection {
     #[test]
     fn selection_on_a_surviving_commit_shifts_down_by_removed_commits_before_it() {
         // C is at index 3; only F1 (index 2) is removed before it -> index 2.
-        let idx = crate::autofixup_target_selection_index(&commits(), 3, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 3, &pairs());
         assert_eq!(idx, Some(2));
     }
 
     #[test]
     fn selection_before_any_removal_is_unaffected() {
         // T is at index 1; nothing removed before it.
-        let idx = crate::autofixup_target_selection_index(&commits(), 1, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 1, &pairs());
         assert_eq!(idx, Some(1));
     }
 
     #[test]
     fn selection_on_a_folded_away_fixup_lands_on_its_target() {
         // F2 (index 4) was folded into T (index 1); nothing removed before T.
-        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 4, &pairs());
         assert_eq!(idx, Some(1));
     }
 
     #[test]
     fn selection_on_the_first_fixup_also_lands_on_its_target() {
-        let idx = crate::autofixup_target_selection_index(&commits(), 2, &pairs());
+        let idx = autofixup_target_selection_index(&commits(), 2, &pairs());
         assert_eq!(idx, Some(1));
     }
 
@@ -947,7 +1066,7 @@ mod autofixup_selection {
     fn synthetic_row_selection_falls_back_to_none() {
         let mut cs = commits();
         cs.push(synthetic(VirtualOid::Unstaged));
-        let idx = crate::autofixup_target_selection_index(&cs, 5, &pairs());
+        let idx = autofixup_target_selection_index(&cs, 5, &pairs());
         assert_eq!(idx, None, "synthetic rows aren't touched by autofixup");
     }
 
@@ -956,7 +1075,7 @@ mod autofixup_selection {
         // Even in degenerate/empty inputs the caller still clamps with `.min(len-1)`
         // before assigning to `selection_index` — verify the raw index this
         // function returns is sane (in-bounds) for a normal batch too.
-        let idx = crate::autofixup_target_selection_index(&commits(), 4, &pairs()).unwrap();
+        let idx = autofixup_target_selection_index(&commits(), 4, &pairs()).unwrap();
         assert!(idx < commits().len());
     }
 
@@ -969,7 +1088,7 @@ mod autofixup_selection {
             ..Default::default()
         };
 
-        let result = crate::handle_execute_autofixup(
+        let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
             Oid::from("a".repeat(40)),
@@ -994,7 +1113,7 @@ mod autofixup_selection {
             ..Default::default()
         };
 
-        let result = crate::handle_execute_autofixup(
+        let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
             Oid::from("a".repeat(40)),
@@ -1018,7 +1137,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadSelecting(2)));
         assert_eq!(
             app.pending_autofixup_selection, None,
@@ -1033,7 +1152,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
         assert_eq!(
             app.pending_autofixup_selection,
@@ -1046,7 +1165,7 @@ mod autofixup_selection {
     fn apply_pending_selection_falls_back_when_nothing_was_stashed() {
         let mut app = AppState::default();
         let result =
-            crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
     }
 
@@ -1056,7 +1175,7 @@ mod autofixup_selection {
             pending_autofixup_selection: Some(2),
             ..Default::default()
         };
-        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
+        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
         assert!(matches!(result, LoopAction::Continue));
         assert_eq!(
             app.pending_autofixup_selection,
@@ -1071,7 +1190,7 @@ mod autofixup_selection {
             pending_autofixup_selection: Some(2),
             ..Default::default()
         };
-        let result = crate::apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
+        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
         assert!(matches!(result, LoopAction::Proceed));
         assert_eq!(
             app.pending_autofixup_selection, None,

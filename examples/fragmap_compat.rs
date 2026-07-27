@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 use std::process::Command;
 
 use git_tailor::fragmap::{self, FragMap};
-use git_tailor::repo::{Git2Repo, GitRepo};
+use git_tailor::repo::{Git2Repo, RepoRead};
 use git_tailor::static_views;
 use git_tailor::{CommitInfo, VirtualOid};
 

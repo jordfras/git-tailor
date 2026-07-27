@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
-use super::GitRepo;
+use super::{RepoRead, RepoWrite};
 
 /// Convert a libgit2 OID into our domain `Oid` type.
 impl From<git2::Oid> for Oid {
@@ -55,7 +55,7 @@ mod stash;
 pub struct Git2Repo {
     inner: git2::Repository,
     /// When true, operations that need a clean working tree auto-stash dirty
-    /// state instead of refusing (see [`GitRepo::autostash_save`]).
+    /// state instead of refusing (see [`RepoWrite::autostash_save`]).
     autostash: bool,
 }
 
@@ -187,7 +187,7 @@ impl Git2Repo {
     }
 }
 
-impl GitRepo for Git2Repo {
+impl RepoRead for Git2Repo {
     fn head_oid(&self) -> Result<Oid> {
         reads::head_oid(self)
     }
@@ -224,6 +224,46 @@ impl GitRepo for Git2Repo {
         reads::unstaged_diff_for_fragmap(self)
     }
 
+    fn get_config_string(&self, key: &str) -> Result<Option<String>> {
+        reads::get_config_string(self, key)
+    }
+
+    fn workdir(&self) -> Option<std::path::PathBuf> {
+        reads::workdir(self)
+    }
+
+    fn is_worktree_dirty(&self) -> Result<bool> {
+        // Calls the inherent `Git2Repo::is_worktree_dirty` (inherent methods
+        // take resolution priority over trait methods), not itself.
+        Git2Repo::is_worktree_dirty(self)
+    }
+
+    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+        reads::read_index_stage(self, path, stage)
+    }
+
+    fn read_conflicting_files(&self) -> Vec<String> {
+        conflict::read_conflicting_files(self)
+    }
+
+    fn root_commit_oid(&self) -> Result<Oid> {
+        reads::root_commit_oid(self)
+    }
+
+    fn default_branch(&self) -> Result<Option<String>> {
+        reads::default_branch(self)
+    }
+
+    fn commit_walker<'a>(
+        &'a self,
+        from_oid: &Oid,
+        to_oid: &Oid,
+    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
+        reads::commit_walker(self, from_oid, to_oid)
+    }
+}
+
+impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Split",
@@ -303,10 +343,6 @@ impl GitRepo for Git2Repo {
             head_oid,
             reword_op::reword_commit(self, commit_oid, new_message, head_oid),
         )
-    }
-
-    fn get_config_string(&self, key: &str) -> Result<Option<String>> {
-        reads::get_config_string(self, key)
     }
 
     fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
@@ -425,24 +461,6 @@ impl GitRepo for Git2Repo {
         self.abort_autostash()
     }
 
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        reads::workdir(self)
-    }
-
-    fn is_worktree_dirty(&self) -> Result<bool> {
-        // Calls the inherent `Git2Repo::is_worktree_dirty` (inherent methods
-        // take resolution priority over trait methods), not itself.
-        Git2Repo::is_worktree_dirty(self)
-    }
-
-    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
-        reads::read_index_stage(self, path, stage)
-    }
-
-    fn read_conflicting_files(&self) -> Vec<String> {
-        conflict::read_conflicting_files(self)
-    }
-
     fn move_commit(
         &self,
         commit_oid: &Oid,
@@ -476,14 +494,6 @@ impl GitRepo for Git2Repo {
 
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
         conflict::auto_stage_resolved_conflicts(self, files)
-    }
-
-    fn default_branch(&self) -> Result<Option<String>> {
-        reads::default_branch(self)
-    }
-
-    fn root_commit_oid(&self) -> Result<Oid> {
-        reads::root_commit_oid(self)
     }
 
     fn squash_try_combine(
@@ -548,14 +558,6 @@ impl GitRepo for Git2Repo {
             head_oid,
             autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides),
         )
-    }
-
-    fn commit_walker<'a>(
-        &'a self,
-        from_oid: &Oid,
-        to_oid: &Oid,
-    ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
-        reads::commit_walker(self, from_oid, to_oid)
     }
 }
 
@@ -715,5 +717,22 @@ impl Git2Repo {
         checkout.force();
         repo.checkout_head(Some(&mut checkout))?;
         Ok(())
+    }
+
+    /// The empty (no-entries) git tree — the three-way-merge base for building
+    /// an orphan root (a commit with no parent to diff against).
+    fn empty_tree(&self) -> Result<git2::Tree<'_>> {
+        let oid = self.inner.treebuilder(None)?.write()?;
+        Ok(self.inner.find_tree(oid)?)
+    }
+
+    /// Walk the entire ancestry of `head` and return the commit OIDs oldest-first
+    /// (`[root, …, head]`).
+    fn all_commit_oids_oldest_first(&self, head: git2::Oid) -> Result<Vec<git2::Oid>> {
+        let mut revwalk = self.inner.revwalk()?;
+        revwalk.push(head)?;
+        let mut oids: Vec<git2::Oid> = revwalk.collect::<Result<Vec<_>, git2::Error>>()?;
+        oids.reverse();
+        Ok(oids)
     }
 }

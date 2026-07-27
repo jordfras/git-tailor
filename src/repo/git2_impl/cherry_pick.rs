@@ -113,10 +113,8 @@ impl Git2Repo {
             // cherry-picking a commit with no parent: files already present
             // with matching content are kept without conflict.
             let mut cherry_index = if desc_commit.parent_count() == 0 {
-                let empty_tree_oid = repo.treebuilder(None)?.write()?;
-                let empty_tree = repo.find_tree(empty_tree_oid)?;
                 repo.merge_trees(
-                    &empty_tree,
+                    &self.empty_tree()?,
                     &onto_commit.tree()?,
                     &desc_commit.tree()?,
                     None,
@@ -162,8 +160,56 @@ pub(super) enum CherryPickResult {
     Conflict(Box<ConflictState>),
 }
 
-/// Build the `ConflictState` for a chain conflict, reading the conflicting
-/// paths from the in-memory `cherry_index` (before it is written to disk).
+/// Finish a cherry-pick chain: on success, advance the branch ref to the new
+/// tip (logging `reflog_msg`) and restore the working tree to `checkout_target`,
+/// returning `RebaseOutcome::Complete`; on conflict, surface the (already
+/// journaled) state. The single tail shared by drop, move, squash, and
+/// conflict-resume.
+pub(super) fn advance_and_finish(
+    repo: &Git2Repo,
+    result: CherryPickResult,
+    checkout_target: &Oid,
+    reflog_msg: &str,
+) -> Result<RebaseOutcome> {
+    match result {
+        CherryPickResult::Complete(tip) => {
+            repo.advance_branch_ref(tip, reflog_msg)?;
+            repo.checkout_head(checkout_target)?;
+            Ok(RebaseOutcome::Complete)
+        }
+        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
+    }
+}
+
+/// The inputs common to every chain/orphan/squash `ConflictState`. Named fields
+/// (rather than positional args) so the two same-typed OIDs — `new_tip` and
+/// `conflicting_commit` — cannot be silently transposed at a call site.
+pub(super) struct ConflictBase<'a> {
+    pub label: &'a str,
+    pub original_branch_oid: Oid,
+    pub new_tip: git2::Oid,
+    pub conflicting_commit: git2::Oid,
+    pub remaining_oids: Vec<Oid>,
+    pub index: &'a git2::Index,
+}
+
+/// Build the fields common to every chain/orphan/squash `ConflictState`, reading
+/// the conflicting paths from the in-memory index (before it is written to
+/// disk). Callers add the op-specific context (`moved_commit_oid`,
+/// `is_orphan_root`, `squash_context`) via struct-update syntax.
+pub(super) fn base_conflict_state(base: ConflictBase) -> ConflictState {
+    ConflictState {
+        operation_label: base.label.to_string(),
+        original_branch_oid: base.original_branch_oid,
+        new_tip_oid: Oid::from(base.new_tip),
+        conflicting_commit_oid: Oid::from(base.conflicting_commit),
+        remaining_oids: base.remaining_oids,
+        conflicting_files: conflict::collect_conflict_files_from_index(base.index),
+        ..Default::default()
+    }
+}
+
+/// Build the `ConflictState` for a chain conflict.
 fn build_chain_conflict_state(
     cherry_index: &git2::Index,
     tip: git2::Oid,
@@ -171,21 +217,21 @@ fn build_chain_conflict_state(
     conflicting_idx: usize,
     ctx: &ChainCtx,
 ) -> ConflictState {
-    let conflicting_oid = oids[conflicting_idx];
     let remaining: Vec<Oid> = oids[conflicting_idx + 1..]
         .iter()
         .map(|&oid| Oid::from(oid))
         .collect();
 
     ConflictState {
-        operation_label: ctx.label.to_string(),
-        original_branch_oid: ctx.original_branch_oid.clone(),
-        new_tip_oid: Oid::from(tip),
-        conflicting_commit_oid: Oid::from(conflicting_oid),
-        remaining_oids: remaining,
-        conflicting_files: conflict::collect_conflict_files_from_index(cherry_index),
         moved_commit_oid: ctx.moved_commit_oid.cloned(),
-        ..Default::default()
+        ..base_conflict_state(ConflictBase {
+            label: ctx.label,
+            original_branch_oid: ctx.original_branch_oid.clone(),
+            new_tip: tip,
+            conflicting_commit: oids[conflicting_idx],
+            remaining_oids: remaining,
+            index: cherry_index,
+        })
     }
 }
 
@@ -207,8 +253,7 @@ pub(super) fn replace_root_and_replay(
     moved_commit_oid: Option<Oid>,
     reflog_msg: &str,
 ) -> Result<RebaseOutcome> {
-    let empty_tree_oid = repo.inner.treebuilder(None)?.write()?;
-    let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+    let empty_tree = repo.empty_tree()?;
 
     let mut cherry_index =
         repo.inner
@@ -223,15 +268,16 @@ pub(super) fn replace_root_and_replay(
 
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
         let state = ConflictState {
-            operation_label: operation_label.to_string(),
-            original_branch_oid,
-            new_tip_oid: Oid::from(anchor_oid),
-            conflicting_commit_oid: Oid::from(first_commit.id()),
-            remaining_oids,
-            conflicting_files: conflict::collect_conflict_files_from_index(&cherry_index),
             moved_commit_oid,
             is_orphan_root: true,
-            ..Default::default()
+            ..base_conflict_state(ConflictBase {
+                label: operation_label,
+                original_branch_oid,
+                new_tip: anchor_oid,
+                conflicting_commit: first_commit.id(),
+                remaining_oids,
+                index: &cherry_index,
+            })
         };
         // Journals write-ahead, then mutates the ref/index/workdir.
         conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit, &state)?;
@@ -255,12 +301,6 @@ pub(super) fn replace_root_and_replay(
         original_branch_oid: &original_branch_oid,
         moved_commit_oid: moved_commit_oid.as_ref(),
     };
-    match repo.cherry_pick_chain(new_root_oid, remaining, &ctx)? {
-        CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, reflog_msg)?;
-            repo.checkout_head(&original_branch_oid)?;
-            Ok(RebaseOutcome::Complete)
-        }
-        CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
-    }
+    let result = repo.cherry_pick_chain(new_root_oid, remaining, &ctx)?;
+    advance_and_finish(repo, result, &original_branch_oid, reflog_msg)
 }

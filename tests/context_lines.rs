@@ -21,7 +21,7 @@
 mod common;
 
 use common::TestRepo;
-use git_tailor::{Oid, repo::GitRepo};
+use git_tailor::{Oid, repo::RepoRead};
 
 /// Build a 30-line file, then change two lines far enough apart (line 5 and line
 /// 20) that they are separate hunks at small context but merge at large context.
