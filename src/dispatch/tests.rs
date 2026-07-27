@@ -14,7 +14,7 @@
 
 use git_tailor::Oid;
 use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
-use git_tailor::repo::{ConflictState, GitRepo, RebaseOutcome, RepoRead, SquashContext};
+use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
@@ -145,7 +145,7 @@ impl RepoRead for MockRepo {
     }
 }
 
-impl GitRepo for MockRepo {
+impl RepoWrite for MockRepo {
     fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)

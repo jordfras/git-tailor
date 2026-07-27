@@ -362,13 +362,9 @@ pub trait RepoRead {
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
 }
 
-/// Abstraction over git repository operations.
-///
-/// Isolates the `git2` crate to the `repo::git2_impl` module. Callers work
-/// through this trait so that the real `Git2Repo` implementation can be
-/// swapped with a mock or fake in tests. Extends [`RepoRead`]; this trait adds
-/// every history-mutating and journal/undo operation.
-pub trait GitRepo: RepoRead {
+/// Every history-mutating and journal/undo/staging operation on a repository —
+/// the write half of the abstraction (see [`RepoRead`] for the read half).
+pub trait RepoWrite {
     /// Split a commit into one commit per changed file.
     ///
     /// Creates N new commits (one per file touched by `commit_oid`), each applying
@@ -754,6 +750,15 @@ pub trait GitRepo: RepoRead {
     /// the actual resolution state.
     fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
 }
+
+/// A full repository handle: everything a caller can do, read and write. This is
+/// the bundle bound most consumers use; the read-only ones (loader, views,
+/// editor) narrow to [`RepoRead`] instead. Automatically implemented for any type
+/// that is both [`RepoRead`] and [`RepoWrite`], so implementors just provide
+/// those two — there is nothing to write here.
+pub trait GitRepo: RepoRead + RepoWrite {}
+
+impl<T: RepoRead + RepoWrite> GitRepo for T {}
 
 impl ConflictState {
     /// Whether this conflict arose from a squash-time tree conflict

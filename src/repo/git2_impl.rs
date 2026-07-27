@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
-use super::{GitRepo, RepoRead};
+use super::{RepoRead, RepoWrite};
 
 /// Convert a libgit2 OID into our domain `Oid` type.
 impl From<git2::Oid> for Oid {
@@ -55,7 +55,7 @@ mod stash;
 pub struct Git2Repo {
     inner: git2::Repository,
     /// When true, operations that need a clean working tree auto-stash dirty
-    /// state instead of refusing (see [`GitRepo::autostash_save`]).
+    /// state instead of refusing (see [`RepoWrite::autostash_save`]).
     autostash: bool,
 }
 
@@ -263,7 +263,7 @@ impl RepoRead for Git2Repo {
     }
 }
 
-impl GitRepo for Git2Repo {
+impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Split",

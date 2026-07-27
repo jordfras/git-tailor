@@ -27,7 +27,7 @@ use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,
     app::AppState,
     fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
-    repo::{ConflictState, Git2Repo, GitRepo},
+    repo::{ConflictState, Git2Repo, RepoWrite},
 };
 use git2::{Repository, Signature};
 use ratatui::{Frame, Terminal, backend::TestBackend, buffer::Buffer};
@@ -92,7 +92,7 @@ impl TestRepo {
 
     /// Stage `path` by adding it to the index with `add_path`.
     ///
-    /// Unlike [`GitRepo::stage_file`], this is a minimal test-fixture helper:
+    /// Unlike [`RepoWrite::stage_file`], this is a minimal test-fixture helper:
     /// it does not handle deleted files (those need `remove_path`) and does not
     /// clear conflict stages. Use it only to set up pre-operation dirty state in
     /// tests, never to simulate conflict resolution — for that call
@@ -110,7 +110,7 @@ impl TestRepo {
 
     /// Commit whatever is currently staged, advancing HEAD.
     ///
-    /// Unlike [`GitRepo`] methods, this operates via the raw `git2::Repository`
+    /// Unlike [`RepoWrite`] methods, this operates via the raw `git2::Repository`
     /// handle and is intended purely for building test histories. It always
     /// uses the fixed "Test User / test@example.com" identity and works on
     /// both an initial (parentless) commit and subsequent commits.
