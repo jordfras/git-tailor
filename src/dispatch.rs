@@ -42,7 +42,7 @@ use autofixup::{
 };
 use conflict::{
     handle_autostash_abort, handle_autostash_continue, handle_rebase_abort, handle_rebase_continue,
-    handle_run_conflict_tool, handle_run_stash_tool,
+    handle_run_conflict_tool, handle_run_stash_tool, run_editor_suspended, run_mergetool_suspended,
 };
 use edit::handle_execute_edit;
 use rewrite::{
@@ -187,37 +187,37 @@ pub(crate) fn dispatch_action(
             files,
             conflict_state,
         } => {
-            return handle_run_conflict_tool(
+            let outcome = run_mergetool_suspended(git_repo, &files, terminal_guard, kb_enhanced);
+            return Ok(handle_run_conflict_tool(
                 git_repo,
                 app,
-                files,
                 conflict_state,
-                terminal_guard,
-                kb_enhanced,
-                true,
-            );
+                "Merge tool",
+                outcome,
+            ));
         }
         AppAction::RunEditor {
             files,
             conflict_state,
         } => {
-            return handle_run_conflict_tool(
+            let outcome = run_editor_suspended(git_repo, &files, terminal_guard, kb_enhanced);
+            return Ok(handle_run_conflict_tool(
                 git_repo,
                 app,
-                files,
                 conflict_state,
-                terminal_guard,
-                kb_enhanced,
-                false,
-            );
+                "Editor",
+                outcome,
+            ));
         }
         AppAction::AutostashContinue => return handle_autostash_continue(git_repo, app),
         AppAction::AutostashAbort => return handle_autostash_abort(git_repo, app),
         AppAction::RunMergetoolForStash { files } => {
-            return handle_run_stash_tool(git_repo, app, files, terminal_guard, kb_enhanced, true);
+            let outcome = run_mergetool_suspended(git_repo, &files, terminal_guard, kb_enhanced);
+            return Ok(handle_run_stash_tool(git_repo, app, "Merge tool", outcome));
         }
         AppAction::RunEditorForStash { files } => {
-            return handle_run_stash_tool(git_repo, app, files, terminal_guard, kb_enhanced, false);
+            let outcome = run_editor_suspended(git_repo, &files, terminal_guard, kb_enhanced);
+            return Ok(handle_run_stash_tool(git_repo, app, "Editor", outcome));
         }
         AppAction::PrepareReword {
             commit_oid,

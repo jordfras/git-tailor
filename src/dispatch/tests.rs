@@ -19,11 +19,7 @@ use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
 
-// The handlers under test live in sibling submodules (rewrite, undo, conflict,
-// split) but dispatch.rs re-`use`s them all for dispatch_action, so `super::*`
-// pulls them in — along with LoopAction and report_stage_outcome. Only
-// SPLIT_CONFIRM_THRESHOLD is private to split.rs (never re-used here) and must be
-// imported directly.
+use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
 use super::*;
 
@@ -47,6 +43,8 @@ struct MockRepo {
     autostash_save_calls: std::cell::Cell<usize>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     commit_diff: Option<CommitDiff>,
+    /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
+    conflicting_files: Vec<String>,
 }
 
 impl Default for MockRepo {
@@ -67,6 +65,7 @@ impl Default for MockRepo {
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
             commit_diff: None,
+            conflicting_files: Vec::new(),
         }
     }
 }
@@ -129,7 +128,7 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
     fn read_conflicting_files(&self) -> Vec<String> {
-        unimplemented!()
+        self.conflicting_files.clone()
     }
     fn default_branch(&self) -> anyhow::Result<Option<String>> {
         Ok(None)
@@ -859,6 +858,111 @@ fn only_key_events_dismiss_transient_status() {
     assert!(!crate::event_dismisses_status(&Event::Resize(80, 24)));
     assert!(!crate::event_dismisses_status(&Event::FocusGained));
     assert!(!crate::event_dismisses_status(&Event::FocusLost));
+}
+
+#[test]
+fn conflict_tool_finished_refreshes_rebase_dialog() {
+    // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
+    // with the still-conflicting files and a success banner naming the tool.
+    let repo = MockRepo {
+        conflicting_files: vec!["a.txt".to_string()],
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Merge tool",
+        Ok(ToolRun::Finished),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    match &app.mode {
+        AppMode::RebaseConflict(state) => {
+            assert_eq!(state.conflicting_files, vec!["a.txt".to_string()]);
+            assert!(!state.still_unresolved);
+        }
+        other => panic!("expected RebaseConflict mode, got {other:?}"),
+    }
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Merge tool finished")
+    );
+    assert!(!app.status_is_error);
+}
+
+#[test]
+fn conflict_tool_no_merge_tool_sets_error() {
+    let repo = MockRepo::default();
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Merge tool",
+        Ok(ToolRun::NoMergeTool),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert!(app.status_is_error);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("No merge tool configured")
+    );
+}
+
+#[test]
+fn conflict_tool_failure_reports_the_tool_name() {
+    let repo = MockRepo::default();
+    let mut app = AppState::default();
+    let action = handle_run_conflict_tool(
+        &repo,
+        &mut app,
+        make_conflict_state(),
+        "Editor",
+        Err(anyhow::anyhow!("boom")),
+    );
+    assert!(matches!(action, LoopAction::Proceed));
+    assert!(app.status_is_error);
+    let msg = app.status_message.as_deref().unwrap_or("");
+    assert!(msg.contains("Editor failed"), "unexpected message: {msg}");
+    assert!(msg.contains("boom"), "unexpected message: {msg}");
+}
+
+#[test]
+fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
+    let repo = MockRepo {
+        conflicting_files: vec!["b.txt".to_string()],
+        ..MockRepo::default()
+    };
+    // handle_run_stash_tool reads the operation label off the current mode.
+    let mut app = AppState {
+        mode: AppMode::StashConflict(Box::new(StashConflictState {
+            operation_label: "Drop".to_string(),
+            conflicting_files: vec![],
+            still_unresolved: true,
+        })),
+        ..Default::default()
+    };
+    let action = handle_run_stash_tool(&repo, &mut app, "Editor", Ok(ToolRun::Finished));
+    assert!(matches!(action, LoopAction::Proceed));
+    match &app.mode {
+        AppMode::StashConflict(state) => {
+            assert_eq!(state.operation_label, "Drop");
+            assert_eq!(state.conflicting_files, vec!["b.txt".to_string()]);
+            assert!(!state.still_unresolved);
+        }
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Editor finished")
+    );
 }
 
 mod autofixup_selection {
