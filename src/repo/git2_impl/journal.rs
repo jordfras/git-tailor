@@ -41,14 +41,14 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{ConflictState, JournalCleanSummary, JournalStatus, UndoOutcome};
+use super::super::{InProgress, JournalCleanSummary, JournalStatus, UndoOutcome};
 use super::Git2Repo;
 use super::reads;
 use crate::Oid;
 
 /// On-disk journal format version. Bump when the schema changes in a
 /// non-additive way and add a matching arm in [`migrate`].
-const JOURNAL_VERSION: u32 = 1;
+const JOURNAL_VERSION: u32 = 2;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
 /// the leaf names below build on it, and `--clean-journal` finds every ref by
@@ -196,9 +196,10 @@ pub(super) struct AutostashRecord {
 #[serde(default)]
 struct JournalDoc {
     version: u32,
-    /// `Some` while an operation is paused/incomplete; `None` after a clean
+    /// `Some` while an operation is paused/incomplete (a conflict awaiting
+    /// resolution, or an Edit shell in progress); `None` after a clean
     /// completion or abort.
-    in_progress: Option<ConflictState>,
+    in_progress: Option<InProgress>,
     /// Completed operations available to undo, oldest first (top = last).
     undo: Vec<UndoRecord>,
     /// Undone operations available to redo, oldest first (top = last).
@@ -399,20 +400,20 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     }
 }
 
-/// Record `state` as the in-progress operation and pin the original branch tip.
-pub(super) fn set_in_progress(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
+/// Record `record` as the in-progress operation and pin the original branch tip.
+pub(super) fn set_in_progress(repo: &Git2Repo, record: &InProgress) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
-    doc.in_progress = Some(state.clone());
+    doc.in_progress = Some(record.clone());
     save(repo, &mut doc)?;
 
-    let orig = git2::Oid::from(&state.original_branch_oid);
+    let orig = git2::Oid::from(record.original_branch_oid());
     repo.inner
         .reference(&orig_ref(), orig, true, "git-tailor: journal in-progress")?;
     Ok(())
 }
 
 /// Read the in-progress operation record, if any.
-pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<ConflictState>> {
+pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
     Ok(load_doc(repo)?.in_progress)
 }
 
@@ -780,37 +781,79 @@ pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
         return JournalStatus::NewerVersion(header.version);
     }
 
+    // Older versions: read the version-specific shape and upgrade. A v1
+    // in-progress record (the old flat ConflictState) isn't representable in the
+    // current schema. If one is present we must NOT rewrite the file — leaving it
+    // as-is lets an older git-tailor still finish the operation — and we surface
+    // it as UpgradeInterrupted. Otherwise the upgrade is lossless: undo/redo/
+    // autostash carry over and the file is rewritten to the current version.
+    // See CHANGELOG.
+    if header.version < JOURNAL_VERSION {
+        let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
+            Ok(d) => d,
+            Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+        };
+        if let Some(op) = old.interrupted_op_label() {
+            return JournalStatus::UpgradeInterrupted { op };
+        }
+        let upgraded = migrate_v1(old);
+        let _ = write_doc(repo, &upgraded);
+        return classify(upgraded);
+    }
+
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
         Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
     };
-
-    // Auto-upgrade older versions and persist the upgraded document.
-    if header.version < JOURNAL_VERSION {
-        match migrate(doc) {
-            Ok(upgraded) => {
-                let _ = write_doc(repo, &upgraded);
-                return classify(upgraded);
-            }
-            Err(e) => return JournalStatus::Corrupt(format!("journal migration failed: {e}")),
-        }
-    }
-
     classify(doc)
 }
 
 fn classify(doc: JournalDoc) -> JournalStatus {
     match doc.in_progress {
-        Some(state) => JournalStatus::Recovered(Box::new(state)),
+        Some(record) => JournalStatus::Recovered(Box::new(record)),
         None => JournalStatus::None,
     }
 }
 
-/// Upgrade an older-version document to the current schema.
-///
-/// Only v1 exists today, so this is a pass-through; future version bumps add
-/// step-wise migration arms here keyed on `doc.version`.
-fn migrate(mut doc: JournalDoc) -> Result<JournalDoc> {
-    doc.version = JOURNAL_VERSION;
-    Ok(doc)
+/// The v1 journal shape, read only to migrate forward. `in_progress` (the old
+/// flat `ConflictState`) is captured untyped purely to detect an interrupted
+/// operation and name it; `undo`/`redo`/`autostash` — unchanged in v2 — carry
+/// over when there is nothing paused.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct JournalDocV1 {
+    in_progress: Option<serde_json::Value>,
+    undo: Vec<UndoRecord>,
+    redo: Vec<UndoRecord>,
+    autostash: Option<AutostashRecord>,
+}
+
+impl JournalDocV1 {
+    /// The label of an operation left paused in this v1 journal, if any. The v1
+    /// in-progress record (a flat `ConflictState`, also used as the Edit marker)
+    /// carries `operation_label`; fall back to a generic name if it is absent.
+    fn interrupted_op_label(&self) -> Option<String> {
+        let record = self.in_progress.as_ref()?;
+        if record.is_null() {
+            return None;
+        }
+        Some(
+            record
+                .get("operation_label")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("an operation")
+                .to_string(),
+        )
+    }
+}
+
+/// Upgrade a v1 document to the current schema, dropping any in-progress record.
+fn migrate_v1(old: JournalDocV1) -> JournalDoc {
+    JournalDoc {
+        version: JOURNAL_VERSION,
+        in_progress: None,
+        undo: old.undo,
+        redo: old.redo,
+        autostash: old.autostash,
+    }
 }

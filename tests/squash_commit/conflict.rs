@@ -38,7 +38,7 @@ fn squash_returns_conflict_when_source_and_target_conflict() {
         RebaseOutcome::Conflict(state) => {
             assert_eq!(state.operation_label, "Squash");
             assert!(
-                state.squash_context.is_some(),
+                state.is_squash_tree_conflict(),
                 "squash-time conflict should carry squash_context"
             );
             assert!(
@@ -69,8 +69,9 @@ fn squash_returns_conflict_when_all_three_modify_same_file() {
     match result {
         RebaseOutcome::Conflict(state) => {
             assert_eq!(state.operation_label, "Squash");
-            assert!(state.squash_context.is_some());
-            let ctx = state.squash_context.unwrap();
+            let Resume::Squash(ctx) = &state.resume else {
+                panic!("squash-tree conflict should carry a squash context");
+            };
             // The descendant that is NOT the source should be in the list
             assert!(
                 !ctx.descendant_oids.is_empty(),
@@ -206,7 +207,9 @@ fn squash_try_combine_returns_conflict_state() {
 
     assert_eq!(state.operation_label, "Squash");
     assert!(!state.conflicting_files.is_empty());
-    let ctx = state.squash_context.as_ref().unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("squash-tree conflict should carry a squash context");
+    };
     assert_eq!(ctx.source_oid, Oid::from(source));
     assert_eq!(ctx.target_oid, Oid::from(target));
     assert_eq!(ctx.combined_message, "combined msg");
@@ -248,7 +251,10 @@ fn squash_finalize_after_conflict_resolution() {
     //         conflict would cascade-conflict during cherry-pick; that outcome
     //         is exercised by the conflict-returning tests above.)
     let ctx = SquashContext {
-        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        base_oid: match &state.resume {
+            Resume::Squash(sc) => sc.base_oid.clone(),
+            _ => panic!("squash-tree conflict should carry a squash context"),
+        },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
         combined_message: "combined".to_string(),

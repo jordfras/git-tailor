@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 
-use super::super::{ConflictState, RebaseOutcome};
+use super::super::{ConflictState, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::conflict;
 use crate::Oid;
@@ -195,8 +195,8 @@ pub(super) struct ConflictBase<'a> {
 
 /// Build the fields common to every chain/orphan/squash `ConflictState`, reading
 /// the conflicting paths from the in-memory index (before it is written to
-/// disk). Callers add the op-specific context (`moved_commit_oid`,
-/// `is_orphan_root`, `squash_context`) via struct-update syntax.
+/// disk). Callers set the op-specific `resume` (and any `autofixup_context`) via
+/// struct-update syntax.
 pub(super) fn base_conflict_state(base: ConflictBase) -> ConflictState {
     ConflictState {
         operation_label: base.label.to_string(),
@@ -223,7 +223,10 @@ fn build_chain_conflict_state(
         .collect();
 
     ConflictState {
-        moved_commit_oid: ctx.moved_commit_oid.cloned(),
+        resume: Resume::Chain {
+            orphan_root: false,
+            moved_commit_oid: ctx.moved_commit_oid.cloned(),
+        },
         ..base_conflict_state(ConflictBase {
             label: ctx.label,
             original_branch_oid: ctx.original_branch_oid.clone(),
@@ -268,8 +271,10 @@ pub(super) fn replace_root_and_replay(
 
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
         let state = ConflictState {
-            moved_commit_oid,
-            is_orphan_root: true,
+            resume: Resume::Chain {
+                orphan_root: true,
+                moved_commit_oid,
+            },
             ..base_conflict_state(ConflictBase {
                 label: operation_label,
                 original_branch_oid,

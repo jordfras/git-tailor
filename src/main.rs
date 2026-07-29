@@ -25,7 +25,8 @@ mod update_check;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use git_tailor::repo::{
-    AutostashRestore, Git2Repo, GitRepo, JournalStatus, RepoRead, RepoWrite, StashConflictState,
+    AutostashRestore, Git2Repo, GitRepo, InProgress, JournalStatus, RepoRead, RepoWrite,
+    StashConflictState,
 };
 use git_tailor::{
     CommitDiff, CommitInfo,
@@ -81,6 +82,19 @@ fn main() -> Result<()> {
             return Ok(());
         };
         return run_static_output(&git_repo, &commits, &cli);
+    }
+
+    // An operation interrupted under an older git-tailor cannot be resumed by
+    // this version. Refuse to start the TUI — which would drop the user into a
+    // confusing half-finished state — until they resolve it. Checked here, while
+    // the terminal is still in its normal mode, so the message is readable.
+    if let JournalStatus::UpgradeInterrupted { op } = git_repo.read_journal()? {
+        eprintln!(
+            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
+             This version cannot resume it. Finish it with the previous git-tailor, \
+             or run `gt --clean-journal` to discard it and start fresh."
+        );
+        std::process::exit(1);
     }
 
     // TUI path: resolve bounds first (fast), then start the TUI immediately.
@@ -289,45 +303,52 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
     let _ = git_repo.prune_stale_journal();
 
     match git_repo.read_journal() {
-        Ok(JournalStatus::Recovered(state)) if state.edit_context.is_some() => {
-            // A crashed Edit: the shell session cannot be resumed and the branch
-            // may be anywhere the user left it, so the only safe action is to
-            // restore the branch to its original tip. In-shell commits remain
-            // reachable via the reflog and the pinned `orig` ref; uncommitted
-            // in-shell changes are discarded by the restoring checkout.
-            match git_repo.abort_edit() {
-                Ok(()) => app.set_error_message(
-                    "Recovered an interrupted Edit — restored the branch \
-                     (in-shell commits remain in the reflog)",
-                ),
-                Err(e) => {
-                    app.set_error_message(format!("Failed to recover an interrupted Edit: {e}"))
+        Ok(JournalStatus::Recovered(record)) => match *record {
+            InProgress::Edit(_) => {
+                // A crashed Edit: the shell session cannot be resumed and the
+                // branch may be anywhere the user left it, so the only safe action
+                // is to restore the branch to its original tip. In-shell commits
+                // remain reachable via the reflog and the pinned `orig` ref;
+                // uncommitted in-shell changes are discarded by the restoring
+                // checkout.
+                match git_repo.abort_edit() {
+                    Ok(()) => app.set_error_message(
+                        "Recovered an interrupted Edit — restored the branch \
+                         (in-shell commits remain in the reflog)",
+                    ),
+                    Err(e) => {
+                        app.set_error_message(format!("Failed to recover an interrupted Edit: {e}"))
+                    }
                 }
             }
-        }
-        Ok(JournalStatus::Recovered(state)) => {
-            // Only offer recovery when the branch is still where the interrupted
-            // operation left it; otherwise the journal is stale (history changed
-            // outside git-tailor) and resuming or aborting would be unsafe.
-            let head_matches = git_repo
-                .head_oid()
-                .map(|head| head == state.new_tip_oid)
-                .unwrap_or(false);
-            if head_matches {
-                app.enter_recover_confirm(*state);
-            } else {
-                let _ = git_repo.clear_journal();
-                app.set_error_message(
-                    "Discarded a stale interrupted-operation journal (branch has moved)",
-                );
+            InProgress::Conflict(state) => {
+                // Only offer recovery when the branch is still where the
+                // interrupted operation left it; otherwise the journal is stale
+                // (history changed outside git-tailor) and resuming or aborting
+                // would be unsafe.
+                let head_matches = git_repo
+                    .head_oid()
+                    .map(|head| head == state.new_tip_oid)
+                    .unwrap_or(false);
+                if head_matches {
+                    app.enter_recover_confirm(*state);
+                } else {
+                    let _ = git_repo.clear_journal();
+                    app.set_error_message(
+                        "Discarded a stale interrupted-operation journal (branch has moved)",
+                    );
+                }
             }
-        }
+        },
         Ok(JournalStatus::NewerVersion(v)) => {
             app.set_error_message(format!(
                 "Ignoring a journal written by a newer git-tailor (format v{v}); \
                  upgrade git-tailor or remove .git/git-tailor/journal.json"
             ));
         }
+        // Handled before the TUI starts (see main): this path bails out early,
+        // so reaching here would be a bug. Nothing to do.
+        Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
         Ok(JournalStatus::Corrupt(e)) => {
             app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
         }

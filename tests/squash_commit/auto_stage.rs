@@ -64,7 +64,10 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     );
 
     let ctx = SquashContext {
-        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        base_oid: match &state.resume {
+            Resume::Squash(sc) => sc.base_oid.clone(),
+            _ => panic!("squash-tree conflict should carry a squash context"),
+        },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
         combined_message: "combined".to_string(),
@@ -127,7 +130,10 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     // Step 3: finalize with an empty descendant list to isolate the squash
     //         commit's tree from any descendant cherry-pick effects.
     let ctx = SquashContext {
-        base_oid: state.squash_context.as_ref().unwrap().base_oid.clone(),
+        base_oid: match &state.resume {
+            Resume::Squash(sc) => sc.base_oid.clone(),
+            _ => panic!("squash-tree conflict should carry a squash context"),
+        },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
         combined_message: "squashed".to_string(),

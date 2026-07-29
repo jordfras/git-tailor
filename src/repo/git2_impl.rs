@@ -107,7 +107,9 @@ impl Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         if let Ok(out) = &outcome {
             match out {
-                super::RebaseOutcome::Conflict(state) => journal::set_in_progress(self, state)?,
+                super::RebaseOutcome::Conflict(state) => {
+                    journal::set_in_progress(self, &super::InProgress::Conflict(state.clone()))?
+                }
                 super::RebaseOutcome::Complete => {
                     journal::clear_in_progress(self)?;
                     self.record_undo_if_changed(label, tip_before)?;
@@ -360,7 +362,7 @@ impl RepoWrite for Git2Repo {
     fn finish_edit(&self, commit_oid: &Oid) -> Result<super::EditOutcome> {
         // Capture the undo base (the original branch tip) before `finish_edit`
         // clears the in-progress record on completion.
-        let original = journal::in_progress(self)?.map(|s| s.original_branch_oid);
+        let original = journal::in_progress(self)?.map(|s| s.original_branch_oid().clone());
         let outcome = edit_op::finish_edit(self, commit_oid)?;
         if matches!(outcome, super::EditOutcome::Complete)
             && let Some(original) = original
@@ -515,7 +517,7 @@ impl RepoWrite for Git2Repo {
         // The squash-tree conflict path writes conflicts to the working tree and
         // returns the state directly (bypassing RebaseOutcome), so journal it here.
         if let Some(state) = &result {
-            journal::set_in_progress(self, state)?;
+            journal::set_in_progress(self, &super::InProgress::Conflict(Box::new(state.clone())))?;
         }
         Ok(result)
     }
