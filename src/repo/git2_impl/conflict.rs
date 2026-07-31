@@ -47,19 +47,21 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let new_tree_oid = index.write_tree()?;
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
-    // Squash-tree conflicts resume via squash_finalize, not here, so only Chain is expected.
-    let (remaining_oids, orphan_root, moved_commit_oid) = match &state.resume {
-        Resume::Chain {
-            remaining_oids,
-            orphan_root,
-            moved_commit_oid,
-        } => (
-            remaining_oids.as_slice(),
-            *orphan_root,
-            moved_commit_oid.as_ref(),
-        ),
-        Resume::Squash(_) => (&[][..], false, None),
+    // Squash-tree conflicts resume via squash_finalize, never here; a Squash
+    // resume reaching this point is a routing bug, so fail loudly rather than
+    // silently committing a plain chain.
+    let Resume::Chain {
+        remaining_oids,
+        orphan_root,
+        moved_commit_oid,
+    } = &state.resume
+    else {
+        anyhow::bail!(
+            "rebase_continue called for a squash-tree conflict; resume via squash_finalize"
+        );
     };
+    let orphan_root = *orphan_root;
+    let moved_commit_oid = moved_commit_oid.as_ref();
 
     let new_tip = if orphan_root {
         // The conflicting commit becomes an orphan root (no parents).
