@@ -35,7 +35,7 @@ use git_tailor::{
 };
 
 use crate::cli::Cli;
-use crate::dispatch::{LoopAction, dispatch_action};
+use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
 use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
@@ -142,6 +142,10 @@ fn main() -> Result<()> {
 
     check_journal_recovery(&mut git_repo, &mut app);
 
+    // Outlives the loop: an autofixup batch can pause for several conflict
+    // rounds, and the index must survive every one of them.
+    let mut pending_autofixup = PendingAutofixupSelection::default();
+
     loop {
         terminal_guard.terminal().draw(|frame| {
             // Paint the palette's base background first so every cell that sets
@@ -239,6 +243,7 @@ fn main() -> Result<()> {
             result,
             &mut app,
             &mut git_repo,
+            &mut pending_autofixup,
             &mut terminal_guard,
             kb_enhanced,
         )?;

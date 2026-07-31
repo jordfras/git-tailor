@@ -104,13 +104,6 @@ pub struct AppState {
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `status.clear`); shown in the footer hint slot.
     pub update_notice: Option<String>,
-    /// Precomputed target selection index for an in-progress autofixup batch
-    /// that hit a conflict, carried across the conflict-resolution round trip
-    /// (possibly several, if more than one pair conflicts) so the cursor still
-    /// lands on the right commit once the whole batch finally completes.
-    /// `None` once consumed or when there was nothing sensible to restore
-    /// (e.g. the original selection was a synthetic staged/unstaged row).
-    pub pending_autofixup_selection: Option<usize>,
 }
 
 impl AppState {
