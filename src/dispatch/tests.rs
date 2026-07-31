@@ -328,7 +328,6 @@ impl RepoWrite for MockRepo {
                 original_branch_oid: Oid::from("a".repeat(40)),
                 new_tip_oid: Oid::from("b".repeat(40)),
                 conflicting_commit_oid: Oid::from("c".repeat(40)),
-                remaining_oids: vec![],
                 conflicting_files: vec![],
                 autofixup_context: Some(git_tailor::repo::AutofixupContext {
                     reference_oid: Oid::from("d".repeat(40)),
@@ -357,7 +356,6 @@ fn make_conflict_state() -> ConflictState {
         original_branch_oid: Oid::from("b".repeat(40)),
         new_tip_oid: Oid::from("c".repeat(40)),
         conflicting_commit_oid: Oid::from("d".repeat(40)),
-        remaining_oids: vec![],
         conflicting_files: vec![],
         ..Default::default()
     }

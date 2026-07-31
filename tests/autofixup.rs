@@ -187,10 +187,9 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     // second, independent conflict rather than a property of autofixup batching.
     test.write_file("c.txt", "mid version\n");
     git_repo.stage_file("c.txt").unwrap();
-    let ctx = state
-        .squash_context
-        .as_ref()
-        .expect("a three-way overwrite conflicts at squash-tree time");
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("a three-way overwrite conflicts at squash-tree time");
+    };
     let outcome = git_repo
         .squash_finalize(
             ctx,
@@ -347,10 +346,9 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     // the override was already folded into the conflict's own combined
     // message on the first attempt — main.rs uses exactly this field
     // (skipping the editor for an autofixup batch) to finalize.
-    let squash_ctx = state
-        .squash_context
-        .as_ref()
-        .expect("a three-way overwrite conflicts at squash-tree time");
+    let Resume::Squash(squash_ctx) = &state.resume else {
+        panic!("a three-way overwrite conflicts at squash-tree time");
+    };
     assert_eq!(squash_ctx.combined_message, "Custom final message\n");
 
     test.write_file("a.txt", "base\nmid version\n");

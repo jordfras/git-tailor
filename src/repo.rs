@@ -33,11 +33,17 @@ pub const DEFAULT_CONTEXT_LINES: u32 = 3;
 pub enum JournalStatus {
     /// No interrupted operation to recover.
     None,
-    /// An operation was interrupted; the persisted state can resume or abort it.
-    Recovered(Box<ConflictState>),
+    /// An operation was interrupted; the persisted record can resume/abort a
+    /// paused conflict or restore an in-progress Edit.
+    Recovered(Box<InProgress>),
     /// The journal was written by a newer git-tailor (`version` exceeds what
     /// this build understands). The file is left untouched.
     NewerVersion(u32),
+    /// An older journal held an operation interrupted mid-flight whose record is
+    /// not representable in the current schema, so this version cannot resume it.
+    /// The file is left untouched (an older git-tailor can still finish the
+    /// operation). `op` names the interrupted operation.
+    UpgradeInterrupted { op: String },
     /// The journal could not be read or parsed; the message describes why.
     Corrupt(String),
 }
@@ -112,45 +118,82 @@ pub struct ConflictState {
     pub new_tip_oid: Oid,
     /// The OID of the commit whose cherry-pick conflicted.
     pub conflicting_commit_oid: Oid,
-    /// OIDs of commits that still need to be cherry-picked after the
-    /// conflicting commit is resolved, in order (oldest first).
-    pub remaining_oids: Vec<Oid>,
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
     pub conflicting_files: Vec<String>,
     /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
-    /// When this conflict was triggered by a move operation, this holds the OID
-    /// of the commit being moved. The conflict view uses it to tell the user
-    /// whether the moved commit itself conflicted or a successor did.
-    pub moved_commit_oid: Option<Oid>,
-    /// When present, the conflict arose during the initial squash tree
-    /// creation (source vs target overlap). After the user resolves the
-    /// conflict the TUI should open the editor and then call
-    /// `squash_finalize` instead of `rebase_continue`.
-    pub squash_context: Option<SquashContext>,
-    /// True when the conflicting commit should become an orphan root (no
-    /// parents) after resolution. Used when dropping the root commit.
-    pub is_orphan_root: bool,
-    /// Set only for an in-progress autofixup batch. `None` for every other
-    /// operation.
+    /// How the conflict is carried to completion once the user resolves it.
+    pub resume: Resume,
+    /// Set only for a step of an in-progress autofixup batch, so the batch
+    /// continues after this pair's conflict resolves. Orthogonal to `resume`
+    /// (a batch step can conflict either in its squash tree or its descendants).
     pub autofixup_context: Option<AutofixupContext>,
-    /// Set only while an "Edit" operation is in progress (the branch has been
-    /// rewound to the edited commit and checked out for a shell session).
-    /// `None` for every other operation.
-    pub edit_context: Option<EditContext>,
 }
 
-/// Extra state carried while an "Edit" (interactive shell edit of a commit) is
-/// in progress, so a crash can restore the branch even if the user left HEAD
+/// How a resolved conflict is carried to completion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Resume {
+    /// Re-commit the resolved index at the conflicting commit, then continue
+    /// cherry-picking `remaining_oids`. `orphan_root` makes the conflicting
+    /// commit a parentless root (dropping or moving the root commit);
+    /// `moved_commit_oid` is a display hint naming the commit a Move relocated.
+    Chain {
+        /// Commits still to cherry-pick after the resolved one, in order
+        /// (oldest first).
+        remaining_oids: Vec<Oid>,
+        orphan_root: bool,
+        moved_commit_oid: Option<Oid>,
+    },
+    /// Finalize a squash (open the editor if needed, then `squash_finalize`)
+    /// after the user resolves the squash-tree conflict.
+    Squash(SquashContext),
+}
+
+impl Default for Resume {
+    fn default() -> Self {
+        Resume::Chain {
+            remaining_oids: Vec::new(),
+            orphan_root: false,
+            moved_commit_oid: None,
+        }
+    }
+}
+
+/// The journal's in-progress record: either a paused conflict awaiting
+/// resolution, or an "Edit" shell session in progress (which carries no
+/// conflict — just enough to restore the branch on abort/crash).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InProgress {
+    Conflict(Box<ConflictState>),
+    Edit(EditInProgress),
+}
+
+/// State captured while an "Edit" (interactive shell edit of a commit) is in
+/// progress, so a crash can restore the branch even if the user left HEAD
 /// detached or on another branch from inside the shell.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct EditContext {
+pub struct EditInProgress {
     /// Full name of the branch ref being edited (e.g. `refs/heads/main`), so
     /// recovery/abort can restore it by name regardless of where HEAD points.
     pub branch_refname: String,
+    /// The branch tip before the edit began, restored on abort.
+    pub original_branch_oid: Oid,
+    /// The commit being edited.
+    pub edited_commit_oid: Oid,
+}
+
+impl InProgress {
+    /// The pre-operation branch tip this record pins and restores, whichever
+    /// kind of record it is.
+    pub fn original_branch_oid(&self) -> &Oid {
+        match self {
+            InProgress::Conflict(c) => &c.original_branch_oid,
+            InProgress::Edit(e) => &e.original_branch_oid,
+        }
+    }
 }
 
 /// Result of finishing an in-progress "Edit".
@@ -764,6 +807,16 @@ impl ConflictState {
     /// Whether this conflict arose from a squash-time tree conflict
     /// (as opposed to a descendant rebase conflict).
     pub fn is_squash_tree_conflict(&self) -> bool {
-        self.squash_context.is_some()
+        matches!(self.resume, Resume::Squash(_))
+    }
+
+    /// Commits still to cherry-pick after the resolved one. Only a chain
+    /// continuation carries these; a squash-tree conflict resumes via
+    /// `squash_finalize` and reports none.
+    pub fn remaining_oids(&self) -> &[Oid] {
+        match &self.resume {
+            Resume::Chain { remaining_oids, .. } => remaining_oids,
+            Resume::Squash(_) => &[],
+        }
     }
 }

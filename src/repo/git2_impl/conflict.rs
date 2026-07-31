@@ -18,7 +18,7 @@
 
 use anyhow::{Context, Result};
 
-use super::super::{ConflictState, RebaseOutcome};
+use super::super::{ConflictState, InProgress, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, advance_and_finish};
 
@@ -47,7 +47,23 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let new_tree_oid = index.write_tree()?;
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
-    let new_tip = if state.is_orphan_root {
+    // Squash-tree conflicts resume via squash_finalize, never here; a Squash
+    // resume reaching this point is a routing bug, so fail loudly rather than
+    // silently committing a plain chain.
+    let Resume::Chain {
+        remaining_oids,
+        orphan_root,
+        moved_commit_oid,
+    } = &state.resume
+    else {
+        anyhow::bail!(
+            "rebase_continue called for a squash-tree conflict; resume via squash_finalize"
+        );
+    };
+    let orphan_root = *orphan_root;
+    let moved_commit_oid = moved_commit_oid.as_ref();
+
+    let new_tip = if orphan_root {
         // The conflicting commit becomes an orphan root (no parents).
         repo.inner.commit(
             None,
@@ -69,12 +85,12 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     };
 
     // Continue cherry-picking remaining descendants.
-    let remaining: Vec<git2::Oid> = state.remaining_oids.iter().map(git2::Oid::from).collect();
+    let remaining: Vec<git2::Oid> = remaining_oids.iter().map(git2::Oid::from).collect();
 
     let ctx = ChainCtx {
         label: &state.operation_label,
         original_branch_oid: &state.original_branch_oid,
-        moved_commit_oid: state.moved_commit_oid.as_ref(),
+        moved_commit_oid,
     };
     let result = repo.cherry_pick_chain(new_tip, &remaining, &ctx)?;
     let label = state.operation_label.to_lowercase();
@@ -176,7 +192,7 @@ pub(super) fn write_conflicts_to_workdir(
     state: &ConflictState,
 ) -> Result<()> {
     // Write-ahead: record the in-progress operation before mutating anything.
-    super::journal::set_in_progress(repo, state)?;
+    super::journal::set_in_progress(repo, &InProgress::Conflict(Box::new(state.clone())))?;
 
     // Point the branch at the onto commit so HEAD matches the partially
     // rebased chain.

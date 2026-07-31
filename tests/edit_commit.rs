@@ -267,7 +267,7 @@ fn edit_descendant_conflict_returns_conflict() {
 
 #[test]
 fn edit_crash_recovery_is_an_abortable_edit_state() {
-    use git_tailor::repo::JournalStatus;
+    use git_tailor::repo::{InProgress, JournalStatus};
     let f = fixture();
     let git_repo = f.test.git_repo();
     git_repo
@@ -277,8 +277,11 @@ fn edit_crash_recovery_is_an_abortable_edit_state() {
     // Simulate a crash mid-edit: a fresh handle sees the in-progress record.
     let recovered = f.test.git_repo();
     match recovered.read_journal().unwrap() {
-        JournalStatus::Recovered(state) => {
-            assert!(state.edit_context.is_some(), "recovered state is an Edit");
+        JournalStatus::Recovered(record) => {
+            assert!(
+                matches!(*record, InProgress::Edit(_)),
+                "recovered state is an Edit"
+            );
         }
         other => panic!("expected a recoverable Edit, got {other:?}"),
     }

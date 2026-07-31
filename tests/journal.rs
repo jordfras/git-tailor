@@ -18,7 +18,7 @@
 mod common;
 
 use common::prelude::*;
-use git_tailor::repo::JournalStatus;
+use git_tailor::repo::{InProgress, JournalStatus};
 
 /// After an operation conflicts, the journal records the in-progress state and
 /// pins the original tip — and a freshly opened repo handle (simulating a
@@ -38,9 +38,12 @@ fn conflict_records_journal_and_recovers_after_reopen() {
     let git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::Recovered(recovered) => {
+            let InProgress::Conflict(recovered) = *recovered else {
+                panic!("expected a recovered conflict, not an Edit");
+            };
             assert_eq!(recovered.operation_label, "Drop");
             assert_eq!(recovered.original_branch_oid, state.original_branch_oid);
-            assert_eq!(recovered.remaining_oids, state.remaining_oids);
+            assert_eq!(recovered.remaining_oids(), state.remaining_oids());
             assert_eq!(
                 recovered.conflicting_commit_oid,
                 state.conflicting_commit_oid
@@ -171,9 +174,8 @@ fn conflict_state_with_squash_context_round_trips() {
         original_branch_oid: Oid::from("aaaaaaaa"),
         new_tip_oid: Oid::from("bbbbbbbb"),
         conflicting_commit_oid: Oid::from("cccccccc"),
-        remaining_oids: vec![Oid::from("dddddddd")],
         conflicting_files: vec!["a.txt".into()],
-        squash_context: Some(SquashContext {
+        resume: Resume::Squash(SquashContext {
             base_oid: Some(Oid::from("eeeeeeee")),
             source_oid: Oid::from("ffffffff"),
             target_oid: Oid::from("11111111"),
@@ -187,6 +189,78 @@ fn conflict_state_with_squash_context_round_trips() {
     let json = serde_json::to_string(&state).unwrap();
     let back: ConflictState = serde_json::from_str(&json).unwrap();
     assert_eq!(state, back);
+}
+
+/// A v1 journal with nothing paused upgrades losslessly: undo/redo/autostash
+/// carry over and the file is rewritten to the current version.
+#[test]
+fn v1_journal_without_interrupted_op_migrates_and_keeps_undo() {
+    let test = common::TestRepo::new();
+    let v1 = r#"{
+        "version": 1,
+        "in_progress": null,
+        "undo": [
+            { "kind": "RefMove", "label": "Drop", "tip_before": "1111", "tip_after": "2222" }
+        ],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v1);
+
+    // Nothing paused, so nothing recovers — but the migration must run.
+    let git_repo = test.git_repo();
+    assert!(matches!(
+        git_repo.read_journal().unwrap(),
+        JournalStatus::None
+    ));
+
+    // The file was rewritten to the current version with the undo stack intact.
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 2);
+    assert_eq!(
+        doc["undo"].as_array().unwrap().len(),
+        1,
+        "the undo stack must survive migration"
+    );
+}
+
+/// A v1 journal that held an operation interrupted mid-flight cannot be resumed
+/// by this version. It is reported as `UpgradeInterrupted` and — crucially — the
+/// file is left byte-for-byte untouched so an older git-tailor can still finish
+/// the operation (see CHANGELOG).
+#[test]
+fn v1_journal_with_interrupted_op_is_flagged_and_file_left_untouched() {
+    let test = common::TestRepo::new();
+    let v1 = r#"{
+        "version": 1,
+        "in_progress": {
+            "operation_label": "Squash",
+            "original_branch_oid": "aaaa",
+            "squash_context": { "source_oid": "bbbb" }
+        },
+        "undo": [
+            { "kind": "RefMove", "label": "Drop", "tip_before": "1111", "tip_after": "2222" }
+        ],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v1);
+    let before = std::fs::read_to_string(journal_path(&test)).unwrap();
+
+    let git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::UpgradeInterrupted { op } => assert_eq!(op, "Squash"),
+        other => panic!("expected UpgradeInterrupted, got {other:?}"),
+    }
+
+    // The v1 file must be preserved verbatim — not migrated, not rewritten — so
+    // the previous git-tailor can still recover the paused operation.
+    let after = std::fs::read_to_string(journal_path(&test)).unwrap();
+    assert_eq!(
+        before, after,
+        "an interrupted v1 journal must be left untouched, not overwritten"
+    );
 }
 
 // Helpers --------------------------------------------------------------------

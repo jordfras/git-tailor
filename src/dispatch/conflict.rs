@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use git_tailor::app::{AppMode, AppState, SquashMode};
-use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, StashConflictState};
+use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
@@ -63,7 +63,7 @@ pub(crate) fn handle_rebase_continue(
 ) -> Result<LoopAction> {
     let is_autofixup = state.autofixup_context.is_some();
     let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
-    if let Some(ref ctx) = state.squash_context {
+    if let Resume::Squash(ref ctx) = state.resume {
         let original_oid = state.original_branch_oid.clone();
         let ctx_clone = ctx.clone();
         let conflict_files = git_repo.read_conflicting_files();

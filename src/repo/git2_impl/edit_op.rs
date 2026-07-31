@@ -23,7 +23,7 @@
 
 use anyhow::{Context, Result};
 
-use super::super::{ConflictState, EditContext, EditOutcome};
+use super::super::{EditInProgress, EditOutcome, InProgress};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, CherryPickResult};
 use super::journal;
@@ -47,15 +47,14 @@ pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> R
 
     // Write-ahead: journal the in-progress edit BEFORE mutating the ref, so a
     // crash anywhere below still leaves a recoverable record.
-    let state = ConflictState {
-        operation_label: "Edit".to_string(),
-        original_branch_oid: head_oid.clone(),
-        new_tip_oid: commit_oid.clone(),
-        conflicting_commit_oid: commit_oid.clone(),
-        edit_context: Some(EditContext { branch_refname }),
-        ..Default::default()
-    };
-    journal::set_in_progress(repo, &state)?;
+    journal::set_in_progress(
+        repo,
+        &InProgress::Edit(EditInProgress {
+            branch_refname,
+            original_branch_oid: head_oid.clone(),
+            edited_commit_oid: commit_oid.clone(),
+        }),
+    )?;
 
     // Rewind the branch to the edited commit and sync the working tree to it.
     repo.advance_branch_ref(commit_git, "git-tailor: edit (begin)")?;
@@ -66,16 +65,12 @@ pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> R
 /// Splice the user-authored chain (now on the branch) in place of the edited
 /// commit and replay the original descendants onto it.
 pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutcome> {
-    let state = journal::in_progress(repo)?
-        .filter(|s| s.edit_context.is_some())
-        .context("no edit in progress")?;
-    let branch_refname = state
-        .edit_context
-        .as_ref()
-        .expect("filtered on edit_context")
-        .branch_refname
-        .clone();
-    let original = state.original_branch_oid.clone();
+    let edit = match journal::in_progress(repo)? {
+        Some(InProgress::Edit(edit)) => edit,
+        _ => anyhow::bail!("no edit in progress"),
+    };
+    let branch_refname = edit.branch_refname.clone();
+    let original = edit.original_branch_oid.clone();
 
     let commit_git = git2::Oid::from(commit_oid);
     let commit = repo.inner.find_commit(commit_git)?;
@@ -167,13 +162,10 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
 /// Restore the branch to its original tip (abort / crash-recovery), using the
 /// branch name + original tip recorded in the in-progress journal.
 pub(super) fn abort_edit(repo: &Git2Repo) -> Result<()> {
-    let Some(state) = journal::in_progress(repo)? else {
+    let Some(InProgress::Edit(edit)) = journal::in_progress(repo)? else {
         return Ok(());
     };
-    let Some(edit) = state.edit_context.as_ref() else {
-        return Ok(());
-    };
-    restore_original(repo, &edit.branch_refname, &state.original_branch_oid)?;
+    restore_original(repo, &edit.branch_refname, &edit.original_branch_oid)?;
     journal::clear_in_progress(repo)?;
     Ok(())
 }

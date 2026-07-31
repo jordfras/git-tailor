@@ -18,6 +18,7 @@ use super::dialog::{
     Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width, render_conflict_dialog,
 };
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+use crate::repo::Resume;
 use ratatui::{
     Frame,
     style::{Color, Style},
@@ -104,7 +105,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 62;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let remaining = state.remaining_oids.len();
+    let remaining = state.remaining_oids().len();
 
     let mut dialog = Dialog::new(DialogKind::Danger, app.colors)
         .heading(
@@ -125,7 +126,13 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
 
     // For move operations, clarify whether the moved commit itself conflicted
     // or a commit being rebased on top of it.
-    if let Some(ref moved_oid) = state.moved_commit_oid {
+    let moved_commit_oid = match &state.resume {
+        Resume::Chain {
+            moved_commit_oid, ..
+        } => moved_commit_oid.as_ref(),
+        Resume::Squash(_) => None,
+    };
+    if let Some(moved_oid) = moved_commit_oid {
         let note = if state.conflicting_commit_oid == *moved_oid {
             " The moved commit itself caused the conflict."
         } else {
@@ -133,7 +140,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         };
         dialog = dialog.wrapped_styled(note, iw, TextRole::Highlight);
     } else if state.operation_label == "Squash" {
-        let note = if state.squash_context.is_some() {
+        let note = if state.is_squash_tree_conflict() {
             " The squash itself caused the conflict."
         } else {
             " A commit being rebased after the squash conflicted."

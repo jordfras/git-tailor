@@ -73,6 +73,13 @@ The format is based on
   Choosing it from the split strategy menu opens a picker dialog listing the
   commit's changed files with a diff preview of the highlighted one, mirroring
   the "Split out hunk(s)" picker.
+- The crash-recovery journal format changed (v1 → v2). A journal with no
+  operation in flight is migrated automatically on first run and your undo/redo
+  history is preserved. If git-tailor was left paused at a merge conflict (or in
+  an in-progress "Edit" shell) at the moment you upgraded, the new version cannot
+  resume that record: it tells you so and leaves the old journal untouched, so
+  you can finish the operation with the previous git-tailor — or run
+  `gt --clean-journal` to discard it and start fresh.
 
 ### Fixed
 

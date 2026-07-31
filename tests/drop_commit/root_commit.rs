@@ -114,7 +114,13 @@ fn drop_root_commit_descendant_modifies_root_file_conflicts() {
 
     let state = expect_rebase_conflict!(result);
     assert_eq!(state.conflicting_commit_oid, Oid::from(child));
-    assert!(state.is_orphan_root);
+    assert!(matches!(
+        state.resume,
+        Resume::Chain {
+            orphan_root: true,
+            ..
+        }
+    ));
     assert!(
         state.conflicting_files.contains(&"readme.txt".to_string()),
         "readme.txt should be conflicting: {:?}",

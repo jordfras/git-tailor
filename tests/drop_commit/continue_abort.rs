@@ -70,7 +70,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
                 state.conflicting_commit_oid
             );
             assert_eq!(new_state.original_branch_oid, state.original_branch_oid);
-            assert_eq!(new_state.remaining_oids, state.remaining_oids);
+            assert_eq!(new_state.remaining_oids(), state.remaining_oids());
             // File list must show the still-unresolved file.
             assert!(
                 !new_state.conflicting_files.is_empty(),

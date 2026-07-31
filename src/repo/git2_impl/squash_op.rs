@@ -18,7 +18,7 @@
 
 use anyhow::Result;
 
-use super::super::{ConflictState, RebaseOutcome, SquashContext};
+use super::super::{ConflictState, RebaseOutcome, Resume, SquashContext};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, ConflictBase, advance_and_finish, base_conflict_state};
 use super::conflict;
@@ -279,7 +279,7 @@ fn build_conflict_state(
         .collect();
 
     let state = ConflictState {
-        squash_context: Some(SquashContext {
+        resume: Resume::Squash(SquashContext {
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
             target_oid: inputs.target_oid.clone(),
@@ -292,7 +292,6 @@ fn build_conflict_state(
             original_branch_oid: inputs.head_oid.clone(),
             new_tip: inputs.target_commit.id(),
             conflicting_commit: inputs.source_commit.id(),
-            remaining_oids: vec![],
             index: cherry_index,
         })
     };

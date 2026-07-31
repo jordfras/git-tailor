@@ -17,5 +17,5 @@
 // sub-modules only need `use crate::common::prelude::*;` to pull everything in.
 pub use crate::*;
 pub use git_tailor::app::SquashMode;
-pub use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome, RepoRead, RepoWrite};
+pub use git_tailor::repo::{Git2Repo, GitRepo, RebaseOutcome, RepoRead, RepoWrite, Resume};
 pub use git_tailor::{Oid, VirtualOid};
