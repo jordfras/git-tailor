@@ -182,7 +182,7 @@ pub fn load_with_progress(
     app.commits = all_commits;
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
-    app.detail_scroll_offset = 0;
+    app.detail.v.offset = 0;
     app.commit_list_scroll_override = None;
     app.selection_index = select_initial_index(&app.commits);
     app.mode = AppMode::CommitList;

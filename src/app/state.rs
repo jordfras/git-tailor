@@ -16,25 +16,15 @@ use crate::{
     CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
-    repo::{ConflictState, DEFAULT_CONTEXT_LINES, StashConflictState},
+    repo::{ConflictState, StashConflictState},
     views::{palette::Colors, theme::Theme},
 };
 
 use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
 use crate::app::ScrollState;
+use crate::app::detail::DetailState;
 use crate::app::scroll::{half_page_size, page_size};
 use crate::autofixup::AutofixupPair;
-
-/// Number of diff context lines shown in the commit detail view. A newtype so
-/// its default (git's 3) is preserved under `AppState`'s derived `Default`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DetailContextLines(pub u32);
-
-impl Default for DetailContextLines {
-    fn default() -> Self {
-        Self(DEFAULT_CONTEXT_LINES)
-    }
-}
 
 /// Application state for the TUI.
 ///
@@ -63,24 +53,14 @@ pub struct AppState {
     pub fragmap_scroll_offset: usize,
     /// Current display mode.
     pub mode: AppMode,
-    /// Vertical scroll offset for the detail view.
-    pub detail_scroll_offset: usize,
-    /// Maximum vertical scroll offset for the detail view (updated during render).
-    pub max_detail_scroll: usize,
-    /// Horizontal scroll offset for the detail view.
-    pub detail_h_scroll_offset: usize,
-    /// Maximum horizontal scroll offset for the detail view (updated during render).
-    pub max_detail_h_scroll: usize,
+    /// Scroll position, diff context and file offsets of the detail view.
+    pub detail: DetailState,
     /// Visible height of the commit list area (updated during render).
     pub commit_list_visible_height: usize,
     /// Explicit commit-list scroll offset (display space) set by `Ctrl-Up`/`Down`.
     /// `None` follows the selection (the default); `Some` is clamped each render so
     /// the selection stays visible.
     pub commit_list_scroll_override: Option<usize>,
-    /// Visible height of the detail view area (updated during render).
-    pub detail_visible_height: usize,
-    /// Diff context lines shown in the detail view, adjusted with `+` / `-`.
-    pub detail_context_lines: DetailContextLines,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status_message: Option<String>,
     /// Whether the current status message represents an error (red) or success (green).
@@ -103,8 +83,6 @@ pub struct AppState {
     pub search_matches: Vec<usize>,
     /// Index into `search_matches` for the current match.
     pub search_match_index: Option<usize>,
-    /// Line indices of file-diff headers in the detail view content (updated during render).
-    pub file_start_lines: Vec<usize>,
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
     pub update_notice: Option<String>,
@@ -215,92 +193,6 @@ impl AppState {
         self.fragmap_scroll_offset = usize::MAX;
     }
 
-    /// Scroll detail view left to column 0.
-    pub fn scroll_detail_to_left_edge(&mut self) {
-        self.detail_h_scroll_offset = 0;
-    }
-
-    /// Scroll detail view right to the last column.
-    pub fn scroll_detail_to_right_edge(&mut self) {
-        self.detail_h_scroll_offset = self.max_detail_h_scroll;
-    }
-
-    /// Jump to the next file header in the detail view (wraps cyclically).
-    pub fn jump_to_next_file(&mut self) {
-        if self.file_start_lines.is_empty() {
-            return;
-        }
-        let target = self
-            .file_start_lines
-            .iter()
-            .find(|&&l| l > self.detail_scroll_offset)
-            .copied()
-            .unwrap_or(self.file_start_lines[0]);
-        let clamped = target.min(self.max_detail_scroll);
-        // If clamping produces no forward movement (last file is beyond max
-        // scroll and we're already there), wrap to the first file.
-        if clamped <= self.detail_scroll_offset {
-            self.detail_scroll_offset = self.file_start_lines[0];
-        } else {
-            self.detail_scroll_offset = clamped;
-        }
-    }
-
-    /// Jump to the previous file header in the detail view (wraps cyclically).
-    pub fn jump_to_prev_file(&mut self) {
-        if self.file_start_lines.is_empty() {
-            return;
-        }
-        let target = self
-            .file_start_lines
-            .iter()
-            .rev()
-            .find(|&&l| l < self.detail_scroll_offset)
-            .copied()
-            .unwrap_or_else(|| *self.file_start_lines.last().unwrap());
-        self.detail_scroll_offset = target.min(self.max_detail_scroll);
-    }
-
-    /// Scroll detail view up (decrease offset).
-    pub fn scroll_detail_up(&mut self) {
-        if self.detail_scroll_offset > 0 {
-            self.detail_scroll_offset -= 1;
-        }
-    }
-
-    /// Scroll detail view down (increase offset).
-    pub fn scroll_detail_down(&mut self) {
-        if self.detail_scroll_offset < self.max_detail_scroll {
-            self.detail_scroll_offset += 1;
-        }
-    }
-
-    /// Show one more diff context line in the detail view (`+`). git re-computes
-    /// the diff, so hunks whose context regions now overlap render as one.
-    pub fn increase_detail_context_lines(&mut self) {
-        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_add(1);
-    }
-
-    /// Show one fewer diff context line in the detail view (`-`), with 0 as the
-    /// floor. Hunks that were merged split apart again as context shrinks.
-    pub fn decrease_detail_context_lines(&mut self) {
-        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_sub(1);
-    }
-
-    /// Scroll detail view left (decrease horizontal offset).
-    pub fn scroll_detail_left(&mut self) {
-        if self.detail_h_scroll_offset > 0 {
-            self.detail_h_scroll_offset -= 1;
-        }
-    }
-
-    /// Scroll detail view right (increase horizontal offset).
-    pub fn scroll_detail_right(&mut self) {
-        if self.detail_h_scroll_offset < self.max_detail_h_scroll {
-            self.detail_h_scroll_offset += 1;
-        }
-    }
-
     /// Scroll commit list up by one page (visible_height lines).
     pub fn page_up(&mut self, visible_height: usize) {
         self.selection_index = self
@@ -337,36 +229,6 @@ impl AppState {
         self.selection_index = new_index.min(self.commits.len() - 1);
     }
 
-    /// Scroll detail view up by one page (visible_height lines).
-    pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
-        self.detail_scroll_offset = self
-            .detail_scroll_offset
-            .saturating_sub(page_size(visible_height));
-    }
-
-    /// Scroll detail view down by one page (visible_height lines).
-    pub fn scroll_detail_page_down(&mut self, visible_height: usize) {
-        let new_offset = self
-            .detail_scroll_offset
-            .saturating_add(page_size(visible_height));
-        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
-    }
-
-    /// Scroll detail view up by half a page (visible_height lines).
-    pub fn scroll_detail_half_page_up(&mut self, visible_height: usize) {
-        self.detail_scroll_offset = self
-            .detail_scroll_offset
-            .saturating_sub(half_page_size(visible_height));
-    }
-
-    /// Scroll detail view down by half a page (visible_height lines).
-    pub fn scroll_detail_half_page_down(&mut self, visible_height: usize) {
-        let new_offset = self
-            .detail_scroll_offset
-            .saturating_add(half_page_size(visible_height));
-        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
-    }
-
     /// Jump to the first commit in the list.
     pub fn jump_to_first(&mut self) {
         self.selection_index = 0;
@@ -375,16 +237,6 @@ impl AppState {
     /// Jump to the last commit in the list.
     pub fn jump_to_last(&mut self) {
         self.selection_index = self.commits.len().saturating_sub(1);
-    }
-
-    /// Scroll detail view to the very top.
-    pub fn scroll_detail_to_top(&mut self) {
-        self.detail_scroll_offset = 0;
-    }
-
-    /// Scroll detail view to the very bottom.
-    pub fn scroll_detail_to_bottom(&mut self) {
-        self.detail_scroll_offset = self.max_detail_scroll;
     }
 
     /// Enter the large-split confirmation dialog.
@@ -688,7 +540,7 @@ impl AppState {
             | AppMode::Loading { .. } => return,
         };
         self.mode = new_mode;
-        self.detail_scroll_offset = 0;
+        self.detail.v.offset = 0;
     }
 
     /// Show help dialog, saving current mode to return to later.
@@ -757,33 +609,6 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::{CommitInfo, Oid, VirtualOid};
-
-    #[test]
-    fn detail_context_lines_default_is_git_default() {
-        assert_eq!(
-            AppState::default().detail_context_lines.0,
-            DEFAULT_CONTEXT_LINES
-        );
-    }
-
-    #[test]
-    fn increase_and_decrease_detail_context_lines() {
-        let mut app = AppState::default();
-        app.increase_detail_context_lines();
-        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES + 1);
-        app.decrease_detail_context_lines();
-        app.decrease_detail_context_lines();
-        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES - 1);
-    }
-
-    #[test]
-    fn decrease_detail_context_lines_floors_at_zero() {
-        let mut app = AppState::default();
-        for _ in 0..(DEFAULT_CONTEXT_LINES + 2) {
-            app.decrease_detail_context_lines();
-        }
-        assert_eq!(app.detail_context_lines.0, 0);
-    }
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {

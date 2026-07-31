@@ -47,59 +47,59 @@ enum FileStatus {
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     match action {
         KeyCommand::MoveUp => {
-            app.scroll_detail_up();
+            app.detail.v.step_back();
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
-            app.scroll_detail_down();
+            app.detail.v.step_forward();
             AppAction::Handled
         }
         KeyCommand::PageUp => {
-            app.scroll_detail_page_up(app.detail_visible_height);
+            app.detail.v.page_back();
             AppAction::Handled
         }
         KeyCommand::PageDown => {
-            app.scroll_detail_page_down(app.detail_visible_height);
+            app.detail.v.page_forward();
             AppAction::Handled
         }
         KeyCommand::HalfPageUp => {
-            app.scroll_detail_half_page_up(app.detail_visible_height);
+            app.detail.v.half_page_back();
             AppAction::Handled
         }
         KeyCommand::HalfPageDown => {
-            app.scroll_detail_half_page_down(app.detail_visible_height);
+            app.detail.v.half_page_forward();
             AppAction::Handled
         }
         KeyCommand::JumpToTop => {
-            app.scroll_detail_to_top();
+            app.detail.v.to_start();
             AppAction::Handled
         }
         KeyCommand::JumpToBottom => {
-            app.scroll_detail_to_bottom();
+            app.detail.v.to_end();
             AppAction::Handled
         }
         KeyCommand::ScrollLeft => {
-            app.scroll_detail_left();
+            app.detail.h.step_back();
             AppAction::Handled
         }
         KeyCommand::ScrollRight => {
-            app.scroll_detail_right();
+            app.detail.h.step_forward();
             AppAction::Handled
         }
         KeyCommand::ScrollToLeftEdge => {
-            app.scroll_detail_to_left_edge();
+            app.detail.h.to_start();
             AppAction::Handled
         }
         KeyCommand::ScrollToRightEdge => {
-            app.scroll_detail_to_right_edge();
+            app.detail.h.to_end();
             AppAction::Handled
         }
         KeyCommand::NavFileNext => {
-            app.jump_to_next_file();
+            app.detail.jump_to_next_file();
             AppAction::Handled
         }
         KeyCommand::NavFilePrev => {
-            app.jump_to_prev_file();
+            app.detail.jump_to_prev_file();
             AppAction::Handled
         }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
@@ -123,11 +123,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::IncreaseContext => {
-            app.increase_detail_context_lines();
+            app.detail.increase_context_lines();
             AppAction::Handled
         }
         KeyCommand::DecreaseContext => {
-            app.decrease_detail_context_lines();
+            app.detail.decrease_context_lines();
             AppAction::Handled
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
@@ -168,7 +168,7 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
 
     // Render header: title on the left, current diff context lines on the right.
     let title = "Commit information";
-    let context = format!("context: {} ", app.detail_context_lines.0);
+    let context = format!("context: {} ", app.detail.context_lines.0);
     let width = header_area.width as usize;
     let pad = width.saturating_sub(title.len() + context.len());
     let header_line = Line::from(vec![
@@ -188,7 +188,7 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
     } else {
         let selected = app.commits[app.selection_index].clone();
         let oid = selected.oid.clone();
-        let context_lines = app.detail_context_lines.0;
+        let context_lines = app.detail.context_lines.0;
 
         let diff_opt = match oid {
             VirtualOid::Staged => match repo.staged_diff(context_lines) {
@@ -221,18 +221,21 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
             content.extend(build_file_list_lines(&diff.files, app.colors));
             let (diff_lines, file_offsets) = build_diff_lines(&diff.files, app.colors);
             let diff_start = content.len();
-            app.file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
+            app.detail.file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
             content.extend(diff_lines);
         } else {
-            app.file_start_lines.clear();
+            app.detail.file_start_lines.clear();
         }
 
         let layout = compute_scroll_layout(content_area, &content);
 
         // Update scroll state in app for proper bounds and page scrolling
-        app.max_detail_scroll = layout.max_scroll;
-        app.detail_visible_height = layout.visible_height;
-        app.max_detail_h_scroll = layout.max_h_scroll;
+        app.detail
+            .v
+            .set_bounds(layout.max_scroll, layout.visible_height);
+        app.detail
+            .h
+            .set_bounds(layout.max_h_scroll, layout.text_area_width);
 
         (content, search_info) =
             search::apply(app, content, layout.visible_height, layout.max_scroll);
@@ -241,10 +244,10 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
         // them back (not just a local copy) matters when the content shrinks —
         // e.g. reducing the diff context lines — so the offset snaps to the new
         // bottom instead of leaving the user stuck unable to scroll up.
-        app.detail_scroll_offset = app.detail_scroll_offset.min(layout.max_scroll);
-        app.detail_h_scroll_offset = app.detail_h_scroll_offset.min(layout.max_h_scroll);
-        let scroll_offset = app.detail_scroll_offset;
-        let h_scroll = app.detail_h_scroll_offset;
+        app.detail.v.clamp_offset();
+        app.detail.h.clamp_offset();
+        let scroll_offset = app.detail.v.offset;
+        let h_scroll = app.detail.h.offset;
 
         let paragraph = Paragraph::new(content).scroll((scroll_offset as u16, h_scroll as u16));
         frame.render_widget(paragraph, layout.text_area);

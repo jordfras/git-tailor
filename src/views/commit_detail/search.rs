@@ -70,7 +70,7 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
                     let next_idx = app
                         .search_matches
                         .iter()
-                        .position(|&line| line >= app.detail_scroll_offset)
+                        .position(|&line| line >= app.detail.v.offset)
                         .unwrap_or(0);
                     app.search_match_index = Some(next_idx);
                     scroll_to_current_match(app);
@@ -125,13 +125,13 @@ fn scroll_to_current_match(app: &mut AppState) {
     if let Some(match_idx) = app.search_match_index
         && let Some(&target_line) = app.search_matches.get(match_idx)
     {
-        let vh = app.detail_visible_height;
+        let vh = app.detail.v.visible_height;
         if vh == 0 {
             return;
         }
-        if target_line < app.detail_scroll_offset || target_line >= app.detail_scroll_offset + vh {
+        if target_line < app.detail.v.offset || target_line >= app.detail.v.offset + vh {
             let centered = target_line.saturating_sub(vh / 2);
-            app.detail_scroll_offset = centered.min(app.max_detail_scroll);
+            app.detail.v.offset = centered.min(app.detail.v.max);
         }
     }
 }
@@ -279,11 +279,11 @@ fn auto_scroll_to_new_match(
     {
         let target_line = app.search_matches[mi];
         if visible_height > 0
-            && (target_line < app.detail_scroll_offset
-                || target_line >= app.detail_scroll_offset + visible_height)
+            && (target_line < app.detail.v.offset
+                || target_line >= app.detail.v.offset + visible_height)
         {
             let centered = target_line.saturating_sub(visible_height / 2);
-            app.detail_scroll_offset = centered.min(max_scroll);
+            app.detail.v.offset = centered.min(max_scroll);
         }
     }
 }

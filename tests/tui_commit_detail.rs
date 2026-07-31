@@ -66,7 +66,7 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     }));
 }
 
-/// With a positive `detail_h_scroll_offset`, the paragraph is rendered
+/// With a positive `detail.h.offset`, the paragraph is rendered
 /// starting from a later column so the leading characters of long lines
 /// are clipped out of view.
 #[test]
@@ -78,7 +78,7 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.selection_index = 0;
-    app.detail_h_scroll_offset = 10;
+    app.detail.h.offset = 10;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -87,7 +87,7 @@ fn test_commit_detail_hscroll_offset_clips_content() {
 }
 
 /// A scroll offset past the content bottom (e.g. after the diff shrinks because
-/// the context lines were reduced) is clamped in place to `max_detail_scroll`,
+/// the context lines were reduced) is clamped in place to `detail.v.max`,
 /// so the user can scroll back up immediately rather than being stuck.
 #[test]
 fn test_detail_scroll_offset_clamped_to_content_bottom() {
@@ -97,7 +97,7 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
     app.selection_index = 0;
-    app.detail_scroll_offset = 9999; // far beyond the (tiny) content
+    app.detail.v.offset = 9999; // far beyond the (tiny) content
 
     harness.render(|frame| {
         let area = frame.area();
@@ -105,7 +105,7 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     });
 
     assert_eq!(
-        app.detail_scroll_offset, app.max_detail_scroll,
+        app.detail.v.offset, app.detail.v.max,
         "scroll offset should be clamped to the content bottom, not left stale"
     );
 }
@@ -168,40 +168,40 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     insta::assert_debug_snapshot!(buf);
 }
 
-// --- Unit tests for scroll_detail_left / scroll_detail_right ---
+// --- Unit tests for horizontal detail scrolling ---
 
 #[test]
 fn test_scroll_detail_right_increments() {
     let mut app = AppState::new();
-    app.max_detail_h_scroll = 20;
-    app.detail_h_scroll_offset = 0;
-    app.scroll_detail_right();
-    assert_eq!(app.detail_h_scroll_offset, 1);
+    app.detail.h.max = 20;
+    app.detail.h.offset = 0;
+    app.detail.h.step_forward();
+    assert_eq!(app.detail.h.offset, 1);
 }
 
 #[test]
 fn test_scroll_detail_right_clamps_at_max() {
     let mut app = AppState::new();
-    app.max_detail_h_scroll = 5;
-    app.detail_h_scroll_offset = 5;
-    app.scroll_detail_right();
-    assert_eq!(app.detail_h_scroll_offset, 5);
+    app.detail.h.max = 5;
+    app.detail.h.offset = 5;
+    app.detail.h.step_forward();
+    assert_eq!(app.detail.h.offset, 5);
 }
 
 #[test]
 fn test_scroll_detail_left_decrements() {
     let mut app = AppState::new();
-    app.detail_h_scroll_offset = 5;
-    app.scroll_detail_left();
-    assert_eq!(app.detail_h_scroll_offset, 4);
+    app.detail.h.offset = 5;
+    app.detail.h.step_back();
+    assert_eq!(app.detail.h.offset, 4);
 }
 
 #[test]
 fn test_scroll_detail_left_clamps_at_zero() {
     let mut app = AppState::new();
-    app.detail_h_scroll_offset = 0;
-    app.scroll_detail_left();
-    assert_eq!(app.detail_h_scroll_offset, 0);
+    app.detail.h.offset = 0;
+    app.detail.h.step_back();
+    assert_eq!(app.detail.h.offset, 0);
 }
 
 // --- Search feature tests ---
@@ -366,8 +366,8 @@ fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
     app.search_query = "foo".to_string();
     app.search_matches = vec![5, 20, 30];
     app.search_match_index = Some(0);
-    app.detail_scroll_offset = 12;
-    app.detail_visible_height = 50;
+    app.detail.v.offset = 12;
+    app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
@@ -384,8 +384,8 @@ fn test_search_event_enter_wraps_when_past_all_matches() {
     app.search_query = "foo".to_string();
     app.search_matches = vec![5, 8];
     app.search_match_index = Some(1);
-    app.detail_scroll_offset = 20;
-    app.detail_visible_height = 50;
+    app.detail.v.offset = 20;
+    app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
@@ -448,7 +448,7 @@ fn test_search_next_prev_wraps() {
     app.search_active = true;
     app.search_matches = vec![5, 10, 20];
     app.search_match_index = Some(0);
-    app.detail_visible_height = 100; // large enough to avoid scrolling
+    app.detail.v.visible_height = 100; // large enough to avoid scrolling
 
     // Forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
