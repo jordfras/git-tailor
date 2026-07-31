@@ -105,7 +105,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 62;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let remaining = state.remaining_oids.len();
+    let remaining = state.remaining_oids().len();
 
     let mut dialog = Dialog::new(DialogKind::Danger, app.colors)
         .heading(

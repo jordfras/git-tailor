@@ -43,7 +43,7 @@ fn conflict_records_journal_and_recovers_after_reopen() {
             };
             assert_eq!(recovered.operation_label, "Drop");
             assert_eq!(recovered.original_branch_oid, state.original_branch_oid);
-            assert_eq!(recovered.remaining_oids, state.remaining_oids);
+            assert_eq!(recovered.remaining_oids(), state.remaining_oids());
             assert_eq!(
                 recovered.conflicting_commit_oid,
                 state.conflicting_commit_oid
@@ -174,7 +174,6 @@ fn conflict_state_with_squash_context_round_trips() {
         original_branch_oid: Oid::from("aaaaaaaa"),
         new_tip_oid: Oid::from("bbbbbbbb"),
         conflicting_commit_oid: Oid::from("cccccccc"),
-        remaining_oids: vec![Oid::from("dddddddd")],
         conflicting_files: vec!["a.txt".into()],
         resume: Resume::Squash(SquashContext {
             base_oid: Some(Oid::from("eeeeeeee")),

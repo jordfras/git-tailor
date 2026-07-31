@@ -189,21 +189,19 @@ pub(super) struct ConflictBase<'a> {
     pub original_branch_oid: Oid,
     pub new_tip: git2::Oid,
     pub conflicting_commit: git2::Oid,
-    pub remaining_oids: Vec<Oid>,
     pub index: &'a git2::Index,
 }
 
 /// Build the fields common to every chain/orphan/squash `ConflictState`, reading
 /// the conflicting paths from the in-memory index (before it is written to
-/// disk). Callers set the op-specific `resume` (and any `autofixup_context`) via
-/// struct-update syntax.
+/// disk). Callers set the op-specific `resume` (which carries `remaining_oids`
+/// for a chain) and any `autofixup_context` via struct-update syntax.
 pub(super) fn base_conflict_state(base: ConflictBase) -> ConflictState {
     ConflictState {
         operation_label: base.label.to_string(),
         original_branch_oid: base.original_branch_oid,
         new_tip_oid: Oid::from(base.new_tip),
         conflicting_commit_oid: Oid::from(base.conflicting_commit),
-        remaining_oids: base.remaining_oids,
         conflicting_files: conflict::collect_conflict_files_from_index(base.index),
         ..Default::default()
     }
@@ -224,6 +222,7 @@ fn build_chain_conflict_state(
 
     ConflictState {
         resume: Resume::Chain {
+            remaining_oids: remaining,
             orphan_root: false,
             moved_commit_oid: ctx.moved_commit_oid.cloned(),
         },
@@ -232,7 +231,6 @@ fn build_chain_conflict_state(
             original_branch_oid: ctx.original_branch_oid.clone(),
             new_tip: tip,
             conflicting_commit: oids[conflicting_idx],
-            remaining_oids: remaining,
             index: cherry_index,
         })
     }
@@ -272,6 +270,7 @@ pub(super) fn replace_root_and_replay(
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
         let state = ConflictState {
             resume: Resume::Chain {
+                remaining_oids,
                 orphan_root: true,
                 moved_commit_oid,
             },
@@ -280,7 +279,6 @@ pub(super) fn replace_root_and_replay(
                 original_branch_oid,
                 new_tip: anchor_oid,
                 conflicting_commit: first_commit.id(),
-                remaining_oids,
                 index: &cherry_index,
             })
         };

@@ -292,7 +292,6 @@ fn build_conflict_state(
             original_branch_oid: inputs.head_oid.clone(),
             new_tip: inputs.target_commit.id(),
             conflicting_commit: inputs.source_commit.id(),
-            remaining_oids: vec![],
             index: cherry_index,
         })
     };

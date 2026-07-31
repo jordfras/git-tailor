@@ -21,7 +21,7 @@ use common::TuiTestHarness;
 use git_tailor::{
     Oid,
     app::{AppMode, AppState, PendingDrop},
-    repo::ConflictState,
+    repo::{ConflictState, Resume},
     views,
 };
 
@@ -95,8 +95,12 @@ fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> App
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from(conflicting_oid),
-        remaining_oids: remaining.iter().copied().map(Oid::from).collect(),
         conflicting_files: vec![],
+        resume: Resume::Chain {
+            remaining_oids: remaining.iter().copied().map(Oid::from).collect(),
+            orphan_root: false,
+            moved_commit_oid: None,
+        },
         ..Default::default()
     }));
     app
@@ -159,8 +163,12 @@ fn test_drop_conflict_dialog_long_summary() {
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        remaining_oids: vec![Oid::from("111111111111"), Oid::from("222222222222")],
         conflicting_files: vec![],
+        resume: Resume::Chain {
+            remaining_oids: vec![Oid::from("111111111111"), Oid::from("222222222222")],
+            orphan_root: false,
+            moved_commit_oid: None,
+        },
         ..Default::default()
     }));
 
@@ -185,7 +193,6 @@ fn test_drop_conflict_dialog_with_files() {
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        remaining_oids: vec![],
         conflicting_files: vec![
             "src/parser/mod.rs".to_string(),
             "src/parser/expr.rs".to_string(),
@@ -215,7 +222,6 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        remaining_oids: vec![],
         conflicting_files: vec!["src/parser/mod.rs".to_string()],
         still_unresolved: true,
         ..Default::default()

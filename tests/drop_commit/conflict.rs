@@ -34,7 +34,7 @@ fn drop_returns_conflict_when_descendant_depends_on_dropped_commit() {
         RebaseOutcome::Conflict(state) => {
             assert_eq!(state.conflicting_commit_oid, Oid::from(head));
             assert!(
-                state.remaining_oids.is_empty(),
+                state.remaining_oids().is_empty(),
                 "no commits after the conflicting one"
             );
             assert_eq!(state.original_branch_oid, Oid::from(head));
@@ -62,7 +62,7 @@ fn drop_conflict_state_has_correct_remaining_oids() {
     match result {
         RebaseOutcome::Conflict(state) => {
             assert_eq!(state.conflicting_commit_oid, Oid::from(child1));
-            assert_eq!(state.remaining_oids, vec![Oid::from(child2)]);
+            assert_eq!(state.remaining_oids(), [Oid::from(child2)].as_slice());
         }
         RebaseOutcome::Complete => panic!("expected Conflict, got Complete"),
     }

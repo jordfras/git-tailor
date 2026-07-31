@@ -118,9 +118,6 @@ pub struct ConflictState {
     pub new_tip_oid: Oid,
     /// The OID of the commit whose cherry-pick conflicted.
     pub conflicting_commit_oid: Oid,
-    /// OIDs of commits that still need to be cherry-picked after the
-    /// conflicting commit is resolved, in order (oldest first).
-    pub remaining_oids: Vec<Oid>,
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
     pub conflicting_files: Vec<String>,
@@ -143,6 +140,9 @@ pub enum Resume {
     /// commit a parentless root (dropping or moving the root commit);
     /// `moved_commit_oid` is a display hint naming the commit a Move relocated.
     Chain {
+        /// Commits still to cherry-pick after the resolved one, in order
+        /// (oldest first).
+        remaining_oids: Vec<Oid>,
         orphan_root: bool,
         moved_commit_oid: Option<Oid>,
     },
@@ -154,6 +154,7 @@ pub enum Resume {
 impl Default for Resume {
     fn default() -> Self {
         Resume::Chain {
+            remaining_oids: Vec::new(),
             orphan_root: false,
             moved_commit_oid: None,
         }
@@ -807,5 +808,15 @@ impl ConflictState {
     /// (as opposed to a descendant rebase conflict).
     pub fn is_squash_tree_conflict(&self) -> bool {
         matches!(self.resume, Resume::Squash(_))
+    }
+
+    /// Commits still to cherry-pick after the resolved one. Only a chain
+    /// continuation carries these; a squash-tree conflict resumes via
+    /// `squash_finalize` and reports none.
+    pub fn remaining_oids(&self) -> &[Oid] {
+        match &self.resume {
+            Resume::Chain { remaining_oids, .. } => remaining_oids,
+            Resume::Squash(_) => &[],
+        }
     }
 }

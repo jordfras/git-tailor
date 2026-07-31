@@ -48,12 +48,17 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
     // Squash-tree conflicts resume via squash_finalize, not here, so only Chain is expected.
-    let (orphan_root, moved_commit_oid) = match &state.resume {
+    let (remaining_oids, orphan_root, moved_commit_oid) = match &state.resume {
         Resume::Chain {
+            remaining_oids,
             orphan_root,
             moved_commit_oid,
-        } => (*orphan_root, moved_commit_oid.as_ref()),
-        Resume::Squash(_) => (false, None),
+        } => (
+            remaining_oids.as_slice(),
+            *orphan_root,
+            moved_commit_oid.as_ref(),
+        ),
+        Resume::Squash(_) => (&[][..], false, None),
     };
 
     let new_tip = if orphan_root {
@@ -78,7 +83,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     };
 
     // Continue cherry-picking remaining descendants.
-    let remaining: Vec<git2::Oid> = state.remaining_oids.iter().map(git2::Oid::from).collect();
+    let remaining: Vec<git2::Oid> = remaining_oids.iter().map(git2::Oid::from).collect();
 
     let ctx = ChainCtx {
         label: &state.operation_label,
