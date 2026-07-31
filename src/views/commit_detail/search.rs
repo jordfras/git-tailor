@@ -59,28 +59,29 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
         }
         match code {
             KeyCode::Esc => {
-                app.clear_search();
+                app.search.clear();
             }
             KeyCode::Enter => {
-                app.search_input_active = false;
+                app.search.input_active = false;
                 // Jump to the first match at or after the current scroll
                 // position, wrapping to match 0 when all matches lie above —
                 // the same behaviour as `less`.
-                if !app.search_matches.is_empty() {
+                if !app.search.matches.is_empty() {
                     let next_idx = app
-                        .search_matches
+                        .search
+                        .matches
                         .iter()
                         .position(|&line| line >= app.detail.v.offset)
                         .unwrap_or(0);
-                    app.search_match_index = Some(next_idx);
+                    app.search.match_index = Some(next_idx);
                     scroll_to_current_match(app);
                 }
             }
             KeyCode::Backspace => {
-                app.search_query.pop();
+                app.search.query.pop();
             }
             KeyCode::Char(c) => {
-                app.search_query.push(c);
+                app.search.query.push(c);
             }
             _ => {}
         }
@@ -100,11 +101,11 @@ pub(super) fn prev_match(app: &mut AppState) {
 
 /// Advance to the next or previous search match, wrapping around.
 fn advance_search_match(app: &mut AppState, dir: SearchDirection) {
-    if !app.search_active || app.search_matches.is_empty() {
+    if !app.search.active || app.search.matches.is_empty() {
         return;
     }
-    let len = app.search_matches.len();
-    app.search_match_index = Some(next_match_index(app.search_match_index, len, dir));
+    let len = app.search.matches.len();
+    app.search.match_index = Some(next_match_index(app.search.match_index, len, dir));
     scroll_to_current_match(app);
 }
 
@@ -120,19 +121,25 @@ fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) ->
     }
 }
 
+/// Center the detail view on `target_line`, but only when it is off screen —
+/// recentring an already-visible match would fight the user's own scrolling.
+fn center_on_line(app: &mut AppState, target_line: usize) {
+    let vh = app.detail.v.visible_height;
+    if vh == 0 {
+        return;
+    }
+    let offset = app.detail.v.offset;
+    if target_line < offset || target_line >= offset + vh {
+        app.detail.v.scroll_to(target_line.saturating_sub(vh / 2));
+    }
+}
+
 /// Scroll the detail view so the current search match line is visible.
 fn scroll_to_current_match(app: &mut AppState) {
-    if let Some(match_idx) = app.search_match_index
-        && let Some(&target_line) = app.search_matches.get(match_idx)
+    if let Some(match_idx) = app.search.match_index
+        && let Some(&target_line) = app.search.matches.get(match_idx)
     {
-        let vh = app.detail.v.visible_height;
-        if vh == 0 {
-            return;
-        }
-        if target_line < app.detail.v.offset || target_line >= app.detail.v.offset + vh {
-            let centered = target_line.saturating_sub(vh / 2);
-            app.detail.v.offset = centered.min(app.detail.v.max);
-        }
+        center_on_line(app, target_line);
     }
 }
 
@@ -142,31 +149,29 @@ fn scroll_to_current_match(app: &mut AppState) {
 pub(super) fn apply(
     app: &mut AppState,
     mut content: Vec<Line<'static>>,
-    visible_height: usize,
-    max_scroll: usize,
 ) -> (Vec<Line<'static>>, Option<SearchBarInfo>) {
     let mut search_info = None;
-    if app.search_active && !app.search_query.is_empty() {
-        match RegexBuilder::new(&app.search_query).build() {
+    if app.search.active && !app.search.query.is_empty() {
+        match RegexBuilder::new(&app.search.query).build() {
             Ok(regex) => {
                 let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
                 search_info = info;
-                if !app.search_matches.is_empty() {
-                    if !app.search_input_active {
-                        auto_scroll_to_new_match(app, prev_match_index, visible_height, max_scroll);
+                if !app.search.matches.is_empty() {
+                    if !app.search.input_active {
+                        auto_scroll_to_new_match(app, prev_match_index);
                     }
                     content = apply_search_highlighting(content, app, &regex, app.colors);
                 }
             }
             Err(_) => {
-                app.search_matches.clear();
-                app.search_match_index = None;
+                app.search.matches.clear();
+                app.search.match_index = None;
                 search_info = Some(SearchBarInfo::InvalidPattern);
             }
         }
-    } else if !app.search_active {
-        app.search_matches.clear();
-        app.search_match_index = None;
+    } else if !app.search.active {
+        app.search.matches.clear();
+        app.search.match_index = None;
     }
     (content, search_info)
 }
@@ -227,38 +232,38 @@ fn line_text(line: &Line<'_>) -> String {
     line.spans.iter().map(|s| s.content.as_ref()).collect()
 }
 
-/// Find all content lines matching `regex`, update `app.search_matches` and
-/// `app.search_match_index`, and return the corresponding `SearchBarInfo` plus
+/// Find all content lines matching `regex`, update `app.search.matches` and
+/// `app.search.match_index`, and return the corresponding `SearchBarInfo` plus
 /// the previous match index (so callers can detect whether it changed).
 fn compute_search_matches(
     app: &mut AppState,
     content: &[Line<'_>],
     regex: &regex::Regex,
 ) -> (Option<SearchBarInfo>, Option<usize>) {
-    let prev_match_index = app.search_match_index;
+    let prev_match_index = app.search.match_index;
 
-    app.search_matches = content
+    app.search.matches = content
         .iter()
         .enumerate()
         .filter(|(_, line)| regex.is_match(&line_text(line)))
         .map(|(i, _)| i)
         .collect();
 
-    if app.search_matches.is_empty() {
-        app.search_match_index = None;
+    if app.search.matches.is_empty() {
+        app.search.match_index = None;
         (Some(SearchBarInfo::NoMatches), prev_match_index)
     } else {
-        match app.search_match_index {
-            None => app.search_match_index = Some(0),
-            Some(idx) if idx >= app.search_matches.len() => {
-                app.search_match_index = Some(app.search_matches.len() - 1);
+        match app.search.match_index {
+            None => app.search.match_index = Some(0),
+            Some(idx) if idx >= app.search.matches.len() => {
+                app.search.match_index = Some(app.search.matches.len() - 1);
             }
             _ => {}
         }
         (
             Some(SearchBarInfo::Matches {
-                current: app.search_match_index.unwrap(),
-                total: app.search_matches.len(),
+                current: app.search.match_index.unwrap(),
+                total: app.search.matches.len(),
             }),
             prev_match_index,
         )
@@ -268,23 +273,11 @@ fn compute_search_matches(
 /// Scroll the detail view so the current match is visible, but only when the
 /// match index actually changed (first match found or index clamped). This
 /// avoids overriding manual arrow/PageUp/PageDown scrolling on every render.
-fn auto_scroll_to_new_match(
-    app: &mut AppState,
-    prev_match_index: Option<usize>,
-    visible_height: usize,
-    max_scroll: usize,
-) {
-    if app.search_match_index != prev_match_index
-        && let Some(mi) = app.search_match_index
+fn auto_scroll_to_new_match(app: &mut AppState, prev_match_index: Option<usize>) {
+    if app.search.match_index != prev_match_index
+        && let Some(mi) = app.search.match_index
     {
-        let target_line = app.search_matches[mi];
-        if visible_height > 0
-            && (target_line < app.detail.v.offset
-                || target_line >= app.detail.v.offset + visible_height)
-        {
-            let centered = target_line.saturating_sub(visible_height / 2);
-            app.detail.v.offset = centered.min(max_scroll);
-        }
+        center_on_line(app, app.search.matches[mi]);
     }
 }
 
@@ -295,7 +288,7 @@ fn apply_search_highlighting(
     regex: &regex::Regex,
     colors: Colors,
 ) -> Vec<Line<'static>> {
-    let current_match_line = app.search_match_index.map(|i| app.search_matches[i]);
+    let current_match_line = app.search.match_index.map(|i| app.search.matches[i]);
     content
         .into_iter()
         .enumerate()
@@ -319,11 +312,11 @@ pub(super) fn render_bar(
     let mut bar_spans = vec![
         Span::styled("/", Style::default().fg(dark_gray)),
         Span::styled(
-            app.search_query.clone(),
+            app.search.query.clone(),
             Style::default().fg(colors.resolve(Color::White)),
         ),
     ];
-    if app.search_input_active {
+    if app.search.input_active {
         bar_spans.push(Span::styled("█", Style::default().fg(dark_gray)));
     }
     match search_info {

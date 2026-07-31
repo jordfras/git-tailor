@@ -163,7 +163,7 @@ fn main() -> Result<()> {
 
         // When the search-input bar is active in CommitDetail, forward raw
         // key events to the search handler instead of routing through parse_key.
-        if matches!(app.mode, AppMode::CommitDetail) && app.search_input_active {
+        if matches!(app.mode, AppMode::CommitDetail) && app.search.input_active {
             if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
                 break;
             }

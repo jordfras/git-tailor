@@ -254,8 +254,8 @@ fn test_commit_detail_search_bar_visible() {
     app.mode = AppMode::CommitDetail;
 
     // Activate search and type a query
-    app.activate_search();
-    app.search_query = "old".to_string();
+    app.search.activate();
+    app.search.query = "old".to_string();
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -303,9 +303,9 @@ fn test_commit_detail_search_highlight_matches() {
     app.mode = AppMode::CommitDetail;
 
     // Search for "hello" — should match 2 diff lines + file path
-    app.activate_search();
-    app.search_query = "hello".to_string();
-    app.search_input_active = false; // Confirmed search
+    app.search.activate();
+    app.search.query = "hello".to_string();
+    app.search.input_active = false; // Confirmed search
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -318,15 +318,15 @@ fn test_commit_detail_search_highlight_matches() {
 fn test_search_event_char_input() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
+    app.search.activate();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('f')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
 
-    assert_eq!(app.search_query, "foo");
-    assert!(app.search_input_active);
-    assert!(app.search_active);
+    assert_eq!(app.search.query, "foo");
+    assert!(app.search.input_active);
+    assert!(app.search.active);
 }
 
 /// Backspace removes the last character from the search query.
@@ -334,12 +334,12 @@ fn test_search_event_char_input() {
 fn test_search_event_backspace() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Backspace), &mut app);
 
-    assert_eq!(app.search_query, "fo");
+    assert_eq!(app.search.query, "fo");
 }
 
 /// Enter confirms the search (keeps active, stops input).
@@ -347,14 +347,14 @@ fn test_search_event_backspace() {
 fn test_search_event_enter_confirms() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(app.search_active);
-    assert_eq!(app.search_query, "foo");
+    assert!(!app.search.input_active);
+    assert!(app.search.active);
+    assert_eq!(app.search.query, "foo");
 }
 
 /// Enter jumps to the first match at or after the current scroll position.
@@ -362,17 +362,17 @@ fn test_search_event_enter_confirms() {
 fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    app.search_matches = vec![5, 20, 30];
-    app.search_match_index = Some(0);
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    app.search.matches = vec![5, 20, 30];
+    app.search.match_index = Some(0);
     app.detail.v.offset = 12;
     app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // First match at or after scroll offset 12 is line 20 (index 1).
-    assert_eq!(app.search_match_index, Some(1));
+    assert_eq!(app.search.match_index, Some(1));
 }
 
 /// Enter wraps to match 0 when all matches lie above the current scroll position.
@@ -380,17 +380,17 @@ fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
 fn test_search_event_enter_wraps_when_past_all_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    app.search_matches = vec![5, 8];
-    app.search_match_index = Some(1);
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    app.search.matches = vec![5, 8];
+    app.search.match_index = Some(1);
     app.detail.v.offset = 20;
     app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // All matches are above scroll offset 20; wraps to first match.
-    assert_eq!(app.search_match_index, Some(0));
+    assert_eq!(app.search.match_index, Some(0));
 }
 
 /// Enter is a no-op (for navigation) when there are no matches.
@@ -398,15 +398,15 @@ fn test_search_event_enter_wraps_when_past_all_matches() {
 fn test_search_event_enter_no_op_when_no_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    // search_matches is empty (default)
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    // search.matches is empty (default)
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(app.search_active);
-    assert_eq!(app.search_match_index, None);
+    assert!(!app.search.input_active);
+    assert!(app.search.active);
+    assert_eq!(app.search.match_index, None);
 }
 
 /// Escape dismisses the search entirely.
@@ -414,14 +414,14 @@ fn test_search_event_enter_no_op_when_no_matches() {
 fn test_search_event_escape_dismisses() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Esc), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(!app.search_active);
-    assert!(app.search_query.is_empty());
+    assert!(!app.search.input_active);
+    assert!(!app.search.active);
+    assert!(app.search.query.is_empty());
 }
 
 /// Quit (Esc) in confirmed-search mode clears search instead of leaving detail.
@@ -429,13 +429,13 @@ fn test_search_event_escape_dismisses() {
 fn test_quit_clears_search_before_leaving_detail() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search_active = true;
-    app.search_query = "foo".to_string();
+    app.search.active = true;
+    app.search.query = "foo".to_string();
 
     let result = views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
 
     assert!(matches!(result, AppAction::Handled));
-    assert!(!app.search_active);
+    assert!(!app.search.active);
     // Still in CommitDetail — didn't leave
     assert!(matches!(app.mode, AppMode::CommitDetail));
 }
@@ -445,25 +445,25 @@ fn test_quit_clears_search_before_leaving_detail() {
 fn test_search_next_prev_wraps() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search_active = true;
-    app.search_matches = vec![5, 10, 20];
-    app.search_match_index = Some(0);
+    app.search.active = true;
+    app.search.matches = vec![5, 10, 20];
+    app.search.match_index = Some(0);
     app.detail.v.visible_height = 100; // large enough to avoid scrolling
 
     // Forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(1));
+    assert_eq!(app.search.match_index, Some(1));
 
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(2));
+    assert_eq!(app.search.match_index, Some(2));
 
     // Wrap forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(0));
+    assert_eq!(app.search.match_index, Some(0));
 
     // Wrap backward
     views::commit_detail::handle_key(KeyCommand::SearchPrev, &mut app);
-    assert_eq!(app.search_match_index, Some(2));
+    assert_eq!(app.search.match_index, Some(2));
 }
 
 /// Regex search is case-sensitive: "FOO" must not match "foo".
@@ -502,9 +502,9 @@ fn test_search_case_sensitive() {
     app.mode = AppMode::CommitDetail;
 
     // "FOO" must only match uppercase occurrences, not "foo"
-    app.activate_search();
-    app.search_query = "FOO".to_string();
-    app.search_input_active = false;
+    app.search.activate();
+    app.search.query = "FOO".to_string();
+    app.search.input_active = false;
 
     let buf = harness.render(|frame| {
         let area = frame.area();
@@ -513,7 +513,7 @@ fn test_search_case_sensitive() {
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
     // "foo" in file path and "+foo baz" must NOT match.
-    assert_eq!(app.search_matches.len(), 2);
+    assert_eq!(app.search.matches.len(), 2);
 
     insta::assert_debug_snapshot!(buf);
 }

@@ -111,7 +111,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Search => {
-            app.activate_search();
+            app.search.activate();
             AppAction::Handled
         }
         KeyCommand::SearchNext => {
@@ -132,8 +132,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
-            if app.search_active {
-                app.clear_search();
+            if app.search.active {
+                app.search.clear();
             } else {
                 app.toggle_detail_view();
             }
@@ -157,7 +157,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
-    let search_bar_height: u16 = if app.search_active { 1 } else { 0 };
+    let search_bar_height: u16 = if app.search.active { 1 } else { 0 };
     let [header_area, content_area, search_bar_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
@@ -237,8 +237,7 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
             .h
             .set_bounds(layout.max_h_scroll, layout.text_area_width);
 
-        (content, search_info) =
-            search::apply(app, content, layout.visible_height, layout.max_scroll);
+        (content, search_info) = search::apply(app, content);
 
         // Clamp the stored scroll offsets to the current content bounds. Writing
         // them back (not just a local copy) matters when the content shrinks —
@@ -273,7 +272,7 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
     }
 
     // Render search bar (row above footer, only when search is active)
-    if app.search_active {
+    if app.search.active {
         search::render_bar(frame, app, search_info, search_bar_area);
     }
 

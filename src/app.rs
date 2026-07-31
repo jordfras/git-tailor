@@ -18,12 +18,14 @@ pub mod detail;
 pub mod keymap;
 pub mod operation;
 pub mod scroll;
+pub mod search;
 pub mod state;
 
 pub use detail::{DetailContextLines, DetailState};
 pub use keymap::{KeyCommand, read_event};
 pub use operation::Operation;
 pub use scroll::ScrollState;
+pub use search::SearchState;
 pub use state::AppState;
 
 use crate::{

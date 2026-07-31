@@ -24,6 +24,7 @@ use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, Spl
 use crate::app::ScrollState;
 use crate::app::detail::DetailState;
 use crate::app::scroll::{half_page_size, page_size};
+use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
 /// Application state for the TUI.
@@ -73,16 +74,8 @@ pub struct AppState {
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
-    /// Current search query string (regex pattern).
-    pub search_query: String,
-    /// Whether the user is actively typing in the search bar.
-    pub search_input_active: bool,
-    /// Whether search results (highlights, match navigation) are active.
-    pub search_active: bool,
-    /// Line indices in the detail content that match the search regex.
-    pub search_matches: Vec<usize>,
-    /// Index into `search_matches` for the current match.
-    pub search_match_index: Option<usize>,
+    /// Regex search state for the detail view.
+    pub search: SearchState,
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
     pub update_notice: Option<String>,
@@ -521,7 +514,7 @@ impl AppState {
         let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => {
-                self.clear_search();
+                self.search.clear();
                 AppMode::CommitList
             }
             AppMode::Help(_)
@@ -560,24 +553,6 @@ impl AppState {
                 self.mode = *prev_mode;
             }
         }
-    }
-
-    /// Clear all search state.
-    pub fn clear_search(&mut self) {
-        self.search_query.clear();
-        self.search_input_active = false;
-        self.search_active = false;
-        self.search_matches.clear();
-        self.search_match_index = None;
-    }
-
-    /// Activate search mode: clear query and show search bar.
-    pub fn activate_search(&mut self) {
-        self.search_query.clear();
-        self.search_input_active = true;
-        self.search_active = true;
-        self.search_matches.clear();
-        self.search_match_index = None;
     }
 
     /// Toggle help dialog on/off.
