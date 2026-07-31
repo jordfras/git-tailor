@@ -26,7 +26,7 @@ pub use keymap::{KeyCommand, read_event};
 pub use operation::Operation;
 pub use scroll::ScrollState;
 pub use search::SearchState;
-pub use state::AppState;
+pub use state::{AppState, StatusState};
 
 use crate::{
     FileDiff, Oid,

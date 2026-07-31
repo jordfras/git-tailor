@@ -88,8 +88,8 @@ fn test_squash_into_self_blocked() {
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
-    assert!(app.status_message.is_some());
-    assert!(app.status_is_error);
+    assert!(app.status.message.is_some());
+    assert!(app.status.is_error);
     // Mode stays in SquashSelect
     assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
 }
@@ -113,7 +113,7 @@ fn test_squash_into_staged_blocked() {
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn test_squash_blocked_on_staged_row() {
 
     // Should still be in CommitList (blocked)
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn test_squash_blocked_on_single_commit() {
     app.enter_squash_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn test_fixup_blocked_on_single_commit() {
     app.enter_fixup_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]

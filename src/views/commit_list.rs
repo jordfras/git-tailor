@@ -777,8 +777,8 @@ fn build_move_separator_row<'a>(
 }
 
 pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
-    if let Some(msg) = &app.status_message {
-        let bg = if app.status_is_error {
+    if let Some(msg) = &app.status.message {
+        let bg = if app.status.is_error {
             Color::Red
         } else {
             Color::Green

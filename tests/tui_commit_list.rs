@@ -196,8 +196,8 @@ fn test_status_bar_short_error() {
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
     app.selection_index = 0;
-    app.status_message = Some("Cannot split staged/unstaged changes".to_string());
-    app.status_is_error = true;
+    app.status.message = Some("Cannot split staged/unstaged changes".to_string());
+    app.status.is_error = true;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -263,11 +263,11 @@ fn test_status_bar_long_error() {
     let mut app = AppState::new();
     app.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
     app.selection_index = 0;
-    app.status_message = Some(
+    app.status.message = Some(
         "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs"
             .to_string(),
     );
-    app.status_is_error = true;
+    app.status.is_error = true;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -332,7 +332,7 @@ fn stage_all_is_gated_to_the_unstaged_row() {
         views::commit_list::handle_key(KeyCommand::StageAll, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -363,7 +363,7 @@ fn edit_is_refused_on_a_synthetic_row() {
         views::commit_list::handle_key(KeyCommand::Edit, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn unstage_all_is_gated_to_the_staged_row() {
         views::commit_list::handle_key(KeyCommand::UnstageAll, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -423,7 +423,7 @@ fn commit_staged_is_gated_to_the_staged_row() {
         views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]

@@ -27,6 +27,33 @@ use crate::app::scroll::{half_page_size, page_size};
 use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
+/// Transient status message shown in the footer, cleared on the next keypress.
+#[derive(Debug, Default)]
+pub struct StatusState {
+    pub message: Option<String>,
+    /// Whether the message represents an error (red) or a success (green).
+    pub is_error: bool,
+}
+
+impl StatusState {
+    /// Set a success status message (shown with green background).
+    pub fn set_success(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.is_error = false;
+    }
+
+    /// Set an error status message (shown with red background).
+    pub fn set_error(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.is_error = true;
+    }
+
+    /// Clear the transient status message.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 /// Application state for the TUI.
 ///
 /// Manages the overall state of the interactive terminal interface,
@@ -63,9 +90,7 @@ pub struct AppState {
     /// the selection stays visible.
     pub commit_list_scroll_override: Option<usize>,
     /// Transient status message shown in the footer (cleared on next keypress).
-    pub status_message: Option<String>,
-    /// Whether the current status message represents an error (red) or success (green).
-    pub status_is_error: bool,
+    pub status: StatusState,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
     /// Scroll state for the current dialog (e.g. help). Offset is reset when a
@@ -77,7 +102,7 @@ pub struct AppState {
     /// Regex search state for the detail view.
     pub search: SearchState,
     /// Set when the background check detects a newer crates.io release. Persistent
-    /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
+    /// (NOT cleared by `status.clear`); shown in the footer hint slot.
     pub update_notice: Option<String>,
     /// Precomputed target selection index for an in-progress autofixup batch
     /// that hit a conflict, carried across the conflict-resolution round trip
@@ -493,20 +518,17 @@ impl AppState {
 
     /// Set a success status message (shown with green background).
     pub fn set_success_message(&mut self, msg: impl Into<String>) {
-        self.status_message = Some(msg.into());
-        self.status_is_error = false;
+        self.status.set_success(msg);
     }
 
     /// Set an error status message (shown with red background).
     pub fn set_error_message(&mut self, msg: impl Into<String>) {
-        self.status_message = Some(msg.into());
-        self.status_is_error = true;
+        self.status.set_error(msg);
     }
 
     /// Clear the transient status message.
     pub fn clear_status_message(&mut self) {
-        self.status_message = None;
-        self.status_is_error = false;
+        self.status.clear();
     }
 
     /// Toggle between CommitList and CommitDetail modes.

@@ -209,7 +209,7 @@ fn test_move_confirm_at_same_position_shows_error() {
     assert!(matches!(result, AppAction::Handled));
     // Should remain in MoveSelect mode
     assert!(matches!(app.mode, AppMode::MoveSelect { .. }));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn test_move_confirm_at_source_plus_one_shows_error() {
     let result = views::move_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
     assert!(matches!(app.mode, AppMode::MoveSelect { .. }));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn test_enter_move_select_blocks_on_synthetic() {
 
     // Should still be in CommitList (blocked)
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn test_enter_move_select_single_commit_blocked() {
     app.enter_move_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]

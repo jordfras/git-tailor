@@ -372,8 +372,8 @@ fn execute_drop_complete_sets_success_message() {
         Oid::from("b".repeat(40)),
     );
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
-    assert_eq!(app.status_message.as_deref(), Some("Commit dropped"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Commit dropped"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -415,9 +415,10 @@ fn execute_drop_error_sets_error_message() {
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
     );
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Drop failed")
@@ -430,8 +431,8 @@ fn execute_move_complete_sets_success_message() {
     let mut app = AppState::default();
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
-    assert_eq!(app.status_message.as_deref(), Some("Commit moved"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Commit moved"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -443,7 +444,7 @@ fn execute_move_head_error_continues() {
     let mut app = AppState::default();
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::Continue)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -453,9 +454,10 @@ fn rebase_abort_success_sets_success_message() {
     let state = make_conflict_state();
     let result = handle_rebase_abort(&mut repo, &mut app, state);
     assert!(matches!(result, Ok(LoopAction::Reload)));
-    assert!(!app.status_is_error);
+    assert!(!app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("aborted")
@@ -471,9 +473,10 @@ fn rebase_abort_error_sets_error_message() {
     let mut app = AppState::default();
     let state = make_conflict_state();
     let _ = handle_rebase_abort(&mut repo, &mut app, state);
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Abort failed")
@@ -494,7 +497,7 @@ fn prepare_split_count_error_sets_error_message() {
         Oid::from("a".repeat(40)),
     );
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -615,7 +618,7 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -629,7 +632,7 @@ fn prepare_split_out_hunks_error_sets_error_message() {
     let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -715,7 +718,7 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
     let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -729,7 +732,7 @@ fn prepare_split_out_files_error_sets_error_message() {
     let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -744,8 +747,8 @@ fn stage_all_changed_reloads_and_reports_success() {
         "Nothing to stage",
     );
     assert!(matches!(action, LoopAction::Reload));
-    assert_eq!(app.status_message.as_deref(), Some("Staged all changes"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Staged all changes"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -762,8 +765,8 @@ fn stage_all_noop_reports_without_reload() {
         "Nothing to stage",
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert_eq!(app.status_message.as_deref(), Some("Nothing to stage"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Nothing to stage"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -780,7 +783,7 @@ fn stage_all_error_sets_error_message() {
         "Nothing to unstage",
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -796,8 +799,8 @@ fn worktree_preserving_undo_skips_autostash() {
     let result = handle_undo(&mut repo, &mut app);
     assert!(matches!(result, Ok(LoopAction::Reload)));
     assert_eq!(repo.autostash_save_calls.get(), 0);
-    assert_eq!(app.status_message.as_deref(), Some("Undid stage all"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Undid stage all"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -883,12 +886,13 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
         other => panic!("expected RebaseConflict mode, got {other:?}"),
     }
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Merge tool finished")
     );
-    assert!(!app.status_is_error);
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -903,9 +907,10 @@ fn conflict_tool_no_merge_tool_sets_error() {
         Ok(ToolRun::NoMergeTool),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("No merge tool configured")
@@ -924,8 +929,8 @@ fn conflict_tool_failure_reports_the_tool_name() {
         Err(anyhow::anyhow!("boom")),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
-    let msg = app.status_message.as_deref().unwrap_or("");
+    assert!(app.status.is_error);
+    let msg = app.status.message.as_deref().unwrap_or("");
     assert!(msg.contains("Editor failed"), "unexpected message: {msg}");
     assert!(msg.contains("boom"), "unexpected message: {msg}");
 }
@@ -956,7 +961,8 @@ fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
         other => panic!("expected StashConflict mode, got {other:?}"),
     }
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Editor finished")
@@ -1096,7 +1102,7 @@ mod autofixup_selection {
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
-        assert_eq!(app.status_message.as_deref(), Some("Commits autofixed up"));
+        assert_eq!(app.status.message.as_deref(), Some("Commits autofixed up"));
     }
 
     #[test]
