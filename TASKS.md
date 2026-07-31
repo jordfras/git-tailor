@@ -87,7 +87,7 @@ Guidelines:
   3× `revwalk push→collect→reverse` idiom (drop_op.rs:75, move_op.rs:101/155) and
   4× empty-tree build into small helpers. Pure refactor; covered by existing
   integration tests.
-- [ ] T233 P3 refactor - Replace the `ConflictState` fat union with honest per-op
+- [X] T233 P3 refactor - Replace the `ConflictState` fat union with honest per-op
   state (`src/repo.rs:103`). It carries the common conflict fields plus four
   op-specific optional payloads (`moved_commit_oid`, `squash_context`,
   `autofixup_context`, `edit_context`) + an `is_orphan_root` flag, with consumers
