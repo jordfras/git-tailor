@@ -49,36 +49,36 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         KeyCommand::PageUp => {
             let h = app.commit_list_visible_height;
             if app.reverse {
-                app.page_down(h);
+                app.select_page_down(h);
             } else {
-                app.page_up(h);
+                app.select_page_up(h);
             }
             AppAction::Handled
         }
         KeyCommand::PageDown => {
             let h = app.commit_list_visible_height;
             if app.reverse {
-                app.page_up(h);
+                app.select_page_up(h);
             } else {
-                app.page_down(h);
+                app.select_page_down(h);
             }
             AppAction::Handled
         }
         KeyCommand::HalfPageUp => {
             let h = app.commit_list_visible_height;
             if app.reverse {
-                app.half_page_down(h);
+                app.select_half_page_down(h);
             } else {
-                app.half_page_up(h);
+                app.select_half_page_up(h);
             }
             AppAction::Handled
         }
         KeyCommand::HalfPageDown => {
             let h = app.commit_list_visible_height;
             if app.reverse {
-                app.half_page_up(h);
+                app.select_half_page_up(h);
             } else {
-                app.half_page_down(h);
+                app.select_half_page_down(h);
             }
             AppAction::Handled
         }

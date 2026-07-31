@@ -96,7 +96,7 @@ Guidelines:
   enum-of-contexts and separate the "in-progress journal record" from "conflict
   awaiting resolution". Touches journal serialization + crash recovery → do TDD
   against `tests/undo.rs` and the edit/recovery tests. Higher risk.
-- [ ] T234 P3 refactor - Break up the `AppState` god-struct (`src/app/state.rs`, 34
+- [X] T234 P3 refactor - Break up the `AppState` god-struct (`src/app/state.rs`, 34
   flat fields). Extract the three structurally identical scroll-triples (detail
   V/H, dialog, commit-list override) into a reusable `ScrollState`; group the
   detail-view, search, and status fields into sub-structs; and move
@@ -104,6 +104,14 @@ Guidelines:
   leaks into cross-cutting state). Separately, lift the self-contained ~10-function
   detail search subsystem out of `views/commit_detail.rs` (929 lines) into its own
   module. Pure refactor.
+  DONE — 34 fields → 22. `ScrollState` covers detail-V, detail-H and dialog.
+  The commit-list pair was deliberately left flat: it has no `max` (the bound is
+  derived from `commits.len()` in `commit_list_effective_offset`, which also needs
+  `reverse`/`selection_index`), its offset is an `Option` override, and
+  `commit_list_visible_height` is a layout measurement that `squash_select` and
+  `move_select` read for *cursor* paging, not scrolling. Grouping it by cohesion
+  instead (`commits` + `selection_index` + `reverse` + the two, with the
+  navigation methods moving onto it) is a real option, but ~350 mechanical edits.
 - [ ] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
   and `split_op.rs` (`finalize_split`) use the older `rebase_descendants`
   (cherry_pick.rs:28) that **bails** on conflict, while drop/move/squash/edit use

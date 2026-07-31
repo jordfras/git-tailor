@@ -204,15 +204,15 @@ impl AppState {
         self.fragmap_scroll_offset = usize::MAX;
     }
 
-    /// Scroll commit list up by one page (visible_height lines).
-    pub fn page_up(&mut self, visible_height: usize) {
+    /// Move the selection up by one page (visible_height rows).
+    pub fn select_page_up(&mut self, visible_height: usize) {
         self.selection_index = self
             .selection_index
             .saturating_sub(page_size(visible_height));
     }
 
-    /// Scroll commit list down by one page (visible_height lines).
-    pub fn page_down(&mut self, visible_height: usize) {
+    /// Move the selection down by one page (visible_height rows).
+    pub fn select_page_down(&mut self, visible_height: usize) {
         if self.commits.is_empty() {
             return;
         }
@@ -222,15 +222,15 @@ impl AppState {
         self.selection_index = new_index.min(self.commits.len() - 1);
     }
 
-    /// Scroll commit list up by half a page (visible_height lines).
-    pub fn half_page_up(&mut self, visible_height: usize) {
+    /// Move the selection up by half a page (visible_height rows).
+    pub fn select_half_page_up(&mut self, visible_height: usize) {
         self.selection_index = self
             .selection_index
             .saturating_sub(half_page_size(visible_height));
     }
 
-    /// Scroll commit list down by half a page (visible_height lines).
-    pub fn half_page_down(&mut self, visible_height: usize) {
+    /// Move the selection down by half a page (visible_height rows).
+    pub fn select_half_page_down(&mut self, visible_height: usize) {
         if self.commits.is_empty() {
             return;
         }
