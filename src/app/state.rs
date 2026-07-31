@@ -21,6 +21,8 @@ use crate::{
 };
 
 use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
+use crate::app::ScrollState;
+use crate::app::scroll::{half_page_size, page_size};
 use crate::autofixup::AutofixupPair;
 
 /// Number of diff context lines shown in the commit detail view. A newtype so
@@ -85,12 +87,9 @@ pub struct AppState {
     pub status_is_error: bool,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
-    /// Scroll offset for the current dialog (e.g. help). Reset when a dialog opens.
-    pub dialog_scroll_offset: usize,
-    /// Maximum allowed dialog scroll offset (updated during render).
-    pub max_dialog_scroll: usize,
-    /// Visible content height of the current dialog (updated during render, used for paging).
-    pub dialog_visible_height: usize,
+    /// Scroll state for the current dialog (e.g. help). Offset is reset when a
+    /// dialog opens; bounds are updated during render.
+    pub dialog: ScrollState,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -697,35 +696,8 @@ impl AppState {
         if !matches!(self.mode, AppMode::Help(_)) {
             let current = std::mem::replace(&mut self.mode, AppMode::CommitList);
             self.mode = AppMode::Help(Box::new(current));
-            self.dialog_scroll_offset = 0;
+            self.dialog.offset = 0;
         }
-    }
-
-    /// Scroll the current dialog up by one line.
-    pub fn scroll_dialog_up(&mut self) {
-        self.dialog_scroll_offset = self.dialog_scroll_offset.saturating_sub(1);
-    }
-
-    /// Scroll the current dialog down by one line.
-    pub fn scroll_dialog_down(&mut self) {
-        if self.dialog_scroll_offset < self.max_dialog_scroll {
-            self.dialog_scroll_offset += 1;
-        }
-    }
-
-    /// Scroll the current dialog up by one page.
-    pub fn scroll_dialog_page_up(&mut self) {
-        self.dialog_scroll_offset = self
-            .dialog_scroll_offset
-            .saturating_sub(page_size(self.dialog_visible_height));
-    }
-
-    /// Scroll the current dialog down by one page.
-    pub fn scroll_dialog_page_down(&mut self) {
-        let new = self
-            .dialog_scroll_offset
-            .saturating_add(page_size(self.dialog_visible_height));
-        self.dialog_scroll_offset = new.min(self.max_dialog_scroll);
     }
 
     /// Close help dialog and return to previous mode.
@@ -767,7 +739,7 @@ impl AppState {
 
     fn enter_dialog(&mut self, mode: AppMode) {
         self.mode = mode;
-        self.dialog_scroll_offset = 0;
+        self.dialog.offset = 0;
     }
 
     fn exit_dialog(&mut self) {
@@ -779,20 +751,6 @@ impl AppState {
             .min(self.commits.len().saturating_sub(1));
         self.mode = AppMode::CommitList;
     }
-}
-
-/// Page-scroll distance for a panel of `visible_height` lines.
-///
-/// Keeps one line of overlap so the user retains context after paging — the
-/// last visible line becomes the first visible line of the next page.
-/// Always returns at least 1 so a single-line panel can still page.
-fn page_size(visible_height: usize) -> usize {
-    visible_height.saturating_sub(1).max(1)
-}
-
-/// Half-page step: approximately half the visible height, at least 1.
-fn half_page_size(visible_height: usize) -> usize {
-    (visible_height / 2).max(1)
 }
 
 #[cfg(test)]

@@ -101,7 +101,6 @@ pub fn render_recover(app: &mut AppState, frame: &mut Frame) {
             ("Esc", Color::Red, "Abort"),
         ])
         .blank()
-        .render(frame, "Recover", PREFERRED_WIDTH, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Recover", PREFERRED_WIDTH, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

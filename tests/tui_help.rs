@@ -68,7 +68,7 @@ fn test_help_dialog_short_terminal_scrollbar() {
 fn test_help_dialog_scrolled() {
     let mut harness = TuiTestHarness::short();
     let mut app = make_app_in_help();
-    app.dialog_scroll_offset = 5;
+    app.dialog.offset = 5;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);

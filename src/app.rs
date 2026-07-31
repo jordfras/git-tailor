@@ -16,10 +16,12 @@
 
 pub mod keymap;
 pub mod operation;
+pub mod scroll;
 pub mod state;
 
 pub use keymap::{KeyCommand, read_event};
 pub use operation::Operation;
+pub use scroll::ScrollState;
 pub use state::AppState;
 
 use crate::{

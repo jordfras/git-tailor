@@ -70,12 +70,6 @@ pub fn render_drop_confirm(app: &mut AppState, frame: &mut Frame) {
             ("Esc", Color::Cyan, "Cancel"),
         ])
         .blank()
-        .render(
-            frame,
-            "Confirm Drop",
-            PREFERRED_WIDTH,
-            app.dialog_scroll_offset,
-        );
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Confirm Drop", PREFERRED_WIDTH, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

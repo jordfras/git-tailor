@@ -118,8 +118,8 @@ fn render_separator(app: &AppState, frame: &mut Frame, area: Rect) {
 /// [`list_text_width`] and [`LIST_ROW_PREFIX_WIDTH`]), prefixed with a cursor
 /// marker and selection checkbox, with a vertical scrollbar once it overflows.
 ///
-/// Uses `app.dialog_scroll_offset`/`max_dialog_scroll`/`dialog_visible_height`
-/// for its scroll state, same as every other list-picker dialog.
+/// Uses `app.dialog` for its scroll state, same as every other list-picker
+/// dialog.
 pub(super) fn render_list(
     app: &mut AppState,
     frame: &mut Frame,
@@ -131,9 +131,11 @@ pub(super) fn render_list(
     let [text_area, scrollbar_area] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(area);
 
-    app.dialog_visible_height = text_area.height as usize;
-    app.max_dialog_scroll = labels.len().saturating_sub(text_area.height as usize);
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+    app.dialog.set_bounds(
+        labels.len().saturating_sub(text_area.height as usize),
+        text_area.height as usize,
+    );
+    app.dialog.clamp_offset();
 
     let lines: Vec<Line> = labels
         .iter()
@@ -156,16 +158,11 @@ pub(super) fn render_list(
         })
         .collect();
 
-    let paragraph = Paragraph::new(lines).scroll((app.dialog_scroll_offset as u16, 0));
+    let paragraph = Paragraph::new(lines).scroll((app.dialog.offset as u16, 0));
     frame.render_widget(paragraph, text_area);
 
-    if app.max_dialog_scroll > 0 {
-        render_vertical_scrollbar(
-            frame,
-            scrollbar_area,
-            app.dialog_scroll_offset,
-            app.max_dialog_scroll,
-        );
+    if app.dialog.max > 0 {
+        render_vertical_scrollbar(frame, scrollbar_area, app.dialog.offset, app.dialog.max);
     }
 }
 
