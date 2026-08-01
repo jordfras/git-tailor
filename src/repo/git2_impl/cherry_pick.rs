@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Cherry-pick primitives shared by drop, move, squash, and conflict-resume
-//! operations.
+//! Cherry-pick primitives shared by every operation that replays commits:
+//! drop, move, squash, edit and conflict-resume, which pause on conflict, and
+//! split and reword, which replay onto an identical tree and so cannot.
 
 use anyhow::Result;
 
@@ -23,39 +24,76 @@ use super::conflict;
 use crate::Oid;
 
 impl Git2Repo {
-    /// Cherry-pick all commits strictly between `stop_oid` (exclusive) and
-    /// `head_oid` (inclusive) onto `tip`, returning the new tip OID.
-    pub(super) fn rebase_descendants(
+    /// Cherry-pick `desc` onto `onto`, committing the result when it merges
+    /// cleanly and handing back the conflicted index when it does not.
+    ///
+    /// The single place the cherry-pick mechanics live; the two replay loops
+    /// differ only in what they do with a conflict.
+    fn cherry_pick_one(&self, onto: &git2::Commit, desc: &git2::Commit) -> Result<PickStep> {
+        let repo = &self.inner;
+
+        // Root commits have no parent, so cherrypick_commit cannot compute
+        // a diff base. Use merge_trees with the empty tree as the common
+        // ancestor — this is the correct three-way merge equivalent of
+        // cherry-picking a commit with no parent: files already present
+        // with matching content are kept without conflict.
+        let mut cherry_index = if desc.parent_count() == 0 {
+            repo.merge_trees(&self.empty_tree()?, &onto.tree()?, &desc.tree()?, None)?
+        } else {
+            repo.cherrypick_commit(desc, onto, 0, None)?
+        };
+        if cherry_index.has_conflicts() {
+            return Ok(PickStep::Conflicted(cherry_index));
+        }
+
+        let new_tree_oid = cherry_index.write_tree_to(repo)?;
+        let new_tree = repo.find_tree(new_tree_oid)?;
+        let picked = repo.commit(
+            None,
+            &desc.author(),
+            &desc.committer(),
+            desc.message().unwrap_or(""),
+            &new_tree,
+            &[onto],
+        )?;
+        Ok(PickStep::Picked(picked))
+    }
+
+    /// Replay the commits in `stop_oid..head_oid` onto `tip`, where `tip`'s tree
+    /// is identical to the tree those commits were originally based on — so no
+    /// cherry-pick can conflict.
+    ///
+    /// The guarantee is inductive: with ancestor-tree ≡ ours-tree, the merge
+    /// resolves every path to *theirs*, so the result is byte-identical to the
+    /// descendant's own tree, which re-establishes the premise for the next hop.
+    /// Reword rebuilds the commit with `commit.tree()` verbatim, and every split
+    /// strategy commits its last piece from the original `commit_tree`.
+    ///
+    /// A conflict therefore means that invariant was broken. Bail *without*
+    /// journaling, writing the working tree, or moving any ref: callers (reword,
+    /// `finalize_split`) only ever see `Result<()>` and their dispatch handlers
+    /// wrap them in an auto-stash save/restore. Journaling an `InProgress`
+    /// conflict here would pop that stash onto a half-rebased tree while the app
+    /// never entered the conflict-resolution mode.
+    pub(super) fn replay_descendants_conflict_free(
         &self,
         stop_oid: git2::Oid,
         head_oid: git2::Oid,
         mut tip: git2::Oid,
     ) -> Result<git2::Oid> {
-        let repo = &self.inner;
         for desc_oid in self.collect_descendants(stop_oid, head_oid)? {
-            let desc_commit = repo.find_commit(desc_oid)?;
-            let onto_commit = repo.find_commit(tip)?;
+            let desc_commit = self.inner.find_commit(desc_oid)?;
+            let onto_commit = self.inner.find_commit(tip)?;
 
-            let mut cherry_index = repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?;
-            if cherry_index.has_conflicts() {
-                anyhow::bail!(
-                    "Conflict rebasing {} onto split result",
-                    &desc_oid.to_string()[..10]
-                );
+            match self.cherry_pick_one(&onto_commit, &desc_commit)? {
+                PickStep::Picked(new_tip) => tip = new_tip,
+                PickStep::Conflicted(_) => anyhow::bail!(
+                    "internal error: replaying {} onto {} conflicted; the replay \
+                     base's tree does not match the original commit's tree",
+                    &desc_oid.to_string()[..10],
+                    &tip.to_string()[..10],
+                ),
             }
-            let new_tree_oid = cherry_index.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            let author = desc_commit.author();
-            let committer = desc_commit.committer();
-            tip = repo.commit(
-                None,
-                &author,
-                &committer,
-                desc_commit.message().unwrap_or(""),
-                &new_tree,
-                &[&onto_commit],
-            )?;
         }
 
         Ok(tip)
@@ -133,42 +171,30 @@ impl Git2Repo {
             let desc_commit = repo.find_commit(desc_oid)?;
             let onto_commit = repo.find_commit(tip)?;
 
-            // Root commits have no parent, so cherrypick_commit cannot compute
-            // a diff base. Use merge_trees with the empty tree as the common
-            // ancestor — this is the correct three-way merge equivalent of
-            // cherry-picking a commit with no parent: files already present
-            // with matching content are kept without conflict.
-            let mut cherry_index = if desc_commit.parent_count() == 0 {
-                repo.merge_trees(
-                    &self.empty_tree()?,
-                    &onto_commit.tree()?,
-                    &desc_commit.tree()?,
-                    None,
-                )?
-            } else {
-                repo.cherrypick_commit(&desc_commit, &onto_commit, 0, None)?
-            };
-            if cherry_index.has_conflicts() {
-                let state = build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
-                conflict::write_conflicts_to_workdir(self, &cherry_index, &onto_commit, &state)?;
-                return Ok(CherryPickResult::Conflict(Box::new(state)));
+            match self.cherry_pick_one(&onto_commit, &desc_commit)? {
+                PickStep::Picked(new_tip) => tip = new_tip,
+                PickStep::Conflicted(cherry_index) => {
+                    let state = build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
+                    conflict::write_conflicts_to_workdir(
+                        self,
+                        &cherry_index,
+                        &onto_commit,
+                        &state,
+                    )?;
+                    return Ok(CherryPickResult::Conflict(Box::new(state)));
+                }
             }
-
-            let new_tree_oid = cherry_index.write_tree_to(repo)?;
-            let new_tree = repo.find_tree(new_tree_oid)?;
-
-            tip = repo.commit(
-                None,
-                &desc_commit.author(),
-                &desc_commit.committer(),
-                desc_commit.message().unwrap_or(""),
-                &new_tree,
-                &[&onto_commit],
-            )?;
         }
 
         Ok(CherryPickResult::Complete(tip))
     }
+}
+
+/// Outcome of cherry-picking one commit: the new tip, or the conflicted index
+/// for the caller to deal with according to its conflict policy.
+enum PickStep {
+    Picked(git2::Oid),
+    Conflicted(git2::Index),
 }
 
 /// Operation context threaded into [`Git2Repo::cherry_pick_chain`] so it can

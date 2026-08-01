@@ -47,7 +47,7 @@ pub(super) fn reword_commit(
         &parent_refs,
     )?;
 
-    let tip = repo.rebase_descendants(commit_git_oid, head_git_oid, new_oid)?;
+    let tip = repo.replay_descendants_conflict_free(commit_git_oid, head_git_oid, new_oid)?;
     repo.advance_branch_ref(tip, "reword: update branch ref")?;
     Ok(())
 }
