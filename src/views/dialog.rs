@@ -186,7 +186,7 @@ pub fn render_conflict_dialog(
 
     let (max_scroll, visible_height) =
         dialog.render(frame, title, preferred_width, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 /// Incremental builder for a centered overlay dialog.

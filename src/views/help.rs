@@ -83,7 +83,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   Esc, q         ", "Close dialog / Quit application")
         .blank()
         .render(frame, "Help — Commit List", 56, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 fn render_commit_detail_help(app: &mut crate::app::AppState, frame: &mut Frame) {
@@ -117,5 +117,5 @@ fn render_commit_detail_help(app: &mut crate::app::AppState, frame: &mut Frame) 
         .key_binding("   Esc, q         ", "Return to commit list")
         .blank()
         .render(frame, "Help — Commit Detail", 56, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

@@ -131,7 +131,7 @@ pub(super) fn render_list(
     let [text_area, scrollbar_area] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(1)]).areas(area);
 
-    app.dialog.set_bounds_clamped(
+    app.dialog.set_bounds(
         labels.len().saturating_sub(text_area.height as usize),
         text_area.height as usize,
     );

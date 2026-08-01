@@ -193,7 +193,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let content_width = 50;
     let (max_scroll, visible_height) =
         dialog.render(frame, "Split Commit", content_width, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
@@ -230,5 +230,5 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
         ])
         .blank()
         .render(frame, "Confirm Split", 52, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

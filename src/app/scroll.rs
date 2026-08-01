@@ -27,25 +27,17 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-    /// Record the bounds measured during render.
+    /// Record the bounds measured during render, clamping the offset to them.
     ///
-    /// Deliberately does *not* clamp `offset` — callers that need clamping do
-    /// it explicitly with [`clamp_offset`][Self::clamp_offset], because some
-    /// read the pre-clamp offset in between (see `views::commit_detail`).
+    /// Clamping here rather than later in the render pass keeps `offset` equal
+    /// to what will actually be drawn, so anything reading it in between — the
+    /// detail view's search auto-scroll asking whether a match is on screen —
+    /// sees the real viewport. A stale offset also makes scrolling back appear
+    /// frozen, since each keypress only walks it down invisibly until it
+    /// re-enters range.
     pub fn set_bounds(&mut self, max: usize, visible_height: usize) {
         self.max = max;
         self.visible_height = visible_height;
-    }
-
-    /// Record the bounds measured during render and clamp the offset to them.
-    ///
-    /// What every dialog's render path wants: nothing reads the pre-clamp
-    /// offset, and leaving a stale one behind (after the terminal grew, or the
-    /// content shrank) makes scrolling back appear frozen — the renderer clamps
-    /// what it draws, so each keypress only walks the stored offset down
-    /// invisibly until it re-enters range.
-    pub fn set_bounds_clamped(&mut self, max: usize, visible_height: usize) {
-        self.set_bounds(max, visible_height);
         self.clamp_offset();
     }
 

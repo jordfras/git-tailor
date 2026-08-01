@@ -102,5 +102,5 @@ pub fn render_recover(app: &mut AppState, frame: &mut Frame) {
         ])
         .blank()
         .render(frame, "Recover", PREFERRED_WIDTH, app.dialog.offset);
-    app.dialog.set_bounds_clamped(max_scroll, visible_height);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

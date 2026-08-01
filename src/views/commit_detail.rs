@@ -229,7 +229,11 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
 
         let layout = compute_scroll_layout(content_area, &content);
 
-        // Update scroll state in app for proper bounds and page scrolling
+        // Record the bounds — and with them clamp the stored offsets, which
+        // matters when the content shrinks (e.g. reducing the diff context
+        // lines) so the offset snaps to the new bottom instead of leaving the
+        // user stuck unable to scroll up. Search runs after, and needs the
+        // clamped offsets to judge whether the current match is on screen.
         app.detail
             .v
             .set_bounds(layout.max_scroll, layout.visible_height);
@@ -239,12 +243,6 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
 
         (content, search_info) = search::apply(app, content);
 
-        // Clamp the stored scroll offsets to the current content bounds. Writing
-        // them back (not just a local copy) matters when the content shrinks —
-        // e.g. reducing the diff context lines — so the offset snaps to the new
-        // bottom instead of leaving the user stuck unable to scroll up.
-        app.detail.v.clamp_offset();
-        app.detail.h.clamp_offset();
         let scroll_offset = app.detail.v.offset;
         let h_scroll = app.detail.h.offset;
 
