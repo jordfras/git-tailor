@@ -285,3 +285,101 @@ fn split_per_file_preserves_commit_message_body() {
         );
     }
 }
+
+#[test]
+fn split_per_file_handles_submodule_delta_not_last() {
+    // Same gitlink hazard as `split_per_file_handles_submodule_delta`, but with
+    // the submodule sorting *before* the regular file. Deltas are path-ordered,
+    // so there the gitlink is the last delta — and the last piece is committed
+    // with the original tree verbatim, which would bypass the gitlink handling
+    // entirely. Here `sub` < `z.txt`, so the gitlink still goes through
+    // `apply_gitlink_delta_to_tree`.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("z.txt", "zulu\n", "base");
+
+    let head_commit = test.repo.find_commit(base).unwrap();
+    let base_tree = head_commit.tree().unwrap();
+
+    let new_blob_oid = test.repo.blob(b"zulu2\n").unwrap();
+    // Any valid OID can act as the fake submodule commit pointer.
+    let fake_sub_oid = base;
+
+    let combined_tree_oid = git2::build::TreeUpdateBuilder::new()
+        .upsert("z.txt", new_blob_oid, git2::FileMode::Blob)
+        .upsert("sub", fake_sub_oid, git2::FileMode::Commit)
+        .create_updated(&test.repo, &base_tree)
+        .unwrap();
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let combined_tree = test.repo.find_tree(combined_tree_oid).unwrap();
+    let to_split = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "bump submodule and change file",
+            &combined_tree,
+            &[&head_commit],
+        )
+        .unwrap();
+
+    let obj = test.repo.find_object(to_split, None).unwrap();
+    test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
+    test.write_file("z.txt", "zulu2\n");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
+
+    // The gitlink sorts first, so the *first* split piece is the one built by
+    // apply_gitlink_delta_to_tree.
+    let first_oid = commits_above_base[0];
+    let first_tree = test.repo.find_commit(first_oid).unwrap().tree().unwrap();
+    let sub_entry = first_tree
+        .get_path(std::path::Path::new("sub"))
+        .expect("submodule entry should be present in the first split commit");
+    assert_eq!(
+        sub_entry.filemode(),
+        0o160000,
+        "sub should have gitlink mode"
+    );
+    assert_eq!(
+        sub_entry.id(),
+        fake_sub_oid,
+        "sub should point at expected OID"
+    );
+    assert_eq!(
+        first_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        base_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        "the first piece must not yet contain the z.txt change"
+    );
+
+    let tip_tree = test
+        .repo
+        .find_commit(*commits_above_base.last().unwrap())
+        .unwrap()
+        .tree()
+        .unwrap();
+    assert_eq!(
+        tip_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        new_blob_oid,
+        "the final piece must contain the z.txt change"
+    );
+}
