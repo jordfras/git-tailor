@@ -27,11 +27,11 @@ use git_tailor::{
 
 fn make_app_in_drop_confirm(commit_oid: &str, commit_summary: &str) -> AppState {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::DropConfirm(PendingDrop {
         commit_oid: Oid::from(commit_oid),
         commit_summary: commit_summary.to_string(),
@@ -85,11 +85,11 @@ fn test_drop_confirm_dialog_narrow_terminal() {
 
 fn make_app_in_drop_conflict(conflicting_oid: &str, remaining: Vec<&str>) -> AppState {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
@@ -150,14 +150,14 @@ fn test_drop_conflict_dialog_long_summary() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit(
             "abc123def456",
             "Refactor the entire parser module to use trait-based dispatching for better extensibility",
         ),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
@@ -183,11 +183,11 @@ fn test_drop_conflict_dialog_with_files() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
@@ -212,11 +212,11 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
         original_branch_oid: Oid::from("def456ghi789abcdef012"),

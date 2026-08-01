@@ -33,18 +33,18 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    let len = app.commits.len();
-    let page_size = app.commit_list_visible_height;
-    let reverse = app.reverse;
-    let mut cursor = app.selection_index;
+    let len = app.list.commits.len();
+    let page_size = app.list.visible_height;
+    let reverse = app.list.reverse;
+    let mut cursor = app.list.selection_index;
 
     match list_nav::handle_list_navigation(action, &mut cursor, len, page_size, reverse) {
         ListNav::Moved => {
-            app.selection_index = cursor.min(source_index);
+            app.list.selection_index = cursor.min(source_index);
             AppAction::Handled
         }
         ListNav::Confirmed => {
-            if app.selection_index == source_index {
+            if app.list.selection_index == source_index {
                 app.set_error_message("Cannot squash a commit into itself");
                 return AppAction::Handled;
             }
@@ -55,7 +55,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             let target_oid = target.oid.expect_real_oid();
             let target_message = target.message.clone();
 
-            let source = &app.commits[source_index];
+            let source = &app.list.commits[source_index];
             let result = AppAction::PrepareSquash {
                 source_oid: source.oid.expect_real_oid(),
                 target_oid,

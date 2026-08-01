@@ -22,8 +22,8 @@ use crate::{
 
 use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
 use crate::app::ScrollState;
+use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
-use crate::app::scroll::{half_page_size, page_size};
 use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
@@ -61,9 +61,8 @@ impl StatusState {
 #[derive(Default)]
 pub struct AppState {
     pub should_quit: bool,
-    pub commits: Vec<CommitInfo>,
-    pub selection_index: usize,
-    pub reverse: bool,
+    /// The commit list, its selection, and its scroll position.
+    pub list: CommitListState,
     /// Show all hunk-group columns without deduplication (--full flag).
     pub full_fragmap: bool,
     /// Active fragmap rendering theme.
@@ -83,12 +82,6 @@ pub struct AppState {
     pub mode: AppMode,
     /// Scroll position, diff context and file offsets of the detail view.
     pub detail: DetailState,
-    /// Visible height of the commit list area (updated during render).
-    pub commit_list_visible_height: usize,
-    /// Explicit commit-list scroll offset (display space) set by `Ctrl-Up`/`Down`.
-    /// `None` follows the selection (the default); `Some` is clamped each render so
-    /// the selection stays visible.
-    pub commit_list_scroll_override: Option<usize>,
     /// Transient status message shown in the footer (cleared on next keypress).
     pub status: StatusState,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
@@ -116,70 +109,13 @@ impl AppState {
     pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
         let selection_index = commits.len().saturating_sub(1);
         Self {
-            commits,
-            selection_index,
+            list: CommitListState {
+                commits,
+                selection_index,
+                ..Default::default()
+            },
             ..Self::default()
         }
-    }
-
-    /// Move selection up (decrement index) with lower bound check.
-    /// Does nothing if already at top or commits list is empty.
-    pub fn move_up(&mut self) {
-        if self.selection_index > 0 {
-            self.selection_index -= 1;
-        }
-    }
-
-    /// Move selection down (increment index) with upper bound check.
-    /// Does nothing if already at bottom or commits list is empty.
-    pub fn move_down(&mut self) {
-        if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
-            self.selection_index += 1;
-        }
-    }
-
-    /// The commit-list scroll offset (in display space) to render, given the
-    /// visible height. Without an override it follows the selection (pinned to
-    /// the bottom once scrolled, the historical behaviour); with one it honours
-    /// the override but always clamps so the selected row stays visible.
-    pub fn commit_list_effective_offset(&self, available_height: usize) -> usize {
-        let total = self.commits.len();
-        if total == 0 || available_height == 0 {
-            return 0;
-        }
-        // Selected row in display space (the list is drawn reversed when `reverse`).
-        let visual_selection = if self.reverse {
-            total - 1 - self.selection_index.min(total - 1)
-        } else {
-            self.selection_index.min(total - 1)
-        };
-        let max_scroll = total.saturating_sub(available_height);
-        // Range of offsets that keep the selection on screen: from "selection at
-        // the bottom row" up to "selection at the top row" (never past max_scroll).
-        let min_off = visual_selection.saturating_sub(available_height - 1);
-        let max_off = visual_selection.min(max_scroll);
-        let derived = if visual_selection < available_height {
-            0
-        } else {
-            visual_selection - (available_height - 1)
-        };
-        self.commit_list_scroll_override
-            .unwrap_or(derived)
-            .clamp(min_off, max_off)
-    }
-
-    /// Scroll the commit list one row up (toward earlier display rows) without
-    /// moving the selection. Clamped on render so it never scrolls the selected
-    /// row off screen.
-    pub fn scroll_commit_list_up(&mut self) {
-        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
-        self.commit_list_scroll_override = Some(base.saturating_sub(1));
-    }
-
-    /// Scroll the commit list one row down without moving the selection.
-    pub fn scroll_commit_list_down(&mut self) {
-        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
-        self.commit_list_scroll_override = Some(base + 1);
     }
 
     /// Scroll fragmap grid left.
@@ -202,52 +138,6 @@ impl AppState {
     /// Scroll fragmap grid to the rightmost column (render will clamp).
     pub fn scroll_fragmap_to_right(&mut self) {
         self.fragmap_scroll_offset = usize::MAX;
-    }
-
-    /// Move the selection up by one page (visible_height rows).
-    pub fn select_page_up(&mut self, visible_height: usize) {
-        self.selection_index = self
-            .selection_index
-            .saturating_sub(page_size(visible_height));
-    }
-
-    /// Move the selection down by one page (visible_height rows).
-    pub fn select_page_down(&mut self, visible_height: usize) {
-        if self.commits.is_empty() {
-            return;
-        }
-        let new_index = self
-            .selection_index
-            .saturating_add(page_size(visible_height));
-        self.selection_index = new_index.min(self.commits.len() - 1);
-    }
-
-    /// Move the selection up by half a page (visible_height rows).
-    pub fn select_half_page_up(&mut self, visible_height: usize) {
-        self.selection_index = self
-            .selection_index
-            .saturating_sub(half_page_size(visible_height));
-    }
-
-    /// Move the selection down by half a page (visible_height rows).
-    pub fn select_half_page_down(&mut self, visible_height: usize) {
-        if self.commits.is_empty() {
-            return;
-        }
-        let new_index = self
-            .selection_index
-            .saturating_add(half_page_size(visible_height));
-        self.selection_index = new_index.min(self.commits.len() - 1);
-    }
-
-    /// Jump to the first commit in the list.
-    pub fn jump_to_first(&mut self) {
-        self.selection_index = 0;
-    }
-
-    /// Jump to the last commit in the list.
-    pub fn jump_to_last(&mut self) {
-        self.selection_index = self.commits.len().saturating_sub(1);
     }
 
     /// Enter the large-split confirmation dialog.
@@ -324,22 +214,19 @@ impl AppState {
     /// Returns the selected commit if it is a real (non-synthetic) commit.
     /// Sets an error message and returns `None` for staged/unstaged rows.
     pub fn selected_real_commit(&mut self, action: &str) -> Option<&CommitInfo> {
-        if self
-            .commits
-            .get(self.selection_index)
-            .is_some_and(|c| c.oid.is_synthetic())
-        {
-            self.set_error_message(format!("Cannot {action} staged/unstaged changes"));
+        if self.list.selected().is_some_and(|c| c.oid.is_synthetic()) {
+            self.status
+                .set_error(format!("Cannot {action} staged/unstaged changes"));
             return None;
         }
-        self.commits.get(self.selection_index)
+        self.list.selected()
     }
 
     /// Whether the selected row is the synthetic `want` row (`Staged` /
     /// `Unstaged`). Otherwise sets a guiding hint naming the row to select for
     /// `action` (e.g. "stage all changes") and returns `false`.
     pub fn selected_synthetic_row_is(&mut self, want: VirtualOid, action: &str) -> bool {
-        if self.commits.get(self.selection_index).map(|c| &c.oid) == Some(&want) {
+        if self.list.selected_virtual_oid() == Some(&want) {
             return true;
         }
         let row = match want {
@@ -347,32 +234,18 @@ impl AppState {
             VirtualOid::Unstaged => "Unstaged",
             VirtualOid::Real(_) => "",
         };
-        self.set_error_message(format!("Select the \"{row}\" row to {action}"));
+        self.status
+            .set_error(format!("Select the \"{row}\" row to {action}"));
         false
-    }
-
-    /// The `VirtualOid` of the selected row, if any. Read-only (no error side
-    /// effect), used to decide which operations the picker offers.
-    pub fn selected_virtual_oid(&self) -> Option<&VirtualOid> {
-        self.commits.get(self.selection_index).map(|c| &c.oid)
-    }
-
-    /// Whether the selected row is the oldest real commit on the branch. Commits
-    /// are stored oldest-first with the synthetic working-tree rows appended, so
-    /// the oldest is simply the first real commit.
-    pub fn selected_is_oldest_commit(&self) -> bool {
-        self.commits
-            .iter()
-            .position(|c| !c.oid.is_synthetic())
-            .is_some_and(|first_real| first_real == self.selection_index)
     }
 
     /// Enter the operation picker for the selected row, highlighting the first
     /// available operation. Every real/synthetic row offers at least undo/redo,
     /// so this only no-ops when there is no selection at all.
     pub fn enter_operation_select(&mut self) {
-        let is_oldest = self.selected_is_oldest_commit();
+        let is_oldest = self.list.selected_is_oldest_commit();
         let first = self
+            .list
             .selected_virtual_oid()
             .map(|oid| Operation::available_for(oid, is_oldest))
             .and_then(|ops| ops.into_iter().next());
@@ -446,19 +319,14 @@ impl AppState {
         if self.selected_real_commit(&label).is_none() {
             return;
         }
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count();
-        if real_count < 2 {
+        if self.list.real_commit_count() < 2 {
             self.set_error_message(format!(
                 "Nothing to {label} — only one commit on the branch"
             ));
             return;
         }
         self.mode = AppMode::SquashSelect {
-            source_index: self.selection_index,
+            source_index: self.list.selection_index,
             squash_mode,
         };
     }
@@ -477,19 +345,14 @@ impl AppState {
             return;
         }
 
-        // Count real (non-synthetic) commits; moving requires at least 2.
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count();
-        if real_count < 2 {
+        // Moving requires at least 2 real (non-synthetic) commits.
+        if self.list.real_commit_count() < 2 {
             self.set_error_message("Nothing to move — only one commit on the branch");
             return;
         }
 
-        let source = self.selection_index;
-        let max = self.commits.len();
+        let source = self.list.selection_index;
+        let max = self.list.commits.len();
         // Pick the first valid (non-no-op) position. No-ops are source and
         // source + 1, so try source - 1 first, then scan forward.
         let insert_before = if source > 0 {
@@ -585,177 +448,10 @@ impl AppState {
     }
 
     fn exit_dialog(&mut self) {
-        // MoveSelect navigation can leave `selection_index` as a scroll anchor
+        // MoveSelect navigation can leave the selection as a scroll anchor
         // pointing past the last commit; clamp it so CommitList consumers
         // (footer, fragmap highlight) never index out of bounds.
-        self.selection_index = self
-            .selection_index
-            .min(self.commits.len().saturating_sub(1));
+        self.list.clamp_selection();
         self.mode = AppMode::CommitList;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{CommitInfo, Oid, VirtualOid};
-
-    fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
-        CommitInfo {
-            oid: VirtualOid::Real(Oid::from(oid)),
-            summary: summary.to_string(),
-            author: Some("Test Author".to_string()),
-            date: Some("2024-01-01".to_string()),
-            parent_oids: vec![],
-            message: summary.to_string(),
-            author_email: Some("test@example.com".to_string()),
-            author_date: Some(time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap()),
-            committer: Some("Test Committer".to_string()),
-            committer_email: Some("committer@example.com".to_string()),
-            commit_date: Some(time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap()),
-        }
-    }
-
-    #[test]
-    fn test_move_up_with_empty_list() {
-        let mut app = AppState::new();
-        assert_eq!(app.selection_index, 0);
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_up_at_top() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-        ];
-        app.selection_index = 0;
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_up_from_middle() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-            create_test_commit("ghi789", "Third"),
-        ];
-        app.selection_index = 2;
-        app.move_up();
-        assert_eq!(app.selection_index, 1);
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_down_with_empty_list() {
-        let mut app = AppState::new();
-        assert_eq!(app.selection_index, 0);
-        app.move_down();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_down_at_bottom() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-        ];
-        app.selection_index = 1;
-        app.move_down();
-        assert_eq!(app.selection_index, 1);
-    }
-
-    #[test]
-    fn test_move_down_from_middle() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-            create_test_commit("ghi789", "Third"),
-        ];
-        app.selection_index = 0;
-        app.move_down();
-        assert_eq!(app.selection_index, 1);
-        app.move_down();
-        assert_eq!(app.selection_index, 2);
-    }
-
-    /// Build an app with `n` commits, the given selection, and visible height.
-    fn app_with(n: usize, selection: usize, height: usize) -> AppState {
-        let mut app = AppState::new();
-        app.commits = (0..n)
-            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
-            .collect();
-        app.selection_index = selection;
-        app.commit_list_visible_height = height;
-        app
-    }
-
-    /// The selected row's display index must lie within the visible window.
-    fn selection_visible(app: &AppState, offset: usize, height: usize) -> bool {
-        let total = app.commits.len();
-        let visual = if app.reverse {
-            total - 1 - app.selection_index
-        } else {
-            app.selection_index
-        };
-        offset <= visual && visual < offset + height
-    }
-
-    #[test]
-    fn effective_offset_without_override_follows_selection() {
-        // Selection at index 5 of 10 with a 4-row window pins it to the bottom.
-        let app = app_with(10, 5, 4);
-        assert_eq!(app.commit_list_scroll_override, None);
-        assert_eq!(app.commit_list_effective_offset(4), 2);
-        assert!(selection_visible(&app, 2, 4));
-    }
-
-    #[test]
-    fn scroll_down_then_up_keeps_selection_visible_and_clamps() {
-        let mut app = app_with(10, 5, 4);
-        // Starts with the selection at the bottom (offset 2).
-        assert_eq!(app.commit_list_effective_offset(4), 2);
-
-        // Scrolling down advances the offset until the selection hits the top…
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 3);
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 4);
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 5);
-        // …then stops (further scroll would push the selection off screen).
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 5);
-        assert!(selection_visible(&app, 5, 4));
-
-        // Scrolling back up returns to the bottom-pinned offset, then stops.
-        for expected in [4, 3, 2, 2] {
-            app.scroll_commit_list_up();
-            assert_eq!(app.commit_list_effective_offset(4), expected);
-            assert!(selection_visible(&app, expected, 4));
-        }
-    }
-
-    #[test]
-    fn scroll_keeps_selection_visible_in_reverse_mode() {
-        let mut app = app_with(10, 5, 4);
-        app.reverse = true;
-        let off = app.commit_list_effective_offset(4);
-        assert!(selection_visible(&app, off, 4));
-        for _ in 0..6 {
-            app.scroll_commit_list_down();
-            let off = app.commit_list_effective_offset(4);
-            assert!(
-                selection_visible(&app, off, 4),
-                "offset {off} hid selection"
-            );
-        }
     }
 }

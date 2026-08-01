@@ -27,8 +27,9 @@ use ratatui::{
 /// Operations offered for the currently selected row. Empty only if there is no
 /// selection at all (in practice every row yields at least undo/redo).
 fn available(app: &AppState) -> Vec<Operation> {
-    let is_oldest = app.selected_is_oldest_commit();
-    app.selected_virtual_oid()
+    let is_oldest = app.list.selected_is_oldest_commit();
+    app.list
+        .selected_virtual_oid()
         .map(|oid| Operation::available_for(oid, is_oldest))
         .unwrap_or_default()
 }
@@ -106,8 +107,8 @@ fn scroll_to_operation(app: &mut AppState, index: usize) {
 pub fn render(app: &mut AppState, frame: &mut Frame) {
     // Header naming the row the operations apply to.
     let header = app
-        .commits
-        .get(app.selection_index)
+        .list
+        .selected()
         .map(|c| {
             if c.oid.is_synthetic() {
                 format!("{} changes", c.oid.short())

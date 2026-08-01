@@ -26,7 +26,7 @@ use git_tailor::{
 fn make_app_in_help() -> AppState {
     let mut app =
         common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::Help(Box::new(AppMode::CommitList));
     app
 }
@@ -34,7 +34,7 @@ fn make_app_in_help() -> AppState {
 fn make_app_in_detail_help() -> AppState {
     let mut app =
         common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::Help(Box::new(AppMode::CommitDetail));
     app
 }

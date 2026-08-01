@@ -31,7 +31,7 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     app: &mut AppState,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let pairs = git_tailor::autofixup::plan_autofixup(&app.commits);
+    let pairs = git_tailor::autofixup::plan_autofixup(&app.list.commits);
     if pairs.is_empty() {
         app.set_success_message("Nothing to autofixup");
         return Ok(LoopAction::Proceed);
@@ -110,7 +110,8 @@ pub(crate) fn handle_execute_autofixup(
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
     message_overrides: std::collections::HashMap<String, String>,
 ) -> Result<LoopAction> {
-    let target_index = autofixup_target_selection_index(&app.commits, app.selection_index, &pairs);
+    let target_index =
+        autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
     autostash_save_or_bail!(git_repo, app);
     match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(

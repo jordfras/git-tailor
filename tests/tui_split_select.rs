@@ -27,7 +27,7 @@ use git_tailor::{
 fn make_app_in_split_select(strategy_index: usize) -> AppState {
     let mut app =
         common::app_state_from_commit_summaries(&["Refactor parser module", "Add feature X"]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SplitSelect { strategy_index };
     app
 }
@@ -142,7 +142,7 @@ fn test_split_dialog_long_non_ascii_summary_does_not_panic() {
     let mut app = common::app_state_from_commit_summaries(&[
         "Réfactor le café très naïve — обновление — 日本語のまとめ for the parser",
     ]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SplitSelect { strategy_index: 0 };
     let mut harness = TuiTestHarness::typical();
     let _ = harness.render(|frame| views::split_select::render(&mut app, frame));

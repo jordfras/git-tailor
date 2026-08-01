@@ -67,11 +67,12 @@ fn main() -> Result<()> {
     // this lights up that one column and dims the rest — showcasing how the
     // theme focuses attention on the selected commit's relationships.
     if let Some(idx) = app
+        .list
         .commits
         .iter()
         .position(|c| c.summary.starts_with("fix: handle unary minus"))
     {
-        app.selection_index = idx;
+        app.list.selection_index = idx;
     }
 
     let buffer = render_to_buffer(&mut app)?;

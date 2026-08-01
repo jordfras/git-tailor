@@ -39,12 +39,12 @@ fn test_fragmap_squashable_pair() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
     app.fragmap = Some(create_fragmap(
@@ -73,12 +73,12 @@ fn test_fragmap_conflicting_pair() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add parser"),
         common::create_test_commit("bbbb33334444", "Refactor parser"),
         common::create_test_commit("cccc55556666", "Fix parser bug"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     // All three commits touch cluster 0 → commits 1 and 2 conflict with commit 0
     app.fragmap = Some(create_fragmap(
@@ -109,13 +109,13 @@ fn test_fragmap_mixed_columns() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add feature A"),
         common::create_test_commit("bbbb33334444", "Touch both files"),
         common::create_test_commit("cccc55556666", "Fix feature A"),
         common::create_test_commit("dddd77778888", "Polish feature A"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     // Cluster 0: commits 0, 1, 2, 3 all touch → conflicting chain
     // Cluster 1: commits 0 and 3 touch, 1 and 2 don't → squashable
@@ -161,13 +161,13 @@ fn test_fragmap_reversed() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
     ];
-    app.selection_index = 2;
-    app.reverse = true;
+    app.list.selection_index = 2;
+    app.list.reverse = true;
 
     app.fragmap = Some(create_fragmap(
         vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
@@ -196,11 +196,11 @@ fn test_fragmap_full_duplicate_columns_visible() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     // Two clusters both touched only by commit 0 — identical activation pattern.
     // In deduplicated (default) mode these would merge to one column; in full
@@ -228,11 +228,11 @@ fn test_fragmap_adjacent_squashable() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Fix handler"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     app.fragmap = Some(create_fragmap(
         vec!["aaaa11112222", "bbbb33334444"],
@@ -284,8 +284,8 @@ fn test_fragmap_horizontal_scroll() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = commits;
-    app.selection_index = 0;
+    app.list.commits = commits;
+    app.list.selection_index = 0;
     app.fragmap_scroll_offset = 4;
     app.fragmap = Some(create_fragmap(oids, clusters, matrix));
 
@@ -303,12 +303,12 @@ fn test_fragmap_not_fully_squashable() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Touch config"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Touch config and unique"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     app.fragmap = Some(create_fragmap(
         vec!["aaaa11112222", "bbbb33334444", "cccc55556666"],
@@ -339,12 +339,12 @@ fn test_fragmap_default_highlight_theme() {
 
     let mut app = AppState::new();
     // No `app.theme = ...`: exercise the default (Highlight).
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Touch config"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     // Cluster 0: commits 0 and 2 → squashable. Cluster 1: commit 1 only →
     // unrelated to the focus commit, so Highlight dims it.

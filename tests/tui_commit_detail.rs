@@ -39,8 +39,8 @@ fn test_commit_detail_short_lines_no_hscroll() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -57,8 +57,8 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -76,8 +76,8 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list.selection_index = 0;
     app.detail.h.offset = 10;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -95,8 +95,8 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list.selection_index = 0;
     app.detail.v.offset = 9999; // far beyond the (tiny) content
 
     harness.render(|frame| {
@@ -147,11 +147,11 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit(
+    app.list.commits = vec![common::create_test_commit(
         "crlf001",
         "File with CRLF line endings",
     )];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     let buf = harness.render(|frame| {
         let area = frame.area();
@@ -249,8 +249,8 @@ fn test_commit_detail_search_bar_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // Activate search and type a query
@@ -298,8 +298,8 @@ fn test_commit_detail_search_highlight_matches() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // Search for "hello" — should match 2 diff lines + file path
@@ -497,8 +497,8 @@ fn test_search_case_sensitive() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // "FOO" must only match uppercase occurrences, not "foo"

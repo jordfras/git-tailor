@@ -77,7 +77,7 @@ fn make_app_in_hunks_select_with_context(
     context_lines: u32,
 ) -> AppState {
     let mut app = common::app_state_from_commit_summaries(&["Change a and b", "Add feature X"]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SplitHunksSelect {
         commit_oid: Oid::from("111111111111"),
         hunks: make_entries(),

@@ -32,7 +32,7 @@ fn make_app_in_squash_select(source_index: usize, selection_index: usize) -> App
         "Middle commit",
         "Newest commit (HEAD)",
     ]);
-    app.selection_index = selection_index;
+    app.list.selection_index = selection_index;
     app.mode = AppMode::SquashSelect {
         source_index,
         squash_mode: SquashMode::Squash,
@@ -97,7 +97,7 @@ fn test_squash_into_self_blocked() {
 #[test]
 fn test_squash_into_staged_blocked() {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
         CommitInfo {
             oid: VirtualOid::Staged,
@@ -105,7 +105,7 @@ fn test_squash_into_staged_blocked() {
             ..common::create_test_commit("staged", "staged")
         },
     ];
-    app.selection_index = 1;
+    app.list.selection_index = 1;
     app.mode = AppMode::SquashSelect {
         source_index: 0,
         squash_mode: SquashMode::Squash,
@@ -128,7 +128,7 @@ fn test_squash_esc_cancels() {
 #[test]
 fn test_squash_blocked_on_staged_row() {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
         CommitInfo {
             oid: VirtualOid::Staged,
@@ -136,7 +136,7 @@ fn test_squash_blocked_on_staged_row() {
             ..common::create_test_commit("staged", "staged")
         },
     ];
-    app.selection_index = 1;
+    app.list.selection_index = 1;
     app.mode = AppMode::CommitList;
 
     app.enter_squash_select();
@@ -149,8 +149,8 @@ fn test_squash_blocked_on_staged_row() {
 #[test]
 fn test_squash_blocked_on_single_commit() {
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
     app.enter_squash_select();
@@ -162,8 +162,8 @@ fn test_squash_blocked_on_single_commit() {
 #[test]
 fn test_fixup_blocked_on_single_commit() {
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
     app.enter_fixup_select();
@@ -177,13 +177,13 @@ fn test_squash_navigation_moves_selection() {
     let mut app = make_app_in_squash_select(2, 2);
 
     views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 
     views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
-    assert_eq!(app.selection_index, 0);
+    assert_eq!(app.list.selection_index, 0);
 
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 }
 
 #[test]
@@ -192,40 +192,40 @@ fn test_squash_clamps_to_source_index() {
     let mut app = make_app_in_squash_select(1, 1);
 
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 
     views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
-    assert_eq!(app.selection_index, 0);
+    assert_eq!(app.list.selection_index, 0);
 
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 }
 
 #[test]
 fn test_squash_clamps_in_reverse_mode() {
     let mut app = make_app_in_squash_select(1, 1);
-    app.reverse = true;
+    app.list.reverse = true;
 
     // In reverse, MoveUp maps to move_down (increase index) — clamped at source
     views::squash_select::handle_key(KeyCommand::MoveUp, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 
     // In reverse, MoveDown maps to move_up (decrease index) — allowed
     views::squash_select::handle_key(KeyCommand::MoveDown, &mut app);
-    assert_eq!(app.selection_index, 0);
+    assert_eq!(app.list.selection_index, 0);
 }
 
 #[test]
 fn test_squash_page_down_clamped() {
     let mut app = make_app_in_squash_select(1, 0);
-    app.commit_list_visible_height = 10;
+    app.list.visible_height = 10;
 
     // PageDown would jump past source_index — clamped to 1
     views::squash_select::handle_key(KeyCommand::PageDown, &mut app);
-    assert_eq!(app.selection_index, 1);
+    assert_eq!(app.list.selection_index, 1);
 }
 
 /// Squash mode with fragmap: source is commit 2 (selected), commit 0 is
@@ -237,12 +237,12 @@ fn test_squash_candidate_coloring_with_fragmap() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
     ];
-    app.selection_index = 0; // navigated to commit 0 as target
+    app.list.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,
         squash_mode: SquashMode::Squash,
@@ -276,12 +276,12 @@ fn test_squash_candidate_coloring_conflicting() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaaa11112222", "Add parser"),
         common::create_test_commit("bbbb33334444", "Refactor parser"),
         common::create_test_commit("cccc55556666", "Fix parser bug"),
     ];
-    app.selection_index = 0; // navigated to commit 0 as target
+    app.list.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,
         squash_mode: SquashMode::Squash,
@@ -330,7 +330,7 @@ fn test_fixup_confirm_returns_prepare_fixup() {
         "Middle commit",
         "Newest commit (HEAD)",
     ]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
         squash_mode: SquashMode::Fixup,
@@ -362,7 +362,7 @@ fn test_fixup_footer_renders() {
         "Middle commit",
         "Newest commit (HEAD)",
     ]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SquashSelect {
         source_index: 2,
         squash_mode: SquashMode::Fixup,

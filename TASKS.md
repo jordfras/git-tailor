@@ -104,14 +104,15 @@ Guidelines:
   leaks into cross-cutting state). Separately, lift the self-contained ~10-function
   detail search subsystem out of `views/commit_detail.rs` (929 lines) into its own
   module. Pure refactor.
-  DONE — 34 fields → 22. `ScrollState` covers detail-V, detail-H and dialog.
-  The commit-list pair was deliberately left flat: it has no `max` (the bound is
-  derived from `commits.len()` in `commit_list_effective_offset`, which also needs
-  `reverse`/`selection_index`), its offset is an `Option` override, and
-  `commit_list_visible_height` is a layout measurement that `squash_select` and
-  `move_select` read for *cursor* paging, not scrolling. Grouping it by cohesion
-  instead (`commits` + `selection_index` + `reverse` + the two, with the
-  navigation methods moving onto it) is a real option, but ~350 mechanical edits.
+  DONE — 34 fields → 16. `ScrollState` covers detail-V, detail-H and dialog;
+  `DetailState`, `SearchState`, `StatusState` and `CommitListState` group the rest.
+  The commit-list fields were *not* grouped as a scroll-triple — they aren't one
+  (no `max`; the bound is derived from `commits.len()`, and the offset is an
+  `Option` override). They were instead grouped by cohesion, together with
+  `commits`/`selection_index`/`reverse`, so that `effective_offset`, the selection
+  navigation and the row queries all became real methods on the type. The two
+  helpers that pair a row query with an error message (`selected_real_commit`,
+  `selected_synthetic_row_is`) stay on `AppState`, which composes `list` + `status`.
 - [ ] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
   and `split_op.rs` (`finalize_split`) use the older `rebase_descendants`
   (cherry_pick.rs:28) that **bails** on conflict, while drop/move/squash/edit use

@@ -181,12 +181,12 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
 
     // Render content
     let mut search_info = None;
-    if app.commits.is_empty() {
+    if app.list.commits.is_empty() {
         let placeholder = Paragraph::new("No commits")
             .style(Style::default().fg(app.colors.resolve(Color::DarkGray)));
         frame.render_widget(placeholder, content_area);
     } else {
-        let selected = app.commits[app.selection_index].clone();
+        let selected = app.list.commits[app.list.selection_index].clone();
         let oid = selected.oid.clone();
         let context_lines = app.detail.context_lines.0;
 

@@ -65,12 +65,12 @@ fn make_fragmap() -> git_tailor::fragmap::FragMap {
 
 fn make_app(theme: Theme, focus: usize) -> AppState {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("aaa1", "Add config and parser"),
         common::create_test_commit("bbb2", "Refactor parser"),
         common::create_test_commit("ccc3", "Fix config, parser, unique"),
     ];
-    app.selection_index = focus;
+    app.list.selection_index = focus;
     app.fragmap = Some(make_fragmap());
     app.theme = theme;
     app

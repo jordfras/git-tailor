@@ -31,70 +31,66 @@ use ratatui::{
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     match action {
         KeyCommand::MoveUp => {
-            if app.reverse {
-                app.move_down();
+            if app.list.reverse {
+                app.list.move_down();
             } else {
-                app.move_up();
+                app.list.move_up();
             }
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
-            if app.reverse {
-                app.move_up();
+            if app.list.reverse {
+                app.list.move_up();
             } else {
-                app.move_down();
+                app.list.move_down();
             }
             AppAction::Handled
         }
         KeyCommand::PageUp => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.select_page_down(h);
+            if app.list.reverse {
+                app.list.select_page_down();
             } else {
-                app.select_page_up(h);
+                app.list.select_page_up();
             }
             AppAction::Handled
         }
         KeyCommand::PageDown => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.select_page_up(h);
+            if app.list.reverse {
+                app.list.select_page_up();
             } else {
-                app.select_page_down(h);
+                app.list.select_page_down();
             }
             AppAction::Handled
         }
         KeyCommand::HalfPageUp => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.select_half_page_down(h);
+            if app.list.reverse {
+                app.list.select_half_page_down();
             } else {
-                app.select_half_page_up(h);
+                app.list.select_half_page_up();
             }
             AppAction::Handled
         }
         KeyCommand::HalfPageDown => {
-            let h = app.commit_list_visible_height;
-            if app.reverse {
-                app.select_half_page_up(h);
+            if app.list.reverse {
+                app.list.select_half_page_up();
             } else {
-                app.select_half_page_down(h);
+                app.list.select_half_page_down();
             }
             AppAction::Handled
         }
         KeyCommand::JumpToTop => {
-            if app.reverse {
-                app.jump_to_last();
+            if app.list.reverse {
+                app.list.jump_to_last();
             } else {
-                app.jump_to_first();
+                app.list.jump_to_first();
             }
             AppAction::Handled
         }
         KeyCommand::JumpToBottom => {
-            if app.reverse {
-                app.jump_to_first();
+            if app.list.reverse {
+                app.list.jump_to_first();
             } else {
-                app.jump_to_last();
+                app.list.jump_to_last();
             }
             AppAction::Handled
         }
@@ -197,11 +193,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
         }
         KeyCommand::ScrollListUp => {
-            app.scroll_commit_list_up();
+            app.list.scroll_up();
             AppAction::Handled
         }
         KeyCommand::ScrollListDown => {
-            app.scroll_commit_list_down();
+            app.list.scroll_down();
             AppAction::Handled
         }
         KeyCommand::Undo => AppAction::Undo,
@@ -316,7 +312,7 @@ pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
 
 fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: LayoutInfo) {
     // Store visible height for page scrolling
-    app.commit_list_visible_height = layout.available_height;
+    app.list.visible_height = layout.available_height;
 
     let header = build_header(&layout, app.colors);
     let rows = build_rows(app, &layout);
@@ -355,7 +351,7 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 
     if let Some(sb_area) = scrollbar_area {
-        render_vertical_scrollbar(frame, sb_area, &layout, app.commits.len());
+        render_vertical_scrollbar(frame, sb_area, &layout, app.list.commits.len());
     }
 
     render_footer(frame, app, layout.footer_area);
@@ -459,7 +455,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         split_vertical_areas(frame_area, needs_h_scrollbar);
 
     let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.commits.is_empty() && app.commits.len() > available_height;
+    let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
     let effective_width = if has_v_scrollbar {
         table_area.width.saturating_sub(1)
     } else {
@@ -485,9 +481,9 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let fragmap_col_width = display_clusters.len() as u16;
 
-    let visual_selection = fragmap_index(app, app.selection_index);
+    let visual_selection = fragmap_index(app, app.list.selection_index);
 
-    let scroll_offset = app.commit_list_effective_offset(available_height);
+    let scroll_offset = app.list.effective_offset(available_height);
 
     LayoutInfo {
         table_area,
@@ -537,8 +533,9 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
 /// Convert a visual row index (0 = top of list) to the fragmap matrix index.
 /// When the list is in reverse order the index is mirrored.
 fn fragmap_index(app: &AppState, visual_idx: usize) -> usize {
-    if app.reverse {
-        app.commits
+    if app.list.reverse {
+        app.list
+            .commits
             .len()
             .saturating_sub(1)
             .saturating_sub(visual_idx)
@@ -596,7 +593,7 @@ fn row_text_style(
             } else if let Some(ref fm) = app.fragmap {
                 hunk_groups::commit_text_style(
                     fm,
-                    app.selection_index,
+                    app.list.selection_index,
                     commit_idx,
                     app.theme.as_theme(),
                 )
@@ -609,10 +606,10 @@ fn row_text_style(
 
 /// Build all visible table rows.
 fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
-    let display_commits: Vec<&crate::CommitInfo> = if app.reverse {
-        app.commits.iter().rev().collect()
+    let display_commits: Vec<&crate::CommitInfo> = if app.list.reverse {
+        app.list.commits.iter().rev().collect()
     } else {
-        app.commits.iter().collect()
+        app.list.commits.iter().collect()
     };
 
     let visible_commits = if display_commits.is_empty() {
@@ -664,7 +661,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     // Focus fragmap index for cluster-column highlight classification.
     let focus_source = squash_source_idx
         .or_else(|| move_info.map(|(si, _)| si))
-        .unwrap_or(app.selection_index);
+        .unwrap_or(app.list.selection_index);
     let focus_idx_in_fragmap = fragmap_index(app, focus_source);
 
     let mut rows: Vec<Row<'a>> = Vec::new();
@@ -739,7 +736,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     if let Some((source_index, insert_before)) = move_info {
         let last_visible_idx = layout.scroll_offset + visible_commits.len();
         if insert_before >= last_visible_idx
-            && insert_before == app.commits.len()
+            && insert_before == app.list.commits.len()
             && insert_before != source_index
             && insert_before != source_index + 1
         {
@@ -756,7 +753,7 @@ fn build_move_separator_row<'a>(
     layout: &LayoutInfo,
     source_index: usize,
 ) -> Row<'a> {
-    let source = app.commits.get(source_index);
+    let source = app.list.commits.get(source_index);
     let short_oid = source.map(|c| c.oid.short()).unwrap_or("?");
 
     let style = app
@@ -825,12 +822,17 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
             footer_style.add_modifier(Modifier::DIM),
         ),
     };
-    let left = if app.commits.is_empty() {
+    let left = if app.list.commits.is_empty() {
         String::from("No commits")
     } else {
-        let commit = &app.commits[app.selection_index];
-        let position = app.commits.len() - app.selection_index;
-        format!(" {} {}/{}", commit.oid.long(), position, app.commits.len())
+        let commit = &app.list.commits[app.list.selection_index];
+        let position = app.list.commits.len() - app.list.selection_index;
+        format!(
+            " {} {}/{}",
+            commit.oid.long(),
+            position,
+            app.list.commits.len()
+        )
     };
     let width = area.width as usize;
     let left_len = left.len();
@@ -898,7 +900,7 @@ fn render_action_footer(
     after_summary: &str,
     hints: &[(&str, &str)],
 ) {
-    let source = match app.commits.get(source_index) {
+    let source = match app.list.commits.get(source_index) {
         Some(c) => c,
         None => return,
     };

@@ -114,7 +114,7 @@ fn main() -> Result<()> {
     let mut update_poller = update_check::UpdatePoller::new();
 
     let mut app = AppState::new();
-    app.reverse = cli.reverse;
+    app.list.reverse = cli.reverse;
     app.theme = cli.matrix_theme.unwrap_or_default();
     app.colors = colors;
     app.reference_oid = reference_oid.clone();
@@ -134,7 +134,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if app.commits.is_empty() {
+    if app.list.commits.is_empty() {
         terminal_guard.shutdown()?;
         eprintln!("No commits to display.");
         return Ok(());
@@ -255,7 +255,7 @@ fn main() -> Result<()> {
                 let preserve = matches!(dispatch_result, LoopAction::ReloadPreserving);
                 let saved_idx = match dispatch_result {
                     LoopAction::ReloadSelecting(idx) => idx,
-                    _ => app.selection_index,
+                    _ => app.list.selection_index,
                 };
                 match git_repo.head_oid() {
                     Err(e) => app.set_error_message(format!("Reload failed: {e}")),
@@ -280,8 +280,8 @@ fn main() -> Result<()> {
                                         LoopAction::ReloadSelecting(_)
                                     ) =>
                             {
-                                app.selection_index =
-                                    saved_idx.min(app.commits.len().saturating_sub(1));
+                                app.list.selection_index =
+                                    saved_idx.min(app.list.commits.len().saturating_sub(1));
                             }
                             _ => {}
                         }

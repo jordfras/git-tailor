@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use git_tailor::Oid;
-use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
+use git_tailor::app::{AppMode, AppState, CommitListState, SplitStrategy, SquashMode};
 use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
@@ -1097,8 +1097,11 @@ mod autofixup_selection {
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
         let mut app = AppState {
-            commits: commits(),
-            selection_index: 4, // F2, folded into T (index 1).
+            list: CommitListState {
+                commits: commits(),
+                selection_index: 4, // F2, folded into T (index 1).
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut pending = PendingAutofixupSelection::default();
@@ -1124,8 +1127,11 @@ mod autofixup_selection {
             ..Default::default()
         };
         let mut app = AppState {
-            commits: commits(),
-            selection_index: 4, // F2, folded into T (index 1).
+            list: CommitListState {
+                commits: commits(),
+                selection_index: 4, // F2, folded into T (index 1).
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut pending = PendingAutofixupSelection::default();

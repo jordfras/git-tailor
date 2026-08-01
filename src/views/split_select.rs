@@ -44,7 +44,9 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
-            let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
+            let commit_oid = app.list.commits[app.list.selection_index]
+                .oid
+                .expect_real_oid();
             // "Split out file(s)" and "split out hunk(s)" each need a second
             // dialog to choose what to peel out, so they take their own flow
             // rather than the count/confirm split path.
@@ -128,8 +130,8 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 /// Render the split strategy selection dialog as a centered overlay.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
     let commit_summary = app
-        .commits
-        .get(app.selection_index)
+        .list
+        .selected()
         .map(|c| format!("{} {}", c.oid.short(), c.summary))
         .unwrap_or_default();
 
