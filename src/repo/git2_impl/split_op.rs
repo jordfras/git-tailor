@@ -47,37 +47,45 @@ pub(super) fn split_commit_per_file(
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
     for delta_idx in 0..file_count {
-        let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
-        let path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .expect("delta has a path")
-            .to_string_lossy()
-            .into_owned();
-
-        let base_tree = repo.inner.find_tree(current_tree_oid)?;
-
-        let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
-            || delta.old_file().mode() == git2::FileMode::Commit;
-
-        let new_tree_oid = if is_gitlink {
-            // apply_to_tree cannot process gitlink (submodule pointer) entries
-            // because libgit2 tries to patch them as blobs, causing a crash.
-            hunks::apply_gitlink_delta_to_tree(&repo.inner, &base_tree, &delta)?
+        // The last piece takes the original tree verbatim rather than the
+        // accumulated one, so the chain provably ends where the original commit
+        // did — which is what lets the descendant replay be conflict-free. The
+        // other strategies already do this.
+        let new_tree_oid = if delta_idx == file_count - 1 {
+            target.commit_tree.id()
         } else {
-            let mut opts = git2::DiffOptions::new();
-            opts.pathspec(&path);
-            let file_diff = repo.inner.diff_tree_to_tree(
-                Some(&target.parent_tree),
-                Some(&target.commit_tree),
-                Some(&mut opts),
-            )?;
-            let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
-            if new_index.has_conflicts() {
-                anyhow::bail!("Conflict applying changes for file: {}", path);
+            let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
+            let path = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .expect("delta has a path")
+                .to_string_lossy()
+                .into_owned();
+
+            let base_tree = repo.inner.find_tree(current_tree_oid)?;
+
+            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
+                || delta.old_file().mode() == git2::FileMode::Commit;
+
+            if is_gitlink {
+                // apply_to_tree cannot process gitlink (submodule pointer) entries
+                // because libgit2 tries to patch them as blobs, causing a crash.
+                hunks::apply_gitlink_delta_to_tree(&repo.inner, &base_tree, &delta)?
+            } else {
+                let mut opts = git2::DiffOptions::new();
+                opts.pathspec(&path);
+                let file_diff = repo.inner.diff_tree_to_tree(
+                    Some(&target.parent_tree),
+                    Some(&target.commit_tree),
+                    Some(&mut opts),
+                )?;
+                let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
+                if new_index.has_conflicts() {
+                    anyhow::bail!("Conflict applying changes for file: {}", path);
+                }
+                new_index.write_tree_to(&repo.inner)?
             }
-            new_index.write_tree_to(&repo.inner)?
         };
 
         current_base = Some(commit_split_piece(
