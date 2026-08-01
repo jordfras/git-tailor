@@ -226,3 +226,37 @@ fn split_per_hunk_group_four_way_single_hunk() {
     let d_prime_oid = commits_above_base[7];
     assert_file_contents!(&test.repo, d_prime_oid, "f.txt", "K1\nC2\nD3\nK4\n");
 }
+
+#[test]
+fn split_multi_path_last_piece_has_original_tree() {
+    // Cheap regression guard: per-hunk-group commits the last piece from
+    // `commit_tree` directly, so this is structural today.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(
+        &[("a.txt", "L1\nL2\nL3\nL4\nL5\n"), ("c.txt", "C1\n")],
+        "base",
+    );
+    test.commit_files(
+        &[("a.txt", "L1\nA2\nL3\nL4\nL5\n"), ("c.txt", "CA1\n")],
+        "commit A",
+    );
+    let to_split = test.commit_files(
+        &[("a.txt", "L1\nK2\nK3\nK4\nL5\n"), ("c.txt", "CK1\n")],
+        "commit K",
+    );
+
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}

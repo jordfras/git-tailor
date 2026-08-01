@@ -132,3 +132,32 @@ fn split_per_hunk_refuses_single_hunk_commit() {
         msg
     );
 }
+
+#[test]
+fn split_per_hunk_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    test.commit_file(
+        "a.txt",
+        "line1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nline6\nline7\nline8\n",
+        "base",
+    );
+    let to_split = test.commit_file(
+        "a.txt",
+        "LINE1\nline2\nline3\nPAD1\nPAD2\nPAD3\nPAD4\nPAD5\nLINE6\nline7\nline8\n",
+        "two independent changes",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}

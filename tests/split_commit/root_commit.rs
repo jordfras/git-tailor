@@ -196,3 +196,23 @@ fn split_root_commit_per_hunk_group() {
     assert_file_contents_at_head!(&test.repo, "a.txt", "A2\n");
     assert_file_contents_at_head!(&test.repo, "b.txt", "B\n");
 }
+
+#[test]
+fn split_root_per_file_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
+    let original_tree = test.tree_id(root);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(root), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original root commit's tree"
+    );
+}

@@ -183,3 +183,33 @@ fn split_per_hunk_group_survives_a_two_hop_rename_chain() {
     let tip = commits_above_base[5];
     assert_file_contents!(&test.repo, tip, "gamma.py", k_content);
 }
+
+#[test]
+fn split_rename_last_piece_has_original_tree() {
+    // Cheap regression guard: per-hunk-group commits the last piece from
+    // `commit_tree` directly, so this is structural today.
+    let test = common::TestRepo::new();
+
+    let content = make_content();
+    let base = test.commit_file("foo.txt", &content, "base");
+    let a_content = content.replacen("line 1\n", "line 1 edited by A\n", 1);
+    test.commit_file("foo.txt", &a_content, "A: edit line 1");
+    let k_content = a_content
+        .replacen("line 1 edited by A\n", "line 1 reworked by K\n", 1)
+        .replacen("line 20\n", "line 20 edited by K\n", 1);
+    let to_split = test.rename_file("foo.txt", "bar.txt", Some(&k_content), "K: rename and edit");
+
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}

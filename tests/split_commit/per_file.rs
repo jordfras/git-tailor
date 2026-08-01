@@ -383,3 +383,94 @@ fn split_per_file_handles_submodule_delta_not_last() {
         "the final piece must contain the z.txt change"
     );
 }
+
+#[test]
+fn split_per_file_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(
+        &[("a.txt", "a\n"), ("b.txt", "b\n"), ("c.txt", "c\n")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[("a.txt", "a2\n"), ("b.txt", "b2\n"), ("c.txt", "c2\n")],
+        "change all three",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}
+
+#[test]
+fn split_per_file_rename_last_piece_has_original_tree() {
+    // Per-file is the one strategy whose final tree is accumulated through
+    // repeated apply_to_tree rather than committed from the original tree, so
+    // exercise it with a tree shape that is not a plain content edit: a rename
+    // (delete + add, since per-file does not run rename detection).
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("foo.txt", "one\n"), ("keep.txt", "keep\n")], "base");
+    test.rename_file(
+        "foo.txt",
+        "bar.txt",
+        Some("one changed\n"),
+        "rename and edit",
+    );
+    let to_split = test.commit_files(
+        &[("bar.txt", "one changed twice\n"), ("keep.txt", "keep2\n")],
+        "edit both",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}
+
+#[test]
+fn split_per_file_replay_preserves_descendant_trees() {
+    // The descendant replay is conflict-free only because the last split piece
+    // has the original commit's tree; cherry-picking onto it then reproduces
+    // each descendant's tree byte-for-byte. Pin that end to end.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+    let original_tree = test.tree_id(to_split);
+    let d1 = test.commit_file("c.txt", "c\n", "descendant 1");
+    let d2 = test.commit_file("d.txt", "d\n", "descendant 2");
+    let d1_tree = test.tree_id(d1);
+    let d2_tree = test.tree_id(d2);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    let trees = test.tree_ids_from_head(base);
+    assert_eq!(trees.len(), 4, "2 split pieces + 2 descendants");
+    assert_eq!(
+        &trees[1..],
+        &[original_tree, d1_tree, d2_tree],
+        "the last split piece and both replayed descendants must keep their original trees"
+    );
+}

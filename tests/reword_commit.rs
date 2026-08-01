@@ -119,3 +119,31 @@ fn reword_preserves_unstaged_changes() {
         "unstaged content should be unchanged after reword"
     );
 }
+
+#[test]
+fn reword_preserves_descendant_trees() {
+    // Rewording rebuilds the commit with commit.tree() verbatim, so replaying
+    // descendants onto it must reproduce their trees byte-for-byte — the
+    // property that makes the replay conflict-free.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let to_reword = test.commit_file("a.txt", "v2\n", "old message");
+    let original_tree = test.tree_id(to_reword);
+    let d1 = test.commit_file("b.txt", "b\n", "descendant 1");
+    let d2 = test.commit_file("c.txt", "c\n", "descendant 2");
+    let d1_tree = test.tree_id(d1);
+    let d2_tree = test.tree_id(d2);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .reword_commit(&Oid::from(to_reword), "new message", &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.tree_ids_from_head(base),
+        vec![original_tree, d1_tree, d2_tree],
+        "rewording must not alter any tree in the range"
+    );
+}

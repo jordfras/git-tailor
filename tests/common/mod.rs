@@ -257,6 +257,27 @@ impl TestRepo {
         oids
     }
 
+    /// The tree OID of a commit. Splitting and rewording must leave the final
+    /// tree byte-identical to the original commit's, which is what makes the
+    /// descendant replay conflict-free.
+    pub fn tree_id(&self, oid: git2::Oid) -> git2::Oid {
+        self.repo.find_commit(oid).unwrap().tree().unwrap().id()
+    }
+
+    /// The tree OID at HEAD.
+    pub fn head_tree_id(&self) -> git2::Oid {
+        self.tree_id(self.repo.head().unwrap().target().unwrap())
+    }
+
+    /// Tree OIDs of the commits from HEAD back to (excluding) `stop_oid`,
+    /// oldest first — the tree-level counterpart of `commits_from_head`.
+    pub fn tree_ids_from_head(&self, stop_oid: git2::Oid) -> Vec<git2::Oid> {
+        self.commits_from_head(stop_oid)
+            .into_iter()
+            .map(|oid| self.tree_id(oid))
+            .collect()
+    }
+
     /// Stage a gitlink (submodule pointer) entry in the repo's index at `path`
     /// pointing at `target_oid`, without making a commit.
     ///

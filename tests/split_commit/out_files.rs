@@ -207,3 +207,24 @@ fn split_out_files_refuses_dirty_overlap() {
         git_repo.split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid);
     assert!(result.is_err(), "should fail when staged changes overlap");
 }
+
+#[test]
+fn split_out_files_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}
