@@ -474,3 +474,52 @@ fn split_per_file_replay_preserves_descendant_trees() {
         "the last split piece and both replayed descendants must keep their original trees"
     );
 }
+
+#[test]
+fn split_per_file_rejects_a_merge_commit_in_the_replay_range() {
+    // Same hazard as reword: a merge between the split commit and HEAD makes
+    // the descendant revwalk unreliable, so refuse it with our own message.
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+    let d1 = test.commit_file("c.txt", "c\n", "descendant");
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let d1_commit = test.repo.find_commit(d1).unwrap();
+    let target_commit = test.repo.find_commit(to_split).unwrap();
+    let tree = d1_commit.tree().unwrap();
+    test.repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "a merge",
+            &tree,
+            &[&d1_commit, &target_commit],
+        )
+        .unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let head_before = head_oid.clone();
+
+    let err = git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .expect_err("a merge in the replay range must be refused");
+    let msg = err.to_string();
+
+    assert!(
+        !msg.contains("mainline"),
+        "should not leak libgit2's mainline wording: {msg}"
+    );
+    assert!(
+        msg.to_lowercase().contains("merge"),
+        "the error should name the merge commit as the reason: {msg}"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_before,
+        "the branch must be left untouched"
+    );
+}
