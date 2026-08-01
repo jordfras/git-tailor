@@ -43,8 +43,13 @@ git-tailor/
 │   │   └── tests.rs        # Dispatch-handler unit tests (MockRepo stubs)
 │   ├── app.rs              # AppMode enum, AppAction enum, SquashMode
 │   ├── app/
+│   │   ├── commit_list.rs  # CommitListState: rows, selection, list scrolling
+│   │   ├── detail.rs       # DetailState: detail-view scroll, diff context
 │   │   ├── keymap.rs       # KeyCommand enum + read_event()
-│   │   └── state.rs        # AppState struct
+│   │   ├── operation.rs    # Operation enum (per-row available operations)
+│   │   ├── scroll.rs       # ScrollState: reusable offset/max/visible-height
+│   │   ├── search.rs       # SearchState: detail-view regex search
+│   │   └── state.rs        # AppState (composes the above) + StatusState
 │   ├── domain.rs           # Domain module declarations
 │   ├── domain/
 │   │   ├── commit.rs       # CommitInfo, Oid, VirtualOid
@@ -71,6 +76,8 @@ git-tailor/
 │   ├── views/
 │   │   ├── commit_list.rs  # Scrollable commit log with fragmap
 │   │   ├── commit_detail.rs # Commit metadata + scrollable colored diff
+│   │   ├── commit_detail/
+│   │   │   └── search.rs   # Detail-view regex search: entry, nav, highlighting
 │   │   ├── conflict.rs     # Rebase conflict resolution dialog
 │   │   ├── dialog.rs       # Shared dialog rendering helpers
 │   │   ├── drop.rs         # Drop commit confirmation

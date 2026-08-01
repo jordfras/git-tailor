@@ -35,7 +35,7 @@ use git_tailor::{
 };
 
 use crate::cli::Cli;
-use crate::dispatch::{LoopAction, dispatch_action};
+use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
 use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
@@ -114,7 +114,7 @@ fn main() -> Result<()> {
     let mut update_poller = update_check::UpdatePoller::new();
 
     let mut app = AppState::new();
-    app.reverse = cli.reverse;
+    app.list.reverse = cli.reverse;
     app.theme = cli.matrix_theme.unwrap_or_default();
     app.colors = colors;
     app.reference_oid = reference_oid.clone();
@@ -134,13 +134,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if app.commits.is_empty() {
+    if app.list.commits.is_empty() {
         terminal_guard.shutdown()?;
         eprintln!("No commits to display.");
         return Ok(());
     }
 
     check_journal_recovery(&mut git_repo, &mut app);
+
+    // Outlives the loop: an autofixup batch can pause for several conflict
+    // rounds, and the index must survive every one of them.
+    let mut pending_autofixup = PendingAutofixupSelection::default();
 
     loop {
         terminal_guard.terminal().draw(|frame| {
@@ -163,7 +167,7 @@ fn main() -> Result<()> {
 
         // When the search-input bar is active in CommitDetail, forward raw
         // key events to the search handler instead of routing through parse_key.
-        if matches!(app.mode, AppMode::CommitDetail) && app.search_input_active {
+        if matches!(app.mode, AppMode::CommitDetail) && app.search.input_active {
             if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
                 break;
             }
@@ -239,6 +243,7 @@ fn main() -> Result<()> {
             result,
             &mut app,
             &mut git_repo,
+            &mut pending_autofixup,
             &mut terminal_guard,
             kb_enhanced,
         )?;
@@ -250,7 +255,7 @@ fn main() -> Result<()> {
                 let preserve = matches!(dispatch_result, LoopAction::ReloadPreserving);
                 let saved_idx = match dispatch_result {
                     LoopAction::ReloadSelecting(idx) => idx,
-                    _ => app.selection_index,
+                    _ => app.list.selection_index,
                 };
                 match git_repo.head_oid() {
                     Err(e) => app.set_error_message(format!("Reload failed: {e}")),
@@ -275,8 +280,8 @@ fn main() -> Result<()> {
                                         LoopAction::ReloadSelecting(_)
                                     ) =>
                             {
-                                app.selection_index =
-                                    saved_idx.min(app.commits.len().saturating_sub(1));
+                                app.list.selection_index =
+                                    saved_idx.min(app.list.commits.len().saturating_sub(1));
                             }
                             _ => {}
                         }

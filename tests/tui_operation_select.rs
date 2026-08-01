@@ -54,7 +54,7 @@ fn render_picker(app: &mut AppState) -> Buffer {
 #[test]
 fn test_operation_picker_real_commit() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
-    app.selection_index = 1; // a non-oldest real commit (offers the full menu)
+    app.list.selection_index = 1; // a non-oldest real commit (offers the full menu)
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -62,7 +62,7 @@ fn test_operation_picker_real_commit() {
 #[test]
 fn test_operation_picker_oldest_commit_omits_move() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
-    app.selection_index = 0; // the oldest commit — Move is not offered
+    app.list.selection_index = 0; // the oldest commit — Move is not offered
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -70,11 +70,13 @@ fn test_operation_picker_oldest_commit_omits_move() {
 #[test]
 fn test_operation_picker_unstaged_row() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.commits
+    app.list
+        .commits
         .push(synthetic_row(VirtualOid::Staged, "staged"));
-    app.commits
+    app.list
+        .commits
         .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.selection_index = app.commits.len() - 1; // the Unstaged row
+    app.list.selection_index = app.list.commits.len() - 1; // the Unstaged row
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -82,11 +84,13 @@ fn test_operation_picker_unstaged_row() {
 #[test]
 fn test_operation_picker_staged_row() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.commits
+    app.list
+        .commits
         .push(synthetic_row(VirtualOid::Staged, "staged"));
-    app.commits
+    app.list
+        .commits
         .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.selection_index = app.commits.len() - 2; // the Staged row
+    app.list.selection_index = app.list.commits.len() - 2; // the Staged row
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -98,7 +102,7 @@ fn test_operation_picker_long_non_ascii_summary_does_not_panic() {
     let mut app = common::app_state_from_commit_summaries(&[
         "Réfactor le café très naïve — обновление — 日本語のまとめ for the parser",
     ]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.enter_operation_select();
     let mut harness = TuiTestHarness::typical();
     let _ = harness.render(|frame| views::operation_select::render(&mut app, frame));
@@ -109,7 +113,7 @@ fn test_operation_picker_long_non_ascii_summary_does_not_panic() {
 #[test]
 fn shortcut_runs_the_operation_and_closes_the_picker() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
-    app.selection_index = 1; // a real commit
+    app.list.selection_index = 1; // a real commit
     app.enter_operation_select();
 
     // `d` (Drop) should behave like highlighting Drop and pressing Enter.
@@ -128,7 +132,7 @@ fn shortcut_runs_the_operation_and_closes_the_picker() {
 #[test]
 fn shortcut_for_a_follow_up_dialog_transitions_to_it() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X", "Refactor parser"]);
-    app.selection_index = 1;
+    app.list.selection_index = 1;
     app.enter_operation_select();
 
     // `p` (Split) opens the split-strategy dialog, just like confirming Split.
@@ -139,9 +143,10 @@ fn shortcut_for_a_follow_up_dialog_transitions_to_it() {
 #[test]
 fn shortcut_for_an_unavailable_operation_is_ignored() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.commits
+    app.list
+        .commits
         .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.selection_index = app.commits.len() - 1; // the Unstaged row
+    app.list.selection_index = app.list.commits.len() - 1; // the Unstaged row
     app.enter_operation_select();
 
     // Split is not offered for the Unstaged row: the key is ignored and the

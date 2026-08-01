@@ -49,11 +49,11 @@ fn make_app_in_autofixup_confirm(
     message_overrides: std::collections::HashMap<String, String>,
 ) -> AppState {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Add parser"),
         common::create_test_commit("def456ghi789", "fixup! Add parser"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::AutofixupConfirm(PendingAutofixup {
         pairs,
         head_oid: Oid::from("def456ghi789abcdef012"),

@@ -26,7 +26,7 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
             AppAction::Handled
         }
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }
@@ -82,9 +82,8 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .section(" Other")
         .key_binding("   Esc, q         ", "Close dialog / Quit application")
         .blank()
-        .render(frame, "Help — Commit List", 56, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Help — Commit List", 56, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 fn render_commit_detail_help(app: &mut crate::app::AppState, frame: &mut Frame) {
@@ -117,7 +116,6 @@ fn render_commit_detail_help(app: &mut crate::app::AppState, frame: &mut Frame) 
         .section(" Other")
         .key_binding("   Esc, q         ", "Return to commit list")
         .blank()
-        .render(frame, "Help — Commit Detail", 56, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Help — Commit Detail", 56, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

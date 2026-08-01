@@ -44,7 +44,9 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
-            let commit_oid = app.commits[app.selection_index].oid.expect_real_oid();
+            let commit_oid = app.list.commits[app.list.selection_index]
+                .oid
+                .expect_real_oid();
             // "Split out file(s)" and "split out hunk(s)" each need a second
             // dialog to choose what to peel out, so they take their own flow
             // rather than the count/confirm split path.
@@ -73,7 +75,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog_scroll_offset` so that the strategy row at `index` is
+/// Scroll `dialog.offset` so that the strategy row at `index` is
 /// visible. The dialog layout is: 5 header lines, then 3 lines per strategy
 /// (label + description + blank). Uses the visible height from the previous
 /// render frame; does nothing if that hasn't been computed yet.
@@ -82,16 +84,16 @@ fn scroll_to_strategy(app: &mut AppState, index: usize) {
     const ITEM_HEIGHT: usize = 3;
     let item_top = HEADER_LINES + index * ITEM_HEIGHT;
     let item_bottom = item_top + ITEM_HEIGHT - 1;
-    let vh = app.dialog_visible_height;
+    let vh = app.dialog.visible_height;
     if vh == 0 {
         return;
     }
-    if item_top < app.dialog_scroll_offset {
-        app.dialog_scroll_offset = item_top;
-    } else if item_bottom >= app.dialog_scroll_offset + vh {
-        app.dialog_scroll_offset = item_bottom + 1 - vh;
+    if item_top < app.dialog.offset {
+        app.dialog.offset = item_top;
+    } else if item_bottom >= app.dialog.offset + vh {
+        app.dialog.offset = item_bottom + 1 - vh;
     }
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+    app.dialog.clamp_offset();
 }
 
 /// Handle an action while in SplitConfirm mode.
@@ -119,7 +121,7 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }
@@ -128,8 +130,8 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 /// Render the split strategy selection dialog as a centered overlay.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
     let commit_summary = app
-        .commits
-        .get(app.selection_index)
+        .list
+        .selected()
         .map(|c| format!("{} {}", c.oid.short(), c.summary))
         .unwrap_or_default();
 
@@ -189,14 +191,9 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         .blank();
 
     let content_width = 50;
-    let (max_scroll, visible_height) = dialog.render(
-        frame,
-        "Split Commit",
-        content_width,
-        app.dialog_scroll_offset,
-    );
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+    let (max_scroll, visible_height) =
+        dialog.render(frame, "Split Commit", content_width, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 /// Render the large-split confirmation dialog as a centered overlay.
@@ -232,7 +229,6 @@ pub fn render_split_confirm(app: &mut AppState, frame: &mut Frame) {
             ("Esc", Color::Cyan, "Cancel"),
         ])
         .blank()
-        .render(frame, "Confirm Split", 52, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Confirm Split", 52, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

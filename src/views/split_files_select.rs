@@ -160,19 +160,19 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog_scroll_offset` so the file row at `index` is visible in the
+/// Scroll `dialog.offset` so the file row at `index` is visible in the
 /// list pane (one line per file, no header offset).
 fn scroll_to_file(app: &mut AppState, index: usize) {
-    let vh = app.dialog_visible_height;
+    let vh = app.dialog.visible_height;
     if vh == 0 {
         return;
     }
-    if index < app.dialog_scroll_offset {
-        app.dialog_scroll_offset = index;
-    } else if index >= app.dialog_scroll_offset + vh {
-        app.dialog_scroll_offset = index + 1 - vh;
+    if index < app.dialog.offset {
+        app.dialog.offset = index;
+    } else if index >= app.dialog.offset + vh {
+        app.dialog.offset = index + 1 - vh;
     }
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+    app.dialog.clamp_offset();
 }
 
 const HINT_ROWS: [&[(&str, &str)]; 2] = [

@@ -16,21 +16,41 @@ use crate::{
     CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
-    repo::{ConflictState, DEFAULT_CONTEXT_LINES, StashConflictState},
+    repo::{ConflictState, StashConflictState},
     views::{palette::Colors, theme::Theme},
 };
 
 use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
+use crate::app::ScrollState;
+use crate::app::commit_list::CommitListState;
+use crate::app::detail::DetailState;
+use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
-/// Number of diff context lines shown in the commit detail view. A newtype so
-/// its default (git's 3) is preserved under `AppState`'s derived `Default`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DetailContextLines(pub u32);
+/// Transient status message shown in the footer, cleared on the next keypress.
+#[derive(Debug, Default)]
+pub struct StatusState {
+    pub message: Option<String>,
+    /// Whether the message represents an error (red) or a success (green).
+    pub is_error: bool,
+}
 
-impl Default for DetailContextLines {
-    fn default() -> Self {
-        Self(DEFAULT_CONTEXT_LINES)
+impl StatusState {
+    /// Set a success status message (shown with green background).
+    pub fn set_success(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.is_error = false;
+    }
+
+    /// Set an error status message (shown with red background).
+    pub fn set_error(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.is_error = true;
+    }
+
+    /// Clear the transient status message.
+    pub fn clear(&mut self) {
+        *self = Self::default();
     }
 }
 
@@ -41,9 +61,8 @@ impl Default for DetailContextLines {
 #[derive(Default)]
 pub struct AppState {
     pub should_quit: bool,
-    pub commits: Vec<CommitInfo>,
-    pub selection_index: usize,
-    pub reverse: bool,
+    /// The commit list, its selection, and its scroll position.
+    pub list: CommitListState,
     /// Show all hunk-group columns without deduplication (--full flag).
     pub full_fragmap: bool,
     /// Active fragmap rendering theme.
@@ -61,61 +80,23 @@ pub struct AppState {
     pub fragmap_scroll_offset: usize,
     /// Current display mode.
     pub mode: AppMode,
-    /// Vertical scroll offset for the detail view.
-    pub detail_scroll_offset: usize,
-    /// Maximum vertical scroll offset for the detail view (updated during render).
-    pub max_detail_scroll: usize,
-    /// Horizontal scroll offset for the detail view.
-    pub detail_h_scroll_offset: usize,
-    /// Maximum horizontal scroll offset for the detail view (updated during render).
-    pub max_detail_h_scroll: usize,
-    /// Visible height of the commit list area (updated during render).
-    pub commit_list_visible_height: usize,
-    /// Explicit commit-list scroll offset (display space) set by `Ctrl-Up`/`Down`.
-    /// `None` follows the selection (the default); `Some` is clamped each render so
-    /// the selection stays visible.
-    pub commit_list_scroll_override: Option<usize>,
-    /// Visible height of the detail view area (updated during render).
-    pub detail_visible_height: usize,
-    /// Diff context lines shown in the detail view, adjusted with `+` / `-`.
-    pub detail_context_lines: DetailContextLines,
+    /// Scroll position, diff context and file offsets of the detail view.
+    pub detail: DetailState,
     /// Transient status message shown in the footer (cleared on next keypress).
-    pub status_message: Option<String>,
-    /// Whether the current status message represents an error (red) or success (green).
-    pub status_is_error: bool,
+    pub status: StatusState,
     /// User-controlled offset for the vertical separator bar (positive = right, negative = left).
     pub separator_offset: i16,
-    /// Scroll offset for the current dialog (e.g. help). Reset when a dialog opens.
-    pub dialog_scroll_offset: usize,
-    /// Maximum allowed dialog scroll offset (updated during render).
-    pub max_dialog_scroll: usize,
-    /// Visible content height of the current dialog (updated during render, used for paging).
-    pub dialog_visible_height: usize,
+    /// Scroll state for the current dialog (e.g. help). Offset is reset when a
+    /// dialog opens; bounds are updated during render.
+    pub dialog: ScrollState,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
-    /// Current search query string (regex pattern).
-    pub search_query: String,
-    /// Whether the user is actively typing in the search bar.
-    pub search_input_active: bool,
-    /// Whether search results (highlights, match navigation) are active.
-    pub search_active: bool,
-    /// Line indices in the detail content that match the search regex.
-    pub search_matches: Vec<usize>,
-    /// Index into `search_matches` for the current match.
-    pub search_match_index: Option<usize>,
-    /// Line indices of file-diff headers in the detail view content (updated during render).
-    pub file_start_lines: Vec<usize>,
+    /// Regex search state for the detail view.
+    pub search: SearchState,
     /// Set when the background check detects a newer crates.io release. Persistent
-    /// (NOT cleared by `clear_status_message`); shown in the footer hint slot.
+    /// (NOT cleared by `status.clear`); shown in the footer hint slot.
     pub update_notice: Option<String>,
-    /// Precomputed target selection index for an in-progress autofixup batch
-    /// that hit a conflict, carried across the conflict-resolution round trip
-    /// (possibly several, if more than one pair conflicts) so the cursor still
-    /// lands on the right commit once the whole batch finally completes.
-    /// `None` once consumed or when there was nothing sensible to restore
-    /// (e.g. the original selection was a synthetic staged/unstaged row).
-    pub pending_autofixup_selection: Option<usize>,
 }
 
 impl AppState {
@@ -128,70 +109,13 @@ impl AppState {
     pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
         let selection_index = commits.len().saturating_sub(1);
         Self {
-            commits,
-            selection_index,
+            list: CommitListState {
+                commits,
+                selection_index,
+                ..Default::default()
+            },
             ..Self::default()
         }
-    }
-
-    /// Move selection up (decrement index) with lower bound check.
-    /// Does nothing if already at top or commits list is empty.
-    pub fn move_up(&mut self) {
-        if self.selection_index > 0 {
-            self.selection_index -= 1;
-        }
-    }
-
-    /// Move selection down (increment index) with upper bound check.
-    /// Does nothing if already at bottom or commits list is empty.
-    pub fn move_down(&mut self) {
-        if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
-            self.selection_index += 1;
-        }
-    }
-
-    /// The commit-list scroll offset (in display space) to render, given the
-    /// visible height. Without an override it follows the selection (pinned to
-    /// the bottom once scrolled, the historical behaviour); with one it honours
-    /// the override but always clamps so the selected row stays visible.
-    pub fn commit_list_effective_offset(&self, available_height: usize) -> usize {
-        let total = self.commits.len();
-        if total == 0 || available_height == 0 {
-            return 0;
-        }
-        // Selected row in display space (the list is drawn reversed when `reverse`).
-        let visual_selection = if self.reverse {
-            total - 1 - self.selection_index.min(total - 1)
-        } else {
-            self.selection_index.min(total - 1)
-        };
-        let max_scroll = total.saturating_sub(available_height);
-        // Range of offsets that keep the selection on screen: from "selection at
-        // the bottom row" up to "selection at the top row" (never past max_scroll).
-        let min_off = visual_selection.saturating_sub(available_height - 1);
-        let max_off = visual_selection.min(max_scroll);
-        let derived = if visual_selection < available_height {
-            0
-        } else {
-            visual_selection - (available_height - 1)
-        };
-        self.commit_list_scroll_override
-            .unwrap_or(derived)
-            .clamp(min_off, max_off)
-    }
-
-    /// Scroll the commit list one row up (toward earlier display rows) without
-    /// moving the selection. Clamped on render so it never scrolls the selected
-    /// row off screen.
-    pub fn scroll_commit_list_up(&mut self) {
-        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
-        self.commit_list_scroll_override = Some(base.saturating_sub(1));
-    }
-
-    /// Scroll the commit list one row down without moving the selection.
-    pub fn scroll_commit_list_down(&mut self) {
-        let base = self.commit_list_effective_offset(self.commit_list_visible_height);
-        self.commit_list_scroll_override = Some(base + 1);
     }
 
     /// Scroll fragmap grid left.
@@ -214,178 +138,6 @@ impl AppState {
     /// Scroll fragmap grid to the rightmost column (render will clamp).
     pub fn scroll_fragmap_to_right(&mut self) {
         self.fragmap_scroll_offset = usize::MAX;
-    }
-
-    /// Scroll detail view left to column 0.
-    pub fn scroll_detail_to_left_edge(&mut self) {
-        self.detail_h_scroll_offset = 0;
-    }
-
-    /// Scroll detail view right to the last column.
-    pub fn scroll_detail_to_right_edge(&mut self) {
-        self.detail_h_scroll_offset = self.max_detail_h_scroll;
-    }
-
-    /// Jump to the next file header in the detail view (wraps cyclically).
-    pub fn jump_to_next_file(&mut self) {
-        if self.file_start_lines.is_empty() {
-            return;
-        }
-        let target = self
-            .file_start_lines
-            .iter()
-            .find(|&&l| l > self.detail_scroll_offset)
-            .copied()
-            .unwrap_or(self.file_start_lines[0]);
-        let clamped = target.min(self.max_detail_scroll);
-        // If clamping produces no forward movement (last file is beyond max
-        // scroll and we're already there), wrap to the first file.
-        if clamped <= self.detail_scroll_offset {
-            self.detail_scroll_offset = self.file_start_lines[0];
-        } else {
-            self.detail_scroll_offset = clamped;
-        }
-    }
-
-    /// Jump to the previous file header in the detail view (wraps cyclically).
-    pub fn jump_to_prev_file(&mut self) {
-        if self.file_start_lines.is_empty() {
-            return;
-        }
-        let target = self
-            .file_start_lines
-            .iter()
-            .rev()
-            .find(|&&l| l < self.detail_scroll_offset)
-            .copied()
-            .unwrap_or_else(|| *self.file_start_lines.last().unwrap());
-        self.detail_scroll_offset = target.min(self.max_detail_scroll);
-    }
-
-    /// Scroll detail view up (decrease offset).
-    pub fn scroll_detail_up(&mut self) {
-        if self.detail_scroll_offset > 0 {
-            self.detail_scroll_offset -= 1;
-        }
-    }
-
-    /// Scroll detail view down (increase offset).
-    pub fn scroll_detail_down(&mut self) {
-        if self.detail_scroll_offset < self.max_detail_scroll {
-            self.detail_scroll_offset += 1;
-        }
-    }
-
-    /// Show one more diff context line in the detail view (`+`). git re-computes
-    /// the diff, so hunks whose context regions now overlap render as one.
-    pub fn increase_detail_context_lines(&mut self) {
-        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_add(1);
-    }
-
-    /// Show one fewer diff context line in the detail view (`-`), with 0 as the
-    /// floor. Hunks that were merged split apart again as context shrinks.
-    pub fn decrease_detail_context_lines(&mut self) {
-        self.detail_context_lines.0 = self.detail_context_lines.0.saturating_sub(1);
-    }
-
-    /// Scroll detail view left (decrease horizontal offset).
-    pub fn scroll_detail_left(&mut self) {
-        if self.detail_h_scroll_offset > 0 {
-            self.detail_h_scroll_offset -= 1;
-        }
-    }
-
-    /// Scroll detail view right (increase horizontal offset).
-    pub fn scroll_detail_right(&mut self) {
-        if self.detail_h_scroll_offset < self.max_detail_h_scroll {
-            self.detail_h_scroll_offset += 1;
-        }
-    }
-
-    /// Scroll commit list up by one page (visible_height lines).
-    pub fn page_up(&mut self, visible_height: usize) {
-        self.selection_index = self
-            .selection_index
-            .saturating_sub(page_size(visible_height));
-    }
-
-    /// Scroll commit list down by one page (visible_height lines).
-    pub fn page_down(&mut self, visible_height: usize) {
-        if self.commits.is_empty() {
-            return;
-        }
-        let new_index = self
-            .selection_index
-            .saturating_add(page_size(visible_height));
-        self.selection_index = new_index.min(self.commits.len() - 1);
-    }
-
-    /// Scroll commit list up by half a page (visible_height lines).
-    pub fn half_page_up(&mut self, visible_height: usize) {
-        self.selection_index = self
-            .selection_index
-            .saturating_sub(half_page_size(visible_height));
-    }
-
-    /// Scroll commit list down by half a page (visible_height lines).
-    pub fn half_page_down(&mut self, visible_height: usize) {
-        if self.commits.is_empty() {
-            return;
-        }
-        let new_index = self
-            .selection_index
-            .saturating_add(half_page_size(visible_height));
-        self.selection_index = new_index.min(self.commits.len() - 1);
-    }
-
-    /// Scroll detail view up by one page (visible_height lines).
-    pub fn scroll_detail_page_up(&mut self, visible_height: usize) {
-        self.detail_scroll_offset = self
-            .detail_scroll_offset
-            .saturating_sub(page_size(visible_height));
-    }
-
-    /// Scroll detail view down by one page (visible_height lines).
-    pub fn scroll_detail_page_down(&mut self, visible_height: usize) {
-        let new_offset = self
-            .detail_scroll_offset
-            .saturating_add(page_size(visible_height));
-        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
-    }
-
-    /// Scroll detail view up by half a page (visible_height lines).
-    pub fn scroll_detail_half_page_up(&mut self, visible_height: usize) {
-        self.detail_scroll_offset = self
-            .detail_scroll_offset
-            .saturating_sub(half_page_size(visible_height));
-    }
-
-    /// Scroll detail view down by half a page (visible_height lines).
-    pub fn scroll_detail_half_page_down(&mut self, visible_height: usize) {
-        let new_offset = self
-            .detail_scroll_offset
-            .saturating_add(half_page_size(visible_height));
-        self.detail_scroll_offset = new_offset.min(self.max_detail_scroll);
-    }
-
-    /// Jump to the first commit in the list.
-    pub fn jump_to_first(&mut self) {
-        self.selection_index = 0;
-    }
-
-    /// Jump to the last commit in the list.
-    pub fn jump_to_last(&mut self) {
-        self.selection_index = self.commits.len().saturating_sub(1);
-    }
-
-    /// Scroll detail view to the very top.
-    pub fn scroll_detail_to_top(&mut self) {
-        self.detail_scroll_offset = 0;
-    }
-
-    /// Scroll detail view to the very bottom.
-    pub fn scroll_detail_to_bottom(&mut self) {
-        self.detail_scroll_offset = self.max_detail_scroll;
     }
 
     /// Enter the large-split confirmation dialog.
@@ -462,22 +214,19 @@ impl AppState {
     /// Returns the selected commit if it is a real (non-synthetic) commit.
     /// Sets an error message and returns `None` for staged/unstaged rows.
     pub fn selected_real_commit(&mut self, action: &str) -> Option<&CommitInfo> {
-        if self
-            .commits
-            .get(self.selection_index)
-            .is_some_and(|c| c.oid.is_synthetic())
-        {
-            self.set_error_message(format!("Cannot {action} staged/unstaged changes"));
+        if self.list.selected().is_some_and(|c| c.oid.is_synthetic()) {
+            self.status
+                .set_error(format!("Cannot {action} staged/unstaged changes"));
             return None;
         }
-        self.commits.get(self.selection_index)
+        self.list.selected()
     }
 
     /// Whether the selected row is the synthetic `want` row (`Staged` /
     /// `Unstaged`). Otherwise sets a guiding hint naming the row to select for
     /// `action` (e.g. "stage all changes") and returns `false`.
     pub fn selected_synthetic_row_is(&mut self, want: VirtualOid, action: &str) -> bool {
-        if self.commits.get(self.selection_index).map(|c| &c.oid) == Some(&want) {
+        if self.list.selected_virtual_oid() == Some(&want) {
             return true;
         }
         let row = match want {
@@ -485,32 +234,18 @@ impl AppState {
             VirtualOid::Unstaged => "Unstaged",
             VirtualOid::Real(_) => "",
         };
-        self.set_error_message(format!("Select the \"{row}\" row to {action}"));
+        self.status
+            .set_error(format!("Select the \"{row}\" row to {action}"));
         false
-    }
-
-    /// The `VirtualOid` of the selected row, if any. Read-only (no error side
-    /// effect), used to decide which operations the picker offers.
-    pub fn selected_virtual_oid(&self) -> Option<&VirtualOid> {
-        self.commits.get(self.selection_index).map(|c| &c.oid)
-    }
-
-    /// Whether the selected row is the oldest real commit on the branch. Commits
-    /// are stored oldest-first with the synthetic working-tree rows appended, so
-    /// the oldest is simply the first real commit.
-    pub fn selected_is_oldest_commit(&self) -> bool {
-        self.commits
-            .iter()
-            .position(|c| !c.oid.is_synthetic())
-            .is_some_and(|first_real| first_real == self.selection_index)
     }
 
     /// Enter the operation picker for the selected row, highlighting the first
     /// available operation. Every real/synthetic row offers at least undo/redo,
     /// so this only no-ops when there is no selection at all.
     pub fn enter_operation_select(&mut self) {
-        let is_oldest = self.selected_is_oldest_commit();
+        let is_oldest = self.list.selected_is_oldest_commit();
         let first = self
+            .list
             .selected_virtual_oid()
             .map(|oid| Operation::available_for(oid, is_oldest))
             .and_then(|ops| ops.into_iter().next());
@@ -584,19 +319,14 @@ impl AppState {
         if self.selected_real_commit(&label).is_none() {
             return;
         }
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count();
-        if real_count < 2 {
+        if self.list.real_commit_count() < 2 {
             self.set_error_message(format!(
                 "Nothing to {label} — only one commit on the branch"
             ));
             return;
         }
         self.mode = AppMode::SquashSelect {
-            source_index: self.selection_index,
+            source_index: self.list.selection_index,
             squash_mode,
         };
     }
@@ -615,19 +345,14 @@ impl AppState {
             return;
         }
 
-        // Count real (non-synthetic) commits; moving requires at least 2.
-        let real_count = self
-            .commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count();
-        if real_count < 2 {
+        // Moving requires at least 2 real (non-synthetic) commits.
+        if self.list.real_commit_count() < 2 {
             self.set_error_message("Nothing to move — only one commit on the branch");
             return;
         }
 
-        let source = self.selection_index;
-        let max = self.commits.len();
+        let source = self.list.selection_index;
+        let max = self.list.commits.len();
         // Pick the first valid (non-no-op) position. No-ops are source and
         // source + 1, so try source - 1 first, then scan forward.
         let insert_before = if source > 0 {
@@ -649,20 +374,17 @@ impl AppState {
 
     /// Set a success status message (shown with green background).
     pub fn set_success_message(&mut self, msg: impl Into<String>) {
-        self.status_message = Some(msg.into());
-        self.status_is_error = false;
+        self.status.set_success(msg);
     }
 
     /// Set an error status message (shown with red background).
     pub fn set_error_message(&mut self, msg: impl Into<String>) {
-        self.status_message = Some(msg.into());
-        self.status_is_error = true;
+        self.status.set_error(msg);
     }
 
     /// Clear the transient status message.
     pub fn clear_status_message(&mut self) {
-        self.status_message = None;
-        self.status_is_error = false;
+        self.status.clear();
     }
 
     /// Toggle between CommitList and CommitDetail modes.
@@ -670,7 +392,7 @@ impl AppState {
         let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => {
-                self.clear_search();
+                self.search.clear();
                 AppMode::CommitList
             }
             AppMode::Help(_)
@@ -689,7 +411,7 @@ impl AppState {
             | AppMode::Loading { .. } => return,
         };
         self.mode = new_mode;
-        self.detail_scroll_offset = 0;
+        self.detail.v.offset = 0;
     }
 
     /// Show help dialog, saving current mode to return to later.
@@ -697,35 +419,8 @@ impl AppState {
         if !matches!(self.mode, AppMode::Help(_)) {
             let current = std::mem::replace(&mut self.mode, AppMode::CommitList);
             self.mode = AppMode::Help(Box::new(current));
-            self.dialog_scroll_offset = 0;
+            self.dialog.offset = 0;
         }
-    }
-
-    /// Scroll the current dialog up by one line.
-    pub fn scroll_dialog_up(&mut self) {
-        self.dialog_scroll_offset = self.dialog_scroll_offset.saturating_sub(1);
-    }
-
-    /// Scroll the current dialog down by one line.
-    pub fn scroll_dialog_down(&mut self) {
-        if self.dialog_scroll_offset < self.max_dialog_scroll {
-            self.dialog_scroll_offset += 1;
-        }
-    }
-
-    /// Scroll the current dialog up by one page.
-    pub fn scroll_dialog_page_up(&mut self) {
-        self.dialog_scroll_offset = self
-            .dialog_scroll_offset
-            .saturating_sub(page_size(self.dialog_visible_height));
-    }
-
-    /// Scroll the current dialog down by one page.
-    pub fn scroll_dialog_page_down(&mut self) {
-        let new = self
-            .dialog_scroll_offset
-            .saturating_add(page_size(self.dialog_visible_height));
-        self.dialog_scroll_offset = new.min(self.max_dialog_scroll);
     }
 
     /// Close help dialog and return to previous mode.
@@ -736,24 +431,6 @@ impl AppState {
                 self.mode = *prev_mode;
             }
         }
-    }
-
-    /// Clear all search state.
-    pub fn clear_search(&mut self) {
-        self.search_query.clear();
-        self.search_input_active = false;
-        self.search_active = false;
-        self.search_matches.clear();
-        self.search_match_index = None;
-    }
-
-    /// Activate search mode: clear query and show search bar.
-    pub fn activate_search(&mut self) {
-        self.search_query.clear();
-        self.search_input_active = true;
-        self.search_active = true;
-        self.search_matches.clear();
-        self.search_match_index = None;
     }
 
     /// Toggle help dialog on/off.
@@ -767,222 +444,14 @@ impl AppState {
 
     fn enter_dialog(&mut self, mode: AppMode) {
         self.mode = mode;
-        self.dialog_scroll_offset = 0;
+        self.dialog.offset = 0;
     }
 
     fn exit_dialog(&mut self) {
-        // MoveSelect navigation can leave `selection_index` as a scroll anchor
+        // MoveSelect navigation can leave the selection as a scroll anchor
         // pointing past the last commit; clamp it so CommitList consumers
         // (footer, fragmap highlight) never index out of bounds.
-        self.selection_index = self
-            .selection_index
-            .min(self.commits.len().saturating_sub(1));
+        self.list.clamp_selection();
         self.mode = AppMode::CommitList;
-    }
-}
-
-/// Page-scroll distance for a panel of `visible_height` lines.
-///
-/// Keeps one line of overlap so the user retains context after paging — the
-/// last visible line becomes the first visible line of the next page.
-/// Always returns at least 1 so a single-line panel can still page.
-fn page_size(visible_height: usize) -> usize {
-    visible_height.saturating_sub(1).max(1)
-}
-
-/// Half-page step: approximately half the visible height, at least 1.
-fn half_page_size(visible_height: usize) -> usize {
-    (visible_height / 2).max(1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{CommitInfo, Oid, VirtualOid};
-
-    #[test]
-    fn detail_context_lines_default_is_git_default() {
-        assert_eq!(
-            AppState::default().detail_context_lines.0,
-            DEFAULT_CONTEXT_LINES
-        );
-    }
-
-    #[test]
-    fn increase_and_decrease_detail_context_lines() {
-        let mut app = AppState::default();
-        app.increase_detail_context_lines();
-        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES + 1);
-        app.decrease_detail_context_lines();
-        app.decrease_detail_context_lines();
-        assert_eq!(app.detail_context_lines.0, DEFAULT_CONTEXT_LINES - 1);
-    }
-
-    #[test]
-    fn decrease_detail_context_lines_floors_at_zero() {
-        let mut app = AppState::default();
-        for _ in 0..(DEFAULT_CONTEXT_LINES + 2) {
-            app.decrease_detail_context_lines();
-        }
-        assert_eq!(app.detail_context_lines.0, 0);
-    }
-
-    fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
-        CommitInfo {
-            oid: VirtualOid::Real(Oid::from(oid)),
-            summary: summary.to_string(),
-            author: Some("Test Author".to_string()),
-            date: Some("2024-01-01".to_string()),
-            parent_oids: vec![],
-            message: summary.to_string(),
-            author_email: Some("test@example.com".to_string()),
-            author_date: Some(time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap()),
-            committer: Some("Test Committer".to_string()),
-            committer_email: Some("committer@example.com".to_string()),
-            commit_date: Some(time::OffsetDateTime::from_unix_timestamp(1704110400).unwrap()),
-        }
-    }
-
-    #[test]
-    fn test_move_up_with_empty_list() {
-        let mut app = AppState::new();
-        assert_eq!(app.selection_index, 0);
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_up_at_top() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-        ];
-        app.selection_index = 0;
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_up_from_middle() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-            create_test_commit("ghi789", "Third"),
-        ];
-        app.selection_index = 2;
-        app.move_up();
-        assert_eq!(app.selection_index, 1);
-        app.move_up();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_down_with_empty_list() {
-        let mut app = AppState::new();
-        assert_eq!(app.selection_index, 0);
-        app.move_down();
-        assert_eq!(app.selection_index, 0);
-    }
-
-    #[test]
-    fn test_move_down_at_bottom() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-        ];
-        app.selection_index = 1;
-        app.move_down();
-        assert_eq!(app.selection_index, 1);
-    }
-
-    #[test]
-    fn test_move_down_from_middle() {
-        let mut app = AppState::new();
-        app.commits = vec![
-            create_test_commit("abc123", "First"),
-            create_test_commit("def456", "Second"),
-            create_test_commit("ghi789", "Third"),
-        ];
-        app.selection_index = 0;
-        app.move_down();
-        assert_eq!(app.selection_index, 1);
-        app.move_down();
-        assert_eq!(app.selection_index, 2);
-    }
-
-    /// Build an app with `n` commits, the given selection, and visible height.
-    fn app_with(n: usize, selection: usize, height: usize) -> AppState {
-        let mut app = AppState::new();
-        app.commits = (0..n)
-            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
-            .collect();
-        app.selection_index = selection;
-        app.commit_list_visible_height = height;
-        app
-    }
-
-    /// The selected row's display index must lie within the visible window.
-    fn selection_visible(app: &AppState, offset: usize, height: usize) -> bool {
-        let total = app.commits.len();
-        let visual = if app.reverse {
-            total - 1 - app.selection_index
-        } else {
-            app.selection_index
-        };
-        offset <= visual && visual < offset + height
-    }
-
-    #[test]
-    fn effective_offset_without_override_follows_selection() {
-        // Selection at index 5 of 10 with a 4-row window pins it to the bottom.
-        let app = app_with(10, 5, 4);
-        assert_eq!(app.commit_list_scroll_override, None);
-        assert_eq!(app.commit_list_effective_offset(4), 2);
-        assert!(selection_visible(&app, 2, 4));
-    }
-
-    #[test]
-    fn scroll_down_then_up_keeps_selection_visible_and_clamps() {
-        let mut app = app_with(10, 5, 4);
-        // Starts with the selection at the bottom (offset 2).
-        assert_eq!(app.commit_list_effective_offset(4), 2);
-
-        // Scrolling down advances the offset until the selection hits the top…
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 3);
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 4);
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 5);
-        // …then stops (further scroll would push the selection off screen).
-        app.scroll_commit_list_down();
-        assert_eq!(app.commit_list_effective_offset(4), 5);
-        assert!(selection_visible(&app, 5, 4));
-
-        // Scrolling back up returns to the bottom-pinned offset, then stops.
-        for expected in [4, 3, 2, 2] {
-            app.scroll_commit_list_up();
-            assert_eq!(app.commit_list_effective_offset(4), expected);
-            assert!(selection_visible(&app, expected, 4));
-        }
-    }
-
-    #[test]
-    fn scroll_keeps_selection_visible_in_reverse_mode() {
-        let mut app = app_with(10, 5, 4);
-        app.reverse = true;
-        let off = app.commit_list_effective_offset(4);
-        assert!(selection_visible(&app, off, 4));
-        for _ in 0..6 {
-            app.scroll_commit_list_down();
-            let off = app.commit_list_effective_offset(4);
-            assert!(
-                selection_visible(&app, off, 4),
-                "offset {off} hid selection"
-            );
-        }
     }
 }

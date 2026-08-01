@@ -26,11 +26,11 @@ use git_tailor::{
 
 fn make_app_in_stash_conflict(files: Vec<&str>, still_unresolved: bool) -> AppState {
     let mut app = AppState::new();
-    app.commits = vec![
+    app.list.commits = vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
     ];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::StashConflict(Box::new(StashConflictState {
         operation_label: "Drop".to_string(),
         conflicting_files: files.iter().map(|s| s.to_string()).collect(),

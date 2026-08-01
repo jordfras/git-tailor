@@ -74,7 +74,7 @@ fn make_entries() -> Vec<FileDiff> {
 
 fn make_app_in_files_select(file_index: usize, selected: &[usize]) -> AppState {
     let mut app = common::app_state_from_commit_summaries(&["Change a, b, c", "Add feature X"]);
-    app.selection_index = 0;
+    app.list.selection_index = 0;
     app.mode = AppMode::SplitFilesSelect {
         commit_oid: Oid::from("111111111111"),
         files: make_entries(),

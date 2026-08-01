@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use git_tailor::Oid;
-use git_tailor::app::{AppMode, AppState, SplitStrategy, SquashMode};
+use git_tailor::app::{AppMode, AppState, CommitListState, SplitStrategy, SquashMode};
 use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
@@ -372,8 +372,8 @@ fn execute_drop_complete_sets_success_message() {
         Oid::from("b".repeat(40)),
     );
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
-    assert_eq!(app.status_message.as_deref(), Some("Commit dropped"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Commit dropped"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -415,9 +415,10 @@ fn execute_drop_error_sets_error_message() {
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
     );
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Drop failed")
@@ -430,8 +431,8 @@ fn execute_move_complete_sets_success_message() {
     let mut app = AppState::default();
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
-    assert_eq!(app.status_message.as_deref(), Some("Commit moved"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Commit moved"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -443,7 +444,7 @@ fn execute_move_head_error_continues() {
     let mut app = AppState::default();
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::Continue)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -451,11 +452,17 @@ fn rebase_abort_success_sets_success_message() {
     let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let state = make_conflict_state();
-    let result = handle_rebase_abort(&mut repo, &mut app, state);
+    let result = handle_rebase_abort(
+        &mut repo,
+        &mut app,
+        &mut PendingAutofixupSelection::default(),
+        state,
+    );
     assert!(matches!(result, Ok(LoopAction::Reload)));
-    assert!(!app.status_is_error);
+    assert!(!app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("aborted")
@@ -470,10 +477,16 @@ fn rebase_abort_error_sets_error_message() {
     };
     let mut app = AppState::default();
     let state = make_conflict_state();
-    let _ = handle_rebase_abort(&mut repo, &mut app, state);
-    assert!(app.status_is_error);
+    let _ = handle_rebase_abort(
+        &mut repo,
+        &mut app,
+        &mut PendingAutofixupSelection::default(),
+        state,
+    );
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Abort failed")
@@ -494,7 +507,7 @@ fn prepare_split_count_error_sets_error_message() {
         Oid::from("a".repeat(40)),
     );
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -615,7 +628,7 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -629,7 +642,7 @@ fn prepare_split_out_hunks_error_sets_error_message() {
     let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -715,7 +728,7 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
     let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -729,7 +742,7 @@ fn prepare_split_out_files_error_sets_error_message() {
     let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -744,8 +757,8 @@ fn stage_all_changed_reloads_and_reports_success() {
         "Nothing to stage",
     );
     assert!(matches!(action, LoopAction::Reload));
-    assert_eq!(app.status_message.as_deref(), Some("Staged all changes"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Staged all changes"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -762,8 +775,8 @@ fn stage_all_noop_reports_without_reload() {
         "Nothing to stage",
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert_eq!(app.status_message.as_deref(), Some("Nothing to stage"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Nothing to stage"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -780,7 +793,7 @@ fn stage_all_error_sets_error_message() {
         "Nothing to unstage",
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
 }
 
 #[test]
@@ -796,8 +809,8 @@ fn worktree_preserving_undo_skips_autostash() {
     let result = handle_undo(&mut repo, &mut app);
     assert!(matches!(result, Ok(LoopAction::Reload)));
     assert_eq!(repo.autostash_save_calls.get(), 0);
-    assert_eq!(app.status_message.as_deref(), Some("Undid stage all"));
-    assert!(!app.status_is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Undid stage all"));
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -883,12 +896,13 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
         other => panic!("expected RebaseConflict mode, got {other:?}"),
     }
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Merge tool finished")
     );
-    assert!(!app.status_is_error);
+    assert!(!app.status.is_error);
 }
 
 #[test]
@@ -903,9 +917,10 @@ fn conflict_tool_no_merge_tool_sets_error() {
         Ok(ToolRun::NoMergeTool),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
+    assert!(app.status.is_error);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("No merge tool configured")
@@ -924,8 +939,8 @@ fn conflict_tool_failure_reports_the_tool_name() {
         Err(anyhow::anyhow!("boom")),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status_is_error);
-    let msg = app.status_message.as_deref().unwrap_or("");
+    assert!(app.status.is_error);
+    let msg = app.status.message.as_deref().unwrap_or("");
     assert!(msg.contains("Editor failed"), "unexpected message: {msg}");
     assert!(msg.contains("boom"), "unexpected message: {msg}");
 }
@@ -956,7 +971,8 @@ fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
         other => panic!("expected StashConflict mode, got {other:?}"),
     }
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .unwrap_or("")
             .contains("Editor finished")
@@ -1081,14 +1097,19 @@ mod autofixup_selection {
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
         let mut app = AppState {
-            commits: commits(),
-            selection_index: 4, // F2, folded into T (index 1).
+            list: CommitListState {
+                commits: commits(),
+                selection_index: 4, // F2, folded into T (index 1).
+                ..Default::default()
+            },
             ..Default::default()
         };
+        let mut pending = PendingAutofixupSelection::default();
 
         let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
+            &mut pending,
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
@@ -1096,7 +1117,7 @@ mod autofixup_selection {
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
-        assert_eq!(app.status_message.as_deref(), Some("Commits autofixed up"));
+        assert_eq!(app.status.message.as_deref(), Some("Commits autofixed up"));
     }
 
     #[test]
@@ -1106,14 +1127,19 @@ mod autofixup_selection {
             ..Default::default()
         };
         let mut app = AppState {
-            commits: commits(),
-            selection_index: 4, // F2, folded into T (index 1).
+            list: CommitListState {
+                commits: commits(),
+                selection_index: 4, // F2, folded into T (index 1).
+                ..Default::default()
+            },
             ..Default::default()
         };
+        let mut pending = PendingAutofixupSelection::default();
 
         let result = handle_execute_autofixup(
             &mut repo,
             &mut app,
+            &mut pending,
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
@@ -1122,7 +1148,7 @@ mod autofixup_selection {
 
         assert!(matches!(result, Ok(LoopAction::Continue)));
         assert_eq!(
-            app.pending_autofixup_selection,
+            pending.0,
             Some(1),
             "the target index computed up front must survive into the conflict dialog"
         );
@@ -1130,53 +1156,40 @@ mod autofixup_selection {
 
     #[test]
     fn apply_pending_selection_swaps_reload_preserving_for_reload_selecting() {
-        let mut app = AppState {
-            pending_autofixup_selection: Some(2),
-            ..Default::default()
-        };
+        let mut pending = PendingAutofixupSelection::default();
+        pending.set(Some(2));
         let result =
-            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut pending, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadSelecting(2)));
-        assert_eq!(
-            app.pending_autofixup_selection, None,
-            "consumed on the completing round"
-        );
+        assert_eq!(pending.0, None, "consumed on the completing round");
     }
 
     #[test]
     fn apply_pending_selection_is_a_no_op_for_non_autofixup_operations() {
-        let mut app = AppState {
-            pending_autofixup_selection: Some(2),
-            ..Default::default()
-        };
+        let mut pending = PendingAutofixupSelection::default();
+        pending.set(Some(2));
         let result =
-            apply_pending_autofixup_selection(&mut app, false, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut pending, false, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
-        assert_eq!(
-            app.pending_autofixup_selection,
-            Some(2),
-            "not this batch's field to touch"
-        );
+        assert_eq!(pending.0, Some(2), "not this batch's field to touch");
     }
 
     #[test]
     fn apply_pending_selection_falls_back_when_nothing_was_stashed() {
-        let mut app = AppState::default();
+        let mut pending = PendingAutofixupSelection::default();
         let result =
-            apply_pending_autofixup_selection(&mut app, true, LoopAction::ReloadPreserving);
+            apply_pending_autofixup_selection(&mut pending, true, LoopAction::ReloadPreserving);
         assert!(matches!(result, LoopAction::ReloadPreserving));
     }
 
     #[test]
     fn apply_pending_selection_keeps_the_index_across_another_conflict_round() {
-        let mut app = AppState {
-            pending_autofixup_selection: Some(2),
-            ..Default::default()
-        };
-        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Continue);
+        let mut pending = PendingAutofixupSelection::default();
+        pending.set(Some(2));
+        let result = apply_pending_autofixup_selection(&mut pending, true, LoopAction::Continue);
         assert!(matches!(result, LoopAction::Continue));
         assert_eq!(
-            app.pending_autofixup_selection,
+            pending.0,
             Some(2),
             "still resolving the batch; next round needs it"
         );
@@ -1184,14 +1197,12 @@ mod autofixup_selection {
 
     #[test]
     fn apply_pending_selection_clears_stale_state_on_failure() {
-        let mut app = AppState {
-            pending_autofixup_selection: Some(2),
-            ..Default::default()
-        };
-        let result = apply_pending_autofixup_selection(&mut app, true, LoopAction::Proceed);
+        let mut pending = PendingAutofixupSelection::default();
+        pending.set(Some(2));
+        let result = apply_pending_autofixup_selection(&mut pending, true, LoopAction::Proceed);
         assert!(matches!(result, LoopAction::Proceed));
         assert_eq!(
-            app.pending_autofixup_selection, None,
+            pending.0, None,
             "batch abandoned; don't leak into a later, unrelated reload"
         );
     }

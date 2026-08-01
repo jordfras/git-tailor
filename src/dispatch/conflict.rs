@@ -22,19 +22,21 @@ use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
-    LoopAction, edit_message_suspended, handle_rebase_outcome, settle_autostash,
+    LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_rebase_outcome,
+    settle_autostash,
 };
 use crate::external_tool::with_tui_suspended;
 
 pub(crate) fn handle_rebase_abort(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
+    pending: &mut PendingAutofixupSelection,
     state: ConflictState,
 ) -> Result<LoopAction> {
     // Aborting unwinds the whole (possibly autofixup) operation back to its
     // original tip, so any pending cursor-restoration index no longer
     // applies — clear it rather than risk it leaking into a later reload.
-    app.pending_autofixup_selection = None;
+    pending.clear();
     match git_repo.rebase_abort(&state) {
         Ok(()) => {
             let restored = git_repo.autostash_restore();
@@ -57,6 +59,7 @@ pub(crate) fn handle_rebase_abort(
 pub(crate) fn handle_rebase_continue(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
+    pending: &mut PendingAutofixupSelection,
     state: ConflictState,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
@@ -113,12 +116,20 @@ pub(crate) fn handle_rebase_continue(
             state.autofixup_context.as_ref(),
         );
         let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
-        return Ok(apply_pending_autofixup_selection(app, is_autofixup, result));
+        return Ok(apply_pending_autofixup_selection(
+            pending,
+            is_autofixup,
+            result,
+        ));
     }
     let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
     let outcome = git_repo.rebase_continue(&state);
     let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
-    Ok(apply_pending_autofixup_selection(app, is_autofixup, result))
+    Ok(apply_pending_autofixup_selection(
+        pending,
+        is_autofixup,
+        result,
+    ))
 }
 
 /// Outcome of running an external conflict-resolution tool.

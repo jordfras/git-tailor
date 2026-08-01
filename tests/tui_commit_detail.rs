@@ -39,8 +39,8 @@ fn test_commit_detail_short_lines_no_hscroll() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -57,8 +57,8 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -66,7 +66,7 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     }));
 }
 
-/// With a positive `detail_h_scroll_offset`, the paragraph is rendered
+/// With a positive `detail.h.offset`, the paragraph is rendered
 /// starting from a later column so the leading characters of long lines
 /// are clipped out of view.
 #[test]
@@ -76,9 +76,9 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", &long_message)];
-    app.selection_index = 0;
-    app.detail_h_scroll_offset = 10;
+    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list.selection_index = 0;
+    app.detail.h.offset = 10;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -87,7 +87,7 @@ fn test_commit_detail_hscroll_offset_clips_content() {
 }
 
 /// A scroll offset past the content bottom (e.g. after the diff shrinks because
-/// the context lines were reduced) is clamped in place to `max_detail_scroll`,
+/// the context lines were reduced) is clamped in place to `detail.v.max`,
 /// so the user can scroll back up immediately rather than being stuck.
 #[test]
 fn test_detail_scroll_offset_clamped_to_content_bottom() {
@@ -95,9 +95,9 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
-    app.selection_index = 0;
-    app.detail_scroll_offset = 9999; // far beyond the (tiny) content
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list.selection_index = 0;
+    app.detail.v.offset = 9999; // far beyond the (tiny) content
 
     harness.render(|frame| {
         let area = frame.area();
@@ -105,7 +105,7 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     });
 
     assert_eq!(
-        app.detail_scroll_offset, app.max_detail_scroll,
+        app.detail.v.offset, app.detail.v.max,
         "scroll offset should be clamped to the content bottom, not left stale"
     );
 }
@@ -147,11 +147,11 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit(
+    app.list.commits = vec![common::create_test_commit(
         "crlf001",
         "File with CRLF line endings",
     )];
-    app.selection_index = 0;
+    app.list.selection_index = 0;
 
     let buf = harness.render(|frame| {
         let area = frame.area();
@@ -168,40 +168,40 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     insta::assert_debug_snapshot!(buf);
 }
 
-// --- Unit tests for scroll_detail_left / scroll_detail_right ---
+// --- Unit tests for horizontal detail scrolling ---
 
 #[test]
 fn test_scroll_detail_right_increments() {
     let mut app = AppState::new();
-    app.max_detail_h_scroll = 20;
-    app.detail_h_scroll_offset = 0;
-    app.scroll_detail_right();
-    assert_eq!(app.detail_h_scroll_offset, 1);
+    app.detail.h.max = 20;
+    app.detail.h.offset = 0;
+    app.detail.h.step_forward();
+    assert_eq!(app.detail.h.offset, 1);
 }
 
 #[test]
 fn test_scroll_detail_right_clamps_at_max() {
     let mut app = AppState::new();
-    app.max_detail_h_scroll = 5;
-    app.detail_h_scroll_offset = 5;
-    app.scroll_detail_right();
-    assert_eq!(app.detail_h_scroll_offset, 5);
+    app.detail.h.max = 5;
+    app.detail.h.offset = 5;
+    app.detail.h.step_forward();
+    assert_eq!(app.detail.h.offset, 5);
 }
 
 #[test]
 fn test_scroll_detail_left_decrements() {
     let mut app = AppState::new();
-    app.detail_h_scroll_offset = 5;
-    app.scroll_detail_left();
-    assert_eq!(app.detail_h_scroll_offset, 4);
+    app.detail.h.offset = 5;
+    app.detail.h.step_back();
+    assert_eq!(app.detail.h.offset, 4);
 }
 
 #[test]
 fn test_scroll_detail_left_clamps_at_zero() {
     let mut app = AppState::new();
-    app.detail_h_scroll_offset = 0;
-    app.scroll_detail_left();
-    assert_eq!(app.detail_h_scroll_offset, 0);
+    app.detail.h.offset = 0;
+    app.detail.h.step_back();
+    assert_eq!(app.detail.h.offset, 0);
 }
 
 // --- Search feature tests ---
@@ -249,13 +249,13 @@ fn test_commit_detail_search_bar_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // Activate search and type a query
-    app.activate_search();
-    app.search_query = "old".to_string();
+    app.search.activate();
+    app.search.query = "old".to_string();
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -298,14 +298,14 @@ fn test_commit_detail_search_highlight_matches() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // Search for "hello" — should match 2 diff lines + file path
-    app.activate_search();
-    app.search_query = "hello".to_string();
-    app.search_input_active = false; // Confirmed search
+    app.search.activate();
+    app.search.query = "hello".to_string();
+    app.search.input_active = false; // Confirmed search
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
@@ -318,15 +318,15 @@ fn test_commit_detail_search_highlight_matches() {
 fn test_search_event_char_input() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
+    app.search.activate();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('f')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
 
-    assert_eq!(app.search_query, "foo");
-    assert!(app.search_input_active);
-    assert!(app.search_active);
+    assert_eq!(app.search.query, "foo");
+    assert!(app.search.input_active);
+    assert!(app.search.active);
 }
 
 /// Backspace removes the last character from the search query.
@@ -334,12 +334,12 @@ fn test_search_event_char_input() {
 fn test_search_event_backspace() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Backspace), &mut app);
 
-    assert_eq!(app.search_query, "fo");
+    assert_eq!(app.search.query, "fo");
 }
 
 /// Enter confirms the search (keeps active, stops input).
@@ -347,14 +347,14 @@ fn test_search_event_backspace() {
 fn test_search_event_enter_confirms() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(app.search_active);
-    assert_eq!(app.search_query, "foo");
+    assert!(!app.search.input_active);
+    assert!(app.search.active);
+    assert_eq!(app.search.query, "foo");
 }
 
 /// Enter jumps to the first match at or after the current scroll position.
@@ -362,17 +362,17 @@ fn test_search_event_enter_confirms() {
 fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    app.search_matches = vec![5, 20, 30];
-    app.search_match_index = Some(0);
-    app.detail_scroll_offset = 12;
-    app.detail_visible_height = 50;
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    app.search.matches = vec![5, 20, 30];
+    app.search.match_index = Some(0);
+    app.detail.v.offset = 12;
+    app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // First match at or after scroll offset 12 is line 20 (index 1).
-    assert_eq!(app.search_match_index, Some(1));
+    assert_eq!(app.search.match_index, Some(1));
 }
 
 /// Enter wraps to match 0 when all matches lie above the current scroll position.
@@ -380,17 +380,17 @@ fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
 fn test_search_event_enter_wraps_when_past_all_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    app.search_matches = vec![5, 8];
-    app.search_match_index = Some(1);
-    app.detail_scroll_offset = 20;
-    app.detail_visible_height = 50;
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    app.search.matches = vec![5, 8];
+    app.search.match_index = Some(1);
+    app.detail.v.offset = 20;
+    app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // All matches are above scroll offset 20; wraps to first match.
-    assert_eq!(app.search_match_index, Some(0));
+    assert_eq!(app.search.match_index, Some(0));
 }
 
 /// Enter is a no-op (for navigation) when there are no matches.
@@ -398,15 +398,15 @@ fn test_search_event_enter_wraps_when_past_all_matches() {
 fn test_search_event_enter_no_op_when_no_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
-    // search_matches is empty (default)
+    app.search.activate();
+    app.search.query = "foo".to_string();
+    // search.matches is empty (default)
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(app.search_active);
-    assert_eq!(app.search_match_index, None);
+    assert!(!app.search.input_active);
+    assert!(app.search.active);
+    assert_eq!(app.search.match_index, None);
 }
 
 /// Escape dismisses the search entirely.
@@ -414,14 +414,14 @@ fn test_search_event_enter_no_op_when_no_matches() {
 fn test_search_event_escape_dismisses() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.activate_search();
-    app.search_query = "foo".to_string();
+    app.search.activate();
+    app.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Esc), &mut app);
 
-    assert!(!app.search_input_active);
-    assert!(!app.search_active);
-    assert!(app.search_query.is_empty());
+    assert!(!app.search.input_active);
+    assert!(!app.search.active);
+    assert!(app.search.query.is_empty());
 }
 
 /// Quit (Esc) in confirmed-search mode clears search instead of leaving detail.
@@ -429,13 +429,13 @@ fn test_search_event_escape_dismisses() {
 fn test_quit_clears_search_before_leaving_detail() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search_active = true;
-    app.search_query = "foo".to_string();
+    app.search.active = true;
+    app.search.query = "foo".to_string();
 
     let result = views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
 
     assert!(matches!(result, AppAction::Handled));
-    assert!(!app.search_active);
+    assert!(!app.search.active);
     // Still in CommitDetail — didn't leave
     assert!(matches!(app.mode, AppMode::CommitDetail));
 }
@@ -445,25 +445,25 @@ fn test_quit_clears_search_before_leaving_detail() {
 fn test_search_next_prev_wraps() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search_active = true;
-    app.search_matches = vec![5, 10, 20];
-    app.search_match_index = Some(0);
-    app.detail_visible_height = 100; // large enough to avoid scrolling
+    app.search.active = true;
+    app.search.matches = vec![5, 10, 20];
+    app.search.match_index = Some(0);
+    app.detail.v.visible_height = 100; // large enough to avoid scrolling
 
     // Forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(1));
+    assert_eq!(app.search.match_index, Some(1));
 
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(2));
+    assert_eq!(app.search.match_index, Some(2));
 
     // Wrap forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search_match_index, Some(0));
+    assert_eq!(app.search.match_index, Some(0));
 
     // Wrap backward
     views::commit_detail::handle_key(KeyCommand::SearchPrev, &mut app);
-    assert_eq!(app.search_match_index, Some(2));
+    assert_eq!(app.search.match_index, Some(2));
 }
 
 /// Regex search is case-sensitive: "FOO" must not match "foo".
@@ -497,14 +497,14 @@ fn test_search_case_sensitive() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
-    app.selection_index = 0;
+    app.list.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
     // "FOO" must only match uppercase occurrences, not "foo"
-    app.activate_search();
-    app.search_query = "FOO".to_string();
-    app.search_input_active = false;
+    app.search.activate();
+    app.search.query = "FOO".to_string();
+    app.search.input_active = false;
 
     let buf = harness.render(|frame| {
         let area = frame.area();
@@ -513,7 +513,7 @@ fn test_search_case_sensitive() {
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
     // "foo" in file path and "+foo baz" must NOT match.
-    assert_eq!(app.search_matches.len(), 2);
+    assert_eq!(app.search.matches.len(), 2);
 
     insta::assert_debug_snapshot!(buf);
 }
@@ -565,4 +565,94 @@ fn test_search_keys_map_unconditionally() {
     assert_eq!(mode.parse_key(press('/')), KeyCommand::Search);
     assert_eq!(mode.parse_key(press('n')), KeyCommand::SearchNext);
     assert_eq!(mode.parse_key(press('N')), KeyCommand::SearchPrev);
+}
+
+/// A search match that is already on screen must not make the view jump.
+///
+/// The detail view records its scroll bounds during render but clamps the
+/// stored offset afterwards. When the content shrinks (fewer context lines, a
+/// taller terminal), the search auto-scroll decided whether the current match
+/// was visible using the *pre-clamp* offset — a window past the end of the
+/// content that is never rendered — and so recentred a match that the clamped
+/// view already showed.
+#[test]
+fn test_search_does_not_jump_when_the_match_is_already_visible() {
+    let mut lines = Vec::new();
+    for i in 0..100 {
+        lines.push(DiffLine {
+            kind: DiffLineKind::Context,
+            content: if i == 70 {
+                "NEEDLE here\n".to_string()
+            } else {
+                format!("filler line {i}\n")
+            },
+        });
+    }
+    let diff = CommitDiff {
+        commit: common::create_test_commit("abc123", "Long diff"),
+        files: vec![FileDiff {
+            old_path: Some("big.txt".to_string()),
+            new_path: Some("big.txt".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 100,
+                new_start: 1,
+                new_lines: 100,
+                lines,
+            }],
+        }],
+    };
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123", "Long diff")];
+    app.list.selection_index = 0;
+    app.mode = AppMode::CommitDetail;
+    app.search.activate();
+    app.search.query = "NEEDLE".to_string();
+    app.search.input_active = false;
+
+    // Short terminal: render, then scroll to the bottom.
+    let mut short = TuiTestHarness::new(80, 20);
+    short.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
+    app.detail.v.to_end();
+    let stale = app.detail.v.offset;
+
+    // Force the match index to change so the auto-scroll runs this frame.
+    app.search.match_index = Some(999);
+
+    // Taller terminal: more fits, so the maximum drops below `stale`.
+    let mut tall = TuiTestHarness::new(80, 45);
+    tall.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
+
+    let max = app.detail.v.max;
+    let vh = app.detail.v.visible_height;
+    let target = app.search.matches[app.search.match_index.unwrap()];
+
+    // Guard the premises, so a layout change makes this test fail loudly rather
+    // than pass without exercising anything.
+    assert!(
+        max < stale,
+        "premise: the maximum must drop below the stale offset"
+    );
+    assert!(
+        target < stale,
+        "premise: the match must lie above the stale offset, or both the clamped \
+         and unclamped windows agree and nothing is being tested"
+    );
+    assert!(
+        (max..max + vh).contains(&target),
+        "premise: the match must be visible once the offset is clamped to the bottom"
+    );
+    assert_eq!(
+        app.detail.v.offset, max,
+        "an already-visible match must not scroll the view"
+    );
 }

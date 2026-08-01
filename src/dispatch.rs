@@ -72,6 +72,34 @@ pub(crate) enum LoopAction {
     ReloadSelecting(usize),
 }
 
+/// Precomputed target selection index for an in-progress autofixup batch that
+/// hit a conflict, carried across the conflict-resolution round trip (possibly
+/// several, if more than one pair conflicts) so the cursor still lands on the
+/// right commit once the whole batch finally completes.
+///
+/// Owned by the event loop rather than `AppState`: it is meaningful only
+/// between one dispatch handler and another, and it must not reach the on-disk
+/// journal — an index into the in-memory commit list would be nonsense after a
+/// crash rebuilt that list.
+#[derive(Default)]
+pub(crate) struct PendingAutofixupSelection(Option<usize>);
+
+impl PendingAutofixupSelection {
+    /// Remember where the cursor should land, or `None` when there is nothing
+    /// sensible to restore (e.g. the selection was a synthetic row).
+    pub(crate) fn set(&mut self, index: Option<usize>) {
+        self.0 = index;
+    }
+
+    pub(crate) fn take(&mut self) -> Option<usize> {
+        self.0.take()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.0 = None;
+    }
+}
+
 /// Fetch HEAD OID from the repo, setting an error message and returning
 /// `LoopAction::Continue` from the enclosing function if the call fails.
 ///
@@ -111,6 +139,7 @@ pub(crate) fn dispatch_action(
     result: AppAction,
     app: &mut AppState,
     git_repo: &mut impl GitRepo,
+    pending_autofixup: &mut PendingAutofixupSelection,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
@@ -180,9 +209,18 @@ pub(crate) fn dispatch_action(
             );
         }
         AppAction::RebaseContinue(state) => {
-            return handle_rebase_continue(git_repo, app, state, terminal_guard, kb_enhanced);
+            return handle_rebase_continue(
+                git_repo,
+                app,
+                pending_autofixup,
+                state,
+                terminal_guard,
+                kb_enhanced,
+            );
         }
-        AppAction::RebaseAbort(state) => return handle_rebase_abort(git_repo, app, state),
+        AppAction::RebaseAbort(state) => {
+            return handle_rebase_abort(git_repo, app, pending_autofixup, state);
+        }
         AppAction::RunMergetool {
             files,
             conflict_state,
@@ -280,6 +318,7 @@ pub(crate) fn dispatch_action(
             return handle_execute_autofixup(
                 git_repo,
                 app,
+                pending_autofixup,
                 head_oid,
                 reference_oid,
                 pairs,

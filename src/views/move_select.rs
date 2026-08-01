@@ -32,8 +32,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    let max_insert = app.commits.len();
-    let page_size = app.commit_list_visible_height.saturating_sub(1).max(1);
+    let max_insert = app.list.commits.len();
+    let page_size = app.list.visible_height.saturating_sub(1).max(1);
 
     match action {
         KeyCommand::MoveUp => {
@@ -42,14 +42,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 source_index,
                 max_insert,
                 1,
-                app.reverse,
+                app.list.reverse,
                 true,
             );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
-            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            app.list.selection_index =
+                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
@@ -58,14 +59,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 source_index,
                 max_insert,
                 1,
-                app.reverse,
+                app.list.reverse,
                 false,
             );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
-            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            app.list.selection_index =
+                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
             AppAction::Handled
         }
         KeyCommand::PageUp => {
@@ -74,14 +76,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 source_index,
                 max_insert,
                 page_size,
-                app.reverse,
+                app.list.reverse,
                 true,
             );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
-            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            app.list.selection_index =
+                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
             AppAction::Handled
         }
         KeyCommand::PageDown => {
@@ -90,14 +93,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 source_index,
                 max_insert,
                 page_size,
-                app.reverse,
+                app.list.reverse,
                 false,
             );
             app.mode = AppMode::MoveSelect {
                 source_index,
                 insert_before: next,
             };
-            app.selection_index = viewport_selection_for_separator(next, app.reverse, &app.commits);
+            app.list.selection_index =
+                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
             AppAction::Handled
         }
         KeyCommand::Confirm => {
@@ -107,7 +111,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 return AppAction::Handled;
             }
 
-            let source = &app.commits[source_index];
+            let source = &app.list.commits[source_index];
             if source.oid.is_synthetic() {
                 app.set_error_message("Cannot move staged/unstaged changes");
                 return AppAction::Handled;
@@ -126,15 +130,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                     Some(app.reference_oid.clone())
                 }
             } else {
-                let idx = (insert_before - 1).min(app.commits.len().saturating_sub(1));
-                app.commits[idx].oid.as_oid().cloned()
+                let idx = (insert_before - 1).min(app.list.commits.len().saturating_sub(1));
+                app.list.commits[idx].oid.as_oid().cloned()
             };
 
             // Navigation left `selection_index` as a scroll anchor that can point
             // past the last commit; restore it to a valid index before leaving
             // MoveSelect so the CommitList render (e.g. behind the conflict dialog
             // if the move conflicts) doesn't index out of bounds.
-            app.selection_index = source_index;
+            app.list.selection_index = source_index;
             app.mode = AppMode::CommitList;
 
             AppAction::ExecuteMove {

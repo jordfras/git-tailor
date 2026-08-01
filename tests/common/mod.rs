@@ -371,7 +371,7 @@ pub fn app_state_from_commit_summaries(summaries: &[&str]) -> AppState {
         })
         .collect();
     let mut app = AppState::new();
-    app.commits = commits;
+    app.list.commits = commits;
     app
 }
 

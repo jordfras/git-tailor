@@ -71,7 +71,7 @@ const BORDER_WIDTH: u16 = 2;
 /// Top + bottom border rows (one row each side).
 const BORDER_HEIGHT: u16 = 2;
 
-use crate::app::{AppState, KeyCommand};
+use crate::app::{AppState, KeyCommand, ScrollState};
 use crate::views::palette::Colors;
 use ratatui::{
     Frame,
@@ -87,22 +87,22 @@ use ratatui::{
 ///
 /// Returns `true` if the action was consumed. Maps `MoveUp`/`MoveDown` to
 /// line scrolling and `PageUp`/`PageDown` to page scrolling.
-pub fn handle_dialog_scroll(action: KeyCommand, app: &mut AppState) -> bool {
+pub fn handle_dialog_scroll(action: KeyCommand, scroll: &mut ScrollState) -> bool {
     match action {
         KeyCommand::MoveUp => {
-            app.scroll_dialog_up();
+            scroll.step_back();
             true
         }
         KeyCommand::MoveDown => {
-            app.scroll_dialog_down();
+            scroll.step_forward();
             true
         }
         KeyCommand::PageUp => {
-            app.scroll_dialog_page_up();
+            scroll.page_back();
             true
         }
         KeyCommand::PageDown => {
-            app.scroll_dialog_page_down();
+            scroll.page_forward();
             true
         }
         _ => false,
@@ -185,9 +185,8 @@ pub fn render_conflict_dialog(
         .blank();
 
     let (max_scroll, visible_height) =
-        dialog.render(frame, title, preferred_width, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        dialog.render(frame, title, preferred_width, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 /// Incremental builder for a centered overlay dialog.

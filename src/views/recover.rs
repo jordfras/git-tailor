@@ -47,7 +47,7 @@ pub fn handle_recover_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }
@@ -101,7 +101,6 @@ pub fn render_recover(app: &mut AppState, frame: &mut Frame) {
             ("Esc", Color::Red, "Abort"),
         ])
         .blank()
-        .render(frame, "Recover", PREFERRED_WIDTH, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        .render(frame, "Recover", PREFERRED_WIDTH, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

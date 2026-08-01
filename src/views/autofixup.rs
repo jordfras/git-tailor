@@ -78,7 +78,7 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog_scroll_offset` so the target group at `index` is visible.
+/// Scroll `dialog.offset` so the target group at `index` is visible.
 /// Layout before the first group: blank, heading (blank/content/blank), the
 /// hint line, then blank — 5 lines, matching `operation_select`'s own header
 /// — followed by one line per group's target plus one per source underneath
@@ -92,16 +92,16 @@ fn scroll_to_group(app: &mut AppState, groups: &[AutofixupGroup], index: usize) 
         .sum::<usize>()
         + HEADER_LINES;
     let group_height = 1 + groups[index].sources.len();
-    let vh = app.dialog_visible_height;
+    let vh = app.dialog.visible_height;
     if vh == 0 {
         return;
     }
-    if group_start < app.dialog_scroll_offset {
-        app.dialog_scroll_offset = group_start;
-    } else if group_start + group_height > app.dialog_scroll_offset + vh {
-        app.dialog_scroll_offset = group_start + group_height - vh;
+    if group_start < app.dialog.offset {
+        app.dialog.offset = group_start;
+    } else if group_start + group_height > app.dialog.offset + vh {
+        app.dialog.offset = group_start + group_height - vh;
     }
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+    app.dialog.clamp_offset();
 }
 
 /// Render the autofixup confirmation dialog as a centered overlay.
@@ -160,10 +160,9 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             frame,
             "Confirm Autofixup",
             PREFERRED_WIDTH,
-            app.dialog_scroll_offset,
+            app.dialog.offset,
         );
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+    app.dialog.set_bounds(max_scroll, visible_height);
 }
 
 fn target_line(

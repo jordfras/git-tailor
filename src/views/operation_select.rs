@@ -27,8 +27,9 @@ use ratatui::{
 /// Operations offered for the currently selected row. Empty only if there is no
 /// selection at all (in practice every row yields at least undo/redo).
 fn available(app: &AppState) -> Vec<Operation> {
-    let is_oldest = app.selected_is_oldest_commit();
-    app.selected_virtual_oid()
+    let is_oldest = app.list.selected_is_oldest_commit();
+    app.list
+        .selected_virtual_oid()
         .map(|oid| Operation::available_for(oid, is_oldest))
         .unwrap_or_default()
 }
@@ -82,7 +83,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog_scroll_offset` so the operation row at `index` is visible.
+/// Scroll `dialog.offset` so the operation row at `index` is visible.
 /// Layout before the first item: blank, header, then `heading()` (which itself
 /// adds a blank / heading / blank) — five lines — then one line per operation.
 /// Compact enough to fit without scrolling on a normal terminal; this keeps the
@@ -90,24 +91,24 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 fn scroll_to_operation(app: &mut AppState, index: usize) {
     const HEADER_LINES: usize = 5;
     let row = HEADER_LINES + index;
-    let vh = app.dialog_visible_height;
+    let vh = app.dialog.visible_height;
     if vh == 0 {
         return;
     }
-    if row < app.dialog_scroll_offset {
-        app.dialog_scroll_offset = row;
-    } else if row >= app.dialog_scroll_offset + vh {
-        app.dialog_scroll_offset = row + 1 - vh;
+    if row < app.dialog.offset {
+        app.dialog.offset = row;
+    } else if row >= app.dialog.offset + vh {
+        app.dialog.offset = row + 1 - vh;
     }
-    app.dialog_scroll_offset = app.dialog_scroll_offset.min(app.max_dialog_scroll);
+    app.dialog.clamp_offset();
 }
 
 /// Render the operation picker as a centered overlay.
 pub fn render(app: &mut AppState, frame: &mut Frame) {
     // Header naming the row the operations apply to.
     let header = app
-        .commits
-        .get(app.selection_index)
+        .list
+        .selected()
         .map(|c| {
             if c.oid.is_synthetic() {
                 format!("{} changes", c.oid.short())
@@ -181,7 +182,6 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
 
     let content_width = 50;
     let (max_scroll, visible_height) =
-        dialog.render(frame, "Operations", content_width, app.dialog_scroll_offset);
-    app.max_dialog_scroll = max_scroll;
-    app.dialog_visible_height = visible_height;
+        dialog.render(frame, "Operations", content_width, app.dialog.offset);
+    app.dialog.set_bounds(max_scroll, visible_height);
 }

@@ -71,7 +71,7 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             }
         }
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }
@@ -96,6 +96,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     // Look up the commit summary from the loaded commit list so the user can
     // see which commit is conflicting without having to remember the OID.
     let commit_summary = app
+        .list
         .commits
         .iter()
         .find(|c| c.oid.as_oid() == Some(&state.conflicting_commit_oid))

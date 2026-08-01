@@ -19,7 +19,9 @@ use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{GitRepo, RebaseOutcome};
 use git_tailor::{CommitInfo, Oid};
 
-use crate::dispatch::{LoopAction, edit_message_suspended, settle_autostash};
+use crate::dispatch::{
+    LoopAction, PendingAutofixupSelection, edit_message_suspended, settle_autostash,
+};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Compute the autofixup plan from the already-loaded commit list (no git
@@ -29,7 +31,7 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     app: &mut AppState,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let pairs = git_tailor::autofixup::plan_autofixup(&app.commits);
+    let pairs = git_tailor::autofixup::plan_autofixup(&app.list.commits);
     if pairs.is_empty() {
         app.set_success_message("Nothing to autofixup");
         return Ok(LoopAction::Proceed);
@@ -102,12 +104,14 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
 pub(crate) fn handle_execute_autofixup(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
+    pending: &mut PendingAutofixupSelection,
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
     message_overrides: std::collections::HashMap<String, String>,
 ) -> Result<LoopAction> {
-    let target_index = autofixup_target_selection_index(&app.commits, app.selection_index, &pairs);
+    let target_index =
+        autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
     autostash_save_or_bail!(git_repo, app);
     match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
@@ -124,7 +128,7 @@ pub(crate) fn handle_execute_autofixup(
             // Carry the precomputed target index across the conflict — it
             // still describes where the cursor should land once the *whole*
             // batch eventually completes, however many rounds that takes.
-            app.pending_autofixup_selection = target_index;
+            pending.set(target_index);
             app.enter_rebase_conflict(*state);
             Ok(LoopAction::Continue)
         }
@@ -137,14 +141,14 @@ pub(crate) fn handle_execute_autofixup(
 }
 
 /// Apply a pending autofixup cursor-restoration index (see
-/// `AppState::pending_autofixup_selection`) to the outcome of resolving one
-/// step of a conflicted batch. Only ever swaps a bare `ReloadPreserving` (the
-/// batch truly completed) for `ReloadSelecting`; a `Continue` (still
-/// resolving — another conflict, or a stash conflict) leaves the pending
-/// index untouched for the next round, and anything else clears it so a
-/// stale index can't leak into a later, unrelated reload.
+/// [`PendingAutofixupSelection`]) to the outcome of resolving one step of a
+/// conflicted batch. Only ever swaps a bare `ReloadPreserving` (the batch truly
+/// completed) for `ReloadSelecting`; a `Continue` (still resolving — another
+/// conflict, or a stash conflict) leaves the pending index untouched for the
+/// next round, and anything else clears it so a stale index can't leak into a
+/// later, unrelated reload.
 pub(crate) fn apply_pending_autofixup_selection(
-    app: &mut AppState,
+    pending: &mut PendingAutofixupSelection,
     is_autofixup: bool,
     action: LoopAction,
 ) -> LoopAction {
@@ -152,13 +156,13 @@ pub(crate) fn apply_pending_autofixup_selection(
         return action;
     }
     match action {
-        LoopAction::ReloadPreserving => match app.pending_autofixup_selection.take() {
+        LoopAction::ReloadPreserving => match pending.take() {
             Some(idx) => LoopAction::ReloadSelecting(idx),
             None => LoopAction::ReloadPreserving,
         },
         LoopAction::Continue => action,
         other => {
-            app.pending_autofixup_selection = None;
+            pending.clear();
             other
         }
     }

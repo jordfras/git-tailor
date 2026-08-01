@@ -27,7 +27,7 @@ use crate::cli::Cli;
 use crate::terminal_guard::TerminalGuard;
 
 /// Commits as loaded from git, before synthetic working-tree rows and virtual
-/// OIDs are added to produce the final `app.commits` list.
+/// OIDs are added to produce the final `app.list.commits` list.
 type CommitsWithDiffs = Vec<(CommitInfo, Option<CommitDiff>)>;
 
 pub fn load_initial_commits(
@@ -108,7 +108,7 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
 /// Load commits and diffs with a live counter dialog, then optionally build the
 /// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`.
 ///
-/// When `app.commits` is non-empty (reload case), the dialog is shown as an
+/// When `app.list.commits` is non-empty (reload case), the dialog is shown as an
 /// overlay on top of the existing commit list. When empty (initial load), the
 /// dialog is shown full-screen.
 ///
@@ -179,12 +179,12 @@ pub fn load_with_progress(
     for d in &extra_diffs {
         all_commits.push(d.commit.clone());
     }
-    app.commits = all_commits;
+    app.list.commits = all_commits;
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
-    app.detail_scroll_offset = 0;
-    app.commit_list_scroll_override = None;
-    app.selection_index = select_initial_index(&app.commits);
+    app.detail.v.offset = 0;
+    app.list.scroll_override = None;
+    app.list.selection_index = select_initial_index(&app.list.commits);
     app.mode = AppMode::CommitList;
 
     Ok(true)

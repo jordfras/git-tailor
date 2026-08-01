@@ -21,7 +21,7 @@ use crate::views::{
 };
 
 fn render_background(app: &mut AppState, frame: &mut Frame) {
-    if !app.commits.is_empty() {
+    if !app.list.commits.is_empty() {
         commit_list::render(app, frame);
     }
 }

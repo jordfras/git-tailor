@@ -45,7 +45,7 @@ pub fn handle_stash_conflict_key(action: KeyCommand, app: &mut AppState) -> AppA
         }
         KeyCommand::Quit => AppAction::AutostashAbort,
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }

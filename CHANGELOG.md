@@ -101,6 +101,16 @@ The format is based on
   press, not by resize or focus events (which the terminal can emit, most
   notably on Windows, when the alternate screen is restored after an external
   tool).
+- The commit detail view no longer jumps to re-centre a search match that is
+  already on screen. This showed up when the diff got shorter while a search was
+  active — pressing `-` to reduce the context lines, or making the terminal
+  taller — and moved the view even though the highlighted match had not gone
+  anywhere.
+- Scrolling back up in a dialog no longer appears frozen after the dialog grows
+  — for example when the terminal is made taller while the dialog is scrolled to
+  the bottom. Previously the first several key presses did nothing, because the
+  stored scroll position was left past the new end of the content and had to be
+  walked back down before the view would move.
 
 
 ## [2.0.0] - 2026-07-02
