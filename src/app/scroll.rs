@@ -37,6 +37,18 @@ impl ScrollState {
         self.visible_height = visible_height;
     }
 
+    /// Record the bounds measured during render and clamp the offset to them.
+    ///
+    /// What every dialog's render path wants: nothing reads the pre-clamp
+    /// offset, and leaving a stale one behind (after the terminal grew, or the
+    /// content shrank) makes scrolling back appear frozen — the renderer clamps
+    /// what it draws, so each keypress only walks the stored offset down
+    /// invisibly until it re-enters range.
+    pub fn set_bounds_clamped(&mut self, max: usize, visible_height: usize) {
+        self.set_bounds(max, visible_height);
+        self.clamp_offset();
+    }
+
     /// Clamp the offset to the current bounds.
     pub fn clamp_offset(&mut self) {
         self.offset = self.offset.min(self.max);

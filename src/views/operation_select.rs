@@ -182,5 +182,5 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let content_width = 50;
     let (max_scroll, visible_height) =
         dialog.render(frame, "Operations", content_width, app.dialog.offset);
-    app.dialog.set_bounds(max_scroll, visible_height);
+    app.dialog.set_bounds_clamped(max_scroll, visible_height);
 }

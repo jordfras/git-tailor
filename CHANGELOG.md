@@ -101,6 +101,11 @@ The format is based on
   press, not by resize or focus events (which the terminal can emit, most
   notably on Windows, when the alternate screen is restored after an external
   tool).
+- Scrolling back up in a dialog no longer appears frozen after the dialog grows
+  — for example when the terminal is made taller while the dialog is scrolled to
+  the bottom. Previously the first several key presses did nothing, because the
+  stored scroll position was left past the new end of the content and had to be
+  walked back down before the view would move.
 
 
 ## [2.0.0] - 2026-07-02

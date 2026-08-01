@@ -162,7 +162,7 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             PREFERRED_WIDTH,
             app.dialog.offset,
         );
-    app.dialog.set_bounds(max_scroll, visible_height);
+    app.dialog.set_bounds_clamped(max_scroll, visible_height);
 }
 
 fn target_line(
