@@ -566,3 +566,93 @@ fn test_search_keys_map_unconditionally() {
     assert_eq!(mode.parse_key(press('n')), KeyCommand::SearchNext);
     assert_eq!(mode.parse_key(press('N')), KeyCommand::SearchPrev);
 }
+
+/// A search match that is already on screen must not make the view jump.
+///
+/// The detail view records its scroll bounds during render but clamps the
+/// stored offset afterwards. When the content shrinks (fewer context lines, a
+/// taller terminal), the search auto-scroll decided whether the current match
+/// was visible using the *pre-clamp* offset — a window past the end of the
+/// content that is never rendered — and so recentred a match that the clamped
+/// view already showed.
+#[test]
+fn test_search_does_not_jump_when_the_match_is_already_visible() {
+    let mut lines = Vec::new();
+    for i in 0..100 {
+        lines.push(DiffLine {
+            kind: DiffLineKind::Context,
+            content: if i == 70 {
+                "NEEDLE here\n".to_string()
+            } else {
+                format!("filler line {i}\n")
+            },
+        });
+    }
+    let diff = CommitDiff {
+        commit: common::create_test_commit("abc123", "Long diff"),
+        files: vec![FileDiff {
+            old_path: Some("big.txt".to_string()),
+            new_path: Some("big.txt".to_string()),
+            status: DeltaStatus::Modified,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 100,
+                new_start: 1,
+                new_lines: 100,
+                lines,
+            }],
+        }],
+    };
+    let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123", "Long diff")];
+    app.list.selection_index = 0;
+    app.mode = AppMode::CommitDetail;
+    app.search.activate();
+    app.search.query = "NEEDLE".to_string();
+    app.search.input_active = false;
+
+    // Short terminal: render, then scroll to the bottom.
+    let mut short = TuiTestHarness::new(80, 20);
+    short.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
+    app.detail.v.to_end();
+    let stale = app.detail.v.offset;
+
+    // Force the match index to change so the auto-scroll runs this frame.
+    app.search.match_index = Some(999);
+
+    // Taller terminal: more fits, so the maximum drops below `stale`.
+    let mut tall = TuiTestHarness::new(80, 45);
+    tall.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(&repo, frame, &mut app, area);
+    });
+
+    let max = app.detail.v.max;
+    let vh = app.detail.v.visible_height;
+    let target = app.search.matches[app.search.match_index.unwrap()];
+
+    // Guard the premises, so a layout change makes this test fail loudly rather
+    // than pass without exercising anything.
+    assert!(
+        max < stale,
+        "premise: the maximum must drop below the stale offset"
+    );
+    assert!(
+        target < stale,
+        "premise: the match must lie above the stale offset, or both the clamped \
+         and unclamped windows agree and nothing is being tested"
+    );
+    assert!(
+        (max..max + vh).contains(&target),
+        "premise: the match must be visible once the offset is clamped to the bottom"
+    );
+    assert_eq!(
+        app.detail.v.offset, max,
+        "an already-visible match must not scroll the view"
+    );
+}
