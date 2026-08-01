@@ -97,29 +97,35 @@ Guidelines:
   awaiting resolution". Touches journal serialization + crash recovery → do TDD
   against `tests/undo.rs` and the edit/recovery tests. Higher risk.
 - [X] T234 P3 refactor - Break up the `AppState` god-struct (`src/app/state.rs`, 34
-  flat fields). Extract the three structurally identical scroll-triples (detail
-  V/H, dialog, commit-list override) into a reusable `ScrollState`; group the
-  detail-view, search, and status fields into sub-structs; and move
-  `pending_autofixup_selection` off `AppState` (the one transient-per-op field that
-  leaks into cross-cutting state). Separately, lift the self-contained ~10-function
-  detail search subsystem out of `views/commit_detail.rs` (929 lines) into its own
-  module. Pure refactor.
-  DONE — 34 fields → 16. `ScrollState` covers detail-V, detail-H and dialog;
-  `DetailState`, `SearchState`, `StatusState` and `CommitListState` group the rest.
-  The commit-list fields were *not* grouped as a scroll-triple — they aren't one
-  (no `max`; the bound is derived from `commits.len()`, and the offset is an
-  `Option` override). They were instead grouped by cohesion, together with
-  `commits`/`selection_index`/`reverse`, so that `effective_offset`, the selection
-  navigation and the row queries all became real methods on the type. The two
-  helpers that pair a row query with an error message (`selected_real_commit`,
-  `selected_synthetic_row_is`) stay on `AppState`, which composes `list` + `status`.
-- [ ] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
-  and `split_op.rs` (`finalize_split`) use the older `rebase_descendants`
-  (cherry_pick.rs:28) that **bails** on conflict, while drop/move/squash/edit use
-  the conflict-aware `cherry_pick_chain`. Migrate split and reword onto
-  `cherry_pick_chain`, removing the divergent mechanism. NOTE: not purely internal —
-  it upgrades split/reword to produce a recoverable `RebaseConflict` instead of a
-  hard error, so add an integration test exercising a descendant conflict for both.
+  flat fields). Extract the repeated `(offset, max, visible_height)` scroll state —
+  detail vertical, detail horizontal, and every dialog — into a reusable
+  `ScrollState`, and group the detail-view, search and status fields into
+  sub-structs. The commit-list fields are *not* a third scroll-triple: there is no
+  `max` (the bound comes from `commits.len()`), the offset is an `Option` override,
+  and the effective offset also needs `commits`/`reverse`/`selection_index`. Group
+  those by cohesion instead — all five together in a `CommitListState` that owns
+  the navigation, the scroll override and the row queries — so each becomes a real
+  method rather than one reaching across four fields. The two row helpers that also
+  set an error message keep their signatures on `AppState`, which composes list +
+  status. Move `pending_autofixup_selection` off `AppState` entirely (the one
+  transient-per-op field that leaks into cross-cutting state). Separately, lift the
+  self-contained ~10-function detail search subsystem out of
+  `views/commit_detail.rs` (929 lines) into its own module. Pure refactor.
+- [X] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
+  and `split_op.rs` (`finalize_split`) use their own `rebase_descendants`
+  (cherry_pick.rs:28), which duplicates the cherry-pick mechanics of the
+  conflict-aware `cherry_pick_chain` (drop/move/squash/edit) and differs only in
+  what it does with a conflict. Share the step, but keep the distinction: split
+  and reword replay onto a commit whose tree is identical to the original's, so
+  the merge takes *theirs* at every path and the result equals the descendant's
+  own tree — inductively down the chain, a conflict is impossible. Give that path
+  a return type with no conflict variant, so callers are never made to handle an
+  impossible case, and have it bail without journaling, writing the working tree
+  or moving a ref. Two preconditions: per-file split must pin its last piece to
+  the original tree (the one strategy where that invariant is emergent rather
+  than structural), and both operations must reject merge commits in the replay
+  range, which make the descendant revwalk unreliable. Cover with tree-identity
+  assertions — a descendant-conflict test is unconstructible.
 - [ ] T236 P3 refactor - Split the two grab-bag files in the git2 layer if they keep
   growing: `git2_impl/journal.rs` (816 lines: on-disk doc IO, the undo/redo model,
   gc-pin reconciliation, autostash-record storage, startup classification) and

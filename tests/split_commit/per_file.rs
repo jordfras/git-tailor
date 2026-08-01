@@ -285,3 +285,241 @@ fn split_per_file_preserves_commit_message_body() {
         );
     }
 }
+
+#[test]
+fn split_per_file_handles_submodule_delta_not_last() {
+    // Same gitlink hazard as `split_per_file_handles_submodule_delta`, but with
+    // the submodule sorting *before* the regular file. Deltas are path-ordered,
+    // so there the gitlink is the last delta — and the last piece is committed
+    // with the original tree verbatim, which would bypass the gitlink handling
+    // entirely. Here `sub` < `z.txt`, so the gitlink still goes through
+    // `apply_gitlink_delta_to_tree`.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("z.txt", "zulu\n", "base");
+
+    let head_commit = test.repo.find_commit(base).unwrap();
+    let base_tree = head_commit.tree().unwrap();
+
+    let new_blob_oid = test.repo.blob(b"zulu2\n").unwrap();
+    // Any valid OID can act as the fake submodule commit pointer.
+    let fake_sub_oid = base;
+
+    let combined_tree_oid = git2::build::TreeUpdateBuilder::new()
+        .upsert("z.txt", new_blob_oid, git2::FileMode::Blob)
+        .upsert("sub", fake_sub_oid, git2::FileMode::Commit)
+        .create_updated(&test.repo, &base_tree)
+        .unwrap();
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let combined_tree = test.repo.find_tree(combined_tree_oid).unwrap();
+    let to_split = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "bump submodule and change file",
+            &combined_tree,
+            &[&head_commit],
+        )
+        .unwrap();
+
+    let obj = test.repo.find_object(to_split, None).unwrap();
+    test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
+    test.write_file("z.txt", "zulu2\n");
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(commits_above_base.len(), 2, "expected 2 split commits");
+
+    // The gitlink sorts first, so the *first* split piece is the one built by
+    // apply_gitlink_delta_to_tree.
+    let first_oid = commits_above_base[0];
+    let first_tree = test.repo.find_commit(first_oid).unwrap().tree().unwrap();
+    let sub_entry = first_tree
+        .get_path(std::path::Path::new("sub"))
+        .expect("submodule entry should be present in the first split commit");
+    assert_eq!(
+        sub_entry.filemode(),
+        0o160000,
+        "sub should have gitlink mode"
+    );
+    assert_eq!(
+        sub_entry.id(),
+        fake_sub_oid,
+        "sub should point at expected OID"
+    );
+    assert_eq!(
+        first_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        base_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        "the first piece must not yet contain the z.txt change"
+    );
+
+    let tip_tree = test
+        .repo
+        .find_commit(*commits_above_base.last().unwrap())
+        .unwrap()
+        .tree()
+        .unwrap();
+    assert_eq!(
+        tip_tree
+            .get_path(std::path::Path::new("z.txt"))
+            .unwrap()
+            .id(),
+        new_blob_oid,
+        "the final piece must contain the z.txt change"
+    );
+}
+
+#[test]
+fn split_per_file_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(
+        &[("a.txt", "a\n"), ("b.txt", "b\n"), ("c.txt", "c\n")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[("a.txt", "a2\n"), ("b.txt", "b2\n"), ("c.txt", "c2\n")],
+        "change all three",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}
+
+#[test]
+fn split_per_file_rename_last_piece_has_original_tree() {
+    // Per-file is the one strategy whose final tree is accumulated through
+    // repeated apply_to_tree rather than committed from the original tree, so
+    // exercise it with a tree shape that is not a plain content edit: a rename
+    // (delete + add, since per-file does not run rename detection).
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("foo.txt", "one\n"), ("keep.txt", "keep\n")], "base");
+    test.rename_file(
+        "foo.txt",
+        "bar.txt",
+        Some("one changed\n"),
+        "rename and edit",
+    );
+    let to_split = test.commit_files(
+        &[("bar.txt", "one changed twice\n"), ("keep.txt", "keep2\n")],
+        "edit both",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}
+
+#[test]
+fn split_per_file_replay_preserves_descendant_trees() {
+    // The descendant replay is conflict-free only because the last split piece
+    // has the original commit's tree; cherry-picking onto it then reproduces
+    // each descendant's tree byte-for-byte. Pin that end to end.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+    let original_tree = test.tree_id(to_split);
+    let d1 = test.commit_file("c.txt", "c\n", "descendant 1");
+    let d2 = test.commit_file("d.txt", "d\n", "descendant 2");
+    let d1_tree = test.tree_id(d1);
+    let d2_tree = test.tree_id(d2);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .unwrap();
+
+    let trees = test.tree_ids_from_head(base);
+    assert_eq!(trees.len(), 4, "2 split pieces + 2 descendants");
+    assert_eq!(
+        &trees[1..],
+        &[original_tree, d1_tree, d2_tree],
+        "the last split piece and both replayed descendants must keep their original trees"
+    );
+}
+
+#[test]
+fn split_per_file_rejects_a_merge_commit_in_the_replay_range() {
+    // Same hazard as reword: a merge between the split commit and HEAD makes
+    // the descendant revwalk unreliable, so refuse it with our own message.
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+    let d1 = test.commit_file("c.txt", "c\n", "descendant");
+
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let d1_commit = test.repo.find_commit(d1).unwrap();
+    let target_commit = test.repo.find_commit(to_split).unwrap();
+    let tree = d1_commit.tree().unwrap();
+    test.repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "a merge",
+            &tree,
+            &[&d1_commit, &target_commit],
+        )
+        .unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let head_before = head_oid.clone();
+
+    let err = git_repo
+        .split_commit_per_file(&Oid::from(to_split), &head_oid)
+        .expect_err("a merge in the replay range must be refused");
+    let msg = err.to_string();
+
+    assert!(
+        !msg.contains("mainline"),
+        "should not leak libgit2's mainline wording: {msg}"
+    );
+    assert!(
+        msg.to_lowercase().contains("merge"),
+        "the error should name the merge commit as the reason: {msg}"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_before,
+        "the branch must be left untouched"
+    );
+}

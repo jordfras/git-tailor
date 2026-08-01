@@ -313,3 +313,27 @@ fn split_out_hunks_refuses_dirty_overlap() {
     let result = git_repo.split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &head_oid, 0);
     assert!(result.is_err(), "should fail when staged changes overlap");
 }
+
+#[test]
+fn split_out_hunks_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "base");
+    let to_split = test.commit_files(
+        &[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")],
+        "change both",
+    );
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &head_oid, 0)
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}

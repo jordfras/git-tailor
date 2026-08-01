@@ -515,3 +515,25 @@ fn split_per_hunk_group_preserves_commit_message_body() {
         );
     }
 }
+
+#[test]
+fn split_per_hunk_group_last_piece_has_original_tree() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    test.commit_file("a.txt", "A2\n", "commit A");
+    let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
+    let original_tree = test.tree_id(to_split);
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        test.head_tree_id(),
+        original_tree,
+        "the last split piece must reproduce the original commit's tree"
+    );
+}

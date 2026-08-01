@@ -133,7 +133,7 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
             return abort("the new commits do not build on the edited commit's parent");
         }
     }
-    if range_has_merge(repo, parent, branch_tip)? {
+    if repo.range_has_merge(parent, branch_tip)? {
         return abort("a merge commit was created");
     }
 
@@ -217,20 +217,4 @@ fn head_on_branch(repo: &Git2Repo, branch_refname: &str) -> bool {
         Err(_) => return false,
     };
     matches!(head.symbolic_target(), Ok(Some(t)) if t == branch_refname)
-}
-
-/// Whether any commit reachable from `tip` — stopping at `base` when given, or
-/// the whole ancestry when editing the root — is a merge commit.
-fn range_has_merge(repo: &Git2Repo, base: Option<git2::Oid>, tip: git2::Oid) -> Result<bool> {
-    let mut walk = repo.inner.revwalk()?;
-    walk.push(tip)?;
-    if let Some(base) = base {
-        walk.hide(base)?;
-    }
-    for oid in walk {
-        if repo.inner.find_commit(oid?)?.parent_count() > 1 {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
