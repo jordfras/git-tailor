@@ -76,6 +76,50 @@ fn test_help_dialog_scrolled() {
     }));
 }
 
+/// A dialog that grows (terminal resized taller, or content shrunk) must not
+/// leave the stored scroll offset past the new maximum.
+///
+/// `Dialog::render` clamps for *display*, so the frame itself looks right — but
+/// a stale stored offset makes `MoveUp` appear frozen, because every press
+/// decrements from the stale value and the display stays pinned at the real
+/// maximum until it catches up.
+#[test]
+fn test_dialog_scroll_offset_reclamped_when_the_dialog_grows() {
+    let mut app = make_app_in_help();
+
+    // Short terminal: scroll the help dialog all the way to the bottom.
+    let mut short = TuiTestHarness::short();
+    short.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::help::render(&AppMode::CommitList, &mut app, frame);
+    });
+    app.dialog.to_end();
+    let scrolled = app.dialog.offset;
+    assert!(
+        scrolled > 0,
+        "help content must overflow the short terminal"
+    );
+
+    // Now render the same dialog in a taller terminal: more fits, so the
+    // maximum drops below the offset we scrolled to.
+    let mut tall = TuiTestHarness::typical();
+    tall.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::help::render(&AppMode::CommitList, &mut app, frame);
+    });
+
+    assert!(
+        app.dialog.max < scrolled,
+        "test is not exercising the shrink: max {} did not drop below {scrolled}",
+        app.dialog.max
+    );
+    assert_eq!(
+        app.dialog.offset, app.dialog.max,
+        "stored offset must be re-clamped to the new maximum, otherwise \
+         scrolling up is unresponsive until it falls back below it"
+    );
+}
+
 /// Commit detail context — shows only detail-view keybindings.
 #[test]
 fn test_help_dialog_commit_detail_context() {
