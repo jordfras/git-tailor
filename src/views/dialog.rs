@@ -71,7 +71,7 @@ const BORDER_WIDTH: u16 = 2;
 /// Top + bottom border rows (one row each side).
 const BORDER_HEIGHT: u16 = 2;
 
-use crate::app::{AppState, KeyCommand};
+use crate::app::{AppState, KeyCommand, ScrollState};
 use crate::views::palette::Colors;
 use ratatui::{
     Frame,
@@ -87,22 +87,22 @@ use ratatui::{
 ///
 /// Returns `true` if the action was consumed. Maps `MoveUp`/`MoveDown` to
 /// line scrolling and `PageUp`/`PageDown` to page scrolling.
-pub fn handle_dialog_scroll(action: KeyCommand, app: &mut AppState) -> bool {
+pub fn handle_dialog_scroll(action: KeyCommand, scroll: &mut ScrollState) -> bool {
     match action {
         KeyCommand::MoveUp => {
-            app.dialog.step_back();
+            scroll.step_back();
             true
         }
         KeyCommand::MoveDown => {
-            app.dialog.step_forward();
+            scroll.step_forward();
             true
         }
         KeyCommand::PageUp => {
-            app.dialog.page_back();
+            scroll.page_back();
             true
         }
         KeyCommand::PageDown => {
-            app.dialog.page_forward();
+            scroll.page_forward();
             true
         }
         _ => false,

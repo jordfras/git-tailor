@@ -26,7 +26,7 @@ pub fn handle_key(action: KeyCommand, app: &mut crate::app::AppState) -> AppActi
             AppAction::Handled
         }
         _ => {
-            handle_dialog_scroll(action, app);
+            handle_dialog_scroll(action, &mut app.dialog);
             AppAction::Handled
         }
     }
