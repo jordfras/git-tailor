@@ -29,6 +29,10 @@ pub(super) fn reword_commit(
     let head_git_oid = git2::Oid::from(head_oid);
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
+    if repo.range_has_merge(Some(commit_git_oid), head_git_oid)? {
+        anyhow::bail!("Cannot reword: a merge commit lies between this commit and HEAD");
+    }
+
     let parents: Vec<git2::Commit> = (0..commit.parent_count())
         .map(|i| commit.parent(i))
         .collect::<std::result::Result<_, _>>()?;

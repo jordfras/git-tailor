@@ -83,6 +83,12 @@ The format is based on
 
 ### Fixed
 
+- Rewording or splitting a commit is now refused, with an explanation, when a
+  merge commit sits between it and the branch tip. Previously you got libgit2's
+  raw "mainline branch is not specified" error — and because the walk that
+  collects the commits to replay is unreliable across a merge, it could also
+  stop early and replay the wrong set. Both operations now check up front and
+  leave the branch untouched.
 - Split per hunk group now groups hunks by the exact set of commits their
   lines relate to, computed directly from the diffs, so for instance a change
   that a later commit reworks lands in the piece related to that commit. A

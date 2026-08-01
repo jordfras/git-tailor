@@ -88,6 +88,32 @@ impl Git2Repo {
         Ok(descendants)
     }
 
+    /// Whether any commit reachable from `head_oid` — stopping at `stop_oid`
+    /// when given, or the whole ancestry when replaying from the root — is a
+    /// merge commit.
+    ///
+    /// [`collect_descendants`][Self::collect_descendants] is a plain revwalk
+    /// that breaks at `stop_oid`, so with a merge in the range it can emit
+    /// commits that are not descendants at all, or stop before reaching them.
+    /// Callers that replay that range must refuse rather than act on it.
+    pub(super) fn range_has_merge(
+        &self,
+        stop_oid: Option<git2::Oid>,
+        head_oid: git2::Oid,
+    ) -> Result<bool> {
+        let mut walk = self.inner.revwalk()?;
+        walk.push(head_oid)?;
+        if let Some(stop_oid) = stop_oid {
+            walk.hide(stop_oid)?;
+        }
+        for oid in walk {
+            if self.inner.find_commit(oid?)?.parent_count() > 1 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Cherry-pick a sequence of commits onto `tip`. Returns the final tip on
     /// success, or a `ConflictState` describing the first conflict.
     ///
