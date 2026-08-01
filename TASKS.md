@@ -113,13 +113,21 @@ Guidelines:
   navigation and the row queries all became real methods on the type. The two
   helpers that pair a row query with an error message (`selected_real_commit`,
   `selected_synthetic_row_is`) stay on `AppState`, which composes `list` + `status`.
-- [ ] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
-  and `split_op.rs` (`finalize_split`) use the older `rebase_descendants`
-  (cherry_pick.rs:28) that **bails** on conflict, while drop/move/squash/edit use
-  the conflict-aware `cherry_pick_chain`. Migrate split and reword onto
-  `cherry_pick_chain`, removing the divergent mechanism. NOTE: not purely internal —
-  it upgrades split/reword to produce a recoverable `RebaseConflict` instead of a
-  hard error, so add an integration test exercising a descendant conflict for both.
+- [X] T235 P3 refactor - Unify the two descendant-replay engines. `reword_op.rs`
+  and `split_op.rs` (`finalize_split`) use their own `rebase_descendants`
+  (cherry_pick.rs:28), which duplicates the cherry-pick mechanics of the
+  conflict-aware `cherry_pick_chain` (drop/move/squash/edit) and differs only in
+  what it does with a conflict. Share the step, but keep the distinction: split
+  and reword replay onto a commit whose tree is identical to the original's, so
+  the merge takes *theirs* at every path and the result equals the descendant's
+  own tree — inductively down the chain, a conflict is impossible. Give that path
+  a return type with no conflict variant, so callers are never made to handle an
+  impossible case, and have it bail without journaling, writing the working tree
+  or moving a ref. Two preconditions: per-file split must pin its last piece to
+  the original tree (the one strategy where that invariant is emergent rather
+  than structural), and both operations must reject merge commits in the replay
+  range, which make the descendant revwalk unreliable. Cover with tree-identity
+  assertions — a descendant-conflict test is unconstructible.
 - [ ] T236 P3 refactor - Split the two grab-bag files in the git2 layer if they keep
   growing: `git2_impl/journal.rs` (816 lines: on-disk doc IO, the undo/redo model,
   gc-pin reconciliation, autostash-record storage, startup classification) and
