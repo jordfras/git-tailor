@@ -41,7 +41,7 @@ pub enum ListNav {
 ///   kept when paging (same arithmetic as the commit list). The pickers that
 ///   always fit on screen pass their item count, so a page is the whole list.
 /// - `reverse` swaps the visual direction of Up/Down to match the
-///   `--reverse` display mode.
+///   `--reverse` display mode, via [`KeyCommand::with_vertical_mirroring`].
 pub fn handle_list_navigation(
     action: KeyCommand,
     cursor: &mut usize,
@@ -50,37 +50,21 @@ pub fn handle_list_navigation(
     reverse: bool,
 ) -> ListNav {
     let step_page = crate::app::scroll::page_size(visible_height);
-    match action {
+    match action.with_vertical_mirroring(reverse) {
         KeyCommand::MoveUp => {
-            if reverse {
-                cursor_down(cursor, len, 1);
-            } else {
-                cursor_up(cursor, 1);
-            }
+            cursor_up(cursor, 1);
             ListNav::Moved
         }
         KeyCommand::MoveDown => {
-            if reverse {
-                cursor_up(cursor, 1);
-            } else {
-                cursor_down(cursor, len, 1);
-            }
+            cursor_down(cursor, len, 1);
             ListNav::Moved
         }
         KeyCommand::PageUp => {
-            if reverse {
-                cursor_down(cursor, len, step_page);
-            } else {
-                cursor_up(cursor, step_page);
-            }
+            cursor_up(cursor, step_page);
             ListNav::Moved
         }
         KeyCommand::PageDown => {
-            if reverse {
-                cursor_up(cursor, step_page);
-            } else {
-                cursor_down(cursor, len, step_page);
-            }
+            cursor_down(cursor, len, step_page);
             ListNav::Moved
         }
         KeyCommand::Confirm => ListNav::Confirmed,
