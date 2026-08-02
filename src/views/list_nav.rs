@@ -38,8 +38,9 @@ pub enum ListNav {
 /// a move).
 ///
 /// - `visible_height` is the number of visible rows; one line of overlap is
-///   kept when paging (same arithmetic as the commit list). The pickers that
-///   always fit on screen pass their item count, so a page is the whole list.
+///   kept when paging (same arithmetic as the commit list). Callers whose rows
+///   are not one line each, or whose list always fits on screen, pass their
+///   item count instead, making a page the whole list.
 /// - `reverse` swaps the visual direction of Up/Down to match the
 ///   `--reverse` display mode, via [`KeyCommand::with_vertical_mirroring`].
 pub fn handle_list_navigation(

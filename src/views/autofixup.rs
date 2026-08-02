@@ -33,6 +33,10 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let groups = autofixup::group_by_target(&pending.pairs);
     let mut cursor = pending.selected_group;
 
+    // Groups are variable height (one line per target plus one per source), so
+    // there is no row count that means "one screenful of groups". Passing the
+    // group count keeps paging as jump-to-end, which is fine for a confirmation
+    // dialog you scan rather than navigate.
     match list_nav::handle_list_navigation(action, &mut cursor, groups.len(), groups.len(), false) {
         ListNav::Moved => {
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {

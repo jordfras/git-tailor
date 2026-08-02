@@ -40,7 +40,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     };
 
     let mut cursor = hunk_index;
-    match list_nav::handle_list_navigation(action, &mut cursor, hunk_count, hunk_count, false) {
+    // Items are one row each, so the list pane's height is exactly how many
+    // fit — a page steps by one screenful rather than to the end of the list.
+    match list_nav::handle_list_navigation(
+        action,
+        &mut cursor,
+        hunk_count,
+        app.dialog.visible_height,
+        false,
+    ) {
         ListNav::Moved => {
             if let AppMode::SplitHunksSelect {
                 hunk_index,
