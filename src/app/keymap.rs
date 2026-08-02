@@ -70,6 +70,32 @@ pub enum KeyCommand {
     None,
 }
 
+impl KeyCommand {
+    /// Swap the vertical navigation keys when the list is drawn newest-first,
+    /// so handlers can reason in one direction and let the display order be
+    /// resolved once, here.
+    ///
+    /// `ScrollListUp`/`ScrollListDown` are deliberately excluded: they move the
+    /// viewport in display space and are already visual, so mirroring them
+    /// would invert scrolling relative to the scrollbar.
+    pub fn with_vertical_mirroring(self, reverse: bool) -> Self {
+        if !reverse {
+            return self;
+        }
+        match self {
+            KeyCommand::MoveUp => KeyCommand::MoveDown,
+            KeyCommand::MoveDown => KeyCommand::MoveUp,
+            KeyCommand::PageUp => KeyCommand::PageDown,
+            KeyCommand::PageDown => KeyCommand::PageUp,
+            KeyCommand::HalfPageUp => KeyCommand::HalfPageDown,
+            KeyCommand::HalfPageDown => KeyCommand::HalfPageUp,
+            KeyCommand::JumpToTop => KeyCommand::JumpToBottom,
+            KeyCommand::JumpToBottom => KeyCommand::JumpToTop,
+            other => other,
+        }
+    }
+}
+
 /// Read the next terminal event, skipping key-release events.
 ///
 /// On Windows, crossterm emits both a Press and a Release event for each
@@ -297,6 +323,60 @@ mod tests {
                 mode.parse_key(press(KeyCode::Char('-'))),
                 KeyCommand::DecreaseContext
             );
+        }
+    }
+
+    const MIRRORED: [(KeyCommand, KeyCommand); 4] = [
+        (KeyCommand::MoveUp, KeyCommand::MoveDown),
+        (KeyCommand::PageUp, KeyCommand::PageDown),
+        (KeyCommand::HalfPageUp, KeyCommand::HalfPageDown),
+        (KeyCommand::JumpToTop, KeyCommand::JumpToBottom),
+    ];
+
+    #[test]
+    fn mirroring_swaps_vertical_pairs_both_ways() {
+        for (up, down) in MIRRORED {
+            assert_eq!(up.with_vertical_mirroring(true), down);
+            assert_eq!(down.with_vertical_mirroring(true), up);
+        }
+    }
+
+    #[test]
+    fn mirroring_is_an_involution() {
+        for (up, down) in MIRRORED {
+            for key in [up, down] {
+                assert_eq!(
+                    key.with_vertical_mirroring(true)
+                        .with_vertical_mirroring(true),
+                    key
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mirroring_is_a_no_op_when_not_reversed() {
+        for (up, down) in MIRRORED {
+            for key in [up, down] {
+                assert_eq!(key.with_vertical_mirroring(false), key);
+            }
+        }
+    }
+
+    /// Viewport scrolling is already expressed in display space, so mirroring it
+    /// would invert it relative to the scrollbar.
+    #[test]
+    fn mirroring_leaves_viewport_and_horizontal_keys_alone() {
+        for key in [
+            KeyCommand::ScrollListUp,
+            KeyCommand::ScrollListDown,
+            KeyCommand::ScrollLeft,
+            KeyCommand::ScrollRight,
+            KeyCommand::ScrollToLeftEdge,
+            KeyCommand::ScrollToRightEdge,
+            KeyCommand::Confirm,
+        ] {
+            assert_eq!(key.with_vertical_mirroring(true), key);
         }
     }
 }
