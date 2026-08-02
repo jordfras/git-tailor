@@ -78,30 +78,23 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog.offset` so the target group at `index` is visible.
-/// Layout before the first group: blank, heading (blank/content/blank), the
-/// hint line, then blank — 5 lines, matching `operation_select`'s own header
-/// — followed by one line per group's target plus one per source underneath
-/// it (assumes no long-summary wrapping, which is an acceptable approximation
-/// for scroll-into-view purposes).
+/// Scroll the dialog so the target group at `index` is visible.
+///
+/// Groups are variable height — one line for the target plus one per source —
+/// so the group's top is the running total of the groups above it. Assumes no
+/// long-summary wrapping, an acceptable approximation for scroll-into-view.
 fn scroll_to_group(app: &mut AppState, groups: &[AutofixupGroup], index: usize) {
+    // Blank, heading (blank/content/blank), hint line, blank.
     const HEADER_LINES: usize = 5;
-    let group_start: usize = groups[..index]
-        .iter()
-        .map(|g| 1 + g.sources.len())
-        .sum::<usize>()
-        + HEADER_LINES;
-    let group_height = 1 + groups[index].sources.len();
-    let vh = app.dialog.visible_height;
-    if vh == 0 {
+    let Some(group) = groups.get(index) else {
         return;
-    }
-    if group_start < app.dialog.offset {
-        app.dialog.offset = group_start;
-    } else if group_start + group_height > app.dialog.offset + vh {
-        app.dialog.offset = group_start + group_height - vh;
-    }
-    app.dialog.clamp_offset();
+    };
+    let start: usize = HEADER_LINES
+        + groups[..index]
+            .iter()
+            .map(|g| 1 + g.sources.len())
+            .sum::<usize>();
+    app.dialog.ensure_visible(start, 1 + group.sources.len());
 }
 
 /// Render the autofixup confirmation dialog as a centered overlay.
