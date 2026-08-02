@@ -35,75 +35,25 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let max_insert = app.list.commits.len();
     let page_size = crate::app::scroll::page_size(app.list.visible_height);
 
+    // Resolve the display order once; below, `up` means "toward older commits".
+    let nav = match action.with_vertical_mirroring(app.list.reverse) {
+        KeyCommand::MoveUp => Some((1, true)),
+        KeyCommand::MoveDown => Some((1, false)),
+        KeyCommand::PageUp => Some((page_size, true)),
+        KeyCommand::PageDown => Some((page_size, false)),
+        _ => None,
+    };
+    if let Some((step, up)) = nav {
+        let next = advance_insert(insert_before, source_index, max_insert, step, up);
+        app.mode = AppMode::MoveSelect {
+            source_index,
+            insert_before: next,
+        };
+        app.list.selection_index = viewport_selection_for_separator(next, app.list.reverse);
+        return AppAction::Handled;
+    }
+
     match action {
-        KeyCommand::MoveUp => {
-            let next = advance_insert(
-                insert_before,
-                source_index,
-                max_insert,
-                1,
-                app.list.reverse,
-                true,
-            );
-            app.mode = AppMode::MoveSelect {
-                source_index,
-                insert_before: next,
-            };
-            app.list.selection_index =
-                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
-            AppAction::Handled
-        }
-        KeyCommand::MoveDown => {
-            let next = advance_insert(
-                insert_before,
-                source_index,
-                max_insert,
-                1,
-                app.list.reverse,
-                false,
-            );
-            app.mode = AppMode::MoveSelect {
-                source_index,
-                insert_before: next,
-            };
-            app.list.selection_index =
-                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
-            AppAction::Handled
-        }
-        KeyCommand::PageUp => {
-            let next = advance_insert(
-                insert_before,
-                source_index,
-                max_insert,
-                page_size,
-                app.list.reverse,
-                true,
-            );
-            app.mode = AppMode::MoveSelect {
-                source_index,
-                insert_before: next,
-            };
-            app.list.selection_index =
-                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
-            AppAction::Handled
-        }
-        KeyCommand::PageDown => {
-            let next = advance_insert(
-                insert_before,
-                source_index,
-                max_insert,
-                page_size,
-                app.list.reverse,
-                false,
-            );
-            app.mode = AppMode::MoveSelect {
-                source_index,
-                insert_before: next,
-            };
-            app.list.selection_index =
-                viewport_selection_for_separator(next, app.list.reverse, &app.list.commits);
-            AppAction::Handled
-        }
         KeyCommand::Confirm => {
             let is_noop = |pos: usize| pos == source_index || pos == source_index + 1;
             if is_noop(insert_before) {
@@ -159,20 +109,12 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 }
 
 /// Advance the insertion cursor by `step` positions, skipping the two no-op
-/// slots (source_index and source_index + 1). `up` is the logical direction
-/// before `reverse` is applied.
-fn advance_insert(
-    pos: usize,
-    source_index: usize,
-    max: usize,
-    step: usize,
-    reverse: bool,
-    up: bool,
-) -> usize {
+/// slots (source_index and source_index + 1). `up` means toward lower indices;
+/// the caller has already resolved the display order.
+fn advance_insert(pos: usize, source_index: usize, max: usize, step: usize, up: bool) -> usize {
     let is_noop = |p: usize| p == source_index || p == source_index + 1;
-    let go_lower = up ^ reverse;
 
-    let mut next = if go_lower {
+    let mut next = if up {
         pos.saturating_sub(step)
     } else {
         pos.saturating_add(step).min(max)
@@ -181,7 +123,7 @@ fn advance_insert(
     // Skip noop positions (at most two consecutive: source and source+1)
     for _ in 0..2 {
         if is_noop(next) {
-            next = if go_lower {
+            next = if up {
                 next.saturating_sub(1)
             } else {
                 next.saturating_add(1).min(max)
@@ -205,11 +147,7 @@ fn advance_insert(
 /// The returned value may equal `commits.len()` when `insert_before` is the
 /// last commit index. That is intentional and safe: the footer renderer
 /// guards against it with a mode check, and the scroll math still works.
-fn viewport_selection_for_separator(
-    insert_before: usize,
-    reverse: bool,
-    _commits: &[crate::CommitInfo],
-) -> usize {
+fn viewport_selection_for_separator(insert_before: usize, reverse: bool) -> usize {
     if reverse {
         // In reverse mode, visual position = n - logical_index.
         // One step "below" visually means a lower logical index.
