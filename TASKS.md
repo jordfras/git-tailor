@@ -147,13 +147,21 @@ Guidelines:
   helpers that a split would cut across module boundaries.
   Re-open only if either file gains a genuinely independent concern — one with
   its own lifecycle, not another field of `JournalDoc`. Not on line count.
-- [ ] T237 P3 refactor - Reduce view-layer duplication. Four near-duplicate
-  `scroll_to_*` viewport helpers (operation_select.rs:90, split_select.rs:80,
-  split_files_select.rs:165, split_hunks_select.rs:165) → one shared helper. The
-  `reverse` up/down mirroring is duplicated across three modules (commit_list.rs
-  handle_key, list_nav.rs, move_select.rs); `move_select.rs` reimplements
-  `list_nav` navigation by hand (justified by its insertion-separator semantics, so
-  extract the shared paging/mirroring math it can reuse). Pure refactor.
+- [X] T237 P3 refactor - Reduce view-layer duplication. **Five** near-duplicate
+  scroll-into-view helpers (operation_select, split_select, split_files_select,
+  split_hunks_select, and autofixup — the last with variable-height items) →
+  one `ScrollState::ensure_visible(start, height)`. The `reverse` up/down
+  mirroring is duplicated across three modules (commit_list.rs handle_key with
+  eight copies, list_nav.rs with four, move_select.rs folding it into
+  `up ^ reverse`) → mirror the *key* once via
+  `KeyCommand::with_vertical_mirroring`, so handlers reason in one direction and
+  the display order is resolved in a single testable place. `ScrollListUp`/
+  `ScrollListDown` must stay unmirrored: they move the viewport in display space
+  and are already visual. Also collapse move_select's four near-identical
+  navigation arms into one, and single-source the paging math on
+  `app::scroll::page_size`. None of this had any test coverage — commit_list's
+  handler had never been sent a navigation key — so land characterization tests
+  first and require them to pass unchanged across every refactor.
 
 ## Interactivity — Split Commit
 - [X] T227 P2 feat - Add a "split out hunk(s)" split option, mirroring T218's
