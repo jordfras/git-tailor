@@ -33,7 +33,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     };
 
     let max_insert = app.list.commits.len();
-    let page_size = app.list.visible_height.saturating_sub(1).max(1);
+    let page_size = crate::app::scroll::page_size(app.list.visible_height);
 
     match action {
         KeyCommand::MoveUp => {

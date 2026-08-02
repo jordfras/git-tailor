@@ -37,18 +37,19 @@ pub enum ListNav {
 /// clamping (e.g. squash_select clamps the cursor to `source_index` after
 /// a move).
 ///
-/// - `page_size` is the number of visible rows; one line of overlap is kept
-///   when paging (same arithmetic as the commit list).
+/// - `visible_height` is the number of visible rows; one line of overlap is
+///   kept when paging (same arithmetic as the commit list). The pickers that
+///   always fit on screen pass their item count, so a page is the whole list.
 /// - `reverse` swaps the visual direction of Up/Down to match the
 ///   `--reverse` display mode.
 pub fn handle_list_navigation(
     action: KeyCommand,
     cursor: &mut usize,
     len: usize,
-    page_size: usize,
+    visible_height: usize,
     reverse: bool,
 ) -> ListNav {
-    let step_page = page_size.saturating_sub(1).max(1);
+    let step_page = crate::app::scroll::page_size(visible_height);
     match action {
         KeyCommand::MoveUp => {
             if reverse {
