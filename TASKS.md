@@ -126,11 +126,27 @@ Guidelines:
   than structural), and both operations must reject merge commits in the replay
   range, which make the descendant revwalk unreliable. Cover with tree-identity
   assertions — a descendant-conflict test is unconstructible.
-- [ ] T236 P3 refactor - Split the two grab-bag files in the git2 layer if they keep
-  growing: `git2_impl/journal.rs` (816 lines: on-disk doc IO, the undo/redo model,
-  gc-pin reconciliation, autostash-record storage, startup classification) and
-  `git2_impl/reads.rs` (512 lines, ~28 functions). Cohesive enough today — low
-  priority; split along the responsibility lines above only when warranted.
+- [-] T236 P3 refactor - Split the two grab-bag files in the git2 layer
+  (`git2_impl/journal.rs`, `git2_impl/reads.rs`) if they keep growing.
+  WON'T DO — the trigger never fired and the "grab bag" premise is wrong.
+  Both files are stable: `reads.rs` has been flat for two months (491 → 544 →
+  512 — it shrank), and `journal.rs` grew 200 → 811 lines in its first 11 days
+  then only +48 in the five weeks since, the last +43 of that being T233 refactor
+  churn rather than new responsibility. `journal.rs` is also not a grab bag but a
+  single persisted document (`JournalDoc`, one `journal.json`) with accessors:
+  11 of its 15 `pub(super)` functions open with `load_doc` and 10 close with
+  `save`; the supposed five concerns are four *fields* of that one struct;
+  `is_empty` deliberately couples their lifecycles (the file is deleted only when
+  all are empty at once); and the gc-pins are not state but a pure function of
+  `undo`+`redo`, recomputed on every save. Splitting it would mean exposing
+  `JournalDoc` and all its fields plus `load_doc`/`write_doc`/`save`/`UndoRecord`
+  — an encapsulated core turned into a module-wide API to make one file shorter.
+  (The original inventory also missed the in-progress/crash-record group, the
+  most externally called cluster at 14 sites.) `reads.rs` is 25 functions
+  averaging 16 lines, cohesive by role and clustered around shared private
+  helpers that a split would cut across module boundaries.
+  Re-open only if either file gains a genuinely independent concern — one with
+  its own lifecycle, not another field of `JournalDoc`. Not on line count.
 - [ ] T237 P3 refactor - Reduce view-layer duplication. Four near-duplicate
   `scroll_to_*` viewport helpers (operation_select.rs:90, split_select.rs:80,
   split_files_select.rs:165, split_hunks_select.rs:165) → one shared helper. The
