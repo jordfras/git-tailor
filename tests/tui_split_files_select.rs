@@ -410,3 +410,53 @@ fn test_split_files_select_does_not_scroll_before_the_first_render() {
 
     assert_eq!(app.dialog.offset, 0);
 }
+
+/// Paging moves by one viewport, not to the very end of the list.
+///
+/// The picker used to pass its item count as the page size, so PageDown jumped
+/// straight to the last file however long the list was — indistinguishable from
+/// `End`, and useless for stepping through a big commit.
+#[test]
+fn test_split_files_select_pages_by_one_viewport() {
+    let mut harness = TuiTestHarness::typical();
+
+    const FILE_COUNT: usize = 30;
+    let files: Vec<FileDiff> = (0..FILE_COUNT)
+        .map(|i| {
+            file_diff(
+                &format!("file{i}.txt"),
+                DeltaStatus::Modified,
+                vec![hunk((i as u32) * 20 + 1, "short", "short")],
+            )
+        })
+        .collect();
+
+    let mut app = common::app_state_from_commit_summaries(&["Change many files", "Add feature X"]);
+    app.list.selection_index = 0;
+    app.mode = AppMode::SplitFilesSelect {
+        commit_oid: Oid::from("111111111111"),
+        files,
+        file_index: 0,
+        selected: Default::default(),
+        preview_h_scroll: 0,
+        preview_v_scroll: 0,
+    };
+
+    harness.render(|frame| views::split_files_select::render(&mut app, frame));
+    let vh = app.dialog.visible_height;
+    assert!(
+        vh > 0 && vh < FILE_COUNT,
+        "premise: the list must overflow, got vh={vh}"
+    );
+
+    views::split_files_select::handle_key(KeyCommand::PageDown, &mut app);
+
+    let expected = vh - 1; // one row of overlap
+    match &app.mode {
+        AppMode::SplitFilesSelect { file_index, .. } => assert_eq!(
+            *file_index, expected,
+            "PageDown should advance one viewport, not jump to the end"
+        ),
+        other => panic!("Expected SplitFilesSelect, got {other:?}"),
+    }
+}
