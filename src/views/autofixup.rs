@@ -133,6 +133,8 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
         )
         .blank();
 
+    // Sources sit one level in from their target row.
+    const INDENT: &str = "    ";
     let line_width = iw.saturating_sub(1);
     for (i, group) in groups.iter().enumerate() {
         dialog = dialog.push_line(target_line(
@@ -143,12 +145,16 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             line_width,
         ));
         for source in &group.sources {
-            const INDENT: &str = "    ";
-            let sha = source.source_oid.short();
-            let used = INDENT.len() + sha.chars().count() + 1;
-            let summary = truncate_summary(&source.source_summary, line_width.saturating_sub(used));
+            // The summary is always "fixup! " / "squash! " plus the target's own
+            // summary — plan_autofixup matches on exact equality — so repeating
+            // it here would just echo the line above. The mode is the one thing
+            // that varies, and it decides whether the source's message is kept.
             dialog = dialog.wrapped_styled(
-                &format!("{INDENT}{sha} {summary}"),
+                &format!(
+                    "{INDENT}{}  {}",
+                    source.source_oid.short(),
+                    source.mode.marker()
+                ),
                 line_width,
                 TextRole::Muted,
             );

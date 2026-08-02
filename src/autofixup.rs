@@ -20,9 +20,6 @@ use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
 
-const FIXUP_PREFIX: &str = "fixup! ";
-const SQUASH_PREFIX: &str = "squash! ";
-
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutofixupPair {
@@ -125,11 +122,15 @@ pub fn strip_comment_lines(text: &str) -> String {
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
     for (i, commit) in commits.iter().enumerate() {
-        let (mode, target_text) = if let Some(text) = commit.summary.strip_prefix(FIXUP_PREFIX) {
-            (SquashMode::Fixup, text)
-        } else if let Some(text) = commit.summary.strip_prefix(SQUASH_PREFIX) {
-            (SquashMode::Squash, text)
-        } else {
+        let Some((mode, target_text)) = [SquashMode::Fixup, SquashMode::Squash]
+            .into_iter()
+            .find_map(|mode| {
+                commit
+                    .summary
+                    .strip_prefix(mode.prefix())
+                    .map(|text| (mode, text))
+            })
+        else {
             continue;
         };
 

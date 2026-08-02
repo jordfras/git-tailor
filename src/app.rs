@@ -229,6 +229,20 @@ impl SquashMode {
             SquashMode::Fixup => true,
         }
     }
+
+    /// The commit-summary prefix git writes for this mode, trailing space
+    /// included — `git commit --fixup` produces `fixup! <target subject>`.
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            SquashMode::Squash => "squash! ",
+            SquashMode::Fixup => "fixup! ",
+        }
+    }
+
+    /// The prefix without its trailing space, for display.
+    pub fn marker(self) -> &'static str {
+        self.prefix().trim_end()
+    }
 }
 
 /// Application display mode.

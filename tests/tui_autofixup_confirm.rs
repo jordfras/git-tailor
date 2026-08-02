@@ -149,8 +149,11 @@ fn test_autofixup_confirm_dialog_shows_edited_indicator() {
     }));
 }
 
+/// A long *source* summary cannot widen or wrap its row: source rows show only
+/// the SHA and the mode, because the summary is always the target's own summary
+/// behind a `fixup! ` / `squash! ` prefix.
 #[test]
-fn test_autofixup_confirm_dialog_long_summary() {
+fn test_autofixup_confirm_dialog_long_source_summary() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_autofixup_confirm(
@@ -193,6 +196,40 @@ fn test_autofixup_confirm_dialog_long_target_summary() {
         )],
         0,
         overrides,
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
+/// One target can take both a `fixup!` and a `squash!` source — grouping keys on
+/// the target summary alone, and the two produce different final messages, so
+/// the mode has to stay visible per row.
+#[test]
+fn test_autofixup_confirm_dialog_mixed_modes_under_one_target() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_autofixup_confirm(
+        vec![
+            pair(
+                "abc123def456",
+                "fixup! Add parser",
+                "def456ghi789",
+                "Add parser",
+                SquashMode::Fixup,
+            ),
+            pair(
+                "111111111111",
+                "squash! Add parser",
+                "def456ghi789",
+                "Add parser",
+                SquashMode::Squash,
+            ),
+        ],
+        0,
+        Default::default(),
     );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
