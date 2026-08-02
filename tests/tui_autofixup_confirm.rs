@@ -373,3 +373,65 @@ fn test_autofixup_confirm_dialog_narrow_terminal() {
         views::autofixup::render_autofixup_confirm(&mut app, frame);
     }));
 }
+
+/// Characterization: autofixup groups have *variable* height — one line for the
+/// target plus one per source — so scrolling to a group must account for the
+/// heights of the groups above it, not assume a uniform item height.
+///
+/// The unequal source counts below are the point: a helper that multiplied a
+/// fixed item height by the index would pass every other test and fail here.
+#[test]
+fn test_autofixup_confirm_scrolls_variable_height_groups_into_view() {
+    const HEADER_LINES: usize = 5;
+
+    // Groups of 1, 3 and 1 sources.
+    let mut pairs = vec![pair(
+        "aaaaaaaaaaaa",
+        "fixup! First",
+        "111111111111",
+        "First",
+        SquashMode::Fixup,
+    )];
+    for i in 0..3 {
+        pairs.push(pair(
+            &format!("bbbbbbbbbb{i:02}"),
+            "fixup! Second",
+            "222222222222",
+            "Second",
+            SquashMode::Fixup,
+        ));
+    }
+    pairs.push(pair(
+        "cccccccccccc",
+        "fixup! Third",
+        "333333333333",
+        "Third",
+        SquashMode::Fixup,
+    ));
+
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+
+    let mut harness = TuiTestHarness::short();
+    harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let vh = app.dialog.visible_height;
+    // 3 targets + 5 sources = 8 content lines, plus the header.
+    assert!(
+        vh > 0 && vh < HEADER_LINES + 8,
+        "premise: the dialog must overflow, got vh={vh}"
+    );
+
+    // Move to the third group, whose top sits below two groups of height 2 and 4.
+    views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+    views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+
+    let third_top = HEADER_LINES + (1 + 1) + (1 + 3);
+    let third_height = 1 + 1;
+    assert_eq!(
+        app.dialog.offset,
+        third_top + third_height - vh,
+        "the last group's top must account for the taller group above it"
+    );
+}

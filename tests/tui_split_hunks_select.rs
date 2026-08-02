@@ -382,3 +382,71 @@ fn test_split_hunks_select_scrollbars_visible() {
         views::split_hunks_select::render(&mut app, frame);
     }));
 }
+
+/// Characterization: same scroll-into-view contract as the file picker — see
+/// `tui_split_files_select::test_split_files_select_scrolls_the_cursor_into_view`.
+/// Both panes share `two_pane_picker::render_list`, so this pins that the hunk
+/// side measures its bounds the same way.
+#[test]
+fn test_split_hunks_select_scrolls_the_cursor_into_view() {
+    let mut harness = TuiTestHarness::typical();
+
+    const HUNK_COUNT: usize = 30;
+    let hunks: Vec<HunkPickerEntry> = (0..HUNK_COUNT)
+        .map(|i| HunkPickerEntry {
+            delta_idx: i,
+            hunk_idx: 0,
+            file_path: format!("file{i}.txt"),
+            hunk: hunk((i as u32) * 20 + 1, "short", "short"),
+        })
+        .collect();
+
+    let mut app = common::app_state_from_commit_summaries(&["Change many hunks", "Add feature X"]);
+    app.list.selection_index = 0;
+    app.mode = AppMode::SplitHunksSelect {
+        commit_oid: Oid::from("111111111111"),
+        hunks,
+        hunk_index: 0,
+        selected: Default::default(),
+        context_lines: 3,
+        preview_h_scroll: 0,
+        preview_v_scroll: 0,
+    };
+
+    harness.render(|frame| views::split_hunks_select::render(&mut app, frame));
+    let vh = app.dialog.visible_height;
+    assert!(
+        vh > 0 && vh < HUNK_COUNT,
+        "premise: the list must overflow the pane, got vh={vh}"
+    );
+
+    for _ in 0..vh - 1 {
+        views::split_hunks_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+    assert_eq!(app.dialog.offset, 0, "cursor at vh-1 still fits");
+
+    views::split_hunks_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.dialog.offset, 1);
+
+    for _ in 0..HUNK_COUNT {
+        views::split_hunks_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+    assert_eq!(app.dialog.offset, HUNK_COUNT - vh);
+    assert_eq!(app.dialog.offset, app.dialog.max);
+
+    for _ in 0..HUNK_COUNT {
+        views::split_hunks_select::handle_key(KeyCommand::MoveUp, &mut app);
+    }
+    assert_eq!(app.dialog.offset, 0);
+}
+
+/// Characterization: navigation before the first render leaves the offset alone.
+#[test]
+fn test_split_hunks_select_does_not_scroll_before_the_first_render() {
+    let mut app = make_app_in_hunks_select(0, &[]);
+    assert_eq!(app.dialog.visible_height, 0);
+
+    views::split_hunks_select::handle_key(KeyCommand::MoveDown, &mut app);
+
+    assert_eq!(app.dialog.offset, 0);
+}

@@ -335,3 +335,78 @@ fn test_split_files_select_scrollbars_visible() {
         views::split_files_select::render(&mut app, frame);
     }));
 }
+
+/// Characterization: moving the cursor past the bottom of the list pane scrolls
+/// by exactly one row, and the last file pins the offset at `max`.
+///
+/// Asserts against the *measured* visible height rather than a literal, so the
+/// test still means something if the dialog's chrome changes.
+#[test]
+fn test_split_files_select_scrolls_the_cursor_into_view() {
+    let mut harness = TuiTestHarness::typical();
+
+    const FILE_COUNT: usize = 30;
+    let files: Vec<FileDiff> = (0..FILE_COUNT)
+        .map(|i| {
+            file_diff(
+                &format!("file{i}.txt"),
+                DeltaStatus::Modified,
+                vec![hunk((i as u32) * 20 + 1, "short", "short")],
+            )
+        })
+        .collect();
+
+    let mut app = common::app_state_from_commit_summaries(&["Change many files", "Add feature X"]);
+    app.list.selection_index = 0;
+    app.mode = AppMode::SplitFilesSelect {
+        commit_oid: Oid::from("111111111111"),
+        files,
+        file_index: 0,
+        selected: Default::default(),
+        preview_h_scroll: 0,
+        preview_v_scroll: 0,
+    };
+
+    // Render once so the list pane's height is measured.
+    harness.render(|frame| views::split_files_select::render(&mut app, frame));
+    let vh = app.dialog.visible_height;
+    assert!(
+        vh > 0 && vh < FILE_COUNT,
+        "premise: the list must overflow the pane, got vh={vh}"
+    );
+
+    // The last row that fits needs no scrolling.
+    for _ in 0..vh - 1 {
+        views::split_files_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+    assert_eq!(app.dialog.offset, 0, "cursor at vh-1 still fits");
+
+    // One more moves the viewport by exactly one row.
+    views::split_files_select::handle_key(KeyCommand::MoveDown, &mut app);
+    assert_eq!(app.dialog.offset, 1);
+
+    // Reaching the last file pins the offset at the bottom.
+    for _ in 0..FILE_COUNT {
+        views::split_files_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+    assert_eq!(app.dialog.offset, FILE_COUNT - vh);
+    assert_eq!(app.dialog.offset, app.dialog.max);
+
+    // And back to the top.
+    for _ in 0..FILE_COUNT {
+        views::split_files_select::handle_key(KeyCommand::MoveUp, &mut app);
+    }
+    assert_eq!(app.dialog.offset, 0);
+}
+
+/// Characterization: before the first render the visible height is unknown, so
+/// navigation must leave the offset alone rather than scroll blind.
+#[test]
+fn test_split_files_select_does_not_scroll_before_the_first_render() {
+    let mut app = make_app_in_files_select(0, &[]);
+    assert_eq!(app.dialog.visible_height, 0);
+
+    views::split_files_select::handle_key(KeyCommand::MoveDown, &mut app);
+
+    assert_eq!(app.dialog.offset, 0);
+}
