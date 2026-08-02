@@ -133,6 +133,23 @@ pub fn truncate_path_tail(path: &str, inner_width: usize) -> String {
     }
 }
 
+/// Shorten `text` to at most `width` columns, marking the cut with a trailing
+/// ellipsis. Truncates on a character boundary, so non-ASCII input never panics.
+///
+/// The counterpart of [`truncate_path_tail`], which keeps the *end* instead:
+/// what identifies a path is its filename, what identifies a commit is the
+/// opening words of its summary.
+pub fn truncate_summary(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let head: String = text.chars().take(width - 1).collect();
+    format!("{head}\u{2026}")
+}
+
 /// Append the shared conflict-dialog tail to `dialog` — the list of conflicting
 /// files, the "still unresolved" warning, and the `Enter`/`m`/`e`/`Esc`
 /// instructions — then render it under `title`.

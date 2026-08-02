@@ -171,6 +171,36 @@ fn test_autofixup_confirm_dialog_long_summary() {
     }));
 }
 
+/// A long *target* summary is truncated too, and still leaves room for the
+/// "(edited)" marker rather than pushing it onto a wrapped line.
+#[test]
+fn test_autofixup_confirm_dialog_long_target_summary() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "Refactor the entire parser module to use trait-based dispatching".to_string(),
+        "edited\n".to_string(),
+    );
+
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
+            "abc123def456",
+            "fixup! Add parser",
+            "def456ghi789",
+            "Refactor the entire parser module to use trait-based dispatching",
+            SquashMode::Fixup,
+        )],
+        0,
+        overrides,
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
 // ---------------------------------------------------------------------------
 // Key handling (handle_confirm_key)
 // ---------------------------------------------------------------------------

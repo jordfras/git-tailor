@@ -1,6 +1,5 @@
 ---
 source: tests/tui_autofixup_confirm.rs
-assertion_line: 190
 expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::autofixup::render_autofixup_confirm(&mut app, frame);\n})"
 ---
 Buffer {
@@ -15,8 +14,8 @@ Buffer {
         "  │ ↑/↓ to select a target, r to     █  ",
         "  │ edit its final message:          █  ",
         "  │                                  █  ",
-        "  │▸ Add parser (def456gh)           █  ",
-        "  │    fixup! Add parser (abc123de)  █  ",
+        "  │▸ def456gh Add parser             █  ",
+        "  │    abc123de fixup! Add parser    █  ",
         "  │                                  █  ",
         "  │  Enter Confirm   r Edit message  │  ",
         "  └──────────────────────────────────┘  ",
@@ -61,14 +60,14 @@ Buffer {
         x: 38, y: 8, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 9, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 3, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: BOLD,
-        x: 15, y: 9, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
-        x: 17, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
-        x: 25, y: 9, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 5, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: NONE,
+        x: 13, y: 9, fg: Cyan, bg: Black, underline: Reset, modifier: BOLD,
+        x: 24, y: 9, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 37, y: 9, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 38, y: 9, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 10, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 3, y: 10, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
-        x: 35, y: 10, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+        x: 33, y: 10, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         x: 37, y: 10, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,
         x: 38, y: 10, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 11, fg: Yellow, bg: Black, underline: Reset, modifier: NONE,

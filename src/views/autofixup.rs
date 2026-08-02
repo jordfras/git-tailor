@@ -14,7 +14,7 @@
 
 // Bulk autofixup confirmation dialog
 
-use super::dialog::{Dialog, DialogKind, TextRole, inner_width};
+use super::dialog::{Dialog, DialogKind, TextRole, inner_width, truncate_summary};
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use crate::autofixup::{self, AutofixupGroup};
@@ -133,16 +133,23 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
         )
         .blank();
 
+    let line_width = iw.saturating_sub(1);
     for (i, group) in groups.iter().enumerate() {
-        dialog = dialog.push_line(target_line(app, group, i == selected_group, overrides));
+        dialog = dialog.push_line(target_line(
+            app,
+            group,
+            i == selected_group,
+            overrides,
+            line_width,
+        ));
         for source in &group.sources {
+            const INDENT: &str = "    ";
+            let sha = source.source_oid.short();
+            let used = INDENT.len() + sha.chars().count() + 1;
+            let summary = truncate_summary(&source.source_summary, line_width.saturating_sub(used));
             dialog = dialog.wrapped_styled(
-                &format!(
-                    "    {} ({})",
-                    source.source_summary,
-                    source.source_oid.short()
-                ),
-                iw.saturating_sub(1),
+                &format!("{INDENT}{sha} {summary}"),
+                line_width,
                 TextRole::Muted,
             );
         }
@@ -170,7 +177,9 @@ fn target_line(
     group: &AutofixupGroup,
     selected: bool,
     overrides: &std::collections::HashMap<String, String>,
+    width: usize,
 ) -> Line<'static> {
+    const EDITED: &str = " (edited)";
     let marker = if selected { "\u{25b8} " } else { "  " };
     let label_style = if selected {
         Style::default()
@@ -179,19 +188,26 @@ fn target_line(
     } else {
         Style::default().fg(app.colors.resolve(Color::White))
     };
+
+    let sha = group.target_oid.short();
+    let edited = overrides.contains_key(&group.target_summary);
+    let used = marker.chars().count()
+        + sha.chars().count()
+        + 1
+        + if edited { EDITED.chars().count() } else { 0 };
+    let summary = truncate_summary(&group.target_summary, width.saturating_sub(used));
+
     let mut spans = vec![
         Span::styled(marker.to_string(), label_style),
-        Span::styled(group.target_summary.clone(), label_style),
-        Span::raw(" ("),
         Span::styled(
-            group.target_oid.short().to_string(),
+            sha.to_string(),
             Style::default().fg(app.colors.resolve(TextRole::Key.color())),
         ),
-        Span::raw(")"),
+        Span::styled(format!(" {summary}"), label_style),
     ];
-    if overrides.contains_key(&group.target_summary) {
+    if edited {
         spans.push(Span::styled(
-            " (edited)".to_string(),
+            EDITED.to_string(),
             Style::default().fg(app.colors.resolve(Color::Yellow)),
         ));
     }
