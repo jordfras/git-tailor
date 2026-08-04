@@ -168,6 +168,21 @@ Ready-made schemes in that format are available from
 collection (whose native `.itermcolors` format is *not* accepted directly).
 
 
+## Shell completion
+
+```sh
+gt completions --shell bash --install    # or zsh, fish
+```
+
+This writes the completion script to the conventional user-local location for
+that shell, printing the path and how to activate it. Omit `--install` to print
+the script to stdout instead.
+
+Completions are computed by `gt` itself as you type, so they always match the
+installed version — including the base argument, which completes with the branch
+and tag names in the repository you are standing in.
+
+
 ## Notes
 
 ### Rewriting history safely
@@ -177,7 +192,9 @@ that safe, every operation is journalled before it runs: anything can be undone
 and redone, and an interrupted run is recovered the next time you start `gt`.
 Operations also refuse to run on a dirty working tree unless you ask for
 `--autostash`. As with any history rewriting, having the branch pushed to a
-remote is still a good extra safety net.
+remote is still a good extra safety net. Should the recovery state ever get
+stuck, `gt --clean-journal` discards the journal and the refs git-tailor keeps,
+then exits without opening the TUI.
 
 The tool is developed through AI-assisted ("vibe coded") sessions, with a large
 automated test suite, and is used daily for real work. It comes with no warranty
