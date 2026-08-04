@@ -40,7 +40,15 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     };
 
     let mut cursor = hunk_index;
-    match list_nav::handle_list_navigation(action, &mut cursor, hunk_count, hunk_count, false) {
+    // Items are one row each, so the list pane's height is exactly how many
+    // fit — a page steps by one screenful rather than to the end of the list.
+    match list_nav::handle_list_navigation(
+        action,
+        &mut cursor,
+        hunk_count,
+        app.dialog.visible_height,
+        false,
+    ) {
         ListNav::Moved => {
             if let AppMode::SplitHunksSelect {
                 hunk_index,
@@ -53,7 +61,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 *preview_h_scroll = 0;
                 *preview_v_scroll = 0;
             }
-            scroll_to_hunk(app, cursor);
+            app.dialog.ensure_visible(cursor, 1);
             AppAction::Handled
         }
         ListNav::Confirmed => {
@@ -157,22 +165,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             _ => AppAction::Handled,
         },
     }
-}
-
-/// Scroll `dialog.offset` so the hunk row at `index` is visible in the
-/// list pane (one line per hunk, no header offset — the list starts at the
-/// top of its own pane).
-fn scroll_to_hunk(app: &mut AppState, index: usize) {
-    let vh = app.dialog.visible_height;
-    if vh == 0 {
-        return;
-    }
-    if index < app.dialog.offset {
-        app.dialog.offset = index;
-    } else if index >= app.dialog.offset + vh {
-        app.dialog.offset = index + 1 - vh;
-    }
-    app.dialog.clamp_offset();
 }
 
 const HINT_ROWS: [&[(&str, &str)]; 2] = [

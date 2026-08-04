@@ -126,18 +126,42 @@ Guidelines:
   than structural), and both operations must reject merge commits in the replay
   range, which make the descendant revwalk unreliable. Cover with tree-identity
   assertions — a descendant-conflict test is unconstructible.
-- [ ] T236 P3 refactor - Split the two grab-bag files in the git2 layer if they keep
-  growing: `git2_impl/journal.rs` (816 lines: on-disk doc IO, the undo/redo model,
-  gc-pin reconciliation, autostash-record storage, startup classification) and
-  `git2_impl/reads.rs` (512 lines, ~28 functions). Cohesive enough today — low
-  priority; split along the responsibility lines above only when warranted.
-- [ ] T237 P3 refactor - Reduce view-layer duplication. Four near-duplicate
-  `scroll_to_*` viewport helpers (operation_select.rs:90, split_select.rs:80,
-  split_files_select.rs:165, split_hunks_select.rs:165) → one shared helper. The
-  `reverse` up/down mirroring is duplicated across three modules (commit_list.rs
-  handle_key, list_nav.rs, move_select.rs); `move_select.rs` reimplements
-  `list_nav` navigation by hand (justified by its insertion-separator semantics, so
-  extract the shared paging/mirroring math it can reuse). Pure refactor.
+- [-] T236 P3 refactor - Split the two grab-bag files in the git2 layer
+  (`git2_impl/journal.rs`, `git2_impl/reads.rs`) if they keep growing.
+  WON'T DO — the trigger never fired and the "grab bag" premise is wrong.
+  Both files are stable: `reads.rs` has been flat for two months (491 → 544 →
+  512 — it shrank), and `journal.rs` grew 200 → 811 lines in its first 11 days
+  then only +48 in the five weeks since, the last +43 of that being T233 refactor
+  churn rather than new responsibility. `journal.rs` is also not a grab bag but a
+  single persisted document (`JournalDoc`, one `journal.json`) with accessors:
+  11 of its 15 `pub(super)` functions open with `load_doc` and 10 close with
+  `save`; the supposed five concerns are four *fields* of that one struct;
+  `is_empty` deliberately couples their lifecycles (the file is deleted only when
+  all are empty at once); and the gc-pins are not state but a pure function of
+  `undo`+`redo`, recomputed on every save. Splitting it would mean exposing
+  `JournalDoc` and all its fields plus `load_doc`/`write_doc`/`save`/`UndoRecord`
+  — an encapsulated core turned into a module-wide API to make one file shorter.
+  (The original inventory also missed the in-progress/crash-record group, the
+  most externally called cluster at 14 sites.) `reads.rs` is 25 functions
+  averaging 16 lines, cohesive by role and clustered around shared private
+  helpers that a split would cut across module boundaries.
+  Re-open only if either file gains a genuinely independent concern — one with
+  its own lifecycle, not another field of `JournalDoc`. Not on line count.
+- [X] T237 P3 refactor - Reduce view-layer duplication. **Five** near-duplicate
+  scroll-into-view helpers (operation_select, split_select, split_files_select,
+  split_hunks_select, and autofixup — the last with variable-height items) →
+  one `ScrollState::ensure_visible(start, height)`. The `reverse` up/down
+  mirroring is duplicated across three modules (commit_list.rs handle_key with
+  eight copies, list_nav.rs with four, move_select.rs folding it into
+  `up ^ reverse`) → mirror the *key* once via
+  `KeyCommand::with_vertical_mirroring`, so handlers reason in one direction and
+  the display order is resolved in a single testable place. `ScrollListUp`/
+  `ScrollListDown` must stay unmirrored: they move the viewport in display space
+  and are already visual. Also collapse move_select's four near-identical
+  navigation arms into one, and single-source the paging math on
+  `app::scroll::page_size`. None of this had any test coverage — commit_list's
+  handler had never been sent a navigation key — so land characterization tests
+  first and require them to pass unchanged across every refactor.
 
 ## Interactivity — Split Commit
 - [X] T227 P2 feat - Add a "split out hunk(s)" split option, mirroring T218's

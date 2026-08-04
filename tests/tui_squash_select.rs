@@ -372,3 +372,38 @@ fn test_fixup_footer_renders() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+
+/// `squash_select` is the only `handle_list_navigation` caller that passes both a
+/// real page size and `reverse`, so it is the only test that would notice the
+/// paging arithmetic changing.
+#[test]
+fn test_squash_select_pages_in_both_display_orders() {
+    use git_tailor::app::KeyCommand;
+
+    // (key, expected selection oldest-first, expected newest-first)
+    // Paging down lands on 9, not further: squash_select clamps the cursor to
+    // the source index, and the source is the last commit here.
+    let cases = [(KeyCommand::PageUp, 1, 9), (KeyCommand::PageDown, 9, 1)];
+
+    for (key, forward, reversed) in cases {
+        for (reverse, expected) in [(false, forward), (true, reversed)] {
+            let summaries: Vec<String> = (0..10).map(|i| format!("commit {i}")).collect();
+            let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
+            let mut app = common::app_state_from_commit_summaries(&refs);
+            app.list.selection_index = 5;
+            app.list.visible_height = 5; // a page is 4 rows
+            app.list.reverse = reverse;
+            app.mode = AppMode::SquashSelect {
+                source_index: 9,
+                squash_mode: SquashMode::Squash,
+            };
+
+            views::squash_select::handle_key(key, &mut app);
+
+            assert_eq!(
+                app.list.selection_index, expected,
+                "{key:?} with reverse={reverse} should select {expected}"
+            );
+        }
+    }
+}

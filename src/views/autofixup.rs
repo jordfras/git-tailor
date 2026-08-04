@@ -14,7 +14,7 @@
 
 // Bulk autofixup confirmation dialog
 
-use super::dialog::{Dialog, DialogKind, TextRole, inner_width};
+use super::dialog::{Dialog, DialogKind, TextRole, inner_width, truncate_summary};
 use super::list_nav::{self, ListNav};
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use crate::autofixup::{self, AutofixupGroup};
@@ -33,6 +33,10 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let groups = autofixup::group_by_target(&pending.pairs);
     let mut cursor = pending.selected_group;
 
+    // Groups are variable height (one line per target plus one per source), so
+    // there is no row count that means "one screenful of groups". Passing the
+    // group count keeps paging as jump-to-end, which is fine for a confirmation
+    // dialog you scan rather than navigate.
     match list_nav::handle_list_navigation(action, &mut cursor, groups.len(), groups.len(), false) {
         ListNav::Moved => {
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
@@ -78,30 +82,23 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
-/// Scroll `dialog.offset` so the target group at `index` is visible.
-/// Layout before the first group: blank, heading (blank/content/blank), the
-/// hint line, then blank — 5 lines, matching `operation_select`'s own header
-/// — followed by one line per group's target plus one per source underneath
-/// it (assumes no long-summary wrapping, which is an acceptable approximation
-/// for scroll-into-view purposes).
+/// Scroll the dialog so the target group at `index` is visible.
+///
+/// Groups are variable height — one line for the target plus one per source —
+/// so the group's top is the running total of the groups above it. Assumes no
+/// long-summary wrapping, an acceptable approximation for scroll-into-view.
 fn scroll_to_group(app: &mut AppState, groups: &[AutofixupGroup], index: usize) {
+    // Blank, heading (blank/content/blank), hint line, blank.
     const HEADER_LINES: usize = 5;
-    let group_start: usize = groups[..index]
-        .iter()
-        .map(|g| 1 + g.sources.len())
-        .sum::<usize>()
-        + HEADER_LINES;
-    let group_height = 1 + groups[index].sources.len();
-    let vh = app.dialog.visible_height;
-    if vh == 0 {
+    let Some(group) = groups.get(index) else {
         return;
-    }
-    if group_start < app.dialog.offset {
-        app.dialog.offset = group_start;
-    } else if group_start + group_height > app.dialog.offset + vh {
-        app.dialog.offset = group_start + group_height - vh;
-    }
-    app.dialog.clamp_offset();
+    };
+    let start: usize = HEADER_LINES
+        + groups[..index]
+            .iter()
+            .map(|g| 1 + g.sources.len())
+            .sum::<usize>();
+    app.dialog.ensure_visible(start, 1 + group.sources.len());
 }
 
 /// Render the autofixup confirmation dialog as a centered overlay.
@@ -133,16 +130,29 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
         )
         .blank();
 
+    // Sources sit one level in from their target row.
+    const INDENT: &str = "    ";
+    let line_width = iw.saturating_sub(1);
     for (i, group) in groups.iter().enumerate() {
-        dialog = dialog.push_line(target_line(app, group, i == selected_group, overrides));
+        dialog = dialog.push_line(target_line(
+            app,
+            group,
+            i == selected_group,
+            overrides,
+            line_width,
+        ));
         for source in &group.sources {
+            // The summary is always "fixup! " / "squash! " plus the target's own
+            // summary — plan_autofixup matches on exact equality — so repeating
+            // it here would just echo the line above. The mode is the one thing
+            // that varies, and it decides whether the source's message is kept.
             dialog = dialog.wrapped_styled(
                 &format!(
-                    "    {} ({})",
-                    source.source_summary,
-                    source.source_oid.short()
+                    "{INDENT}{}  {}",
+                    source.source_oid.short(),
+                    source.mode.marker()
                 ),
-                iw.saturating_sub(1),
+                line_width,
                 TextRole::Muted,
             );
         }
@@ -170,7 +180,9 @@ fn target_line(
     group: &AutofixupGroup,
     selected: bool,
     overrides: &std::collections::HashMap<String, String>,
+    width: usize,
 ) -> Line<'static> {
+    const EDITED: &str = " (edited)";
     let marker = if selected { "\u{25b8} " } else { "  " };
     let label_style = if selected {
         Style::default()
@@ -179,19 +191,26 @@ fn target_line(
     } else {
         Style::default().fg(app.colors.resolve(Color::White))
     };
+
+    let sha = group.target_oid.short();
+    let edited = overrides.contains_key(&group.target_summary);
+    let used = marker.chars().count()
+        + sha.chars().count()
+        + 1
+        + if edited { EDITED.chars().count() } else { 0 };
+    let summary = truncate_summary(&group.target_summary, width.saturating_sub(used));
+
     let mut spans = vec![
         Span::styled(marker.to_string(), label_style),
-        Span::styled(group.target_summary.clone(), label_style),
-        Span::raw(" ("),
         Span::styled(
-            group.target_oid.short().to_string(),
+            sha.to_string(),
             Style::default().fg(app.colors.resolve(TextRole::Key.color())),
         ),
-        Span::raw(")"),
+        Span::styled(format!(" {summary}"), label_style),
     ];
-    if overrides.contains_key(&group.target_summary) {
+    if edited {
         spans.push(Span::styled(
-            " (edited)".to_string(),
+            EDITED.to_string(),
             Style::default().fg(app.colors.resolve(Color::Yellow)),
         ));
     }

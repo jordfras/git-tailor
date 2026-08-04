@@ -34,6 +34,9 @@ fn available(app: &AppState) -> Vec<Operation> {
         .unwrap_or_default()
 }
 
+/// Rows above the first operation: blank, heading (blank/content/blank), hint.
+const HEADER_LINES: usize = 5;
+
 /// Handle an action while in OperationSelect mode.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let operation = match app.mode {
@@ -50,7 +53,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         ListNav::Moved => {
             if let Some(&operation) = ops.get(cursor) {
                 app.mode = AppMode::OperationSelect { operation };
-                scroll_to_operation(app, cursor);
+                app.dialog.ensure_visible(HEADER_LINES + cursor, 1);
             }
             AppAction::Handled
         }
@@ -81,26 +84,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
         }
     }
-}
-
-/// Scroll `dialog.offset` so the operation row at `index` is visible.
-/// Layout before the first item: blank, header, then `heading()` (which itself
-/// adds a blank / heading / blank) — five lines — then one line per operation.
-/// Compact enough to fit without scrolling on a normal terminal; this keeps the
-/// bottom rows reachable on a very short one.
-fn scroll_to_operation(app: &mut AppState, index: usize) {
-    const HEADER_LINES: usize = 5;
-    let row = HEADER_LINES + index;
-    let vh = app.dialog.visible_height;
-    if vh == 0 {
-        return;
-    }
-    if row < app.dialog.offset {
-        app.dialog.offset = row;
-    } else if row >= app.dialog.offset + vh {
-        app.dialog.offset = row + 1 - vh;
-    }
-    app.dialog.clamp_offset();
 }
 
 /// Render the operation picker as a centered overlay.

@@ -50,25 +50,37 @@ pub(super) fn find_reference_point(repo: &Git2Repo, commit_ish: &str) -> Result<
     Ok(Oid::from(reference_oid))
 }
 
+/// Resolve our hex-string `Oid` to the `git2::Oid` of the object it names.
+fn resolve_oid(repo: &Git2Repo, oid: &Oid) -> Result<git2::Oid> {
+    Ok(repo
+        .inner
+        .revparse_single(oid.long())
+        .context(format!("Failed to resolve '{}'", oid))?
+        .id())
+}
+
+/// A revwalk pushed from `from_oid`, plus the resolved `to_oid` that callers
+/// stop at once they reach it.
+fn revwalk_between<'a>(
+    repo: &'a Git2Repo,
+    from_oid: &Oid,
+    to_oid: &Oid,
+) -> Result<(git2::Revwalk<'a>, git2::Oid)> {
+    let from_commit_oid = resolve_oid(repo, from_oid)?;
+    let to_commit_oid = resolve_oid(repo, to_oid)?;
+
+    let mut revwalk = repo.inner.revwalk()?;
+    revwalk.push(from_commit_oid)?;
+
+    Ok((revwalk, to_commit_oid))
+}
+
 pub(super) fn commit_walker<'a>(
     repo: &'a Git2Repo,
     from_oid: &Oid,
     to_oid: &Oid,
 ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
-    let from_object = repo
-        .inner
-        .revparse_single(from_oid.long())
-        .context(format!("Failed to resolve '{}'", from_oid))?;
-    let from_commit_oid = from_object.id();
-
-    let to_object = repo
-        .inner
-        .revparse_single(to_oid.long())
-        .context(format!("Failed to resolve '{}'", to_oid))?;
-    let to_commit_oid = to_object.id();
-
-    let mut revwalk = repo.inner.revwalk()?;
-    revwalk.push(from_commit_oid)?;
+    let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
 
     Ok(Box::new(CommitWalkerIter {
         repo: &repo.inner,
@@ -112,20 +124,7 @@ pub(super) fn list_commits(
     from_oid: &Oid,
     to_oid: &Oid,
 ) -> Result<Vec<CommitInfo>> {
-    let from_object = repo
-        .inner
-        .revparse_single(from_oid.long())
-        .context(format!("Failed to resolve '{}'", from_oid))?;
-    let from_commit_oid = from_object.id();
-
-    let to_object = repo
-        .inner
-        .revparse_single(to_oid.long())
-        .context(format!("Failed to resolve '{}'", to_oid))?;
-    let to_commit_oid = to_object.id();
-
-    let mut revwalk = repo.inner.revwalk()?;
-    revwalk.push(from_commit_oid)?;
+    let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
 
     let mut commits = Vec::new();
 
@@ -143,22 +142,31 @@ pub(super) fn list_commits(
     Ok(commits)
 }
 
-pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
-    let object = repo
+/// The commit `oid` names, its tree, and its first parent's tree — `None` for a
+/// root commit, which diffs against nothing. The base of every commit diff.
+fn commit_trees<'a>(
+    repo: &'a Git2Repo,
+    oid: &Oid,
+) -> Result<(git2::Commit<'a>, git2::Tree<'a>, Option<git2::Tree<'a>>)> {
+    let commit = repo
         .inner
         .revparse_single(oid.long())
-        .context(format!("Failed to resolve '{}'", oid))?;
-    let commit = object
+        .context(format!("Failed to resolve '{}'", oid))?
         .peel_to_commit()
         .context("Resolved object is not a commit")?;
 
     let new_tree = commit.tree().context("Failed to get commit tree")?;
-
     let parent_tree = if commit.parent_count() > 0 {
         Some(commit.parent(0)?.tree()?)
     } else {
         None
     };
+
+    Ok((commit, new_tree, parent_tree))
+}
+
+pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
+    let (commit, new_tree, parent_tree) = commit_trees(repo, oid)?;
 
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context_lines);
@@ -170,26 +178,9 @@ pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Res
 }
 
 pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<CommitDiff> {
-    let object = repo
-        .inner
-        .revparse_single(oid.long())
-        .context(format!("Failed to resolve '{}'", oid))?;
-    let commit = object
-        .peel_to_commit()
-        .context("Resolved object is not a commit")?;
+    let (commit, new_tree, parent_tree) = commit_trees(repo, oid)?;
 
-    let new_tree = commit.tree().context("Failed to get commit tree")?;
-
-    let parent_tree = if commit.parent_count() > 0 {
-        Some(commit.parent(0)?.tree()?)
-    } else {
-        None
-    };
-
-    let mut opts = git2::DiffOptions::new();
-    opts.context_lines(0);
-    opts.interhunk_lines(0);
-
+    let mut opts = fragmap_diff_opts();
     let mut diff =
         repo.inner
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;

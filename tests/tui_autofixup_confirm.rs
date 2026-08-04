@@ -149,8 +149,11 @@ fn test_autofixup_confirm_dialog_shows_edited_indicator() {
     }));
 }
 
+/// A long *source* summary cannot widen or wrap its row: source rows show only
+/// the SHA and the mode, because the summary is always the target's own summary
+/// behind a `fixup! ` / `squash! ` prefix.
 #[test]
-fn test_autofixup_confirm_dialog_long_summary() {
+fn test_autofixup_confirm_dialog_long_source_summary() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_autofixup_confirm(
@@ -161,6 +164,70 @@ fn test_autofixup_confirm_dialog_long_summary() {
             "Add parser",
             SquashMode::Fixup,
         )],
+        0,
+        Default::default(),
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
+/// A long *target* summary is truncated too, and still leaves room for the
+/// "(edited)" marker rather than pushing it onto a wrapped line.
+#[test]
+fn test_autofixup_confirm_dialog_long_target_summary() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "Refactor the entire parser module to use trait-based dispatching".to_string(),
+        "edited\n".to_string(),
+    );
+
+    let mut app = make_app_in_autofixup_confirm(
+        vec![pair(
+            "abc123def456",
+            "fixup! Add parser",
+            "def456ghi789",
+            "Refactor the entire parser module to use trait-based dispatching",
+            SquashMode::Fixup,
+        )],
+        0,
+        overrides,
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
+/// One target can take both a `fixup!` and a `squash!` source — grouping keys on
+/// the target summary alone, and the two produce different final messages, so
+/// the mode has to stay visible per row.
+#[test]
+fn test_autofixup_confirm_dialog_mixed_modes_under_one_target() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_autofixup_confirm(
+        vec![
+            pair(
+                "abc123def456",
+                "fixup! Add parser",
+                "def456ghi789",
+                "Add parser",
+                SquashMode::Fixup,
+            ),
+            pair(
+                "111111111111",
+                "squash! Add parser",
+                "def456ghi789",
+                "Add parser",
+                SquashMode::Squash,
+            ),
+        ],
         0,
         Default::default(),
     );
@@ -305,4 +372,66 @@ fn test_autofixup_confirm_dialog_narrow_terminal() {
         views::commit_list::render(&mut app, frame);
         views::autofixup::render_autofixup_confirm(&mut app, frame);
     }));
+}
+
+/// Characterization: autofixup groups have *variable* height — one line for the
+/// target plus one per source — so scrolling to a group must account for the
+/// heights of the groups above it, not assume a uniform item height.
+///
+/// The unequal source counts below are the point: a helper that multiplied a
+/// fixed item height by the index would pass every other test and fail here.
+#[test]
+fn test_autofixup_confirm_scrolls_variable_height_groups_into_view() {
+    const HEADER_LINES: usize = 5;
+
+    // Groups of 1, 3 and 1 sources.
+    let mut pairs = vec![pair(
+        "aaaaaaaaaaaa",
+        "fixup! First",
+        "111111111111",
+        "First",
+        SquashMode::Fixup,
+    )];
+    for i in 0..3 {
+        pairs.push(pair(
+            &format!("bbbbbbbbbb{i:02}"),
+            "fixup! Second",
+            "222222222222",
+            "Second",
+            SquashMode::Fixup,
+        ));
+    }
+    pairs.push(pair(
+        "cccccccccccc",
+        "fixup! Third",
+        "333333333333",
+        "Third",
+        SquashMode::Fixup,
+    ));
+
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+
+    let mut harness = TuiTestHarness::short();
+    harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let vh = app.dialog.visible_height;
+    // 3 targets + 5 sources = 8 content lines, plus the header.
+    assert!(
+        vh > 0 && vh < HEADER_LINES + 8,
+        "premise: the dialog must overflow, got vh={vh}"
+    );
+
+    // Move to the third group, whose top sits below two groups of height 2 and 4.
+    views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+    views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+
+    let third_top = HEADER_LINES + (1 + 1) + (1 + 3);
+    let third_height = 1 + 1;
+    assert_eq!(
+        app.dialog.offset,
+        third_top + third_height - vh,
+        "the last group's top must account for the taller group above it"
+    );
 }

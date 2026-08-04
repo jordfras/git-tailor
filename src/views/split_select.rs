@@ -24,6 +24,11 @@ use ratatui::{
     text::{Line, Span},
 };
 
+/// Rows above the first strategy: blank, heading (blank/content/blank), hint.
+const HEADER_LINES: usize = 5;
+/// Each strategy occupies a label, a description and a blank line.
+const ITEM_HEIGHT: usize = 3;
+
 /// Handle an action while in SplitSelect mode.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let strategy_index = match app.mode {
@@ -39,7 +44,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.mode = AppMode::SplitSelect {
                 strategy_index: cursor,
             };
-            scroll_to_strategy(app, cursor);
+            app.dialog
+                .ensure_visible(HEADER_LINES + cursor * ITEM_HEIGHT, ITEM_HEIGHT);
             AppAction::Handled
         }
         ListNav::Confirmed => {
@@ -73,27 +79,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         ListNav::Unhandled => AppAction::Handled,
     }
-}
-
-/// Scroll `dialog.offset` so that the strategy row at `index` is
-/// visible. The dialog layout is: 5 header lines, then 3 lines per strategy
-/// (label + description + blank). Uses the visible height from the previous
-/// render frame; does nothing if that hasn't been computed yet.
-fn scroll_to_strategy(app: &mut AppState, index: usize) {
-    const HEADER_LINES: usize = 5;
-    const ITEM_HEIGHT: usize = 3;
-    let item_top = HEADER_LINES + index * ITEM_HEIGHT;
-    let item_bottom = item_top + ITEM_HEIGHT - 1;
-    let vh = app.dialog.visible_height;
-    if vh == 0 {
-        return;
-    }
-    if item_top < app.dialog.offset {
-        app.dialog.offset = item_top;
-    } else if item_bottom >= app.dialog.offset + vh {
-        app.dialog.offset = item_bottom + 1 - vh;
-    }
-    app.dialog.clamp_offset();
 }
 
 /// Handle an action while in SplitConfirm mode.

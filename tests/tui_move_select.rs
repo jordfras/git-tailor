@@ -473,3 +473,42 @@ fn test_move_select_fragmap_highlight_tracks_separator() {
         "fragmap row y=3 (commit 1, previously wrong highlight) must not carry the selection highlight"
     );
 }
+
+/// Paging in both display orders. The existing reverse coverage is MoveUp /
+/// MoveDown only, but paging is where the step size and the mirroring interact,
+/// and `advance_insert` folds both into one `up ^ reverse`.
+///
+/// Source at index 2 keeps the no-op positions (2 and 3) clear of every landing
+/// spot below, so the assertions are about paging rather than no-op skipping.
+#[test]
+fn test_move_navigation_pages_in_both_display_orders() {
+    use git_tailor::app::KeyCommand;
+
+    // (key, expected insert_before oldest-first, expected newest-first)
+    let cases = [(KeyCommand::PageUp, 4, 10), (KeyCommand::PageDown, 10, 4)];
+
+    for (key, forward, reversed) in cases {
+        for (reverse, expected) in [(false, forward), (true, reversed)] {
+            let summaries: Vec<String> = (0..10).map(|i| format!("commit {i}")).collect();
+            let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
+            let mut app = common::app_state_from_commit_summaries(&refs);
+            app.list.selection_index = 2;
+            app.list.visible_height = 5; // a page is 4 rows
+            app.list.reverse = reverse;
+            app.mode = AppMode::MoveSelect {
+                source_index: 2,
+                insert_before: 8,
+            };
+
+            views::move_select::handle_key(key, &mut app);
+
+            match app.mode {
+                AppMode::MoveSelect { insert_before, .. } => assert_eq!(
+                    insert_before, expected,
+                    "{key:?} with reverse={reverse} should land on {expected}"
+                ),
+                ref other => panic!("expected MoveSelect, got {other:?}"),
+            }
+        }
+    }
+}

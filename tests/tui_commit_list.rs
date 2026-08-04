@@ -448,3 +448,81 @@ fn test_commit_list_ctrl_scroll_keeps_selection_visible() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+
+// ---------------------------------------------------------------------------
+// Navigation (handle_key)
+// ---------------------------------------------------------------------------
+
+/// Every vertical navigation key, in both display orders.
+///
+/// `handle_key` mirrors up/down when the list is drawn newest-first, and each
+/// key had its own copy of that `if reverse` block. The table pins what each
+/// combination does, so a change to how the mirroring is expressed has to keep
+/// producing these exact selections.
+///
+/// With 10 commits and a visible height of 5: a page is 4 rows (one line of
+/// overlap) and a half page is 2.
+#[test]
+fn test_commit_list_navigation_keys_in_both_display_orders() {
+    use git_tailor::app::KeyCommand::*;
+
+    // (key, expected index oldest-first, expected index newest-first)
+    let cases = [
+        (MoveUp, 4, 6),
+        (MoveDown, 6, 4),
+        (PageUp, 1, 9),
+        (PageDown, 9, 1),
+        (HalfPageUp, 3, 7),
+        (HalfPageDown, 7, 3),
+        (JumpToTop, 0, 9),
+        (JumpToBottom, 9, 0),
+    ];
+
+    for (key, forward, reversed) in cases {
+        for (reverse, expected) in [(false, forward), (true, reversed)] {
+            let summaries: Vec<String> = (0..10).map(|i| format!("commit {i}")).collect();
+            let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
+            let mut app = common::app_state_from_commit_summaries(&refs);
+            app.list.selection_index = 5;
+            app.list.visible_height = 5;
+            app.list.reverse = reverse;
+
+            views::commit_list::handle_key(key, &mut app);
+
+            assert_eq!(
+                app.list.selection_index, expected,
+                "{key:?} with reverse={reverse} should select {expected}"
+            );
+        }
+    }
+}
+
+/// `Ctrl-Up`/`Ctrl-Down` scroll the viewport rather than the selection, and are
+/// already expressed in display space — so unlike the keys above they must NOT
+/// be mirrored when the list is reversed.
+#[test]
+fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
+    use git_tailor::app::KeyCommand;
+
+    for reverse in [false, true] {
+        let summaries: Vec<String> = (0..10).map(|i| format!("commit {i}")).collect();
+        let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
+        let mut app = common::app_state_from_commit_summaries(&refs);
+        app.list.selection_index = 5;
+        app.list.visible_height = 5;
+        app.list.reverse = reverse;
+
+        let before = app.list.effective_offset(5);
+        views::commit_list::handle_key(KeyCommand::ScrollListDown, &mut app);
+
+        assert_eq!(
+            app.list.selection_index, 5,
+            "scrolling must not move the selection (reverse={reverse})"
+        );
+        assert_eq!(
+            app.list.scroll_override,
+            Some(before + 1),
+            "scrolling goes one display row down regardless of order (reverse={reverse})"
+        );
+    }
+}

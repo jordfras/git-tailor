@@ -29,69 +29,39 @@ use ratatui::{
 
 /// Handle an action while in CommitList mode.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
-    match action {
+    // Resolve the display order once, so every arm below moves the selection
+    // toward the oldest or newest commit without restating the mirroring.
+    match action.with_vertical_mirroring(app.list.reverse) {
         KeyCommand::MoveUp => {
-            if app.list.reverse {
-                app.list.move_down();
-            } else {
-                app.list.move_up();
-            }
+            app.list.move_up();
             AppAction::Handled
         }
         KeyCommand::MoveDown => {
-            if app.list.reverse {
-                app.list.move_up();
-            } else {
-                app.list.move_down();
-            }
+            app.list.move_down();
             AppAction::Handled
         }
         KeyCommand::PageUp => {
-            if app.list.reverse {
-                app.list.select_page_down();
-            } else {
-                app.list.select_page_up();
-            }
+            app.list.select_page_up();
             AppAction::Handled
         }
         KeyCommand::PageDown => {
-            if app.list.reverse {
-                app.list.select_page_up();
-            } else {
-                app.list.select_page_down();
-            }
+            app.list.select_page_down();
             AppAction::Handled
         }
         KeyCommand::HalfPageUp => {
-            if app.list.reverse {
-                app.list.select_half_page_down();
-            } else {
-                app.list.select_half_page_up();
-            }
+            app.list.select_half_page_up();
             AppAction::Handled
         }
         KeyCommand::HalfPageDown => {
-            if app.list.reverse {
-                app.list.select_half_page_up();
-            } else {
-                app.list.select_half_page_down();
-            }
+            app.list.select_half_page_down();
             AppAction::Handled
         }
         KeyCommand::JumpToTop => {
-            if app.list.reverse {
-                app.list.jump_to_last();
-            } else {
-                app.list.jump_to_first();
-            }
+            app.list.jump_to_first();
             AppAction::Handled
         }
         KeyCommand::JumpToBottom => {
-            if app.list.reverse {
-                app.list.jump_to_first();
-            } else {
-                app.list.jump_to_last();
-            }
+            app.list.jump_to_last();
             AppAction::Handled
         }
         KeyCommand::ScrollLeft => {

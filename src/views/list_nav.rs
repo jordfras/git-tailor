@@ -37,49 +37,35 @@ pub enum ListNav {
 /// clamping (e.g. squash_select clamps the cursor to `source_index` after
 /// a move).
 ///
-/// - `page_size` is the number of visible rows; one line of overlap is kept
-///   when paging (same arithmetic as the commit list).
+/// - `visible_height` is the number of visible rows; one line of overlap is
+///   kept when paging (same arithmetic as the commit list). Callers whose rows
+///   are not one line each, or whose list always fits on screen, pass their
+///   item count instead, making a page the whole list.
 /// - `reverse` swaps the visual direction of Up/Down to match the
-///   `--reverse` display mode.
+///   `--reverse` display mode, via [`KeyCommand::with_vertical_mirroring`].
 pub fn handle_list_navigation(
     action: KeyCommand,
     cursor: &mut usize,
     len: usize,
-    page_size: usize,
+    visible_height: usize,
     reverse: bool,
 ) -> ListNav {
-    let step_page = page_size.saturating_sub(1).max(1);
-    match action {
+    let step_page = crate::app::scroll::page_size(visible_height);
+    match action.with_vertical_mirroring(reverse) {
         KeyCommand::MoveUp => {
-            if reverse {
-                cursor_down(cursor, len, 1);
-            } else {
-                cursor_up(cursor, 1);
-            }
+            cursor_up(cursor, 1);
             ListNav::Moved
         }
         KeyCommand::MoveDown => {
-            if reverse {
-                cursor_up(cursor, 1);
-            } else {
-                cursor_down(cursor, len, 1);
-            }
+            cursor_down(cursor, len, 1);
             ListNav::Moved
         }
         KeyCommand::PageUp => {
-            if reverse {
-                cursor_down(cursor, len, step_page);
-            } else {
-                cursor_up(cursor, step_page);
-            }
+            cursor_up(cursor, step_page);
             ListNav::Moved
         }
         KeyCommand::PageDown => {
-            if reverse {
-                cursor_up(cursor, step_page);
-            } else {
-                cursor_down(cursor, len, step_page);
-            }
+            cursor_down(cursor, len, step_page);
             ListNav::Moved
         }
         KeyCommand::Confirm => ListNav::Confirmed,

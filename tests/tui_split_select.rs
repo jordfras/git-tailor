@@ -147,3 +147,34 @@ fn test_split_dialog_long_non_ascii_summary_does_not_panic() {
     let mut harness = TuiTestHarness::typical();
     let _ = harness.render(|frame| views::split_select::render(&mut app, frame));
 }
+
+/// Characterization: the strategy picker is the only dialog whose items are
+/// taller than one line (label + description + blank), so this pins that the
+/// *whole* three-line item is scrolled into view, not just its first line.
+#[test]
+fn test_split_select_scrolls_the_whole_item_into_view() {
+    const HEADER_LINES: usize = 5;
+    const ITEM_HEIGHT: usize = 3;
+    let last = SplitStrategy::ALL.len() - 1;
+
+    let mut app = make_app_in_split_select(0);
+
+    let mut harness = TuiTestHarness::short();
+    harness.render(|frame| views::split_select::render(&mut app, frame));
+    let vh = app.dialog.visible_height;
+    assert!(
+        vh > 0 && vh < HEADER_LINES + SplitStrategy::ALL.len() * ITEM_HEIGHT,
+        "premise: the picker must overflow, got vh={vh}"
+    );
+
+    for _ in 0..last {
+        views::split_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+
+    let item_top = HEADER_LINES + last * ITEM_HEIGHT;
+    assert_eq!(
+        app.dialog.offset,
+        item_top + ITEM_HEIGHT - vh,
+        "the last strategy's full three lines must be visible"
+    );
+}

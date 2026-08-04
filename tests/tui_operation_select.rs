@@ -155,3 +155,51 @@ fn shortcut_for_an_unavailable_operation_is_ignored() {
     assert!(matches!(action, AppAction::Handled));
     assert!(matches!(app.mode, AppMode::OperationSelect { .. }));
 }
+
+/// Characterization: the operation picker scrolls the cursor into view on a
+/// terminal too short for the whole list.
+///
+/// Note the asymmetry this pins: coming back to the *first* operation leaves the
+/// offset at the header height, not 0 — the five header lines are never scrolled
+/// back into view, because the row index is `HEADER_LINES + index`.
+#[test]
+fn operation_picker_scrolls_the_cursor_into_view() {
+    const HEADER_LINES: usize = 5;
+
+    let mut app = common::app_state_from_commit_summaries(&["Older", "Add feature X"]);
+    app.list.selection_index = 1; // a real commit that is not the oldest
+    app.enter_operation_select();
+    let op_count = git_tailor::app::Operation::available_for(
+        app.list.selected_virtual_oid().unwrap(),
+        app.list.selected_is_oldest_commit(),
+    )
+    .len();
+
+    let mut harness = TuiTestHarness::short();
+    harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::operation_select::render(&mut app, frame);
+    });
+    let vh = app.dialog.visible_height;
+    assert!(
+        vh > 0 && vh < HEADER_LINES + op_count,
+        "premise: the picker must overflow, got vh={vh} for {op_count} operations"
+    );
+
+    for _ in 0..op_count {
+        views::operation_select::handle_key(KeyCommand::MoveDown, &mut app);
+    }
+    assert_eq!(
+        app.dialog.offset,
+        HEADER_LINES + (op_count - 1) + 1 - vh,
+        "the last operation is scrolled just into view"
+    );
+
+    for _ in 0..op_count {
+        views::operation_select::handle_key(KeyCommand::MoveUp, &mut app);
+    }
+    assert_eq!(
+        app.dialog.offset, HEADER_LINES,
+        "the header is never scrolled back into view"
+    );
+}
