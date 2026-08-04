@@ -11,15 +11,6 @@ code, and whether combining them would be safe or risky.
 
 ![git-tailor demo](doc/demo.gif)
 
-> **⚠ Data safety — please read before use**
-> 
-> This tool rewrites history. Always push your branch to a remote before running
-> it. The author takes **no responsibility** for data loss of any kind. Use at
-> your own risk. See [LICENSE](LICENSE) for the full disclaimer.
-> 
-> This tool was developed entirely through AI-assisted ("vibe coded") sessions
-> using AI agents. It has been reviewed and tested, but may contain bugs.
-
 
 ## Installation
 
@@ -178,6 +169,19 @@ collection (whose native `.itermcolors` format is *not* accepted directly).
 
 
 ## Notes
+
+### Rewriting history safely
+
+git-tailor rewrites branch history, so the usual rewrite caveats apply. To keep
+that safe, every operation is journalled before it runs: anything can be undone
+and redone, and an interrupted run is recovered the next time you start `gt`.
+Operations also refuse to run on a dirty working tree unless you ask for
+`--autostash`. As with any history rewriting, having the branch pushed to a
+remote is still a good extra safety net.
+
+The tool is developed through AI-assisted ("vibe coded") sessions, with a large
+automated test suite, and is used daily for real work. It comes with no warranty
+of any kind — see [LICENSE](LICENSE) for the full disclaimer.
 
 ### A single hunk can span more than one hunk group
 
