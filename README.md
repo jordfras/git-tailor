@@ -30,25 +30,16 @@ distribution (and WSL2).
 ## Usage
 
 ```sh
-gt [base]
-```
-
-`[base]` identifies the branch or point you forked from — typically the target
-branch of your pull request (e.g. `main` or `origin/main`). It does not need to
-be a direct ancestor of `HEAD`: the **merge-base** (common ancestor) between
-`[base]` and `HEAD` is used as the reference point. All commits between that
-merge-base and `HEAD` are shown.
-
-When `[base]` is omitted, `gt` automatically uses the repository's default
-upstream branch by resolving `origin/HEAD`. If that is not configured it falls
-back to `main`.
-
-```sh
 gt main              # commits on top of main
 gt origin/main       # commits not yet pushed
 gt v1.2.3            # commits since a tag
-gt                   # auto-detect default branch (origin/HEAD or main)
+gt                   # auto-detect default branch (origin/HEAD, else main)
 ```
+
+The optional argument is the base: the branch or point you forked from,
+typically the target branch of your pull request. The base does not need to be a
+direct ancestor of `HEAD` — the **merge-base** (common ancestor) between the base
+and `HEAD` is the reference point, and every commit after that is shown.
 
 `gt` also has options for things like reversing the commit order, browsing the
 complete repository history, choosing a hunk group matrix theme, and printing
@@ -71,14 +62,11 @@ selected you can:
   or by picking one or more files/hunks to peel out into their own commit
 - **Reword** — edit its message
 - **Drop** — delete it entirely
-- **Edit** — check out the commit and drop into a shell to rewrite it by hand
-  (fix a few lines and `git commit --amend`, or `git reset HEAD~` and re-commit
-  in pieces to split it); on exit the following commits are replayed onto your
-  result
-- **Autofixup** — not tied to the selected commit: scans the whole branch for
-  `fixup!`/`squash!`-prefixed commits and squashes each into the commit its
-  message names, in one bulk pass, after showing a confirmation of what will
-  happen
+- **Edit** — check out the commit and drop into a shell to rewrite it by hand;
+  on exit the following commits are replayed onto your result
+- **Autofixup** — not tied to the selected commit: squashes every
+  `fixup!`/`squash!` commit on the branch into the commit its message names, in
+  one pass, after a confirmation showing what will happen
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`
 
@@ -149,23 +137,9 @@ red (conflicting), and gray (fully squashable) instead.
 
 The screenshot above uses git-tailor's built-in **Dark+** palette. By default
 (`--palette terminal`) git-tailor adopts your terminal's own colors, which works
-best on a dark background — the matrix, diff, and bars are designed for one. On a
-light or pastel theme the UI can wash out; pass `--palette campbell` or
-`--palette dark+` to render a fixed dark scheme on any terminal.
-
-You can also point `--palette` at a
-[Windows Terminal color-scheme](https://learn.microsoft.com/windows/terminal/customize-settings/color-schemes)
-JSON file to use any custom palette:
-
-```sh
-gt --palette ~/my-scheme.json
-```
-
-Ready-made schemes in that format are available from
-[windowsterminalthemes.dev](https://windowsterminalthemes.dev/) and, in the
-`windowsterminal/` folder of the
-[iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
-collection (whose native `.itermcolors` format is *not* accepted directly).
+best on a dark background. On a light or pastel theme the UI can wash out — pass
+`--palette campbell` or `--palette dark+` to render a fixed dark scheme on any
+terminal, or bring your own (see [Custom color schemes](#custom-color-schemes)).
 
 
 ## Shell completion
@@ -199,6 +173,22 @@ then exits without opening the TUI.
 The tool is developed through AI-assisted ("vibe coded") sessions, with a large
 automated test suite, and is used daily for real work. It comes with no warranty
 of any kind — see [LICENSE](LICENSE) for the full disclaimer.
+
+### Custom color schemes
+
+Besides the built-in palettes, `--palette` accepts a path to a
+[Windows Terminal color-scheme](https://learn.microsoft.com/windows/terminal/customize-settings/color-schemes)
+JSON file:
+
+```sh
+gt --palette ~/my-scheme.json
+```
+
+Ready-made schemes in that format are available from
+[windowsterminalthemes.dev](https://windowsterminalthemes.dev/) and in the
+`windowsterminal/` folder of the
+[iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
+collection (whose native `.itermcolors` format is *not* accepted directly).
 
 ### A single hunk can span more than one hunk group
 
