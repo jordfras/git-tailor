@@ -21,8 +21,6 @@ Set Height 500
 # 24fps keeps the file small (vhs defaults to 50); post-render gifsicle trims
 # the rest. See demo/scripts/render.sh.
 Set Framerate 24
-# git-tailor renders its own dark palette via `--palette=dark+` (see the launch
-# below), so the demo looks consistent regardless of the recording terminal's theme.
 Set Padding 20
 Set TypingSpeed 125ms
 
@@ -35,7 +33,7 @@ Enter
 Show
 
 # ── Launch git-tailor ──────────────────────────────────────────────────────
-Type "gt --palette=dark+"
+Type "gt"
 Sleep 400ms
 Enter
 Sleep 1.5s
