@@ -1371,9 +1371,7 @@ fn shares_cluster_with_one_shared_is_enough() {
     assert!(fm.shares_cluster_with(0, 1));
 }
 
-// =========================================================
 // build_fragmap SPG edge cases
-// =========================================================
 
 #[test]
 fn build_fragmap_pure_insertion_clusters_with_later_modifier() {
@@ -1690,5 +1688,52 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
     assert!(
         fm.shares_cluster_with(0, 22),
         "c0 and c22 should share a cluster"
+    );
+}
+
+// Hunk group assignment tests
+
+/// A commit that only *inserts* lines, into regions two different earlier
+/// commits own, must still split into one piece per column.
+///
+/// The matrix puts such a commit in two columns — insertions overlap the
+/// clusters they land in — so the documented aim of "one result commit per
+/// column" means two groups here. Attribution alone cannot see it: a line
+/// that did not exist before rewrites nobody's output, so every hunk comes
+/// back with an empty relation set and they collapse into a single group.
+#[test]
+fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
+    // Two earlier commits, each creating a file.
+    let lexer = make_commit_diff(
+        "aaa111",
+        vec![make_file_diff(None, Some("src/lexer.rs"), 0, 0, 1, 24)],
+    );
+    let parser = make_commit_diff(
+        "bbb222",
+        vec![make_file_diff(None, Some("src/parser.rs"), 0, 0, 1, 29)],
+    );
+    // The commit under test inserts into both, rewriting no existing line.
+    let bundled = make_commit_diff(
+        "ccc333",
+        vec![
+            make_file_diff(Some("src/lexer.rs"), Some("src/lexer.rs"), 8, 0, 8, 2),
+            make_file_diff(Some("src/parser.rs"), Some("src/parser.rs"), 23, 0, 23, 6),
+        ],
+    );
+
+    let diffs = vec![lexer, parser, bundled];
+    let assignment =
+        assign_hunk_groups(&diffs, &Oid::from("ccc333")).expect("commit is present in the diffs");
+
+    assert_eq!(
+        assignment.group_count, 2,
+        "insertions into two different files belong to two columns, so the \
+         split must produce two groups, not {}",
+        assignment.group_count
+    );
+    assert_eq!(
+        assignment.touched_groups().len(),
+        2,
+        "both groups must actually receive hunks"
     );
 }
