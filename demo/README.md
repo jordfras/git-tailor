@@ -44,8 +44,8 @@ specific to one artifact lives in its own directory.
   generates the fixture, renders the tapes. Shared, because capturing a tape is
   the same job either way.
 - [`gif/`](gif) — the README demo GIF: one tape and the fixture it drives.
-- [`promo/`](promo) — the promo video: narration, audio, and the composition
-  pipeline.
+- [`promo/`](promo) — the promo video: scenes, narration, audio, and the
+  composition pipeline. See [`promo/README.md`](promo/README.md).
 
 Each artifact brings its own fixture — [`gif/make-repo.sh`](gif/make-repo.sh)
 and [`promo/make-repo.sh`](promo/make-repo.sh) — regenerated before *every*

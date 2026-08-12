@@ -1,0 +1,15 @@
+# "split them apart", not "pull them apart": same "pool" problem as scene 01.
+# The wording is the fix — do not tidy it back.
+But that's not your branch, is it.
+
+[0.3]
+Your branch has debug output you meant to delete.
+
+[0.2]
+And this.
+
+[0.25]
+One commit. Two fixes. They belong in two completely different places.
+
+[0.35]
+To split them apart, you get to do... this.

@@ -230,6 +230,19 @@ Guidelines:
   commit, a fixup with no matching target, mixed fixup!/squash! prefixes)
   and a TUI test for the confirmation dialog.
 
+## Demo & Promo Video
+- [ ] T238 P2 human - Watch the promo video end to end with fresh eyes and
+  tighten whatever grates (Flags: HUMAN TASK). Every scene has been checked
+  against its own narration and timings, but the whole thing has never been
+  judged as one piece by someone not holding the numbers in their head. Render
+  with `demo/build.sh video`; the pacing levers and what each is worth are in
+  `demo/promo/README.md`.
+- [ ] T239 P2 human - Publish the promo video and link it from `README.md`
+  (Flags: HUMAN TASK). Upload to YouTube, then link it as a **clickable
+  thumbnail** — an image wrapped in a link. Do not embed `<video>` or an MP4:
+  GitHub sanitises the tag out of rendered Markdown and crates.io ignores it, so
+  an embed silently degrades to nothing on both.
+
 ## Build & CI
 - [X] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
   `.github/workflows/release.yml` that triggers on version tags (`v*`), builds

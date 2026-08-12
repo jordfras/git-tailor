@@ -1,0 +1,13 @@
+# "PR", not "pull request": the model renders "pull" as "pool" and no
+# respelling fixes it — /pˈʊl/ is already correct, the vowel is just drawn long.
+# Spelt for the ear; see the phonemizer notes in ../../README.md.
+Picture it.
+
+[0.5]
+Friday afternoon. A PR lands on your desk.
+
+[0.5]
+Six commits. Each one does exactly one thing.
+
+[0.6]
+You review it in four minutes. You go home.

@@ -1,0 +1,10 @@
+And that's not all!
+
+[0.6]
+Every commit, every group of hunks, colour-coded.
+
+[0.35]
+Green squashes clean. Red doesn't.
+
+[0.5]
+You can see which commits touch the same lines, before you touch anything.

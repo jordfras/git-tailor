@@ -1,0 +1,27 @@
+There is.
+
+[0.35]
+git-tailor.
+
+[0.7]
+Here's that same commit. And the matrix on the right already knows the story:
+this change touches lines owned by two different commits.
+
+[0.9]
+Press "p". Split it, one piece per group of hunks.
+
+[1.2]
+Press "f". Send the first fix home, to the commit that added the lexer.
+
+[1.3]
+Press "f" again. And the second one, to the parser.
+
+[1.4]
+Press "d". The debug output is gone.
+
+[1.5]
+{speed=1.0}
+Six commits. Each one does exactly one thing.
+
+[0.7]
+You go home.
