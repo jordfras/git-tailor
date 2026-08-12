@@ -49,6 +49,12 @@ ENV EDITOR=vim \
     VISUAL=vim \
     GIT_EDITOR=vim
 
+# Pin git-tailor's own colours so recordings look the same whatever the
+# recording terminal's theme is. Set here rather than as `--palette=dark+` on
+# the command line in the tapes: the flag would appear in every recording, and
+# it is not something a viewer needs to type to get this result.
+ENV GT_PALETTE=dark+
+
 # The vhs base image sets ENTRYPOINT ["vhs"]; reset it so the container is a
 # general-purpose shell that the build scripts can drive (cargo build, then vhs,
 # then ffmpeg).
