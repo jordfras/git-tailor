@@ -537,3 +537,91 @@ fn split_per_hunk_group_last_piece_has_original_tree() {
         "the last split piece must reproduce the original commit's tree"
     );
 }
+
+#[test]
+fn split_per_hunk_group_insertions_into_two_files() {
+    // K only inserts lines, so no line it writes rewrites anyone's output and
+    // every hunk comes back with an empty relation set. The matrix still puts
+    // it in two columns — one per file, each shared with that file's author —
+    // so the split must follow the columns and produce two commits.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("README.md", "readme\n", "base");
+    test.commit_file("a.txt", "A1\nA2\nA3\n", "add a");
+    test.commit_file("b.txt", "B1\nB2\nB3\n", "add b");
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "A1\nNEW-A\nA2\nA3\n"),
+            ("b.txt", "B1\nB2\nNEW-B\nB3\n"),
+        ],
+        "insert into both",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    // The confirmation dialog previews this count, so it has to agree.
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .unwrap(),
+        2
+    );
+
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    // add a + add b + two split parts.
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        4,
+        "expected the insert commit to split in two"
+    );
+
+    // The first piece carries one file's insertion and leaves the other alone.
+    let first = commits_above_base[2];
+    assert_file_contents!(&test.repo, first, "a.txt", "A1\nNEW-A\nA2\nA3\n");
+    assert_file_contents!(&test.repo, first, "b.txt", "B1\nB2\nB3\n");
+
+    let tip = commits_above_base[3];
+    assert_file_contents!(&test.repo, tip, "a.txt", "A1\nNEW-A\nA2\nA3\n");
+    assert_file_contents!(&test.repo, tip, "b.txt", "B1\nB2\nNEW-B\nB3\n");
+}
+
+#[test]
+fn split_per_hunk_group_refuses_insertions_sharing_one_column() {
+    // The mirror of the test above: the insertions again rewrite nobody's
+    // output, and again land in two files — but both files are owned by the
+    // same commit, so both land in the same column. Different paths are not by
+    // themselves different columns, and this must still refuse.
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("README.md", "readme\n", "base");
+    test.commit_files(
+        &[("a.txt", "A1\nA2\nA3\n"), ("b.txt", "B1\nB2\nB3\n")],
+        "add both",
+    );
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "A1\nNEW-A\nA2\nA3\n"),
+            ("b.txt", "B1\nB2\nNEW-B\nB3\n"),
+        ],
+        "insert into both",
+    );
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    let result =
+        git_repo.split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base));
+    let msg = result
+        .expect_err("one column means nothing to split")
+        .to_string();
+    assert!(
+        msg.contains("fewer than 2 hunk groups"),
+        "unexpected error message: {}",
+        msg
+    );
+}

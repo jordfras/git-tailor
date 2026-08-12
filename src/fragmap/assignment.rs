@@ -15,11 +15,17 @@
 //! The hunk-group assignment types for splitting a commit per hunk group.
 //!
 //! Each hunk of the commit being split — or a fragment of it, when its lines
-//! relate to different commits — is routed to one group.  Groups are relation
-//! patterns: the set of other commits whose changes a fragment's lines
-//! concern, computed exactly by the [`attribution`](super::attribution)
-//! module.  Splitting along these groups keeps every resulting commit related
-//! only to the commits its lines actually concern, never to sibling pieces.
+//! relate to different commits — is routed to one group.  A group is a column
+//! of the matrix paired with a relation pattern: the set of other commits
+//! whose changes a fragment's lines concern, computed exactly by the
+//! [`attribution`](super::attribution) module.  Splitting along these groups
+//! keeps every resulting commit related only to the commits its lines actually
+//! concern, never to sibling pieces.
+//!
+//! The relation pattern alone would not do, because lines that only add
+//! rewrite nobody's output and so relate to nothing — a commit made entirely
+//! of insertions would collapse into one group however many columns it
+//! occupies.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -81,7 +87,7 @@ impl HunkAssignment {
 /// The hunk-group assignment for a commit being split per hunk group.
 #[derive(Debug, Clone)]
 pub struct HunkGroupAssignment {
-    /// Number of distinct groups (relation patterns).
+    /// Number of distinct groups (column and relation pattern).
     pub group_count: usize,
     /// Per file path, one entry per hunk of the split commit — indexed the
     /// same way as the 0-context full diff produced by

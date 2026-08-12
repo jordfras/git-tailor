@@ -201,7 +201,8 @@ diff can show up as squares in more than one column of the same row.
 This matters when splitting a commit:
 
 - **Per hunk group** keeps hunks whole wherever possible, aiming for one
-  result commit per column. If a hunk truly needs to be divided to make the
+  result commit per column: hunks in different columns always end up in
+  different commits. If a hunk truly needs to be divided to make the
   split possible at all, git-tailor divides just that one hunk — and no
   further, since slicing every hunk along column lines would make the
   resulting commits look related to each other again, defeating the point of
