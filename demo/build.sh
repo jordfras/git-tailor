@@ -33,7 +33,7 @@ render_gif() {
     build_image
     docker run --rm "${common_mounts[@]}" \
         -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-        "$IMAGE" demo/scripts/render.sh "$@"
+        "$IMAGE" demo/render.sh "$@"
 }
 
 cmd=${1:-gif}
@@ -50,7 +50,7 @@ publish)
     # references it there via an absolute raw URL so it renders on both GitHub
     # and crates.io. Run this before a release (see RELEASE.md) and commit the
     # updated doc/demo.gif.
-    render_gif demo/tapes/demo.tape
+    render_gif demo/gif/demo.tape
     cp "$REPO_ROOT/demo/out/demo.gif" "$REPO_ROOT/doc/demo.gif"
     echo "published -> doc/demo.gif"
     ;;

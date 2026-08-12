@@ -3,12 +3,12 @@
 # Copyright 2026 Thomas Johannesson
 #
 # Container-side render step for the git-tailor demo artifacts. This runs INSIDE
-# the toolchain image (see demo/Dockerfile), driven by demo/Makefile: it builds
+# the toolchain image (see demo/Dockerfile), driven by demo/build.sh: it builds
 # git-tailor, generates a fresh demo repo, and renders one or more vhs tapes to
 # demo/out/.
 #
-# Usage (inside the container):  demo/scripts/render.sh [TAPE...]
-# With no arguments every demo/tapes/*.tape is rendered.
+# Usage (inside the container):  demo/render.sh [TAPE...]
+# With no arguments every demo/gif/*.tape is rendered.
 set -euo pipefail
 
 REPO=/work
@@ -30,13 +30,13 @@ command -v gt >/dev/null || {
 export DEMO_REPO=/tmp/demo-repo
 echo ">> generating demo repo at $DEMO_REPO ..."
 rm -rf "$DEMO_REPO"
-"$REPO/demo/scripts/make-demo-repo.sh" "$DEMO_REPO" >/dev/null
+"$REPO/demo/gif/make-repo.sh" "$DEMO_REPO" >/dev/null
 
 # Render the requested tapes (default: all of them). Each tape names its own
 # Output path, resolved relative to $REPO since that is our cwd.
 tapes=("$@")
 if [ ${#tapes[@]} -eq 0 ]; then
-    tapes=("$REPO"/demo/tapes/*.tape)
+    tapes=("$REPO"/demo/gif/*.tape)
 fi
 mkdir -p "$REPO/demo/out"
 for tape in "${tapes[@]}"; do

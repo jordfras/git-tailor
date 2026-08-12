@@ -32,14 +32,18 @@ renders on both GitHub and crates.io — run `publish` before a release (see
 
 ## How it fits together
 
+Shared pieces sit at this level; everything specific to one artifact lives in
+its own directory, so a second artifact can be added without disturbing the
+first.
+
 - [`Dockerfile`](Dockerfile) — the toolchain image (see below).
 - [`build.sh`](build.sh) — host entry point; drives Docker so no other host
   tools are needed.
-- [`scripts/render.sh`](scripts/render.sh) — runs *inside* the image: builds
-  git-tailor, generates the demo repo, renders the tapes.
-- [`scripts/make-demo-repo.sh`](scripts/make-demo-repo.sh) — builds the
-  throwaway `calc` repo the tapes drive.
-- [`tapes/`](tapes) — the vhs tape scripts (one per artifact).
+- [`render.sh`](render.sh) — runs *inside* the image: builds git-tailor,
+  generates the fixture, renders the tapes. Shared, because capturing a tape is
+  the same job whatever is being captured.
+- [`gif/`](gif) — the README demo GIF: its tape, the fixture it drives, and
+  [`gif/README.md`](gif/README.md).
 
 git-tailor is compiled into a Docker **cache volume** (not the host's `./target`)
 so repeat renders reuse crate builds and the host tree is left untouched.

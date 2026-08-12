@@ -15,7 +15,7 @@
 #   * a splittable commit             — #9 bundles two unrelated concerns
 #
 # Usage:
-#   make-demo-repo.sh [OUTPUT_DIR]
+#   demo/gif/make-repo.sh [OUTPUT_DIR]
 #
 # With no argument a fresh temp dir is created and its path printed. If
 # OUTPUT_DIR is given it must not exist or be empty (set FORCE=1 to wipe it).
