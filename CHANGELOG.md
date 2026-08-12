@@ -89,13 +89,14 @@ The format is based on
   collects the commits to replay is unreliable across a merge, it could also
   stop early and replay the wrong set. Both operations now check up front and
   leave the branch untouched.
-- Split per hunk group now groups hunks by the exact set of commits their
-  lines relate to, computed directly from the diffs, so for instance a change
-  that a later commit reworks lands in the piece related to that commit. A
-  commit whose hunks all share one relation set is no longer refused (e.g. a
-  single hunk overlapping two other commits' regions): one hunk is sliced at
-  the relation boundary to make the split possible. Hunks otherwise stay
-  whole, so the resulting commits never become related to each other.
+- Split per hunk group now separates hunks by the exact set of commits their
+  lines relate to, computed directly from the diffs, and not only by the column
+  they sit in — so for instance a change that a later commit reworks lands in
+  the piece related to that commit. A commit whose hunks all share one column
+  and one relation set is no longer refused (e.g. a single hunk overlapping two
+  other commits' regions): that one hunk is sliced at the relation boundary to
+  make the split possible. Hunks otherwise stay whole, so the resulting commits
+  never become related to each other.
 - Auto-stash (`--autostash`) no longer silently drops an unstaged edit that keeps
   a file's size unchanged (e.g. flipping a single character). libgit2's stash
   could treat such an edit as unmodified when its timestamp collided with the

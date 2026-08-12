@@ -29,7 +29,7 @@ mod spg;
 pub use assignment::{
     FragmentAssignment, HunkAssignment, HunkFragment, HunkGroupAssignment, LineRange,
 };
-use spg::{build_file_clusters, deduplicate_clusters};
+use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clusters};
 
 /// Build a map from every known file path to the canonical (earliest) name for
 /// that file, following rename chains across commits.
@@ -268,10 +268,16 @@ pub fn build_fragmap(
 /// Compute the hunk group assignment for splitting commit `commit_oid`.
 ///
 /// Each hunk of `commit_oid` in `commit_diffs` is assigned — whole — to a
-/// group by its exact relation set: the earlier commits whose output its
-/// removed lines rewrote and the later commits that reworked its added lines,
-/// computed by composing the line maps of the intermediate diffs (see the
-/// `attribution` module).  One group per distinct relation set.
+/// group by its column and its exact relation set: the earlier commits whose
+/// output its removed lines rewrote and the later commits that reworked its
+/// added lines, computed by composing the line maps of the intermediate diffs
+/// (see the `attribution` module).
+///
+/// The column is what the matrix deduplicates on, the set of commits touching
+/// the cluster, so hunks in different columns never merge. Relation alone is
+/// not enough: a hunk that only adds lines rewrites nobody's output and so
+/// relates to nothing, and a commit made entirely of such hunks would collapse
+/// into one group and be refused however many columns it occupies.
 ///
 /// Hunks are kept whole deliberately: 0-context hunks are separated by
 /// unchanged lines, so whole-hunk pieces are never adjacent and the resulting
@@ -342,14 +348,92 @@ pub fn assign_hunk_groups(
         }
     }
 
-    // Group hunks (and the cut hunk's two sides) by relation set, indexed in
-    // order of first appearance so the split pieces come out positionally.
-    let mut patterns: Vec<Vec<usize>> = Vec::new();
-    let group_of = |related: Vec<usize>, patterns: &mut Vec<Vec<usize>>| -> usize {
-        match patterns.iter().position(|p| *p == related) {
+    // Which column each of K's hunks sits in.
+    //
+    // Hunks in different columns are separate pieces of the commit and must
+    // never merge, whatever their relation sets say. Relation alone cannot see
+    // this: a hunk that only inserts lines rewrites nobody's output, so every
+    // such hunk comes back relating to nothing and they collapse into a single
+    // group even when they are in different files entirely.
+    let mut column_of: HashMap<(String, usize), Vec<VirtualOid>> = HashMap::new();
+    let mut clusters_of: HashMap<String, Vec<(SpanCluster, Option<spg::SpgSpan>)>> = HashMap::new();
+    for (path, _) in &attributed {
+        let Some(clusters) = build_file_clusters_with_target(
+            path,
+            &file_commits[path],
+            commit_diffs,
+            Some(k_idx),
+            &mut || true,
+        ) else {
+            continue;
+        };
+        let Some((_, k_hunks)) = file_commits[path]
+            .iter()
+            .find(|(generation, _)| *generation == k_idx)
+        else {
+            continue;
+        };
+        for (hunk_idx, hunk) in k_hunks.iter().enumerate() {
+            let start = hunk.new_start as i64;
+            let end = start + (hunk.new_lines.max(1)) as i64;
+            // A hunk can graze several columns; it belongs to the one it
+            // overlaps most, since it is kept whole.
+            let mut best: Option<(i64, usize)> = None;
+            for (cluster_idx, (_, target_span)) in clusters.iter().enumerate() {
+                let Some(span) = target_span else { continue };
+                let overlap = end.min(span.end) - start.max(span.start);
+                if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
+                    best = Some((overlap, cluster_idx));
+                }
+            }
+            if let Some((_, cluster_idx)) = best {
+                // Identified by the set of commits touching the cluster, which
+                // is precisely what the matrix deduplicates columns on: two
+                // regions touched by the same commits are one column, even in
+                // different files, so hunks in them belong together.
+                let mut touching = clusters[cluster_idx].0.commit_oids.clone();
+                touching.sort();
+                column_of.insert((path.clone(), hunk_idx), touching);
+            }
+        }
+        clusters_of.insert(path.clone(), clusters);
+    }
+
+    // The column a line range in `path` sits in, for placing the cut hunk's
+    // fragments. A fragment and a whole hunk that belong to the same column and
+    // relate to the same commits are one piece, so both must be keyed alike.
+    let column_at = |path: &str, range: &assignment::LineRange| -> Option<Vec<VirtualOid>> {
+        let clusters = clusters_of.get(path)?;
+        let (start, end) = (
+            range.start as i64,
+            (range.end as i64).max(range.start as i64 + 1),
+        );
+        let mut best: Option<(i64, usize)> = None;
+        for (cluster_idx, (_, target_span)) in clusters.iter().enumerate() {
+            let Some(span) = target_span else { continue };
+            let overlap = end.min(span.end) - start.max(span.start);
+            if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
+                best = Some((overlap, cluster_idx));
+            }
+        }
+        let (_, cluster_idx) = best?;
+        let mut touching = clusters[cluster_idx].0.commit_oids.clone();
+        touching.sort();
+        Some(touching)
+    };
+
+    // Group hunks by column and relation set — and the cut hunk's sides by
+    // relation set alone, since they are pieces of one hunk and what is
+    // separable there is bounded by the hunk, not by how many columns the
+    // pairings generate. Indexed in order of first appearance so the split
+    // pieces come out positionally.
+    type GroupKey = (Option<Vec<VirtualOid>>, Vec<usize>);
+    let mut patterns: Vec<GroupKey> = Vec::new();
+    let group_of = |key: GroupKey, patterns: &mut Vec<GroupKey>| -> usize {
+        match patterns.iter().position(|p| *p == key) {
             Some(group) => group,
             None => {
-                patterns.push(related);
+                patterns.push(key);
                 patterns.len() - 1
             }
         }
@@ -366,7 +450,10 @@ pub fn assign_hunk_groups(
                         .iter()
                         .map(|f| FragmentAssignment {
                             fragment: f.fragment,
-                            group: group_of(f.related.clone(), &mut patterns),
+                            group: group_of(
+                                (column_at(path, &f.fragment.new_lines), f.related.clone()),
+                                &mut patterns,
+                            ),
                         })
                         .collect();
                     HunkAssignment::Fragmented {
@@ -374,7 +461,13 @@ pub fn assign_hunk_groups(
                     }
                 } else {
                     HunkAssignment::Whole {
-                        group: group_of(hunk_union(fragments), &mut patterns),
+                        group: group_of(
+                            (
+                                column_of.get(&((*path).clone(), hunk_idx)).cloned(),
+                                hunk_union(fragments),
+                            ),
+                            &mut patterns,
+                        ),
                     }
                 }
             })

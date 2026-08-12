@@ -618,38 +618,69 @@ pub(super) fn build_file_clusters(
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
+    Some(
+        build_file_clusters_with_target(path, commits_for_file, commit_diffs, None, poll)?
+            .into_iter()
+            .map(|(cluster, _)| cluster)
+            .collect(),
+    )
+}
+
+/// The same clusters, each paired with the span generation `target` occupies in
+/// it — that commit's own coordinates — or `None` where it does not touch the
+/// cluster at all.
+///
+/// A cluster is one path through the graph, so the node sitting on it at a
+/// given generation is exactly that commit's hunk in that column. Splitting per
+/// hunk group needs the pairing to tell which of a commit's hunks belongs to
+/// which column; `build_file_clusters` discards it.
+pub(super) fn build_file_clusters_with_target(
+    path: &str,
+    commits_for_file: &[(usize, Vec<HunkInfo>)],
+    commit_diffs: &[CommitDiff],
+    target: Option<usize>,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<(SpanCluster, Option<SpgSpan>)>> {
     let spg = build_file_spg(commits_for_file, poll)?;
     let paths = spg_all_paths(&spg, poll)?;
 
-    let mut clusters: Vec<SpanCluster> = Vec::new();
+    let mut clusters: Vec<(SpanCluster, Option<SpgSpan>)> = Vec::new();
     for path_nodes in &paths {
         let mut commit_oids: Vec<VirtualOid> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
+        let mut target_span: Option<SpgSpan> = None;
 
         for node in path_nodes {
             if node.is_active
                 && node.generation >= 0
                 && (node.generation as usize) < commit_diffs.len()
             {
-                let oid = &commit_diffs[node.generation as usize].commit.oid;
+                let generation = node.generation as usize;
+                let oid = &commit_diffs[generation].commit.oid;
                 if !commit_oids.contains(oid) {
                     commit_oids.push(oid.clone());
                 }
                 last_active_span = Some(node.new_span);
+                if target == Some(generation) {
+                    target_span = Some(node.new_span);
+                }
             }
         }
 
         if let Some(sp) = last_active_span
             && !commit_oids.is_empty()
         {
-            clusters.push(SpanCluster {
-                spans: vec![FileSpan {
-                    path: path.to_string(),
-                    start_line: sp.start.max(1) as u32,
-                    end_line: (sp.end - 1).max(1) as u32,
-                }],
-                commit_oids,
-            });
+            clusters.push((
+                SpanCluster {
+                    spans: vec![FileSpan {
+                        path: path.to_string(),
+                        start_line: sp.start.max(1) as u32,
+                        end_line: (sp.end - 1).max(1) as u32,
+                    }],
+                    commit_oids,
+                },
+                target_span,
+            ));
         }
     }
 

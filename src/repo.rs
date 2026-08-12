@@ -437,10 +437,13 @@ pub trait RepoWrite {
     ///
     /// Hunks are grouped using the same SPG-based fragmap algorithm shown in the
     /// hunk group matrix: two hunks from the commit end up in the same group when
-    /// they share the same set of interacting commits on the branch (i.e. their
-    /// fragmap columns deduplicate to the same column). This yields fewer, more
-    /// cohesive commits than per-hunk splitting, and the groups match exactly what
-    /// the user sees in the TUI fragmap after deduplication.
+    /// they sit in the same column — their clusters are touched by the same set of
+    /// commits, which is what deduplication merges on — *and* their lines concern
+    /// the same commits. This yields fewer, more cohesive commits than per-hunk
+    /// splitting. Hunks in different columns are never merged, but a hunk that
+    /// spans columns is divided only as far as is needed to make the split
+    /// possible, so the result can have fewer commits than the matrix has
+    /// columns.
     ///
     /// Fails if:
     /// - the commit cannot be mapped to at least 2 fragmap groups (nothing to split)
