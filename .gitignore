@@ -1,4 +1,4 @@
 target/
 
-# Rendered demo artifacts (regenerated from demo/tapes via vhs)
+# Rendered demo artifacts (regenerated from demo/gif and demo/promo via vhs)
 demo/out/

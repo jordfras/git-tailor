@@ -4,8 +4,8 @@
 #
 # Container-side render step for the git-tailor demo artifacts. This runs INSIDE
 # the toolchain image (see demo/Dockerfile), driven by demo/build.sh: it builds
-# git-tailor, generates a fresh demo repo, and renders one or more vhs tapes to
-# demo/out/.
+# git-tailor, then renders one or more vhs tapes to demo/out/, regenerating the
+# demo repo before each one.
 #
 # Usage (inside the container):  demo/render.sh [TAPE...]
 # With no arguments every demo/gif/*.tape is rendered.
@@ -26,11 +26,12 @@ command -v gt >/dev/null || {
     exit 1
 }
 
-# A fresh demo repository for the tapes to drive.
 export DEMO_REPO=/tmp/demo-repo
-echo ">> generating demo repo at $DEMO_REPO ..."
-rm -rf "$DEMO_REPO"
-"$REPO/demo/gif/make-repo.sh" "$DEMO_REPO" >/dev/null
+
+# Where captured scene frames are kept for the compose step. On the cache
+# volume, so they survive between the two container runs without landing in the
+# host tree — see the scene branch below.
+SCENE_FRAMES=${SCENE_FRAMES:-/cache/scene-frames}
 
 # Render the requested tapes (default: all of them). Each tape names its own
 # Output path, resolved relative to $REPO since that is our cwd.
@@ -40,17 +41,68 @@ if [ ${#tapes[@]} -eq 0 ]; then
 fi
 mkdir -p "$REPO/demo/out"
 for tape in "${tapes[@]}"; do
-    echo ">> rendering $tape ..."
-    vhs "$tape"
-done
+    # Tapes rewrite history in the fixture, so each one needs a pristine copy —
+    # otherwise a tape would drive whatever the previous one left behind, and
+    # rendering a single tape would not reproduce the same frames.
+    #
+    # The promo films on its own fixture: the GIF's engineers a rebase conflict
+    # and its tape navigates by row offsets, so sharing one would mean
+    # recalibrating and republishing the GIF for every change to the video.
+    case "$tape" in
+    *demo/promo/scenes/*) fixture=demo/promo/make-repo.sh ;;
+    *) fixture=demo/gif/make-repo.sh ;;
+    esac
+    echo ">> generating fixture ($fixture) at $DEMO_REPO ..."
+    rm -rf "$DEMO_REPO"
+    "$REPO/$fixture" "$DEMO_REPO" >/dev/null
 
-# Shrink the rendered GIFs. Terminal captures use very few colours, so palette
-# reduction plus lossy LZW cuts size substantially with no visible degradation.
-for gif in "$REPO"/demo/out/*.gif; do
-    [ -e "$gif" ] || continue
-    before=$(stat -c%s "$gif")
-    gifsicle -O3 --lossy=30 --colors 128 -b "$gif"
-    echo ">> optimized $(basename "$gif"): $before -> $(stat -c%s "$gif") bytes"
+    echo ">> rendering $tape ..."
+    case "$tape" in
+    *demo/promo/scenes/*)
+        # Promo scenes capture a lossless PNG frame sequence, which compose.sh
+        # encodes the video from. Two vhs quirks shape this:
+        #
+        #  * it resolves the output directory against its working directory and
+        #    its parser rejects any "/" in an Output path, so vhs has to be run
+        #    from where the frames should land; and
+        #  * it writes nothing at all — silently, still exiting 0 — unless that
+        #    directory is on the container's own filesystem. Neither the host
+        #    bind mount nor the cache volume works.
+        #
+        # So capture under /tmp and move the frames to the cache volume, which
+        # the compose step (a separate container) also mounts. That also keeps
+        # a few hundred MB of frames off the host tree, like the Rust target
+        # dir; `demo/build.sh clean` drops the volume and with it the frames.
+        name=$(basename "$(dirname "$tape")")
+        # Resolved before the cd below, while the path is still relative to here.
+        tape_abs=$(readlink -f "$tape")
+        scratch=/tmp/vhs-$name
+        rm -rf "$scratch"
+        mkdir -p "$scratch"
+        (cd "$scratch" && vhs "$tape_abs")
+
+        dest=$SCENE_FRAMES/$name
+        rm -rf "$dest"
+        mkdir -p "$SCENE_FRAMES"
+        mv "$scratch/frames" "$dest"
+        rm -rf "$scratch"
+        echo ">> captured $name: $(find "$dest" -name 'frame-text-*.png' | wc -l) frames"
+        continue
+        ;;
+    esac
+    vhs "$tape"
+
+    # Shrink any GIF this tape just produced. Terminal captures use very few
+    # colours, so palette reduction plus lossy LZW cuts size substantially with
+    # no visible degradation. Scoped to this tape's own output: the compression
+    # is lossy, so re-running it over GIFs left in demo/out/ by earlier renders
+    # would degrade them a little more every time.
+    gif=$(sed -n 's/^Output  *\(.*\.gif\) *$/\1/p' "$tape" | head -1)
+    if [ -n "$gif" ] && [ -e "$REPO/$gif" ]; then
+        before=$(stat -c%s "$REPO/$gif")
+        gifsicle -O3 --lossy=30 --colors 128 -b "$REPO/$gif"
+        echo ">> optimized $(basename "$gif"): $before -> $(stat -c%s "$REPO/$gif") bytes"
+    fi
 done
 
 # Hand ownership of the rendered artifacts back to the invoking host user so the
