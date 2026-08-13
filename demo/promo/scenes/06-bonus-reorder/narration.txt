@@ -1,0 +1,4 @@
+Press "m".
+
+[0.4]
+Move a commit up, down, wherever it should have been all along.

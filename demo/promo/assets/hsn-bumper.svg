@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!--
+    Channel bumper for the promo's fake shopping network.
+
+    Drawn from scratch rather than derived from any real broadcaster's mark.
+    The joke is carried by the words and by the genre — big initials, a legend
+    beneath, a swoosh, gold on navy — none of which belongs to anyone. Copying
+    a real logo's letterforms would add nothing to it and plenty to the
+    trademark argument.
+  -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
+      <stop offset="0%"   stop-color="#1b3a5c"/>
+      <stop offset="60%"  stop-color="#122636"/>
+      <stop offset="100%" stop-color="#0a1622"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffe9a8"/>
+      <stop offset="45%"  stop-color="#f4c542"/>
+      <stop offset="55%"  stop-color="#d9a021"/>
+      <stop offset="100%" stop-color="#f7d97a"/>
+    </linearGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#f4c542" stop-opacity="0"/>
+      <stop offset="50%"  stop-color="#f4c542" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#f4c542" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+
+  <!-- The swoosh every shopping channel seems obliged to have. -->
+  <path d="M 300 618 Q 960 700 1620 618" stroke="url(#sweep)" stroke-width="7"
+        fill="none" stroke-linecap="round"/>
+  <path d="M 380 640 Q 960 712 1540 640" stroke="url(#sweep)" stroke-width="3"
+        fill="none" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Initials. -->
+  <text x="960" y="545" text-anchor="middle" font-family="DejaVu Sans"
+        font-weight="bold" font-size="380" letter-spacing="14"
+        fill="url(#gold)" stroke="#7a5a12" stroke-width="3">HSN</text>
+
+  <!-- Legend. -->
+  <text x="960" y="790" text-anchor="middle" font-family="DejaVu Sans"
+        font-weight="bold" font-size="76" letter-spacing="22"
+        fill="#ffffff">HUNK SHOPPING NETWORK</text>
+
+  <!-- The cursor lives at the end of a line of text, where a cursor belongs.
+       Beside the initials it simply read as a fourth letter. -->
+  <text x="960" y="880" text-anchor="middle" font-family="DejaVu Sans"
+        font-size="40" letter-spacing="12" fill="#8fb3d0">BROADCASTING TO YOUR TERMINAL SINCE 2026<tspan fill="#f4c542">█</tspan></text>
+
+  <!-- Corner badge, as worn by every live shopping channel. -->
+  <g transform="translate(1660,150)">
+    <rect x="-92" y="-40" width="184" height="80" rx="10" fill="#c0392b"/>
+    <text x="0" y="16" text-anchor="middle" font-family="DejaVu Sans"
+          font-weight="bold" font-size="46" letter-spacing="6"
+          fill="#ffffff">LIVE</text>
+  </g>
+</svg>

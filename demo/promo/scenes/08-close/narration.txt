@@ -1,0 +1,20 @@
+# "pre-built", not "prebuilt": unhyphenated the phonemizer gives /pɹɪbˈɪlt/,
+# a short first vowel that sounds like a different word. The hyphen gives
+# /pɹˈiːbˈɪlt/. Spelt for the ear; the terminal comment below still says
+# "pre-built" only because it reads fine either way on screen.
+git-tailor. Available right now.
+
+[0.4]
+Not in stores. In your terminal.
+
+[0.7]
+Don't have a Rust toolchain installed? Grab a pre-built binary for Linux, macOS
+or Windows from the releases page.
+
+[0.8]
+{speed=1.15}
+Operators are not standing by. There is no phone number.
+
+[0.6]
+{speed=1.0}
+It's free, it's open source, and there is no catch.

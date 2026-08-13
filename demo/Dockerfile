@@ -38,6 +38,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends gifsicle \
     && rm -rf /var/lib/apt/lists/*
 
+# Kokoro: the neural TTS voice used for the promo video narration. Runs locally
+# on onnxruntime, so renders stay offline, free and deterministic — no API key
+# and no per-render cost. espeak-ng is the grapheme-to-phoneme backend.
+#
+# Only the venv and the model files live in the image (they are large and never
+# change); the driver script stays in the repo at demo/promo/scripts/kokoro_tts.py so
+# the voice can be tuned without rebuilding this image. Own layer, so the slow
+# Rust layer above stays cached.
+ENV KOKORO_HOME=/opt/tts
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-venv \
+        espeak-ng \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv "$KOKORO_HOME/venv" \
+    && "$KOKORO_HOME/venv/bin/pip" install --no-cache-dir --disable-pip-version-check \
+        kokoro-onnx==0.5.0 \
+        onnxruntime==1.28.0 \
+        soundfile==0.14.0 \
+    && mkdir -p "$KOKORO_HOME/models" \
+    && curl -fsSL -o "$KOKORO_HOME/models/kokoro-v1.0.onnx" \
+        https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx \
+    && curl -fsSL -o "$KOKORO_HOME/models/voices-v1.0.bin" \
+        https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+
+# Pillow, for rasterising emoji out of the colour font (demo/promo/scripts/make-emoji.py).
+# ffmpeg's drawtext cannot: colour emoji are bitmap glyphs and it rejects the
+# font outright. Its own layer so the slow model download above stays cached.
+RUN "$KOKORO_HOME/venv/bin/pip" install --no-cache-dir --disable-pip-version-check \
+        Pillow==11.3.0
+
 # A UTF-8 locale so git-tailor's TUI renders box-drawing and other Unicode
 # glyphs (the fragmap) correctly; only the C/C.UTF-8 locales exist here.
 ENV LANG=C.UTF-8 \

@@ -2,13 +2,13 @@
 #   view a fix commit -> fold it in as a fixup -> drop a debug commit ->
 #   resolve the resulting conflict in the editor -> land the cleaned history.
 #
-# Assumptions provided by the build (see demo/scripts + demo/build.sh):
+# Assumptions provided by the build (see demo/render.sh + demo/build.sh):
 #   * `gt` (git-tailor) is on PATH
 #   * $DEMO_REPO points at a freshly generated demo repo
-#     (demo/scripts/make-demo-repo.sh), checked out on its feature branch
+#     (demo/gif/make-repo.sh), checked out on its feature branch
 #   * $EDITOR is vim (the Docker image sets this)
 #
-# Run from the repo root:  vhs demo/tapes/demo.tape
+# Run from the repo root:  vhs demo/gif/demo.tape
 
 Output demo/out/demo.gif
 
@@ -19,7 +19,7 @@ Set FontSize 18
 Set Width 1240
 Set Height 500
 # 24fps keeps the file small (vhs defaults to 50); post-render gifsicle trims
-# the rest. See demo/scripts/render.sh.
+# the rest. See demo/render.sh.
 Set Framerate 24
 Set Padding 20
 Set TypingSpeed 125ms

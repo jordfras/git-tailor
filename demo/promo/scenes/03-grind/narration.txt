@@ -1,0 +1,21 @@
+# "re-base", not "rebase": unhyphenated, the phonemizer reduces the first vowel
+# to /ɹɪ-/ and the narrator says "ruh-base". The hyphen gives /ɹiː-/. Spelt for
+# the ear — the cards on screen still say "rebase".
+# Harried, because the scene is about losing patience. The closing line
+# drops back to 1.0 below -- that one is the point of the scene.
+{speed=1.22}
+Interactive re-base. Change "pick" to "edit". Reset. Stage it in pieces.
+
+[0.25]
+Was that a "y"? Was that an "s"? What does "e" do?
+
+[0.3]
+Nobody knows.
+
+[0.4]
+And that was just the split. Moving each half to where it belongs is another
+re-base.
+
+[0.45]
+{speed=1.0}
+There has to be a better way!
