@@ -8,8 +8,14 @@
 # Runs INSIDE the toolchain image, after demo/render.sh has captured a PNG frame
 # sequence per scene onto the cache volume (see SCENE_FRAMES below).
 #
-# Usage (inside the container):  compose.sh [SCENE_NAME...]
-# With no arguments every demo/promo/scenes/*/ is composed, in name order.
+# Usage (inside the container):  compose.sh VIDEO [SCENE_NAME...]
+# VIDEO is a directory under demo/ holding scenes/ — "promo",
+# "tutorials/01-matrix". With no scene names every demo/VIDEO/scenes/*/ is
+# composed, in name order.
+#
+# What differs between videos lives in demo/VIDEO/video.conf (sourced shell, all
+# keys optional); what they share is the composition itself. A tutorial is the
+# same machinery with the ident, the bed and the announcer chain turned off.
 #
 # Composing a subset writes demo/out/promo-preview.mp4 rather than promo.mp4, so
 # checking one scene cannot quietly replace the finished video with a ten-second
@@ -24,14 +30,21 @@ set -euo pipefail
 REPO=/work
 cd "$REPO"
 
-SCENES_DIR=$REPO/demo/promo/scenes
+VIDEO=${1:?usage: compose.sh VIDEO [SCENE_NAME...]}
+shift
+VIDEO_DIR=$REPO/demo/$VIDEO
+[ -d "$VIDEO_DIR/scenes" ] || {
+    echo "compose: no video at demo/$VIDEO (wants demo/$VIDEO/scenes/)" >&2
+    exit 1
+}
+SCENES_DIR=$VIDEO_DIR/scenes
 OUT=$REPO/demo/out
 # Captured frames live on the cache volume rather than in the host tree; see
 # the scene branch of render.sh for why.
 SCENE_FRAMES=${SCENE_FRAMES:-/cache/scene-frames}
 WORK=$OUT/compose
 ASSETS_GEN=$OUT/assets
-ASSETS_REAL=$REPO/demo/promo/assets
+ASSETS_REAL=$VIDEO_DIR/assets
 
 # Composition constants.
 W=1920
@@ -41,6 +54,11 @@ XFADE=0.5      # cross-fade length between scenes, seconds
 TAIL=0.6       # quiet time after the narration before a scene may transition
 LOGO_SPIN=0.55 # how long the logo takes to spin in and land
 
+# Per-video settings. The defaults below are the promo's; video.conf overrides
+# them, and "none" switches a whole feature off rather than needing a flag.
+OUT_BASE=promo
+VOICE_FILTER=$REPO/demo/promo/scripts/broadcast-filter.sh
+
 # The channel ident the video opens on. It fades to the terminal's own
 # background rather than to black, so the join into the first scene is
 # invisible — the card dissolves and the terminal is simply already there.
@@ -49,6 +67,13 @@ BUMPER=demo/promo/assets/hsn-bumper.svg
 BUMPER_HOLD=2.8
 BUMPER_FADE=0.5
 BUMPER_TO=0x122636
+# shellcheck disable=SC1090
+[ -f "$VIDEO_DIR/video.conf" ] && . "$VIDEO_DIR/video.conf"
+
+# tts.sh reads these from the environment, so a video picks its own voice.
+export TTS_VOICE TTS_SPEED
+
+[ "$BUMPER" = none ] && BUMPER="" BUMPER_HOLD=0 BUMPER_FADE=0
 BUMPER_LEN=$(awk "BEGIN{printf \"%.3f\", $BUMPER_HOLD + $BUMPER_FADE}")
 
 mkdir -p "$WORK" "$OUT/narration"
@@ -131,8 +156,13 @@ asset() {
 }
 
 # Turns the flat TTS output into an announcer read; shared with the audition
-# script so a voice test predicts the finished mix.
-BROADCAST=$("$REPO/demo/promo/scripts/broadcast-filter.sh")
+# script so a voice test predicts the finished mix. A teaching video wants none
+# of it, so VOICE_FILTER=none leaves the voice as synthesized.
+if [ "$VOICE_FILTER" = none ]; then
+    BROADCAST=anull
+else
+    BROADCAST=$("$VOICE_FILTER")
+fi
 
 FONT=$(fc-match -f '%{file}' 'JetBrains Mono:style=Bold')
 [ -n "$FONT" ] || {
@@ -162,9 +192,9 @@ fi
 all_scenes=()
 for dir in "$SCENES_DIR"/*/; do all_scenes+=("$(basename "$dir")"); done
 if [ "${scenes[*]}" = "${all_scenes[*]}" ]; then
-    OUT_NAME=promo.mp4
+    OUT_NAME=$OUT_BASE.mp4
 else
-    OUT_NAME=promo-preview.mp4
+    OUT_NAME=$OUT_BASE-preview.mp4
 fi
 
 # ---------------------------------------------------------------------------
@@ -172,7 +202,12 @@ fi
 # ---------------------------------------------------------------------------
 echo ">> synthesizing placeholder audio beds ..."
 "$REPO/demo/promo/scripts/make-audio-beds.sh" "$ASSETS_GEN" >/dev/null
-MUSIC=$(asset music)
+if [ "${MUSIC:-}" = none ]; then
+    HAVE_MUSIC=0
+else
+    HAVE_MUSIC=1
+    MUSIC=$(asset music)
+fi
 
 # The music is looped to cover the video, so only a musically whole section of
 # it can be used. These bounds are 8 bars at 89.1bpm, measured off the track's own
@@ -187,7 +222,8 @@ MUSIC_LOOP_START=${MUSIC_LOOP_START:-5.410}
 MUSIC_LOOP_END=${MUSIC_LOOP_END:-26.959}
 MUSIC_XFADE=0.5
 
-if [ -n "$MUSIC_LOOP_END" ] && [ "$MUSIC" != "$ASSETS_GEN/music.wav" ]; then
+if [ "$HAVE_MUSIC" = 1 ] && [ -n "$MUSIC_LOOP_END" ] &&
+    [ "$MUSIC" != "$ASSETS_GEN/music.wav" ]; then
     loop=$WORK/music-loop.wav
     ffmpeg -hide_banner -loglevel error -y -i "$MUSIC" -filter_complex "\
 [0:a]asplit=2[a][b];\
@@ -200,7 +236,7 @@ afade=t=out:st=0:d=$MUSIC_XFADE:curve=tri[tail];\
     MUSIC=$loop
     echo ">> music loop: ${MUSIC_LOOP_START}s-${MUSIC_LOOP_END}s ($(duration "$loop")s)"
 fi
-echo ">> music bed: $MUSIC"
+[ "$HAVE_MUSIC" = 1 ] && echo ">> music bed: $MUSIC"
 
 # ---------------------------------------------------------------------------
 # Per-scene narration and timing
@@ -240,7 +276,7 @@ for name in "${scenes[@]}"; do
     dir=$SCENES_DIR/$name
     # Captures are lossless PNG frame sequences. vhs writes two layers per
     # frame — the terminal contents and the cursor — which get composited below.
-    frames=$SCENE_FRAMES/$name
+    frames=$SCENE_FRAMES/$VIDEO/$name
     nframes=0
     [ -d "$frames" ] && nframes=$(find "$frames" -name 'frame-text-*.png' | wc -l)
     [ "$nframes" -gt 0 ] || {
@@ -504,12 +540,18 @@ done
 if [ "$n" -eq 1 ]; then
     vfilter="$vfilter[v0]null[vout];"
 fi
-# The ident, held and then dissolved into the terminal's background colour.
-vargs+=(-loop 1 -framerate "$FPS" -t "$BUMPER_LEN" -i "$REPO/$BUMPER")
-vfilter="$vfilter[$next_input:v]scale=$W:$H,setsar=1,fps=$FPS,"
-vfilter="$vfilter""fade=t=out:st=$BUMPER_HOLD:d=$BUMPER_FADE:color=$BUMPER_TO,"
-vfilter="$vfilter""format=yuv420p[bumper];"
-vfilter="$vfilter[bumper][vout]concat=n=2:v=1:a=0[vfinal]"
+# The ident, held and then dissolved into the terminal's background color. A
+# video without one starts on its first scene; there is no empty input to feed
+# ffmpeg in that case, so the whole branch goes rather than being zero-length.
+if [ -n "$BUMPER" ]; then
+    vargs+=(-loop 1 -framerate "$FPS" -t "$BUMPER_LEN" -i "$REPO/$BUMPER")
+    vfilter="$vfilter[$next_input:v]scale=$W:$H,setsar=1,fps=$FPS,"
+    vfilter="$vfilter""fade=t=out:st=$BUMPER_HOLD:d=$BUMPER_FADE:color=$BUMPER_TO,"
+    vfilter="$vfilter""format=yuv420p[bumper];"
+    vfilter="$vfilter[bumper][vout]concat=n=2:v=1:a=0[vfinal]"
+else
+    vfilter="$vfilter[vout]null[vfinal]"
+fi
 
 ffmpeg -hide_banner -loglevel error -y "${vargs[@]}" \
     -filter_complex "$vfilter" \
@@ -539,8 +581,15 @@ afilter="$afilter$voice_labels""amix=inputs=$n:normalize=0:dropout_transition=0[
 # of cutting the music at the last spoken word) and the mixed bus (because amix
 # ends with its shortest input once two inputs share an asplit ancestor,
 # whatever duration= says).
-afilter="$afilter[voiceraw]volume=1.3,apad,atrim=0:$TOTAL,asetpts=N/SR/TB,"
-afilter="$afilter""asplit=2[voice][key];"
+afilter="$afilter[voiceraw]volume=1.3,apad,atrim=0:$TOTAL,asetpts=N/SR/TB"
+# The second branch exists only to key the music ducking. With no bed there is
+# nothing to duck, and an unconsumed pad is a filter-graph error rather than a
+# no-op, so the split is made only when it is used.
+if [ "$HAVE_MUSIC" = 1 ]; then
+    afilter="$afilter,asplit=2[voice][key];"
+else
+    afilter="$afilter[voice];"
+fi
 
 # One SFX cue per scene that asks for one, at the moment the scene arrives.
 sfx_labels=""
@@ -588,6 +637,7 @@ for i in $(seq 0 $((n - 1))); do
     idx=$((idx + 1))
 done
 
+if [ "$HAVE_MUSIC" = 1 ]; then
 # The bed is rendered to a file first, in stretches, rather than treated inside
 # the main graph. Pitch is why: `enable` can gate a filter, but not a pitch
 # shift, so the only way to drop the key over part of the video is to cut the
@@ -662,9 +712,15 @@ afilter="$afilter[$music_idx:a]aresample=48000,aformat=channel_layouts=stereo,"
 afilter="$afilter""apad,atrim=0:$TOTAL,asetpts=N/SR/TB[musicraw];"
 
 afilter="$afilter[musicraw][key]sidechaincompress=threshold=0.02:ratio=12:attack=25:release=450[music];"
+fi
 
-mix="[voice][music]"
-inputs=2
+if [ "$HAVE_MUSIC" = 1 ]; then
+    mix="[voice][music]"
+    inputs=2
+else
+    mix="[voice]"
+    inputs=1
+fi
 if [ "$sfx_count" -gt 0 ]; then
     mix="$mix$sfx_labels"
     inputs=$((inputs + sfx_count))

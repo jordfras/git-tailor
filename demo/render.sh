@@ -45,21 +45,34 @@ for tape in "${tapes[@]}"; do
     # otherwise a tape would drive whatever the previous one left behind, and
     # rendering a single tape would not reproduce the same frames.
     #
-    # The promo films on its own fixture: the GIF's engineers a rebase conflict
-    # and its tape navigates by row offsets, so sharing one would mean
-    # recalibrating and republishing the GIF for every change to the video.
-    case "$tape" in
-    *demo/promo/scenes/*) fixture=demo/promo/make-repo.sh ;;
-    *) fixture=demo/gif/make-repo.sh ;;
+    # Which fixture is a matter of convention rather than a list to extend: a
+    # tape at <root>/scenes/<name>/scene.tape belongs to the video rooted at
+    # <root>, and films on <root>/make-repo.sh. Every video therefore brings its
+    # own repository without this script learning its name.
+    #
+    # They are separate because a fixture is shaped for the story told on it —
+    # the GIF's engineers a rebase conflict and its tape navigates by row
+    # offsets, so sharing one would mean recalibrating and republishing the GIF
+    # for every change to a video.
+    #
+    # Normalised to a repo-relative path first, since the caller may pass either
+    # that or the absolute path the default glob produces.
+    rel=${tape#"$REPO"/}
+    case "$rel" in
+    */scenes/*/scene.tape) scene=1 fixture=${rel%/scenes/*}/make-repo.sh ;;
+    *) scene=0 fixture=demo/gif/make-repo.sh ;;
     esac
+    [ -x "$REPO/$fixture" ] || {
+        echo "render: $rel has no fixture at $fixture" >&2
+        exit 1
+    }
     echo ">> generating fixture ($fixture) at $DEMO_REPO ..."
     rm -rf "$DEMO_REPO"
     "$REPO/$fixture" "$DEMO_REPO" >/dev/null
 
     echo ">> rendering $tape ..."
-    case "$tape" in
-    *demo/promo/scenes/*)
-        # Promo scenes capture a lossless PNG frame sequence, which compose.sh
+    if [ "$scene" = 1 ]; then
+        # Scenes capture a lossless PNG frame sequence, which compose.sh
         # encodes the video from. Two vhs quirks shape this:
         #
         #  * it resolves the output directory against its working directory and
@@ -74,6 +87,11 @@ for tape in "${tapes[@]}"; do
         # a few hundred MB of frames off the host tree, like the Rust target
         # dir; `demo/build.sh clean` drops the volume and with it the frames.
         name=$(basename "$(dirname "$tape")")
+        # Keyed by video as well as scene: the cache is shared by every video
+        # and scene names are a video's own, so a second tutorial numbering
+        # from 00-title would otherwise pick up the first one's frames.
+        video=${rel#demo/}
+        video=${video%/scenes/*}
         # Resolved before the cd below, while the path is still relative to here.
         tape_abs=$(readlink -f "$tape")
         scratch=/tmp/vhs-$name
@@ -81,15 +99,14 @@ for tape in "${tapes[@]}"; do
         mkdir -p "$scratch"
         (cd "$scratch" && vhs "$tape_abs")
 
-        dest=$SCENE_FRAMES/$name
+        dest=$SCENE_FRAMES/$video/$name
         rm -rf "$dest"
-        mkdir -p "$SCENE_FRAMES"
+        mkdir -p "$(dirname "$dest")"
         mv "$scratch/frames" "$dest"
         rm -rf "$scratch"
         echo ">> captured $name: $(find "$dest" -name 'frame-text-*.png' | wc -l) frames"
         continue
-        ;;
-    esac
+    fi
     vhs "$tape"
 
     # Shrink any GIF this tape just produced. Terminal captures use very few

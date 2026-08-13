@@ -5,7 +5,7 @@ a local neural voice, scored, and composed into `demo/out/promo.mp4` by
 [`scripts/compose.sh`](scripts/compose.sh).
 
 Rendered with `demo/build.sh video` — see [`../README.md`](../README.md) for the
-toolchain and the other subcommands.
+toolchain, the other subcommands, and how to add a second video.
 
 ## Changing something
 
@@ -31,7 +31,7 @@ what the tape does — a scene that films an operation needs a branch shaped for
 it, and `make-repo.sh` verifies its own end state, so extending it means
 extending that check too.
 
-**Iterating on one scene.** `demo/build.sh video 04-pitch` renders and composes
+**Iterating on one scene.** `demo/build.sh video promo 04-pitch` renders and composes
 just that one, into `demo/out/promo-preview.mp4` — the full video keeps its own
 filename. `TTS_ENGINE=flite` swaps the neural voice for a robotic one that needs
 no model, which is the fast way to smoke-test a pipeline change (but useless for
@@ -244,8 +244,8 @@ spoken lines only (blank lines, `#` comments, `[0.9]` gaps and `{speed=…}` do
 not count).
 
 ```bash
-demo/build.sh cues            # every scene
-demo/build.sh cues 04-pitch   # one of them
+demo/build.sh cues              # every scene
+demo/build.sh cues promo 04-pitch   # one of them
 ```
 
 reports each cue's actual lead and its drift from the declared one, and exits
@@ -342,30 +342,3 @@ seconds of looking at the log instead of watching it appear.
   ancestor, whatever `duration=longest` claims. The voice bus is padded to full
   length before the split, which also stops `sidechaincompress` cutting the
   music off at the last spoken word.
-
-## Reusing this for another video
-
-The pipeline is parameterised per *scene* and hardcoded per *video*. A tutorial
-series would reuse `render.sh`, `tape-duration.sh`, `cue-check.sh`, `tts.sh` and
-`make-emoji.py` as they are; what is promo-specific are constants at the top of
-[`scripts/compose.sh`](scripts/compose.sh):
-
-- `SCENES_DIR` and the output name — where the beats come from, what they
-  produce.
-- `BUMPER`, `BUMPER_HOLD`, `BUMPER_FADE`, `BUMPER_TO` — the channel ident, and
-  the colour it dissolves into, which is the terminal theme's background.
-- `MUSIC`, `MUSIC_LOOP_*` and the cue set — a tutorial probably wants no bed at
-  all, in which case the ducking and the `MUSIC_DULL` handling are dead weight.
-- The read itself: `TTS_VOICE`/`TTS_SPEED` in `tts.sh`, and
-  [`scripts/broadcast-filter.sh`](scripts/broadcast-filter.sh), which is
-  deliberately an announcer. A teaching voice wants neither the compression nor
-  the hype.
-
-The honest options are to make those into environment overrides (several already
-are — `SCENE_FRAMES`, `MUSIC_LOOP_START`) or to copy `compose.sh`. Copying is
-not obviously wrong: the composition *is* the format, and an infomercial and a
-tutorial do not want the same one.
-
-What should not be copied is the fixture. `make-repo.sh` builds a repository
-whose history is arranged for one story; a tutorial wants its own, and the two
-tape sets would otherwise fight over the same row offsets.
