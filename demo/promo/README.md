@@ -133,8 +133,9 @@ the terminal is already there.
 
 The logo spins in from small through three rotations, overshoots, snaps back and
 lands with a smack — the cue is timed to `LOGO_AT + LOGO_SPIN`, so it follows
-automatically if the spin is retimed. `LOGO_SPIN` is a constant in
-[`scripts/compose.sh`](scripts/compose.sh) alongside the cross-fade length.
+automatically if the spin is retimed. `LOGO_SPIN` is a `video.conf` key: `0`
+gives a logo that simply appears, with no impact cue under it, which is what the
+tutorial uses.
 
 Stamps are rasterized by
 [`scripts/make-emoji.py`](scripts/make-emoji.py), because ffmpeg cannot draw

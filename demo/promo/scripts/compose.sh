@@ -52,7 +52,10 @@ H=1080
 FPS=30
 XFADE=0.5      # cross-fade length between scenes, seconds
 TAIL=0.6       # quiet time after the narration before a scene may transition
-LOGO_SPIN=0.55 # how long the logo takes to spin in and land
+# How long the logo takes to spin in and land. LOGO_SPIN=0 in a video.conf
+# means a logo that simply appears: no spin, no overshoot, and no impact cue
+# under it. A title card is not an entrance.
+LOGO_SPIN=0.55
 
 # Per-video settings. The defaults below are the promo's; video.conf overrides
 # them, and "none" switches a whole feature off rather than needing a flag.
@@ -516,8 +519,12 @@ if(lt($tt\\,$LOGO_SPIN+0.15)\\,1.15-($tt-$LOGO_SPIN)/0.15*0.15\\,1))"
     spin="if(lt($tt\\,$LOGO_SPIN)\\,6*PI*(1-$tt/$LOGO_SPIN)\\,0)"
 
     vfilter="$vfilter[${logo_idx[$i]}:v]format=rgba,scale=$((W * 47 / 100)):-1,"
-    vfilter="$vfilter""rotate=a=$spin:c=black@0:ow=hypot(iw\\,ih):oh=ow,"
-    vfilter="$vfilter""scale=w=iw*$zoom:h=ih*$zoom:eval=frame,"
+    if fgt "$LOGO_SPIN" 0; then
+        vfilter="$vfilter""rotate=a=$spin:c=black@0:ow=hypot(iw\\,ih):oh=ow,"
+        vfilter="$vfilter""scale=w=iw*$zoom:h=ih*$zoom:eval=frame,"
+    else
+        vfilter="$vfilter""fade=t=in:st=$lin:d=0.4:alpha=1,"
+    fi
     vfilter="$vfilter""fade=t=out:st=$lout:d=0.4:alpha=1[logo$i];"
     vfilter="$vfilter$src[logo$i]overlay=(W-w)/2:(H-h)/2-80"
     vfilter="$vfilter:enable='gte(t\\,$lin)',format=yuv420p[v$i];"
@@ -613,9 +620,11 @@ for i in $(seq 0 $((n - 1))); do
     idx=$((idx + 1))
 done
 
-# And a smack under each logo landing, timed to the end of its spin.
+# And a smack under each logo landing, timed to the end of its spin. A logo
+# that does not move has nothing to land, so it gets no cue.
 for i in $(seq 0 $((n - 1))); do
     [ -n "${logos[$i]}" ] || continue
+    fgt "$LOGO_SPIN" 0 || continue
     file=$(asset smack)
     [ -f "$file" ] || {
         echo "compose: missing sfx $file" >&2

@@ -81,6 +81,7 @@ key optional and defaulting to what the promo uses:
 | `TTS_VOICE`, `TTS_SPEED` | the read; `cue-check.sh` uses the same ones, so timings match the render |
 | `VOICE_FILTER` | path to a filter script, or `none` to leave the voice as synthesized |
 | `BUMPER`, `BUMPER_HOLD`, `BUMPER_FADE`, `BUMPER_TO` | the opening ident, or `BUMPER=none` |
+| `LOGO_SPIN` | how long a scene's logo takes to spin in and land; `0` for one that simply appears, with no impact cue under it |
 | `MUSIC`, `MUSIC_LOOP_START`, `MUSIC_LOOP_END` | the bed, or `MUSIC=none` — which also removes the ducking that exists to serve it |
 
 Everything else — frame compositing, matching a scene to its narration,
