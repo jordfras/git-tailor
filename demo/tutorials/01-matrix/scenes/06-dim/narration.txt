@@ -1,0 +1,13 @@
+Dim means the same thing wherever you see it: context, not about the commit you
+have selected.
+
+[0.7]
+In the matrix that is a column your commit does not touch. In the list, a dim
+green commit can still fold into an earlier one; it just cannot fold into the
+one you are looking at. The color keeps its meaning, and the dimming says it is
+not about you.
+
+[0.9]
+So before you reorder anything, or squash anything, you can see which commits
+are entangled and which are not. The matrix is not decoration: it is the answer
+to "is this safe", available before you try it.

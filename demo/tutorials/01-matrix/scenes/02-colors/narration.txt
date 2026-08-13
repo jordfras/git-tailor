@@ -1,0 +1,6 @@
+The matrix is drawn around whichever commit you have selected. Columns it does
+not touch are dimmed: still there for context, but out of the way.
+
+[0.8]
+Green means this commit folds cleanly into an earlier one. Here, both commits
+changed the same lines of the config, with nothing in between.

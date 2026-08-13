@@ -1,0 +1,8 @@
+Two commits can touch the same code without being next to each other. A
+connector is that relationship, drawn across the commits sitting between them.
+Nobody else touched that code, so the fold is still clean.
+
+[0.9]
+Red means there is no single commit to fold into. This one changed the config
+and the response handling together, and those lead back to two different
+commits.

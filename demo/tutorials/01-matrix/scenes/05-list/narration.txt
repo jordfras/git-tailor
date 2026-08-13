@@ -1,0 +1,10 @@
+The commit list is colored too. Two of its colors follow whatever you have
+selected.
+
+[0.7]
+Green means the two can become one commit. It does not matter which is newer:
+either the selected commit folds into that one, or that one folds into it,
+whichever came first.
+
+[0.8]
+Red means they share code but cannot fold together, in either direction.

@@ -35,6 +35,7 @@ in_container() {
     docker run --rm "${common_mounts[@]}" \
         -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
         -e TTS_ENGINE="${TTS_ENGINE:-}" -e TTS_VOICE="${TTS_VOICE:-}" \
+        -e TTS_SPEED="${TTS_SPEED:-}" \
         "$IMAGE" "$@"
 }
 

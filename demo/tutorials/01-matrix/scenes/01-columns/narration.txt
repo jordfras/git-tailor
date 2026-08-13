@@ -1,0 +1,17 @@
+This is a small branch: seven commits, on the left.
+
+[0.5]
+They run oldest at the top, newest at the bottom, the way a rebase reads rather
+than the way git log prints. Start it with dash dash reverse if you would
+rather have it the other way up.
+
+[0.7]
+On the right is the hunk group matrix.
+
+[0.7]
+Each row lines up with the commit beside it. Each column is one group of hunks:
+a region of code, and every commit that touched it.
+
+[0.8]
+A square means this commit changed lines in that region. Two squares in the
+same column mean two commits touched the same code.

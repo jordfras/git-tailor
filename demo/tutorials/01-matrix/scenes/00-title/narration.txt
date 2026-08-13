@@ -1,0 +1,4 @@
+git-tailor.
+
+[0.5]
+Visualization of commit relations.
