@@ -62,8 +62,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL -o "$KOKORO_HOME/models/voices-v1.0.bin" \
         https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 
-# Pillow, for rasterising emoji out of the colour font (demo/promo/scripts/make-emoji.py).
-# ffmpeg's drawtext cannot: colour emoji are bitmap glyphs and it rejects the
+# Pillow, for rasterising emoji out of the color font (demo/promo/scripts/make-emoji.py).
+# ffmpeg's drawtext cannot: color emoji are bitmap glyphs and it rejects the
 # font outright. Its own layer so the slow model download above stays cached.
 RUN "$KOKORO_HOME/venv/bin/pip" install --no-cache-dir --disable-pip-version-check \
         Pillow==11.3.0
@@ -79,7 +79,7 @@ ENV EDITOR=vim \
     VISUAL=vim \
     GIT_EDITOR=vim
 
-# Pin git-tailor's own colours so recordings look the same whatever the
+# Pin git-tailor's own colors so recordings look the same whatever the
 # recording terminal's theme is. Set here rather than as `--palette=dark+` on
 # the command line in the tapes: the flag would appear in every recording, and
 # it is not something a viewer needs to type to get this result.

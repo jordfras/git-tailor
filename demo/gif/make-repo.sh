@@ -121,7 +121,7 @@ pub enum Token {
 
 /// Convert a source string into a vector of tokens.
 ///
-/// Whitespace is skipped. Any character that is not part of a recognised token
+/// Whitespace is skipped. Any character that is not part of a recognized token
 /// is reported as an error together with its byte offset.
 pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
@@ -372,7 +372,7 @@ pub enum Token {
 
 /// Convert a source string into a vector of tokens.
 ///
-/// Whitespace is skipped. Any character that is not part of a recognised token
+/// Whitespace is skipped. Any character that is not part of a recognized token
 /// is reported as an error together with its byte offset.
 pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();

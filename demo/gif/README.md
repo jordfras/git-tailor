@@ -38,7 +38,7 @@ at the same time. Three things do the work, and they compound:
 trusting that figure if the tape grows: it scales with how many frames the walk
 takes, not with anything about the settings.
 
-## Colours come from the image, not the terminal
+## Colors come from the image, not the terminal
 
 The tape launches a bare `gt`. The toolchain image sets `GT_PALETTE=dark+`, so
 the capture does not depend on whatever theme the recording terminal happens to

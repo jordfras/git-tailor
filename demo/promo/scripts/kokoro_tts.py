@@ -7,7 +7,7 @@
 #
 # Narration format
 # ----------------
-# Blank-line-separated paragraphs are synthesised separately and rejoined with
+# Blank-line-separated paragraphs are synthesized separately and rejoined with
 # a pause of your choosing. Hard-wrapped lines inside a paragraph are one
 # sentence, as they read on the page. Two directives, each alone on a line:
 #
@@ -22,7 +22,7 @@
 #
 # Kokoro has no prosody controls, and handing it a whole script at once gives
 # every sentence break the same mechanical length — the giveaway that a machine
-# is reading. Pauses are timing, though, not prosody: synthesising paragraph by
+# is reading. Pauses are timing, though, not prosody: synthesizing paragraph by
 # paragraph, trimming the silence Kokoro pads each one with, and inserting an
 # exact gap puts the pacing entirely under the script's control.
 

@@ -127,7 +127,7 @@ The format is based on
   press, not by resize or focus events (which the terminal can emit, most
   notably on Windows, when the alternate screen is restored after an external
   tool).
-- The commit detail view no longer jumps to re-centre a search match that is
+- The commit detail view no longer jumps to re-center a search match that is
   already on screen. This showed up when the diff got shorter while a search was
   active — pressing `-` to reduce the context lines, or making the terminal
   taller — and moved the view even though the highlighted match had not gone
@@ -196,7 +196,7 @@ The format is based on
   cherry-pick conflicts opens — resolve with the merge tool (`m`) or editor
   (`e`) and continue, or press Esc to abort the whole operation and get your
   changes back unchanged. Disabled by default, matching git's own
-  `rebase.autoStash` behaviour.
+  `rebase.autoStash` behavior.
 - Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
   scroll the list one row at a time while keeping the selected commit
   highlighted, stopping before it would scroll off screen.
@@ -257,7 +257,7 @@ The format is based on
   position (wrapping to the first match overall if all matches lie above).
 - `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
-  mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
+  mapping to the same page-down / page-up behavior as `PageDown` / `PageUp`.
 - `Ctrl-d` / `Ctrl-u` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
   keybindings (vim convention) work in both the commit list and the commit
   detail view; the scroll amount is half the current panel height.
@@ -343,7 +343,7 @@ The format is based on
 
 - Extensive internal refactoring of the TUI rendering layer: extracted shared
   layout helpers, decomposed large rendering functions into smaller focused
-  units, and consolidated duplicated style logic. No intentional behaviour
+  units, and consolidated duplicated style logic. No intentional behavior
   changes, but these structural changes touch most view modules and may
   introduce subtle regressions.
 
@@ -452,7 +452,7 @@ The format is based on
 - Interactive TUI commit browser showing all commits between HEAD and the
   merge-base with a configured base branch (e.g. `main`).
 - Hunk group matrix panel: a fragmap-style visualization showing which commits
-  touch the same lines of code, with white/grey squares and colored connectors
+  touch the same lines of code, with white/gray squares and colored connectors
   indicating conflicts and squashability.
 - Commit detail view (toggle with `Enter`/`i`) showing the full diff for the
   selected commit with syntax-highlighted output.
@@ -465,7 +465,7 @@ The format is based on
 - **Reword** (`r`) — edit the commit message of any commit in the range.
 - **Drop** (`d`) — delete the selected commit entirely.
 - Conflict and squashability highlighting in the commit list: selected commit's
-  partners are colored yellow (squashable), red (conflicting), or grey (fully
+  partners are colored yellow (squashable), red (conflicting), or gray (fully
   squashable).
 - Adjustable panel separator (`Ctrl ←`/`Ctrl →`) between the commit list and the
   hunk group matrix.

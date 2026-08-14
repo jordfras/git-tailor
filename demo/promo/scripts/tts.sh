@@ -18,7 +18,7 @@
 #
 # Engine comes from $TTS_ENGINE:
 #   kokoro  (default) — local neural voice, needs the model baked into the image
-#   flite   — ffmpeg's built-in synthesiser; no extra dependencies, but robotic.
+#   flite   — ffmpeg's built-in synthesizer; no extra dependencies, but robotic.
 #             Useful for a fast pipeline smoke test.
 set -euo pipefail
 

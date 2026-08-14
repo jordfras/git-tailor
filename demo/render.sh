@@ -93,7 +93,7 @@ for tape in "${tapes[@]}"; do
     vhs "$tape"
 
     # Shrink any GIF this tape just produced. Terminal captures use very few
-    # colours, so palette reduction plus lossy LZW cuts size substantially with
+    # colors, so palette reduction plus lossy LZW cuts size substantially with
     # no visible degradation. Scoped to this tape's own output: the compression
     # is lossy, so re-running it over GIFs left in demo/out/ by earlier renders
     # would degrade them a little more every time.

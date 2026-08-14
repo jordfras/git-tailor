@@ -1,5 +1,5 @@
 # Bonus 1 — the hunk group matrix. Nothing is changed; the cursor moves and the
-# colouring re-paints relative to whatever is selected. The bundled commit is
+# coloring re-paints relative to whatever is selected. The bundled commit is
 # the interesting row: it lights up columns owned by two different commits,
 # which is the reason it wanted splitting in the first place.
 
@@ -8,7 +8,7 @@ Output frames/
 Require gt
 
 Set Shell bash
-# A terminal with some colour in it, so the grey scenes have something to lose.
+# A terminal with some color in it, so the gray scenes have something to lose.
 # Black-on-white terminals desaturate to almost exactly themselves, which left
 # the "problem" scenes looking the same as the rest.
 Set Theme "Cobalt2"

@@ -113,7 +113,7 @@ everything that defines it:
 | `STAMP` | — | an emoji to pop in over the picture |
 | `STAMP_AT`, `STAMP_HOLD` | `1.0`, `2.5` | when, and for how long |
 | `STAMP_SIZE` | `260` | px on its longest side |
-| `STAMP_X`, `STAMP_Y` | right of centre | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
+| `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
@@ -128,7 +128,7 @@ infomercial belongs to, [`assets/hsn-bumper.svg`](assets/hsn-bumper.svg). It is
 prepended in [`scripts/compose.sh`](scripts/compose.sh) — `BUMPER`,
 `BUMPER_HOLD`, `BUMPER_FADE` — rather than being a scene, since it has no tape
 and nothing to capture. It fades to `BUMPER_TO`, the terminal's own background
-colour, so the join into the first scene is invisible: the card dissolves and
+color, so the join into the first scene is invisible: the card dissolves and
 the terminal is already there.
 
 The logo spins in from small through three rotations, overshoots, snaps back and
@@ -136,10 +136,10 @@ lands with a smack — the cue is timed to `LOGO_AT + LOGO_SPIN`, so it follows
 automatically if the spin is retimed. `LOGO_SPIN` is a constant in
 [`scripts/compose.sh`](scripts/compose.sh) alongside the cross-fade length.
 
-Stamps are rasterised by
+Stamps are rasterized by
 [`scripts/make-emoji.py`](scripts/make-emoji.py), because ffmpeg cannot draw
-them: colour emoji are bitmap glyphs and `drawtext` rejects the font outright.
-They are overlaid after any `GRAYSCALE`, so a stamp keeps its colour on a
+them: color emoji are bitmap glyphs and `drawtext` rejects the font outright.
+They are overlaid after any `GRAYSCALE`, so a stamp keeps its color on a
 deliberately drab scene — which is usually what you want from a joke.
 
 [`make-repo.sh`](make-repo.sh) builds the fixture: two branches from one set of
@@ -159,7 +159,7 @@ The pieces:
 - [`scripts/broadcast-filter.sh`](scripts/broadcast-filter.sh) — the compression
   and EQ that make the narration sound like an announcer rather than a text
   reader. Shared with the audition script, so a voice test predicts the mix.
-- [`scripts/make-audio-beds.sh`](scripts/make-audio-beds.sh) — synthesises the
+- [`scripts/make-audio-beds.sh`](scripts/make-audio-beds.sh) — synthesizes the
   music bed and the whoosh/ding/smack cues with ffmpeg, so nothing waits on
   licensed audio. Drop real files into `demo/promo/assets/` under the same base names
   (`music.*`, `whoosh.*`, `ding.*`, `smack.*`) and they win.
@@ -177,7 +177,7 @@ The pieces:
 ## Narration
 
 Narration files control their own pacing. Blank lines separate paragraphs, which
-are synthesised one at a time; `[1.2]` alone on a line sets an exact gap,
+are synthesized one at a time; `[1.2]` alone on a line sets an exact gap,
 `{speed=0.9}` changes the read speed from there on, and a `#` line is a comment.
 Comments matter here because a narration file is a script for the ear: some
 words are deliberately misspelt so they are said correctly, and without a note
@@ -249,7 +249,7 @@ demo/build.sh cues 04-pitch   # one of them
 ```
 
 reports each cue's actual lead and its drift from the declared one, and exits
-non-zero past 0.15s. It only synthesises narration — no capture — so it is
+non-zero past 0.15s. It only synthesizes narration — no capture — so it is
 seconds, not minutes, and is the thing to run after any narration edit.
 
 The drift it prints is the correction: a uniform `-2.04` on every cue in a scene
@@ -264,10 +264,10 @@ cues is skipped for free.
 ## Capture
 
 The scene tapes pin the terminal to a navy theme (`Set Theme "Cobalt2"`). The
-grey scenes get their look from desaturation, and a black-and-white terminal
-desaturates to itself — the colour is there to be taken away. git-tailor paints
+gray scenes get their look from desaturation, and a black-and-white terminal
+desaturates to itself — the color is there to be taken away. git-tailor paints
 its own `dark+` palette regardless, so this only touches the shell stretches,
-which is where the grey scenes are.
+which is where the gray scenes are.
 
 Scenes are captured as **lossless PNG frame sequences**, not vhs MP4 or GIF, so
 there are no palette or chroma artefacts and the video is encoded exactly once.
@@ -290,7 +290,7 @@ so repeat renders reuse crate builds and the host tree is left untouched.
 
 ## Pacing
 
-The grey "problem" stretch (02 + 03) earns the payoff, but every second of it
+The gray "problem" stretch (02 + 03) earns the payoff, but every second of it
 is a second before the viewer has seen the product. Keep it as short as the
 jokes allow.
 
@@ -299,7 +299,7 @@ past a certain point **the narration, not the tape, sets the length** — windin
 `SPEED` on further buys nothing, and leaving it short of that point strands the
 tail of the scene in silence. `SPEED` therefore has to be retuned whenever a
 script changes. It also means the only remaining lever is the script itself,
-which is why the grey scenes were tightened by trimming the gaps *between* lines
+which is why the gray scenes were tightened by trimming the gaps *between* lines
 rather than by speeding the capture alone.
 
 To shorten a scene, reach for the levers in this order — the figures are what

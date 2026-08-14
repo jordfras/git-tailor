@@ -44,7 +44,7 @@ LOGO_SPIN=0.55 # how long the logo takes to spin in and land
 # The channel ident the video opens on. It fades to the terminal's own
 # background rather than to black, so the join into the first scene is
 # invisible — the card dissolves and the terminal is simply already there.
-# The colour is Cobalt2's background, the theme the scene tapes pin.
+# The color is Cobalt2's background, the theme the scene tapes pin.
 BUMPER=demo/promo/assets/hsn-bumper.svg
 BUMPER_HOLD=2.8
 BUMPER_FADE=0.5
@@ -71,7 +71,7 @@ duration() {
 #
 # Matching on *mean* rather than peak is what makes that work. A one-shot effect
 # is nearly all transient: the Kenney bell peaks at -1dB but averages -22, a
-# crest factor of 21dB, where a synthesised tone of the same peak averages -16.
+# crest factor of 21dB, where a synthesized tone of the same peak averages -16.
 # Lining their peaks up therefore lines up nothing a listener notices — it put
 # the bell's actual energy at about -41dB, inaudible under the music. Mean
 # tracks perceived loudness; the ceiling then keeps the transient from clipping.
@@ -118,7 +118,7 @@ MUSIC_DULL_GAIN=0.92
 # without the bed sounding broken.
 MUSIC_DULL_PITCH=0.8909
 
-# Prefer real audio dropped into demo/promo/assets/ over the synthesised placeholders.
+# Prefer real audio dropped into demo/promo/assets/ over the synthesized placeholders.
 asset() {
     local name=$1 ext
     for ext in wav mp3 flac ogg m4a opus; do
@@ -170,7 +170,7 @@ fi
 # ---------------------------------------------------------------------------
 # Placeholder music/SFX (skipped for any asset supplied for real)
 # ---------------------------------------------------------------------------
-echo ">> synthesising placeholder audio beds ..."
+echo ">> synthesizing placeholder audio beds ..."
 "$REPO/demo/promo/scripts/make-audio-beds.sh" "$ASSETS_GEN" >/dev/null
 MUSIC=$(asset music)
 
@@ -314,7 +314,7 @@ TOTAL=$(fcalc "$cursor + $XFADE")
 echo ">> $n scene(s), $TOTAL s total"
 
 # ---------------------------------------------------------------------------
-# Pass 1 — video: normalise, title card, pad, cross-fade
+# Pass 1 — video: normalize, title card, pad, cross-fade
 # ---------------------------------------------------------------------------
 echo ">> composing video ..."
 
@@ -336,7 +336,7 @@ fit_size() {
 # Outline width for a given font size. Cards are drawn as white glyphs with a
 # black outline rather than white-on-a-black-box: the box was a slab across the
 # picture, while an outline keeps the text readable over anything underneath —
-# terminal, diff colours, the logo — without hiding it. Scaled with the font so
+# terminal, diff colors, the logo — without hiding it. Scaled with the font so
 # a small card is not smothered and a large one is not left too thin.
 outline() {
     awk -v s="$1" 'BEGIN { b = int(s / 16); print (b < 2) ? 2 : b }'
@@ -376,7 +376,7 @@ for i in $(seq 0 $((n - 1))); do
     next_input=$((next_input + 1))
 done
 
-# Emoji stamps, rasterised out of the colour font — ffmpeg cannot draw those
+# Emoji stamps, rasterized out of the color font — ffmpeg cannot draw those
 # itself, see make-emoji.py.
 stamp_idx=()
 for i in $(seq 0 $((n - 1))); do
@@ -398,7 +398,7 @@ for i in $(seq 0 $((n - 1))); do
     chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=$FPS"
 
     # The infomercial "problem" look. Applied before the title card so the card
-    # itself stays white rather than going grey with the footage.
+    # itself stays white rather than going gray with the footage.
     if [ "${grays[$i]}" != "0" ]; then
         chain="$chain,hue=s=0"
     fi
@@ -619,7 +619,7 @@ for r in "${ranges[@]}"; do
 done
 bounds+=("$TOTAL")
 
-# The levelled source is written out once, and each stretch re-reads it: one
+# The leveled source is written out once, and each stretch re-reads it: one
 # filter output cannot be consumed by several branches without asplit, and
 # asplit here would need as many outputs as there are stretches.
 ffmpeg -hide_banner -loglevel error -y -stream_loop -1 -i "$MUSIC" -t "$TOTAL" \

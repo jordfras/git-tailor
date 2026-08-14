@@ -3,7 +3,7 @@
 #
 # Rasterise one emoji to a transparent PNG, for compose.sh to overlay.
 #
-# ffmpeg cannot do this itself. Colour emoji are bitmap glyphs (CBDT/CBLC) and
+# ffmpeg cannot do this itself. Color emoji are bitmap glyphs (CBDT/CBLC) and
 # drawtext rejects the font outright — "Monocromatic (1bpp) fonts are not
 # supported" at the one size it will accept, and "invalid library handle" at
 # every other. Pillow reads the embedded bitmaps happily.
