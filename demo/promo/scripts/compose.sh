@@ -55,6 +55,11 @@ TAIL=0.6       # quiet time after the narration before a scene may transition
 # How long the logo takes to spin in and land. LOGO_SPIN=0 in a video.conf
 # means a logo that simply appears: no spin, no overshoot, and no impact cue
 # under it. A title card is not an entrance.
+# How far outside the marked box a marker's shape is drawn. Small, because the
+# matrix's columns are contiguous -- 17px each with no gutter -- so anything
+# generous makes a marker on one column bleed into its neighbours.
+MARKER_GAP=3
+
 LOGO_SPIN=0.55
 
 # Per-video settings. The defaults below are the promo's; video.conf overrides
@@ -273,6 +278,7 @@ stamp_holds=()
 stamp_sizes=()
 stamp_xs=()
 stamp_ys=()
+markers=()
 
 cursor=$BUMPER_LEN
 for name in "${scenes[@]}"; do
@@ -291,6 +297,13 @@ for name in "${scenes[@]}"; do
     TITLE_HOLD=3.3 TITLE_AT=0.4 GRAYSCALE=0 SPEED=1
     LOGO="" LOGO_AT=0.3 LOGO_HOLD=2.2
     STAMP="" STAMP_AT=1.0 STAMP_HOLD=2.5 STAMP_SIZE=260
+    # Rings drawn around whatever the narration is naming, one per element:
+    #   "AT HOLD X Y W H [SHAPE]"  -- seconds, the box in frame pixels, and
+    # optionally auto (default) | ellipse | rect | arrow-up | arrow-down.
+    # Pixels rather than terminal cells, because a marker points at whatever
+    # needs pointing at and that is not always on the grid. Read the numbers off
+    # a frame; see demo/promo/README.md.
+    MARKERS=()
     # In overlay expressions W/H are the frame and w/h are the stamp — mixing
     # them up silently parks the picture in the top-left corner.
     STAMP_X="W*0.78-w/2" STAMP_Y="H*0.40-h/2"
@@ -339,6 +352,8 @@ for name in "${scenes[@]}"; do
     stamp_sizes+=("$STAMP_SIZE")
     stamp_xs+=("$STAMP_X")
     stamp_ys+=("$STAMP_Y")
+    # Flattened with a separator: bash has no nested arrays.
+    markers+=("$(printf '%s|' ${MARKERS[@]+"${MARKERS[@]}"})")
 
     printf '   %-10s tape %ss (%s frames @ %sfps), voice %ss -> scene %ss @ %ss\n' \
         "$name" "$vdur" "$nframes" "$rate" "$adur" "$sdur" "$cursor"
@@ -429,6 +444,31 @@ for i in $(seq 0 $((n - 1))); do
     next_input=$((next_input + 1))
 done
 
+# Annotation rings. One PNG per marker rather than one per distinct size: a
+# scene rarely has more than a handful, and the files are tiny.
+marker_idx=()
+declare -A marker_off=()
+for i in $(seq 0 $((n - 1))); do
+    marker_idx[$i]=""
+    IFS='|' read -r -a specs <<<"${markers[$i]}"
+    for j in "${!specs[@]}"; do
+        [ -n "${specs[$j]}" ] || continue
+        read -r _at _hold _x _y _w _h _shape <<<"${specs[$j]}"
+        png=$ASSETS_GEN/markers/${names[$i]}-$j.png
+        mkdir -p "$(dirname "$png")"
+        # The box in the config is the thing being marked; the shape is drawn
+        # clear of it so a marker always reads as "around" rather than "on".
+        # How far clear depends on the shape, so it reports its own offset.
+        marker_off[$i,$j]=$("$KOKORO_HOME/venv/bin/python" \
+            "$REPO/demo/promo/scripts/make-marker.py" \
+            --out "$png" --width "$_w" --height "$_h" \
+            --gap "$MARKER_GAP" --shape "${_shape:-auto}")
+        vargs+=(-loop 1 -framerate "$FPS" -t "${scene_durs[$i]}" -i "$png")
+        marker_idx[$i]="${marker_idx[$i]}$next_input "
+        next_input=$((next_input + 1))
+    done
+done
+
 for i in $(seq 0 $((n - 1))); do
     a=$((i * 2))
     b=$((i * 2 + 1))
@@ -488,6 +528,28 @@ if(lt($st\\,0.34)\\,1.2-($st-0.22)/0.12*0.2\\,1))"
         vfilter="$vfilter:enable='gte(t\\,$sin)'[stamped$i];"
         src="[stamped$i]"
     fi
+
+    # Rings, after any GRAYSCALE so an annotation keeps its color on a scene
+    # that has deliberately lost its own.
+    IFS='|' read -r -a specs <<<"${markers[$i]}"
+    mj=0
+    for idx in ${marker_idx[$i]}; do
+        read -r _at _hold _x _y _w _h _shape <<<"${specs[$mj]}"
+        mout=$(fcalc "$_at + $_hold")
+        read -r offx offy <<<"${marker_off[$i,$mj]}"
+        ox=$((_x - offx))
+        oy=$((_y - offy))
+        # Separated indices: `mark${i}${mj}` reads the same for scene 1 marker
+        # 12 as for scene 11 marker 2, and ffmpeg rejects the duplicate label
+        # by failing the whole compose.
+        vfilter="$vfilter[$idx:v]format=rgba,"
+        vfilter="$vfilter""fade=t=in:st=$_at:d=0.25:alpha=1,"
+        vfilter="$vfilter""fade=t=out:st=$mout:d=0.35:alpha=1[mark${i}_$mj];"
+        vfilter="$vfilter$src[mark${i}_$mj]overlay=$ox:$oy"
+        vfilter="$vfilter:enable='between(t\,$_at\,$(fcalc "$mout + 0.35"))'[marked${i}_$mj];"
+        src="[marked${i}_$mj]"
+        mj=$((mj + 1))
+    done
 
     if [ -z "${logo_idx[$i]}" ]; then
         vfilter="$vfilter$src""format=yuv420p[v$i];"

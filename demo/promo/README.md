@@ -115,6 +115,7 @@ everything that defines it:
 | `STAMP_SIZE` | `260` | px on its longest side |
 | `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
+| `MARKERS` | — | rings drawn around what the narration is naming, one per array element: `"AT HOLD X Y W H [SHAPE]"` — seconds, then the marked box in frame pixels, then `auto` (default) / `ellipse` / `rect` / `arrow-up` / `arrow-down` |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
 the music sags with the story rather than merely receding — muffling alone reads
@@ -122,6 +123,27 @@ as distant, not sad. Adjacent dulled scenes are merged into one stretch. The
 amounts are constants in [`scripts/compose.sh`](scripts/compose.sh):
 `MUSIC_DULL_PITCH` (0.8909, or 2^-2/12), `MUSIC_DULL_HZ`, `MUSIC_DULL_BASS` —
 which puts back the weight the lowpass removes — and `MUSIC_DULL_GAIN`.
+
+`MARKERS` exists because a tutorial names things the viewer then has to find:
+"each column is one group of hunks" only helps if you know which column. The box
+is the thing being marked, and the shape is drawn clear of it, so a marker reads
+as *around* rather than *on* — how much clearance depends on the shape, since an
+ellipse must be about √2 of a box's dimensions to contain it while a rounded
+rectangle needs only a few pixels. `auto` picks a ring for a compact target and a
+rounded box for anything longer than 2:1, because a ring stretched down a whole
+column degenerates into a sliver.
+
+Coordinates are frame pixels, and the way to get them is to pull the frame at
+that timestamp and read them off it — **per scene**. The terminal grid does not
+move, but which column a thing sits in does: the same green square is in
+different columns in different scenes, which is exactly how a marker ends up one
+column out. Check each against its own scene's frame.
+
+Two things worth knowing before placing one. A marker fires on scene time, so
+subtract the scene's start from any timestamp read off the finished video. And
+it must wait for the tape to have drawn its subject — `gt` is typically not on
+screen for the first few seconds, and a marker before that rings an empty
+terminal.
 
 The video opens on a channel ident for the fake shopping network the
 infomercial belongs to, [`assets/hsn-bumper.svg`](assets/hsn-bumper.svg). It is
