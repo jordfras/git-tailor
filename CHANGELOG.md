@@ -127,6 +127,23 @@ The format is based on
   press, not by resize or focus events (which the terminal can emit, most
   notably on Windows, when the alternate screen is restored after an external
   tool).
+- In the hunk group matrix, a square marking a commit that cannot be squashed
+  into the earlier commit in its column is now red on every commit rather than
+  only on the selected one. It used to be drawn white away from the selection,
+  which said the opposite of the red connector leaving it, and left white
+  meaning two different things: "nothing earlier to squash into" and "cannot be
+  squashed, but not into the commit you have selected". White now means only the
+  first. Columns the selected commit does not touch are still dimmed, and the
+  selected commit's own row keeps a brighter red. Affects the default
+  `highlight` theme; `plain` and `classic` are unchanged, since they exist to
+  match an older look.
+- The color legends in the README described a green or red square as a judgement
+  about two commits' changes in that one column. It is a judgement about the
+  whole commit: green means every column it touches leads back to the same
+  earlier commit, so the commit can be squashed into that one. They also said
+  every commit-list color is relative to the selected commit, which is not true
+  of dim green — that marks a commit that can fold somewhere, whatever you have
+  selected.
 - The commit detail view no longer jumps to re-center a search match that is
   already on screen. This showed up when the diff got shorter while a search was
   active — pressing `-` to reduce the context lines, or making the terminal
