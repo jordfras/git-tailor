@@ -33,8 +33,9 @@ Sleep 1.6s
 Type "g"
 Sleep 200ms
 Down@600ms 6
-Sleep 14.0s
+Sleep 20.7s
 
 # Back to a commit that *is* entangled, under the closing line.
+#@cue 5 +0.08
 Up@600ms 5
 Sleep 10.6s
