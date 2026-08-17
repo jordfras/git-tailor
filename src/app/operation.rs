@@ -98,7 +98,7 @@ impl Operation {
             Operation::Unstage => "A",
             Operation::Commit => "c",
             Operation::Undo => "u",
-            Operation::Redo => "C-r",
+            Operation::Redo => "Ctrl-r",
             Operation::Autofixup => "F",
         }
     }

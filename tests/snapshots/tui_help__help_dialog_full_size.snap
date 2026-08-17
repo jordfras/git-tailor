@@ -22,7 +22,7 @@ Buffer {
         "            │   A              Unstage all changes                 │            ",
         "            │   c              Commit staged changes               │            ",
         "            │   u              Undo last operation                 │            ",
-        "            │   C-r            Redo last operation                 │            ",
+        "            │   Ctrl-r         Redo last operation                 │            ",
         "            │                                                      │            ",
         "            │ Views                                                │            ",
         "            │   Enter, i       Open commit detail view             │            ",
