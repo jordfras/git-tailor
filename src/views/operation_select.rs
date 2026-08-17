@@ -143,9 +143,9 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         };
 
         dialog = dialog.push_line(Line::from(vec![
-            Span::styled(format!(" {} {:<12}", marker, op.label()), label_style),
+            Span::styled(format!(" {} {:<14}", marker, op.label()), label_style),
             Span::styled(
-                format!("{:<4}", op.shortcut()),
+                format!("{:<7}", op.shortcut()),
                 Style::default().fg(app.colors.resolve(TextRole::Key.color())),
             ),
             Span::styled(
@@ -163,7 +163,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         ])
         .blank();
 
-    let content_width = 50;
+    let content_width = 54;
     let (max_scroll, visible_height) =
         dialog.render(frame, "Operations", content_width, app.dialog.offset);
     app.dialog.set_bounds(max_scroll, visible_height);

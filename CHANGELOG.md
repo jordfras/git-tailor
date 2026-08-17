@@ -35,7 +35,7 @@ The format is based on
   light or pastel themes where it would otherwise wash out. Any other value is a
   path to a Windows Terminal color-scheme JSON file, so you can apply any custom
   scheme.
-- Bulk "Autofixup" (`Shift-F`, or "Autofixup" in the operation picker), mirroring
+- Bulk "Autofixup" (`F`, or "Autofixup" in the operation picker), mirroring
   `git rebase --autosquash`: scans the branch for `fixup!`/`squash!`-prefixed
   commits, matches each to the earlier commit its summary names, and squashes
   them into their targets in one pass — so a stack of small fixup commits
