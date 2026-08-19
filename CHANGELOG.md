@@ -118,6 +118,8 @@ The format is based on
   the bottom. Previously the first several key presses did nothing, because the
   stored scroll position was left past the new end of the content and had to be
   walked back down before the view would move.
+- Redrawing is much faster on Windows, where moving the cursor could visibly
+  paint a row in pieces.
 
 
 ## [2.0.0] - 2026-07-02

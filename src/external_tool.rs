@@ -14,14 +14,13 @@
 
 //! Suspend/restore the TUI around external processes (editor, mergetool).
 
-use crate::terminal_guard::{reset_terminal_background, set_terminal_background};
+use crate::terminal_guard::{TuiTerminal, reset_terminal_background, set_terminal_background};
 use crossterm::{
     event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io;
+use std::io::{self, Write};
 
 /// Suspend the TUI around `f`, then clear the terminal so the next draw
 /// starts from a clean buffer. Used for editors, mergetool, and SIGTSTP.
@@ -31,11 +30,14 @@ use std::io;
 /// external editor/mergetool sees the user's own terminal theme rather than the
 /// forced palette background — and re-applied when the TUI is restored.
 pub(crate) fn with_tui_suspended<T>(
-    terminal: &mut Terminal<CrosstermBackend<io::Stderr>>,
+    terminal: &mut TuiTerminal,
     kb_enhanced: bool,
     background: Option<(u8, u8, u8)>,
     f: impl FnOnce() -> T,
 ) -> io::Result<T> {
+    // The suspend sequence writes to `io::stderr()` directly, bypassing the
+    // backend's buffer, so anything still held there has to go out first.
+    terminal.backend_mut().flush()?;
     let result = tui_suspend_restore(kb_enhanced, background, f);
     terminal.clear()?;
     Ok(result)
