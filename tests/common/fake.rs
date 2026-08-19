@@ -14,6 +14,7 @@
 
 use anyhow::{Result, anyhow};
 use git_tailor::{CommitDiff, CommitInfo, Oid, repo::RepoRead};
+use std::cell::Cell;
 
 /// Builder for a configurable [`StubRepo`].
 ///
@@ -63,6 +64,7 @@ impl StubRepoBuilder {
             commit_diff: self.commit_diff,
             staged_diff: self.staged_diff,
             unstaged_diff: self.unstaged_diff,
+            commit_diff_calls: Cell::new(0),
         }
     }
 }
@@ -84,6 +86,16 @@ pub struct StubRepo {
     commit_diff: Option<CommitDiff>,
     staged_diff: Option<CommitDiff>,
     unstaged_diff: Option<CommitDiff>,
+    commit_diff_calls: Cell<usize>,
+}
+
+impl StubRepo {
+    /// How many times [`RepoRead::commit_diff`] has been called, so tests can
+    /// pin down *when* a view reaches for the repository rather than only what
+    /// it draws.
+    pub fn commit_diff_calls(&self) -> usize {
+        self.commit_diff_calls.get()
+    }
 }
 
 impl RepoRead for StubRepo {
@@ -97,6 +109,7 @@ impl RepoRead for StubRepo {
         unimplemented!()
     }
     fn commit_diff(&self, _oid: &Oid, _context_lines: u32) -> Result<CommitDiff> {
+        self.commit_diff_calls.set(self.commit_diff_calls.get() + 1);
         match &self.commit_diff {
             Some(diff) => Ok(diff.clone()),
             None => Err(anyhow!("commit_diff not configured on StubRepo")),
