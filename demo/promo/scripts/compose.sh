@@ -297,9 +297,9 @@ for name in "${scenes[@]}"; do
     TITLE_HOLD=3.3 TITLE_AT=0.4 GRAYSCALE=0 SPEED=1
     LOGO="" LOGO_AT=0.3 LOGO_HOLD=2.2
     STAMP="" STAMP_AT=1.0 STAMP_HOLD=2.5 STAMP_SIZE=260
-    # Rings drawn around whatever the narration is naming, one per element:
+    # Boxes drawn around whatever the narration is naming, one per element:
     #   "AT HOLD X Y W H [SHAPE]"  -- seconds, the box in frame pixels, and
-    # optionally auto (default) | ellipse | rect | arrow-up | arrow-down.
+    # optionally rect (default) | arrow-up | arrow-down.
     # Pixels rather than terminal cells, because a marker points at whatever
     # needs pointing at and that is not always on the grid. Read the numbers off
     # a frame; see demo/promo/README.md.
@@ -444,7 +444,7 @@ for i in $(seq 0 $((n - 1))); do
     next_input=$((next_input + 1))
 done
 
-# Annotation rings. One PNG per marker rather than one per distinct size: a
+# Annotation markers. One PNG per marker rather than one per distinct size: a
 # scene rarely has more than a handful, and the files are tiny.
 marker_idx=()
 declare -A marker_off=()
@@ -457,12 +457,12 @@ for i in $(seq 0 $((n - 1))); do
         png=$ASSETS_GEN/markers/${names[$i]}-$j.png
         mkdir -p "$(dirname "$png")"
         # The box in the config is the thing being marked; the shape is drawn
-        # clear of it so a marker always reads as "around" rather than "on".
-        # How far clear depends on the shape, so it reports its own offset.
+        # clear of it so a marker always reads as "around" rather than "on",
+        # and reports back where that leaves its own top-left corner.
         marker_off[$i,$j]=$("$KOKORO_HOME/venv/bin/python" \
             "$REPO/demo/promo/scripts/make-marker.py" \
             --out "$png" --width "$_w" --height "$_h" \
-            --gap "$MARKER_GAP" --shape "${_shape:-auto}")
+            --gap "$MARKER_GAP" --shape "${_shape:-rect}")
         vargs+=(-loop 1 -framerate "$FPS" -t "${scene_durs[$i]}" -i "$png")
         marker_idx[$i]="${marker_idx[$i]}$next_input "
         next_input=$((next_input + 1))
@@ -529,7 +529,7 @@ if(lt($st\\,0.34)\\,1.2-($st-0.22)/0.12*0.2\\,1))"
         src="[stamped$i]"
     fi
 
-    # Rings, after any GRAYSCALE so an annotation keeps its color on a scene
+    # Markers, after any GRAYSCALE so an annotation keeps its color on a scene
     # that has deliberately lost its own.
     IFS='|' read -r -a specs <<<"${markers[$i]}"
     mj=0

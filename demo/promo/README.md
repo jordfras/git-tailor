@@ -115,7 +115,7 @@ everything that defines it:
 | `STAMP_SIZE` | `260` | px on its longest side |
 | `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
-| `MARKERS` | — | rings drawn around what the narration is naming, one per array element: `"AT HOLD X Y W H [SHAPE]"` — seconds, then the marked box in frame pixels, then `auto` (default) / `ellipse` / `rect` / `arrow-up` / `arrow-down` |
+| `MARKERS` | — | boxes drawn around what the narration is naming, one per array element: `"AT HOLD X Y W H [SHAPE]"` — seconds, then the marked box in frame pixels, then `rect` (default) / `arrow-up` / `arrow-down` |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
 the music sags with the story rather than merely receding — muffling alone reads
@@ -126,12 +126,12 @@ which puts back the weight the lowpass removes — and `MUSIC_DULL_GAIN`.
 
 `MARKERS` exists because a tutorial names things the viewer then has to find:
 "each column is one group of hunks" only helps if you know which column. The box
-is the thing being marked, and the shape is drawn clear of it, so a marker reads
-as *around* rather than *on* — how much clearance depends on the shape, since an
-ellipse must be about √2 of a box's dimensions to contain it while a rounded
-rectangle needs only a few pixels. `auto` picks a ring for a compact target and a
-rounded box for anything longer than 2:1, because a ring stretched down a whole
-column degenerates into a sliver.
+is the thing being marked, and a rounded rectangle is drawn clear of it by
+`MARKER_GAP` — a constant in [`scripts/compose.sh`](scripts/compose.sh) — so a
+marker reads as *around* rather than *on*. Always a rectangle: a ring suits a
+target about as wide as it is tall, but stretched down a whole column it
+degenerates into a sliver, and one shape for everything is one less thing to get
+wrong.
 
 Coordinates are frame pixels, and the way to get them is to pull the frame at
 that timestamp and read them off it — **per scene**. The terminal grid does not
