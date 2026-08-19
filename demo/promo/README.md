@@ -115,7 +115,7 @@ everything that defines it:
 | `STAMP_SIZE` | `260` | px on its longest side |
 | `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
-| `MARKERS` | — | boxes drawn around what the narration is naming, one per array element: `"AT HOLD X Y W H [SHAPE]"` — seconds, then the marked box in frame pixels, then `rect` (default) / `arrow-up` / `arrow-down` |
+| `MARKERS` | — | boxes drawn around what the narration is naming, one per array element: `"AT HOLD COL ROW COLS ROWS [SHAPE]"` — seconds, then the marked cells in the terminal grid, then `rect` (default) / `arrow-up` / `arrow-down` |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
 the music sags with the story rather than merely receding — muffling alone reads
@@ -125,19 +125,29 @@ amounts are constants in [`scripts/compose.sh`](scripts/compose.sh):
 which puts back the weight the lowpass removes — and `MUSIC_DULL_GAIN`.
 
 `MARKERS` exists because a tutorial names things the viewer then has to find:
-"each column is one group of hunks" only helps if you know which column. The box
-is the thing being marked, and a rounded rectangle is drawn clear of it by
-`MARKER_GAP` — a constant in [`scripts/compose.sh`](scripts/compose.sh) — so a
-marker reads as *around* rather than *on*. Always a rectangle: a ring suits a
-target about as wide as it is tall, but stretched down a whole column it
-degenerates into a sliver, and one shape for everything is one less thing to get
-wrong.
+"each column is one group of hunks" only helps if you know which column. The
+cells are the thing being marked, and the box's stroke — `MARKER_STROKE` in
+[`scripts/compose.sh`](scripts/compose.sh) — is drawn immediately outside them,
+so a marker reads as *around* rather than *on*. No clearance beyond that: the
+matrix's columns are contiguous with no gutter, so every pixel a marker takes is
+one it takes off a neighbouring column, and a gap around the marked cells reads
+as a marker that has missed. A box at the edge of the picture is capped to the
+picture rather than hanging half off frame.
 
-Coordinates are frame pixels, and the way to get them is to pull the frame at
-that timestamp and read them off it — **per scene**. The terminal grid does not
-move, but which column a thing sits in does: the same green square is in
-different columns in different scenes, which is exactly how a marker ends up one
-column out. Check each against its own scene's frame.
+Coordinates are terminal cells, counted from the top-left of the terminal, and
+everything a marker can point at is on that grid: a matrix column is one cell
+wide, a commit one row tall, the header is row 0 and the first commit is row 1.
+`cell_box` in [`scripts/compose.sh`](scripts/compose.sh) is the only thing that
+converts them, and it is where the two awkward steps live — vhs sizes the
+terminal to a whole number of cells, so a capture is not quite 1920×1080, and
+the picture chain then scales it to fit and centers it. `CELL_W` and `CELL_H`
+there are the cell size in a capture at the `Set FontSize` every scene tape
+pins; change the font size and they change with it.
+
+Count the cells off a frame — **per scene**. The grid does not move, but which
+column a thing sits in does: the same green square is in different columns in
+different scenes, which is exactly how a marker ends up one column out. Check
+each against its own scene's frame.
 
 Two things worth knowing before placing one. A marker fires on scene time, so
 subtract the scene's start from any timestamp read off the finished video. And

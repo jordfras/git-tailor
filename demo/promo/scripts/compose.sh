@@ -55,12 +55,19 @@ TAIL=0.6       # quiet time after the narration before a scene may transition
 # How long the logo takes to spin in and land. LOGO_SPIN=0 in a video.conf
 # means a logo that simply appears: no spin, no overshoot, and no impact cue
 # under it. A title card is not an entrance.
-# How far outside the marked box a marker's shape is drawn. Small, because the
-# matrix's columns are contiguous -- 17px each with no gutter -- so anything
-# generous makes a marker on one column bleed into its neighbours.
-MARKER_GAP=3
-
 LOGO_SPIN=0.55
+
+# One terminal cell in a captured frame, at the FontSize every scene tape pins.
+# cell_box is the only thing that reads them. To re-derive after a font change,
+# divide a capture's pixel size by the terminal size the tape produced -- both
+# divide exactly, since vhs sizes the terminal to whole cells.
+CELL_W=16
+CELL_H=35
+
+# A marker's stroke is drawn immediately outside the cells it marks, with no
+# clearance: the matrix's columns are contiguous with no gutter, so every pixel
+# a marker takes is one it takes off a neighbouring column.
+MARKER_STROKE=4
 
 # Per-video settings. The defaults below are the promo's; video.conf overrides
 # them, and "none" switches a whole feature off rather than needing a flag.
@@ -93,6 +100,44 @@ fgt() { awk "BEGIN{exit !($1>$2)}"; }
 
 duration() {
     ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$1"
+}
+
+# Where a box given in terminal cells lands in the composed frame: echoes
+# "X Y W H" in pixels, grown by $5 on every side and capped to the picture.
+#
+# Markers are placed in cells because cells are what they point at -- a matrix
+# column is one cell wide, a commit one row tall -- and because reading pixels
+# off a frame is how a marker ends up a column out. Two things stand between a
+# cell and a pixel, and both live here: vhs sizes the terminal to a whole number
+# of cells, so a capture is not 1920x1080, and the picture chain then scales it
+# to fit and centers it. That leaves a fractional cell pitch, so the arithmetic
+# is done in floating point and rounded once, at the end.
+cell_box() {
+    local col=$1 row=$2 cols=$3 rows=$4 grow=$5 cap_w=$6 cap_h=$7
+    awk -v col="$col" -v row="$row" -v cols="$cols" -v rows="$rows" \
+        -v grow="$grow" -v cw="$CELL_W" -v ch="$CELL_H" \
+        -v capw="$cap_w" -v caph="$cap_h" -v fw="$W" -v fh="$H" 'BEGIN {
+        # The same fit-and-center the scale/pad pair in the picture chain does,
+        # truncating where ffmpeg truncates.
+        s = (fw / capw < fh / caph) ? fw / capw : fh / caph
+        pw = int(capw * s); ph = int(caph * s)
+        px = int((fw - pw) / 2); py = int((fh - ph) / 2)
+
+        x0 = px + col * cw * s - grow
+        y0 = py + row * ch * s - grow
+        x1 = px + (col + cols) * cw * s + grow
+        y1 = py + (row + rows) * ch * s + grow
+        # A marker half off the frame reads as a rendering fault, so a box at
+        # the edge of the picture gives up its clearance rather than its shape.
+        if (x0 < px) x0 = px
+        if (y0 < py) y0 = py
+        if (x1 > px + pw) x1 = px + pw
+        if (y1 > py + ph) y1 = py + ph
+
+        x0 = int(x0 + 0.5); y0 = int(y0 + 0.5)
+        x1 = int(x1 + 0.5); y1 = int(y1 + 0.5)
+        printf "%d %d %d %d\n", x0, y0, x1 - x0, y1 - y0
+    }'
 }
 
 # Gain that brings a cue to `target` mean dBFS, without letting its peak exceed
@@ -292,17 +337,23 @@ for name in "${scenes[@]}"; do
         echo "compose: no captured frames for '$name' in $frames (run render.sh first)" >&2
         exit 1
     }
+    # vhs sizes the terminal to a whole number of cells, so a capture is very
+    # nearly 1920x1080 but never exactly -- and markers are placed against it,
+    # not against the composed frame. Measured rather than assumed, since it
+    # moves with the tape's FontSize and Padding.
+    read -r cap_w cap_h <<<"$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height -of csv=p=0 \
+        "$(find "$frames" -name 'frame-text-*.png' | sort | head -1)" | tr ',' ' ')"
 
     TITLE="" SUBTITLE="" NARRATION_DELAY=0.8 SFX=none SFX_AT=0 MUSIC_DULL=0
     TITLE_HOLD=3.3 TITLE_AT=0.4 GRAYSCALE=0 SPEED=1
     LOGO="" LOGO_AT=0.3 LOGO_HOLD=2.2
     STAMP="" STAMP_AT=1.0 STAMP_HOLD=2.5 STAMP_SIZE=260
     # Boxes drawn around whatever the narration is naming, one per element:
-    #   "AT HOLD X Y W H [SHAPE]"  -- seconds, the box in frame pixels, and
-    # optionally rect (default) | arrow-up | arrow-down.
-    # Pixels rather than terminal cells, because a marker points at whatever
-    # needs pointing at and that is not always on the grid. Read the numbers off
-    # a frame; see demo/promo/README.md.
+    #   "AT HOLD COL ROW COLS ROWS [SHAPE]"  -- seconds, then the marked cells
+    # in the terminal grid, then optionally rect (default) | arrow-up |
+    # arrow-down. Cells rather than pixels: everything a marker points at is on
+    # the grid, and cell_box does the conversion. See demo/promo/README.md.
     MARKERS=()
     # In overlay expressions W/H are the frame and w/h are the stamp — mixing
     # them up silently parks the picture in the top-left corner.
@@ -352,8 +403,20 @@ for name in "${scenes[@]}"; do
     stamp_sizes+=("$STAMP_SIZE")
     stamp_xs+=("$STAMP_X")
     stamp_ys+=("$STAMP_Y")
+    # Converted to pixels here, once, so nothing downstream needs the grid.
+    pixel_markers=()
+    for spec in ${MARKERS[@]+"${MARKERS[@]}"}; do
+        read -r _at _hold _col _row _cols _rows _shape <<<"$spec"
+        _shape=${_shape:-rect}
+        # An arrow is not drawn around anything, so it gets exactly the cells
+        # it asks for; a box has to sit outside what it marks.
+        _grow=0
+        [ "$_shape" = rect ] && _grow=$MARKER_STROKE
+        _box=$(cell_box "$_col" "$_row" "$_cols" "$_rows" "$_grow" "$cap_w" "$cap_h")
+        pixel_markers+=("$_at $_hold $_box $_shape")
+    done
     # Flattened with a separator: bash has no nested arrays.
-    markers+=("$(printf '%s|' ${MARKERS[@]+"${MARKERS[@]}"})")
+    markers+=("$(printf '%s|' ${pixel_markers[@]+"${pixel_markers[@]}"})")
 
     printf '   %-10s tape %ss (%s frames @ %sfps), voice %ss -> scene %ss @ %ss\n' \
         "$name" "$vdur" "$nframes" "$rate" "$adur" "$sdur" "$cursor"
@@ -456,13 +519,13 @@ for i in $(seq 0 $((n - 1))); do
         read -r _at _hold _x _y _w _h _shape <<<"${specs[$j]}"
         png=$ASSETS_GEN/markers/${names[$i]}-$j.png
         mkdir -p "$(dirname "$png")"
-        # The box in the config is the thing being marked; the shape is drawn
-        # clear of it so a marker always reads as "around" rather than "on",
-        # and reports back where that leaves its own top-left corner.
+        # The box is already where the ink goes; the shape reports the
+        # transparent margin it left itself for antialiasing, which the overlay
+        # below backs out again.
         marker_off[$i,$j]=$("$KOKORO_HOME/venv/bin/python" \
             "$REPO/demo/promo/scripts/make-marker.py" \
             --out "$png" --width "$_w" --height "$_h" \
-            --gap "$MARKER_GAP" --shape "${_shape:-rect}")
+            --stroke "$MARKER_STROKE" --shape "$_shape")
         vargs+=(-loop 1 -framerate "$FPS" -t "${scene_durs[$i]}" -i "$png")
         marker_idx[$i]="${marker_idx[$i]}$next_input "
         next_input=$((next_input + 1))
