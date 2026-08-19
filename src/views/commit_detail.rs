@@ -26,9 +26,8 @@ const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
 use crate::app::{AppAction, AppState, KeyCommand};
-use crate::views::palette::Colors;
-
 use crate::repo::RepoRead;
+use crate::views::palette::Colors;
 
 mod search;
 
@@ -124,11 +123,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::IncreaseContext => {
             app.detail.increase_context_lines();
-            AppAction::Handled
+            AppAction::LoadDetailDiff
         }
         KeyCommand::DecreaseContext => {
             app.detail.decrease_context_lines();
-            AppAction::Handled
+            AppAction::LoadDetailDiff
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
@@ -151,10 +150,42 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     }
 }
 
+/// Read the selected row's diff into the detail view.
+///
+/// Deliberately not called from the render path: a `commit_diff` costs a tree
+/// walk and blob decompression, so paying it per frame rather than per opened
+/// view made scrolling and resizing lag on slower filesystems.
+pub fn load_diff(repo: &impl RepoRead, app: &mut AppState) {
+    let Some(selected) = app.list.commits.get(app.list.selection_index) else {
+        app.detail.diff = None;
+        return;
+    };
+    let context_lines = app.detail.context_lines.0;
+    let loaded = match selected.oid.clone() {
+        VirtualOid::Staged => repo
+            .staged_diff(context_lines)
+            .map_err(|err| format!("Failed to load staged diff: {err}")),
+        VirtualOid::Unstaged => repo
+            .unstaged_diff(context_lines)
+            .map_err(|err| format!("Failed to load unstaged diff: {err}")),
+        VirtualOid::Real(oid) => repo
+            .commit_diff(&oid, context_lines)
+            .map(Some)
+            .map_err(|err| format!("Failed to load commit diff: {err}")),
+    };
+    app.detail.diff = match loaded {
+        Ok(diff) => diff,
+        Err(message) => {
+            app.set_error_message(message);
+            None
+        }
+    };
+}
+
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
-pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
     let search_bar_height: u16 = if app.search.active { 1 } else { 0 };
@@ -187,45 +218,19 @@ pub fn render(repo: &impl RepoRead, frame: &mut Frame, app: &mut AppState, area:
         frame.render_widget(placeholder, content_area);
     } else {
         let selected = app.list.commits[app.list.selection_index].clone();
-        let oid = selected.oid.clone();
-        let context_lines = app.detail.context_lines.0;
-
-        let diff_opt = match oid {
-            VirtualOid::Staged => match repo.staged_diff(context_lines) {
-                Ok(diff_opt) => diff_opt,
-                Err(err) => {
-                    app.set_error_message(format!("Failed to load staged diff: {err}"));
-                    None
-                }
-            },
-            VirtualOid::Unstaged => match repo.unstaged_diff(context_lines) {
-                Ok(diff_opt) => diff_opt,
-                Err(err) => {
-                    app.set_error_message(format!("Failed to load unstaged diff: {err}"));
-                    None
-                }
-            },
-            VirtualOid::Real(ref real_oid) => match repo.commit_diff(real_oid, context_lines) {
-                Ok(diff) => Some(diff),
-                Err(err) => {
-                    app.set_error_message(format!("Failed to load commit diff: {err}"));
-                    None
-                }
-            },
-        };
 
         let mut content = build_metadata_lines(&selected, app.colors);
-        if let Some(ref diff) = diff_opt
+        let mut file_start_lines = Vec::new();
+        if let Some(diff) = &app.detail.diff
             && !diff.files.is_empty()
         {
             content.extend(build_file_list_lines(&diff.files, app.colors));
             let (diff_lines, file_offsets) = build_diff_lines(&diff.files, app.colors);
             let diff_start = content.len();
-            app.detail.file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
+            file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
             content.extend(diff_lines);
-        } else {
-            app.detail.file_start_lines.clear();
         }
+        app.detail.file_start_lines = file_start_lines;
 
         let layout = compute_scroll_layout(content_area, &content);
 

@@ -120,6 +120,9 @@ The format is based on
   walked back down before the view would move.
 - Redrawing is much faster on Windows, where moving the cursor could visibly
   paint a row in pieces.
+- Scrolling and searching the commit detail view are much faster in large
+  repositories. The diff is now read when the view is opened and when `+` / `-`
+  changes the context width, instead of on every redraw.
 
 
 ## [2.0.0] - 2026-07-02

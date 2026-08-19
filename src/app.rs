@@ -49,6 +49,10 @@ pub enum AppAction {
     Quit,
     /// Reload commits from the repository.
     ReloadCommits,
+    /// Read the selected row's diff into the detail view. Emitted when the view
+    /// is opened and when `+` / `-` changes the context-line count, so the
+    /// repository is read on those transitions rather than on every frame.
+    LoadDetailDiff,
     /// Begin the split flow: get head_oid, count results, confirm if large.
     PrepareSplit {
         strategy: SplitStrategy,

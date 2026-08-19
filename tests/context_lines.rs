@@ -21,7 +21,8 @@
 mod common;
 
 use common::TestRepo;
-use git_tailor::{Oid, repo::RepoRead};
+use git_tailor::app::{AppAction, AppState, KeyCommand};
+use git_tailor::{Oid, repo::RepoRead, views};
 
 /// Build a 30-line file, then change two lines far enough apart (line 5 and line
 /// 20) that they are separate hunks at small context but merge at large context.
@@ -77,4 +78,42 @@ fn context_does_not_change_the_files_touched() {
             .collect::<Vec<_>>()
     };
     assert_eq!(paths(&tight), paths(&wide));
+}
+
+/// Opening the detail view and changing the context width are the two moments
+/// the diff is read; everything in between is redraw. Drive both through the
+/// key handlers so the wiring cannot rot into a view that shows a diff computed
+/// at the old context.
+#[test]
+fn opening_the_detail_view_and_changing_context_reload_the_diff() {
+    let (test, head) = repo_with_two_distant_changes();
+    let repo = test.git_repo();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![repo.commit_diff(&head, 3).unwrap().commit];
+    app.list.selection_index = 0;
+
+    let action = views::commit_list::handle_key(KeyCommand::ToggleDetail, &mut app);
+    assert!(
+        matches!(action, AppAction::LoadDetailDiff),
+        "opening the detail view must ask for the diff"
+    );
+    views::commit_detail::load_diff(&repo, &mut app);
+    assert_eq!(hunk_count(&app), 2, "two separate hunks at context 3");
+
+    for _ in 0..7 {
+        let action = views::commit_detail::handle_key(KeyCommand::IncreaseContext, &mut app);
+        assert!(
+            matches!(action, AppAction::LoadDetailDiff),
+            "a context change must ask for the diff again"
+        );
+        views::commit_detail::load_diff(&repo, &mut app);
+    }
+
+    assert_eq!(app.detail.context_lines.0, 10);
+    assert_eq!(hunk_count(&app), 1, "the hunks merge at context 10");
+}
+
+fn hunk_count(app: &AppState) -> usize {
+    app.detail.diff.as_ref().unwrap().files[0].hunks.len()
 }

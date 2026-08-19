@@ -33,6 +33,7 @@ use git_tailor::editor;
 use git_tailor::repo::{
     AutostashRestore, GitRepo, RebaseOutcome, StageOutcome, StashConflictState,
 };
+use git_tailor::views;
 
 use crate::external_tool::with_tui_suspended;
 
@@ -147,6 +148,7 @@ pub(crate) fn dispatch_action(
         AppAction::Handled => {}
         AppAction::Quit => app.should_quit = true,
         AppAction::ReloadCommits => return Ok(LoopAction::Reload),
+        AppAction::LoadDetailDiff => views::commit_detail::load_diff(git_repo, app),
         AppAction::PrepareSplit {
             strategy,
             commit_oid,

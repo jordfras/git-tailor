@@ -1,6 +1,6 @@
 ---
 source: tests/tui_commit_detail.rs
-expression: "harness.render(|frame|\n{\n    let area = frame.area();\n    views::commit_detail::render(&repo, frame, &mut app, area);\n})"
+expression: "harness.render(|frame|\n{\n    let area = frame.area();\n    views::commit_detail::render(frame, &mut app, area);\n})"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 24 },

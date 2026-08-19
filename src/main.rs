@@ -155,7 +155,7 @@ fn main() -> Result<()> {
                 frame.area(),
             );
             let mode = app.mode.clone();
-            render_mode(&mode, &git_repo, &mut app, frame);
+            render_mode(&mode, &mut app, frame);
         })?;
 
         let event = app::read_event()?;
@@ -286,6 +286,9 @@ fn main() -> Result<()> {
                             _ => {}
                         }
                     }
+                }
+                if matches!(app.mode, AppMode::CommitDetail) {
+                    views::commit_detail::load_diff(&git_repo, &mut app);
                 }
             }
         }
@@ -431,20 +434,15 @@ fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli)
 }
 
 /// Render a mode, recursively drawing its background first for overlay modes.
-fn render_mode(
-    mode: &AppMode,
-    git_repo: &impl GitRepo,
-    app: &mut AppState,
-    frame: &mut ratatui::Frame,
-) {
+fn render_mode(mode: &AppMode, app: &mut AppState, frame: &mut ratatui::Frame) {
     if let Some(bg) = mode.background() {
-        render_mode(&bg, git_repo, app, frame);
+        render_mode(&bg, app, frame);
     }
 
     match mode {
         AppMode::Loading { .. } => views::loading::render(app, frame),
         AppMode::CommitList => views::commit_list::render(app, frame),
-        AppMode::CommitDetail => views::main_view::render(git_repo, app, frame),
+        AppMode::CommitDetail => views::main_view::render(app, frame),
         AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
         AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
         AppMode::SplitFilesSelect { .. } => views::split_files_select::render(app, frame),

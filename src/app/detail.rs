@@ -14,6 +14,7 @@
 
 // State of the commit detail view: scroll position, diff context, file offsets.
 
+use crate::CommitDiff;
 use crate::app::ScrollState;
 use crate::repo::DEFAULT_CONTEXT_LINES;
 
@@ -38,6 +39,10 @@ pub struct DetailState {
     pub h: ScrollState,
     /// Diff context lines shown in the detail view, adjusted with `+` / `-`.
     pub context_lines: DetailContextLines,
+    /// The diff being shown, read from the repository when the view is opened
+    /// and whenever `context_lines` changes. `None` when there is nothing to
+    /// show: no row selected, an unchanged working tree, or a failed read.
+    pub diff: Option<CommitDiff>,
     /// Line indices of file-diff headers in the content (updated during render).
     pub file_start_lines: Vec<usize>,
 }

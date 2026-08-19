@@ -76,7 +76,8 @@ fn test_separator_default_position() {
     let mut app = app_with_commits();
     // offset = 0 is the default
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     // Separator should appear at column BASE_SPLIT_X - 1 = 71.
     let sep_col = separator_column(0);
@@ -121,7 +122,8 @@ fn test_separator_shifted_left() {
     let mut app = app_with_commits();
     app.separator_offset = -16;
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     let sep_col = separator_column(-16);
     assert_eq!(
@@ -140,7 +142,8 @@ fn test_separator_shifted_right() {
     let mut app = app_with_commits();
     app.separator_offset = 8;
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     let sep_col = separator_column(8);
     assert_eq!(
@@ -162,7 +165,8 @@ fn test_separator_clamps_left() {
     let mut app = app_with_commits();
     app.separator_offset = -9999;
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     // After clamping, separator_offset is written back by render.
     // min_title=10 → sep_x = SHA_COL_WIDTH + gap + min_title = 10+1+10 = 21 → sep cell at 21.
@@ -196,7 +200,8 @@ fn test_separator_clamps_right() {
     let mut app = app_with_commits();
     app.separator_offset = 9999;
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     // max_title = 120 - SHA(10) - col-gaps(2) - min-fragmap(1) = 107
     // sep_x = SHA(10) + gap(1) + max_title(107) = 118
@@ -219,7 +224,8 @@ fn test_separator_title_truncation_boundary() {
     app.list.commits[0].summary = "A commit with a very long title that will be cut".to_string();
     app.separator_offset = -32; // squeezes left panel to ~40 cols, title to ~14
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     // Collect the first data row (row 1, after the header).
     let left_panel_end = separator_column(-32);
@@ -251,7 +257,8 @@ fn test_commit_detail_shown_on_narrow_terminal() {
     let mut app = app_with_commits();
     app.mode = git_tailor::app::AppMode::CommitDetail;
 
-    let buf = harness.render(|frame| views::main_view::render(&repo, &mut app, frame));
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
 
     // With a 60-col terminal: sep_x = SHA(10) + gap(1) + title(47) = 58,
     // so the right panel is 1 col wide at column 59. The commit detail header
