@@ -22,7 +22,18 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
+
+/// Size of the buffer between the backend and stderr, large enough that a full
+/// redraw reaches the terminal in one write.
+///
+/// `io::Stderr` is unbuffered and the backend writes per cell, so without this a
+/// frame costs thousands of syscalls — barely noticeable on a Unix pty, slow
+/// enough through Windows ConPTY to visibly paint a frame in pieces.
+const WRITE_BUFFER_BYTES: usize = 1024 * 1024;
+
+/// The `Terminal` type the whole TUI is built on.
+pub(crate) type TuiTerminal = Terminal<CrosstermBackend<BufWriter<io::Stderr>>>;
 
 /// Owns the terminal-mode side effects done at startup, plus the `Terminal`
 /// itself. On Drop the modes are restored unconditionally (errors ignored —
@@ -30,7 +41,7 @@ use std::io::{self, Write};
 /// should call [`Self::shutdown`] explicitly so teardown errors propagate to
 /// `main`.
 pub(crate) struct TerminalGuard {
-    terminal: Terminal<CrosstermBackend<io::Stderr>>,
+    terminal: TuiTerminal,
     kb_enhanced: bool,
     /// The RGB the terminal's default background was overridden to (OSC 11) at
     /// startup, or `None` when left untouched. Reset (OSC 111) on teardown and
@@ -42,7 +53,7 @@ pub(crate) struct TerminalGuard {
 
 impl TerminalGuard {
     /// Mutable access to the underlying `Terminal`.
-    pub(crate) fn terminal(&mut self) -> &mut Terminal<CrosstermBackend<io::Stderr>> {
+    pub(crate) fn terminal(&mut self) -> &mut TuiTerminal {
         &mut self.terminal
     }
 
@@ -60,6 +71,9 @@ impl TerminalGuard {
     /// Drop becomes a no-op.
     pub(crate) fn shutdown(mut self) -> Result<()> {
         self.finished = true;
+        // `teardown` writes to `io::stderr()` directly, bypassing the buffer, so
+        // any bytes still held there have to go out first to keep the order.
+        self.terminal.backend_mut().flush()?;
         teardown(self.kb_enhanced, self.background)
     }
 }
@@ -70,6 +84,7 @@ impl Drop for TerminalGuard {
             return;
         }
         // Panic / early-return path: errors cannot be reported meaningfully.
+        let _ = self.terminal.backend_mut().flush();
         let _ = teardown(self.kb_enhanced, self.background);
     }
 }
@@ -127,7 +142,7 @@ pub(crate) fn setup_terminal(background: Option<(u8, u8, u8)>) -> Result<Termina
         )?;
     }
     install_panic_hook(kb_enhanced, background);
-    let backend = CrosstermBackend::new(stderr);
+    let backend = CrosstermBackend::new(BufWriter::with_capacity(WRITE_BUFFER_BYTES, stderr));
     let terminal = Terminal::new(backend)?;
     Ok(TerminalGuard {
         terminal,

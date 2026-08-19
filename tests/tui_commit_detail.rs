@@ -42,9 +42,10 @@ fn test_commit_detail_short_lines_no_hscroll() {
     app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
     app.list.selection_index = 0;
 
+    views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     }));
 }
 
@@ -60,9 +61,10 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
     app.list.selection_index = 0;
 
+    views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     }));
 }
 
@@ -80,9 +82,10 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     app.list.selection_index = 0;
     app.detail.h.offset = 10;
 
+    views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     }));
 }
 
@@ -99,9 +102,10 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     app.list.selection_index = 0;
     app.detail.v.offset = 9999; // far beyond the (tiny) content
 
+    views::commit_detail::load_diff(&repo, &mut app);
     harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     });
 
     assert_eq!(
@@ -153,9 +157,10 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     )];
     app.list.selection_index = 0;
 
+    views::commit_detail::load_diff(&repo, &mut app);
     let buf = harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     });
 
     for cell in buf.content() {
@@ -257,9 +262,10 @@ fn test_commit_detail_search_bar_visible() {
     app.search.activate();
     app.search.query = "old".to_string();
 
+    views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     }));
 }
 
@@ -307,9 +313,10 @@ fn test_commit_detail_search_highlight_matches() {
     app.search.query = "hello".to_string();
     app.search.input_active = false; // Confirmed search
 
+    views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     }));
 }
 
@@ -506,9 +513,10 @@ fn test_search_case_sensitive() {
     app.search.query = "FOO".to_string();
     app.search.input_active = false;
 
+    views::commit_detail::load_diff(&repo, &mut app);
     let buf = harness.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     });
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
@@ -615,9 +623,10 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
 
     // Short terminal: render, then scroll to the bottom.
     let mut short = TuiTestHarness::new(80, 20);
+    views::commit_detail::load_diff(&repo, &mut app);
     short.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     });
     app.detail.v.to_end();
     let stale = app.detail.v.offset;
@@ -629,7 +638,7 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
     let mut tall = TuiTestHarness::new(80, 45);
     tall.render(|frame| {
         let area = frame.area();
-        views::commit_detail::render(&repo, frame, &mut app, area);
+        views::commit_detail::render(frame, &mut app, area);
     });
 
     let max = app.detail.v.max;
@@ -655,4 +664,27 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
         app.detail.v.offset, max,
         "an already-visible match must not scroll the view"
     );
+}
+
+/// Opening the detail view queries the repository for the diff; redrawing the
+/// same view must not. Re-reading the diff on every frame made cursor movement
+/// visibly laggy on filesystems where a libgit2 diff is not nearly free.
+#[test]
+fn test_commit_detail_redraw_does_not_requery_the_repository() {
+    let repo = make_repo_with_empty_diff("abc123def456", "Short commit");
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list.selection_index = 0;
+
+    views::commit_detail::load_diff(&repo, &mut app);
+    for _ in 0..3 {
+        harness.render(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(frame, &mut app, area);
+        });
+    }
+
+    assert_eq!(repo.commit_diff_calls(), 1);
 }

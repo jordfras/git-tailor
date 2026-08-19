@@ -251,6 +251,14 @@ loop {
 }
 ```
 
+### Rendering performs no I/O
+
+`render` functions draw what is already in `AppState` — no `GitRepo` call, no
+`std::fs`, no subprocess. The draw closure runs on every frame, so a read there
+is paid per keystroke and resize. Load in `dispatch` in response to an
+`AppAction` instead; render signatures take no repository to keep it that way.
+
+
 ## Testing Strategy
 
 ### Principle: separate "what to do" from "how to do it in git"

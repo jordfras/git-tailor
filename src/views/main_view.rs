@@ -20,11 +20,10 @@ use ratatui::{
 };
 
 use crate::app::AppState;
-use crate::repo::RepoRead;
 use crate::views;
 
 /// Render the main view with split screen (commit list on left, detail on right).
-pub fn render(git_repo: &impl RepoRead, app: &mut AppState, frame: &mut ratatui::Frame) {
+pub fn render(app: &mut AppState, frame: &mut ratatui::Frame) {
     let area = frame.area();
     // Position the separator at the same column as the fragmap "│" in CommitList
     // mode, so switching to CommitDetail causes no visual movement.
@@ -83,7 +82,7 @@ pub fn render(git_repo: &impl RepoRead, app: &mut AppState, frame: &mut ratatui:
         };
         frame.render_widget(Paragraph::new(separator_spans), sep_area);
 
-        views::commit_detail::render(git_repo, frame, app, right_area);
+        views::commit_detail::render(frame, app, right_area);
 
         // Render footer at full terminal width so it isn't capped to the left panel.
         let footer_area = Rect {

@@ -85,7 +85,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::ToggleDetail | KeyCommand::Confirm => {
             app.toggle_detail_view();
-            AppAction::Handled
+            AppAction::LoadDetailDiff
         }
         KeyCommand::ShowHelp => {
             app.toggle_help();
