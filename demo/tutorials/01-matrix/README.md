@@ -11,7 +11,7 @@ see [`../../README.md`](../../README.md) for the pipeline and
 | 01 | columns | reading order (`--reverse`), rows line up with the list, columns are groups of hunks |
 | 02 | colors | dimming, and the green clean fold |
 | 03 | connectors | the same relationship across a gap, then red |
-| 04 | context | zero context here, three lines when git squashes |
+| 04 | context | overlap groups here; git also joins changes that merely touch |
 | 05 | list | the two list colors that follow the selection, symmetric in either direction |
 | 06 | dim | dim as one idea across both panes, then the payoff |
 

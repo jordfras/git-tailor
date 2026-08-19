@@ -121,9 +121,10 @@ familiar if you are coming from there.
 | Red connector    | The same as a red square, drawn across the commits in between                                                          |
 | Dimmed column    | A hunk group the selected commit does not touch, shown for context                                                     |
 
-Note that even though the colors indicate cleanly squashable, git may consider
-the squash causing conflict since git-tailor considers no extra lines of context
-while git does.
+Note that "squashes cleanly" is not quite a promise: git-tailor groups changes
+only where their lines overlap, while git also treats adjacent lines as one
+region. Changes with nothing between them can still conflict; one untouched line
+is enough for git to agree.
 
 ### Color legend — commit list (highlight theme)
 

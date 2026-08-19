@@ -44,7 +44,7 @@ Sleep 8.0s
 Up@700ms 1
 Sleep 6.0s
 Down@700ms 1
-Sleep 8.0s
+Sleep 11.0s
 
 Down@700ms 1
-Sleep 6.7s
+Sleep 8.6s

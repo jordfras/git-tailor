@@ -166,10 +166,13 @@ pub enum TouchKind {
     None,
 }
 
-/// A cluster of overlapping or adjacent FileSpans across multiple commits.
+/// A cluster of overlapping FileSpans across multiple commits.
 ///
-/// Represents a code region that multiple commits touch. Spans are merged
-/// when they overlap or are adjacent (within same file).
+/// Represents a code region that multiple commits touch. Spans are merged only
+/// where they overlap (within the same file); spans that merely touch, one
+/// ending where the next begins, stay in separate clusters. Note that git's
+/// merge does join touching changes, which is why a clean-looking fold can
+/// still conflict -- see the note in README.md.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpanCluster {
     /// The merged spans in this cluster (typically one span per file touched).

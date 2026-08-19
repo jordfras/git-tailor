@@ -1,15 +1,18 @@
 One thing to know before you trust the green.
 
 [0.7]
-git-tailor works out these groups from the changed lines alone, with no
-surrounding context. Git does not. When it actually squashes, it takes three
-lines either side of every change.
+git-tailor reads these groups from the changed lines alone. A change on one line
+and a change on the very next line overlap nothing, so they stay two separate
+groups.
 
 [0.8]
-So two changes a few lines apart look independent here, and can still collide
-when git puts them together. Green means nothing overlaps; it does not promise
-git will agree.
+Git is a shade stricter. When it merges, two changes with no untouched line
+between them count as one region, and collide.
 
 [0.8]
-When that happens the conflict is a small one, in code you have just been
+One untouched line is enough for git to agree with the picture. So green means
+nothing overlaps; it does not quite promise git will agree.
+
+[0.9]
+And when it does not, the conflict is a small one, in code you have just been
 looking at, and usually obvious to resolve.
