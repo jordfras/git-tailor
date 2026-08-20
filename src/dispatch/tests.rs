@@ -72,7 +72,11 @@ impl Default for MockRepo {
 
 fn mock_stage_outcome(ok: bool, changed: bool) -> anyhow::Result<git_tailor::repo::StageOutcome> {
     if !ok {
-        return Err(anyhow::anyhow!("stage failed"));
+        // Mirrors the real `stage_op` shape: a libgit2 cause carrying the useful
+        // detail, wrapped in an `anyhow` context that alone says nothing useful.
+        return Err(
+            anyhow::anyhow!("invalid path: 'nul'").context("failed to stage working-tree changes")
+        );
     }
     Ok(if changed {
         git_tailor::repo::StageOutcome::Changed
@@ -794,6 +798,33 @@ fn stage_all_error_sets_error_message() {
     );
     assert!(matches!(action, LoopAction::Proceed));
     assert!(app.status.is_error);
+}
+
+#[test]
+fn stage_all_error_message_keeps_the_underlying_cause() {
+    // `format!("{e}")` on an `anyhow::Error` prints only the outermost context
+    // and drops the source chain, which hid libgit2's "invalid path: 'nul'"
+    // behind a bare "failed to stage working-tree changes".
+    let repo = MockRepo {
+        stage_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    report_stage_outcome(
+        &mut app,
+        repo.stage_all(),
+        "Staged all changes",
+        "Nothing to stage",
+    );
+    let message = app.status.message.as_deref().unwrap();
+    assert!(
+        message.contains("failed to stage working-tree changes"),
+        "outer context missing from {message:?}"
+    );
+    assert!(
+        message.contains("invalid path: 'nul'"),
+        "underlying cause missing from {message:?}"
+    );
 }
 
 #[test]
