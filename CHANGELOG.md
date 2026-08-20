@@ -83,6 +83,9 @@ The format is based on
 
 ### Fixed
 
+- Error messages in the status bar now include the underlying cause, not just
+  the outermost summary — so a failed operation says what actually went wrong
+  instead of only that it failed.
 - Rewording or splitting a commit is now refused, with an explanation, when a
   merge commit sits between it and the branch tip. Previously you got libgit2's
   raw "mainline branch is not specified" error — and because the walk that

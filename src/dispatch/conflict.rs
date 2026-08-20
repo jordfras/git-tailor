@@ -50,7 +50,7 @@ pub(crate) fn handle_rebase_abort(
             ))
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e}"));
+            app.set_error_message(format!("Abort failed: {e:#}"));
             Ok(LoopAction::Proceed)
         }
     }
@@ -92,7 +92,7 @@ pub(crate) fn handle_rebase_continue(
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
-                    app.set_error_message(format!("Editor error: {e}"));
+                    app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
                 Ok(msg) if msg.trim().is_empty() => {
@@ -204,7 +204,7 @@ fn finish_conflict_tool(
             app.set_error_message("No merge tool configured (set merge.tool in git config)");
         }
         Err(e) => {
-            app.set_error_message(format!("{tool_name} failed: {e}"));
+            app.set_error_message(format!("{tool_name} failed: {e:#}"));
         }
     }
     LoopAction::Proceed
@@ -274,7 +274,7 @@ pub(crate) fn handle_autostash_continue(
             Ok(LoopAction::Continue)
         }
         Err(e) => {
-            app.set_error_message(format!("Failed to finish auto-stash: {e}"));
+            app.set_error_message(format!("Failed to finish auto-stash: {e:#}"));
             Ok(LoopAction::Continue)
         }
     }
@@ -300,7 +300,7 @@ pub(crate) fn handle_autostash_abort(
             Ok(LoopAction::Reload)
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e}"));
+            app.set_error_message(format!("Abort failed: {e:#}"));
             Ok(LoopAction::Continue)
         }
     }

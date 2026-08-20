@@ -96,7 +96,7 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
                 }
             }
         }
-        Err(e) => app.set_error_message(format!("Editor error: {e}")),
+        Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
     }
     Ok(LoopAction::Proceed)
 }
@@ -134,7 +134,7 @@ pub(crate) fn handle_execute_autofixup(
         }
         Err(e) => {
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Autofixup failed: {e}"));
+            app.set_error_message(format!("Autofixup failed: {e:#}"));
             Ok(LoopAction::Proceed)
         }
     }

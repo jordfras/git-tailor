@@ -54,7 +54,7 @@ pub(crate) fn handle_commit_staged(
 ) -> Result<LoopAction> {
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "");
     match editor_result {
-        Err(e) => app.set_error_message(format!("Editor error: {e}")),
+        Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
         Ok(message) if message.trim().is_empty() => {
             app.set_success_message("Commit cancelled: message is empty");
         }
@@ -64,7 +64,7 @@ pub(crate) fn handle_commit_staged(
                 return Ok(LoopAction::Reload);
             }
             Ok(CommitOutcome::NothingStaged) => app.set_error_message("Nothing staged to commit"),
-            Err(e) => app.set_error_message(format!("Commit failed: {e}")),
+            Err(e) => app.set_error_message(format!("Commit failed: {e:#}")),
         },
     }
     Ok(LoopAction::Proceed)

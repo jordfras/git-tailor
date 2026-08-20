@@ -258,7 +258,7 @@ fn main() -> Result<()> {
                     _ => app.list.selection_index,
                 };
                 match git_repo.head_oid() {
-                    Err(e) => app.set_error_message(format!("Reload failed: {e}")),
+                    Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
                     Ok(head_oid) => {
                         let reference_oid = app.reference_oid.clone();
                         let include_ref = app.include_reference_oid;
@@ -272,7 +272,7 @@ fn main() -> Result<()> {
                             include_ref,
                             full,
                         ) {
-                            Err(e) => app.set_error_message(format!("Reload failed: {e}")),
+                            Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
                             Ok(true)
                                 if preserve
                                     || matches!(
@@ -324,9 +324,8 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
                         "Recovered an interrupted Edit — restored the branch \
                          (in-shell commits remain in the reflog)",
                     ),
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to recover an interrupted Edit: {e}"))
-                    }
+                    Err(e) => app
+                        .set_error_message(format!("Failed to recover an interrupted Edit: {e:#}")),
                 }
             }
             InProgress::Conflict(state) => {
@@ -362,7 +361,7 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
         }
         Ok(JournalStatus::None) => {}
         Err(e) => {
-            app.set_error_message(format!("Failed to read operation journal: {e}"));
+            app.set_error_message(format!("Failed to read operation journal: {e:#}"));
         }
     }
 

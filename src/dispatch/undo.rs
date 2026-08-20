@@ -28,7 +28,7 @@ pub(crate) fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Re
     // reapply — running the stash dance would negate it — so bypass it for those.
     let skip_autostash = git_repo.pending_undo_skips_autostash().unwrap_or(false);
     if !skip_autostash && let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
+        app.set_error_message(format!("Auto-stash failed: {e:#}"));
         return Ok(LoopAction::Proceed);
     }
     let outcome = git_repo.undo();
@@ -54,7 +54,7 @@ pub(crate) fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Re
             Ok(LoopAction::Reload)
         }
         Err(e) => {
-            app.set_error_message(format!("Undo failed: {e}"));
+            app.set_error_message(format!("Undo failed: {e:#}"));
             Ok(LoopAction::Proceed)
         }
     }
@@ -64,7 +64,7 @@ pub(crate) fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Re
     // See handle_undo: skip the auto-stash dance for a working-tree-preserving redo.
     let skip_autostash = git_repo.pending_redo_skips_autostash().unwrap_or(false);
     if !skip_autostash && let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
+        app.set_error_message(format!("Auto-stash failed: {e:#}"));
         return Ok(LoopAction::Proceed);
     }
     let outcome = git_repo.redo();
@@ -90,7 +90,7 @@ pub(crate) fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Re
             Ok(LoopAction::Reload)
         }
         Err(e) => {
-            app.set_error_message(format!("Redo failed: {e}"));
+            app.set_error_message(format!("Redo failed: {e:#}"));
             Ok(LoopAction::Proceed)
         }
     }

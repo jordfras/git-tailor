@@ -71,7 +71,7 @@ pub(crate) fn handle_prepare_reword(
     let editor_result =
         edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message);
     match editor_result {
-        Err(e) => app.set_error_message(format!("Editor error: {e}")),
+        Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
         Ok(new_message) if new_message.trim().is_empty() => {
             app.set_success_message("Reword cancelled: message is empty");
         }
@@ -80,7 +80,7 @@ pub(crate) fn handle_prepare_reword(
         }
         Ok(new_message) => match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
             Ok(()) => return Ok(LoopAction::ReloadPreserving),
-            Err(e) => app.set_error_message(format!("Reword failed: {e}")),
+            Err(e) => app.set_error_message(format!("Reword failed: {e:#}")),
         },
     }
     Ok(LoopAction::Proceed)
@@ -122,7 +122,7 @@ pub(crate) fn handle_prepare_squash(
         }
         Err(e) => {
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("{label} failed: {e}"));
+            app.set_error_message(format!("{label} failed: {e:#}"));
             return Ok(LoopAction::Continue);
         }
         Ok(None) => {}
@@ -135,7 +135,7 @@ pub(crate) fn handle_prepare_squash(
         match editor_result {
             Err(e) => {
                 let _ = git_repo.autostash_restore();
-                app.set_error_message(format!("Editor error: {e}"));
+                app.set_error_message(format!("Editor error: {e:#}"));
                 return Ok(LoopAction::Continue);
             }
             Ok(msg) if msg.trim().is_empty() => {
