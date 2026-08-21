@@ -18,7 +18,7 @@ Buffer {
         "            │   m              Move commit (pick new position)     █            ",
         "            │   E              Edit commit in a shell              █            ",
         "            │   F              Autofixup (fixup!/squash! commits)  │            ",
-        "            │   a              Stage all changes                   │            ",
+        "            │   a              Stage all tracked changes           │            ",
         "            │   A              Unstage all changes                 │            ",
         "            │   c              Commit staged changes               │            ",
         "            │   u              Undo last operation                 │            ",

@@ -149,7 +149,7 @@ impl Operation {
             Operation::Move => "Reorder this commit",
             Operation::Drop => "Delete this commit",
             Operation::Edit => "Edit in a shell",
-            Operation::Stage => "Stage all changes",
+            Operation::Stage => "Stage all tracked changes",
             Operation::Unstage => "Unstage all changes",
             Operation::Commit => "Commit staged changes",
             Operation::Undo => "Undo last operation",

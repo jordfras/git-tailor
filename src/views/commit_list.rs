@@ -142,7 +142,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::StageAll => {
-            if app.selected_synthetic_row_is(VirtualOid::Unstaged, "stage all changes") {
+            if app.selected_synthetic_row_is(VirtualOid::Unstaged, "stage all tracked changes") {
                 AppAction::StageAll
             } else {
                 AppAction::Handled

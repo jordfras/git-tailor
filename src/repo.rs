@@ -650,9 +650,10 @@ pub trait RepoWrite {
     /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
     fn pending_redo_skips_autostash(&self) -> Result<bool>;
 
-    /// Stage all working-tree changes (modifications, untracked additions, and
-    /// deletions), like `git add -A`. Recorded as an undoable index-only
-    /// operation. Returns [`StageOutcome::NoOp`] when there was nothing to stage.
+    /// Stage all changes to tracked files (modifications and deletions), like
+    /// `git add -u`. Untracked files are left alone, matching what the unstaged
+    /// row's diff shows. Recorded as an undoable index-only operation. Returns
+    /// [`StageOutcome::NoOp`] when there was nothing to stage.
     fn stage_all(&self) -> Result<StageOutcome>;
 
     /// Unstage all staged changes by resetting the index to HEAD. Recorded as an

@@ -126,6 +126,10 @@ The format is based on
 - Scrolling and searching the commit detail view are much faster in large
   repositories. The diff is now read when the view is opened and when `+` / `-`
   changes the context width, instead of on every redraw.
+- Staging all changes (`a` on the Unstaged row) no longer picks up new,
+  untracked files. It now stages only what the Unstaged row's diff actually
+  shows — modifications and deletions of tracked files — so files you never saw
+  cannot end up in a commit.
 
 
 ## [2.0.0] - 2026-07-02

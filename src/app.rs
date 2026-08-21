@@ -134,7 +134,7 @@ pub enum AppAction {
         target_message: String,
         squash_mode: SquashMode,
     },
-    /// Stage all working-tree changes (`git add -A`).
+    /// Stage all changes to tracked files (`git add -u`).
     StageAll,
     /// Unstage all staged changes (reset the index to HEAD).
     UnstageAll,
