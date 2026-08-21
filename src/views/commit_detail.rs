@@ -375,6 +375,23 @@ fn build_file_list_lines(files: &[crate::FileDiff], colors: Colors) -> Vec<Line<
     lines
 }
 
+/// What to show in place of the hunks for a delta that has none, so a changed
+/// file never renders as a bare `---`/`+++` header pair with nothing under it.
+///
+/// A non-binary delta with no hunks has no lines on either side: for an
+/// added or deleted file that means the file is empty, otherwise only the
+/// mode or the path changed.
+fn hunkless_marker(file: &crate::FileDiff) -> &'static str {
+    use crate::DeltaStatus;
+    if file.is_binary {
+        "Binary file differs"
+    } else if matches!(file.status, DeltaStatus::Added | DeltaStatus::Deleted) {
+        "(empty file)"
+    } else {
+        "(no content changes)"
+    }
+}
+
 /// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
 /// Returns the lines and a vec of indices (within the returned vec) where each
 /// file's `--- ` header starts.
@@ -404,6 +421,13 @@ fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'sta
             format!("+++ {}", new_path),
             Style::default().fg(white),
         )));
+
+        if file.hunks.is_empty() {
+            lines.push(Line::from(Span::styled(
+                hunkless_marker(file),
+                Style::default().fg(colors.resolve(Color::DarkGray)),
+            )));
+        }
 
         for hunk in &file.hunks {
             lines.push(Line::from(Span::styled(

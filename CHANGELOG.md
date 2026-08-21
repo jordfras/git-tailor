@@ -134,6 +134,10 @@ The format is based on
   that carries no diff hunks — a new empty file, a binary file, or a mode-only
   change such as `chmod +x`. Previously such a change was invisible unless
   something else was staged alongside it.
+- The commit detail view now says what happened to a file that has no diff
+  hunks, instead of showing a bare `---`/`+++` header pair: `Binary file
+  differs`, `(empty file)`, or `(no content changes)` for a mode- or path-only
+  change.
 
 
 ## [2.0.0] - 2026-07-02
