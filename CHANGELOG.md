@@ -130,6 +130,10 @@ The format is based on
   untracked files. It now stages only what the Unstaged row's diff actually
   shows — modifications and deletions of tracked files — so files you never saw
   cannot end up in a commit.
+- The Staged and Unstaged rows no longer disappear when the only change is one
+  that carries no diff hunks — a new empty file, a binary file, or a mode-only
+  change such as `chmod +x`. Previously such a change was invisible unless
+  something else was staged alongside it.
 
 
 ## [2.0.0] - 2026-07-02

@@ -222,7 +222,10 @@ fn build_synthetic_diff(
     summary: &str,
 ) -> Result<Option<CommitDiff>> {
     let files = extract_files_from_diff(diff)?;
-    if files.iter().all(|f| f.hunks.is_empty()) {
+    // Emptiness is "no deltas", not "no hunks": an empty file, a binary file or
+    // a mode-only change is a real delta that carries no hunks, and the row must
+    // still appear for it.
+    if files.is_empty() {
         return Ok(None);
     }
     Ok(Some(CommitDiff {
