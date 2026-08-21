@@ -262,3 +262,71 @@ fn test_unstaged_diff_has_context_but_fragmap_variant_does_not() {
         "the fragmap unstaged diff should have no context lines"
     );
 }
+
+/// A hunkless delta — an empty file, a binary file, a mode-only change — still
+/// belongs on the synthetic Staged/Unstaged row. Dropping it hides the whole row
+/// when it is the only thing staged.
+#[test]
+fn test_staged_diff_shows_a_new_empty_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("file.txt", "a\n", "init");
+    test.write_file("empty.txt", "");
+    test.stage_file("empty.txt");
+    let repo = test.git_repo();
+
+    let diff = repo
+        .staged_diff(3)
+        .unwrap()
+        .expect("staging an empty file should produce a staged row");
+    assert_eq!(diff.files.len(), 1);
+    assert_eq!(diff.files[0].new_path.as_deref(), Some("empty.txt"));
+    assert!(repo.staged_diff_for_fragmap().unwrap().is_some());
+}
+
+#[test]
+fn test_staged_diff_shows_a_new_binary_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("file.txt", "a\n", "init");
+    std::fs::write(
+        test.repo.workdir().unwrap().join("blob.bin"),
+        b"bin\x00data\n",
+    )
+    .unwrap();
+    test.stage_file("blob.bin");
+    let repo = test.git_repo();
+
+    let diff = repo
+        .staged_diff(3)
+        .unwrap()
+        .expect("staging a binary file should produce a staged row");
+    assert_eq!(diff.files.len(), 1);
+    assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert!(repo.staged_diff_for_fragmap().unwrap().is_some());
+}
+
+#[test]
+fn test_unstaged_diff_shows_a_binary_file_change() {
+    let test = common::TestRepo::new();
+    let workdir = std::path::PathBuf::from(test.repo.workdir().unwrap());
+    std::fs::write(workdir.join("blob.bin"), b"bin\x00data\n").unwrap();
+    test.stage_file("blob.bin");
+    test.commit("init");
+    std::fs::write(workdir.join("blob.bin"), b"bin\x00other\n").unwrap();
+    let repo = test.git_repo();
+
+    let diff = repo
+        .unstaged_diff(3)
+        .unwrap()
+        .expect("editing a binary file should produce an unstaged row");
+    assert_eq!(diff.files.len(), 1);
+    assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert!(repo.unstaged_diff_for_fragmap().unwrap().is_some());
+}
+
+#[test]
+fn test_staged_diff_is_none_when_nothing_is_staged() {
+    let test = common::TestRepo::new();
+    test.commit_file("file.txt", "a\n", "init");
+
+    assert!(test.git_repo().staged_diff(3).unwrap().is_none());
+}
