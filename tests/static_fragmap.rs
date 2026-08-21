@@ -215,6 +215,7 @@ fn test_rename_clusters_with_original_file() {
             old_path: Some("src/old.rs".to_string()),
             new_path: Some("src/new.rs".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 5,
                 old_lines: 6,

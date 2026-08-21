@@ -48,6 +48,7 @@ fn file_diff(path: &str, status: DeltaStatus, hunks: Vec<Hunk>) -> FileDiff {
         old_path: Some(path.to_string()),
         new_path: Some(path.to_string()),
         status,
+        is_binary: false,
         hunks,
     }
 }
@@ -184,6 +185,7 @@ fn test_confirm_resolves_deleted_file_to_old_path() {
         old_path: Some("removed.txt".to_string()),
         new_path: None,
         status: DeltaStatus::Deleted,
+        is_binary: false,
         hunks: vec![hunk(1, "gone", "")],
     };
     if let AppMode::SplitFilesSelect {

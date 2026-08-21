@@ -411,6 +411,7 @@ pub fn create_test_commit_diff(
             old_path: Some(path.to_string()),
             new_path: Some(path.to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: hunk_range.0,
                 old_lines: hunk_range.1,

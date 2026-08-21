@@ -424,6 +424,14 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
         let patch = git2::Patch::from_diff(diff, delta_idx)?
             .context("Failed to extract patch from diff")?;
 
+        // Re-read the delta: libgit2 only sets the binary flag once the patch
+        // has loaded the file contents.
+        let is_binary = diff
+            .get_delta(delta_idx)
+            .expect("delta index in range")
+            .flags()
+            .is_binary();
+
         let mut hunks = Vec::new();
         for hunk_idx in 0..patch.num_hunks() {
             let (hunk_header, _num_lines) = patch.hunk(hunk_idx)?;
@@ -453,6 +461,7 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
             old_path,
             new_path,
             status,
+            is_binary,
             hunks,
         });
     }

@@ -125,6 +125,7 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
             old_path: Some("hello.txt".to_string()),
             new_path: Some("hello.txt".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 1,
                 old_lines: 2,
@@ -232,6 +233,7 @@ fn test_commit_detail_search_bar_visible() {
             old_path: Some("hello.txt".to_string()),
             new_path: Some("hello.txt".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 1,
                 old_lines: 1,
@@ -278,6 +280,7 @@ fn test_commit_detail_search_highlight_matches() {
             old_path: Some("hello.txt".to_string()),
             new_path: Some("hello.txt".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 1,
                 old_lines: 2,
@@ -482,6 +485,7 @@ fn test_search_case_sensitive() {
             old_path: Some("foo.txt".to_string()),
             new_path: Some("foo.txt".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 1,
                 old_lines: 1,
@@ -602,6 +606,7 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
             old_path: Some("big.txt".to_string()),
             new_path: Some("big.txt".to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 1,
                 old_lines: 100,
