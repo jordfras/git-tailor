@@ -23,6 +23,7 @@ use git_tailor::{
 };
 
 use common::{StubRepoBuilder, TuiTestHarness};
+use ratatui::buffer::Buffer;
 
 fn make_repo_with_empty_diff(oid: &str, summary: &str) -> common::StubRepo {
     let diff = CommitDiff {
@@ -692,4 +693,128 @@ fn test_commit_detail_redraw_does_not_requery_the_repository() {
     }
 
     assert_eq!(repo.commit_diff_calls(), 1);
+}
+
+/// Every row of a rendered buffer as a trimmed string.
+fn buffer_rows(buf: &Buffer) -> Vec<String> {
+    (0..buf.area.height)
+        .map(|y| {
+            (0..buf.area.width)
+                .filter_map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()))
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect()
+}
+
+/// Render the detail view for a commit whose diff is `files`, and return the
+/// rendered rows.
+fn render_detail_rows(files: Vec<FileDiff>) -> Vec<String> {
+    let commit = common::create_test_commit("abc123def456", "Hunkless change");
+    let repo = StubRepoBuilder::new()
+        .with_commit_diff(CommitDiff {
+            commit: commit.clone(),
+            files,
+        })
+        .build();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![commit];
+    app.list.selection_index = 0;
+    views::commit_detail::load_diff(&repo, &mut app);
+
+    let mut harness = TuiTestHarness::typical();
+    let buf = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+    buffer_rows(&buf)
+}
+
+fn hunkless_file(path: &str, status: DeltaStatus, is_binary: bool) -> FileDiff {
+    FileDiff {
+        old_path: Some(path.to_string()),
+        new_path: Some(path.to_string()),
+        status,
+        is_binary,
+        hunks: vec![],
+    }
+}
+
+/// A hunkless delta renders as a bare `---`/`+++` header pair with nothing under
+/// it, which reads as "no change at all". Each kind gets a marker line saying
+/// what actually happened.
+#[test]
+fn test_detail_marks_a_binary_file() {
+    let rows = render_detail_rows(vec![hunkless_file("blob.bin", DeltaStatus::Modified, true)]);
+
+    assert!(
+        rows.iter().any(|r| r.contains("Binary file differs")),
+        "expected a binary marker, got:\n{}",
+        rows.join("\n")
+    );
+}
+
+#[test]
+fn test_detail_marks_an_added_empty_file() {
+    let rows = render_detail_rows(vec![hunkless_file("empty.txt", DeltaStatus::Added, false)]);
+
+    assert!(
+        rows.iter().any(|r| r.contains("(empty file)")),
+        "expected an empty-file marker, got:\n{}",
+        rows.join("\n")
+    );
+}
+
+#[test]
+fn test_detail_marks_a_hunkless_modification() {
+    let rows = render_detail_rows(vec![hunkless_file(
+        "script.sh",
+        DeltaStatus::Modified,
+        false,
+    )]);
+
+    assert!(
+        rows.iter().any(|r| r.contains("(no content changes)")),
+        "expected a no-content-changes marker, got:\n{}",
+        rows.join("\n")
+    );
+}
+
+/// A file that does have hunks must not gain a marker.
+#[test]
+fn test_detail_does_not_mark_a_file_with_hunks() {
+    let file = FileDiff {
+        old_path: Some("file.txt".to_string()),
+        new_path: Some("file.txt".to_string()),
+        status: DeltaStatus::Modified,
+        is_binary: false,
+        hunks: vec![Hunk {
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![
+                DiffLine {
+                    kind: DiffLineKind::Deletion,
+                    content: "old\n".to_string(),
+                },
+                DiffLine {
+                    kind: DiffLineKind::Addition,
+                    content: "new\n".to_string(),
+                },
+            ],
+        }],
+    };
+    let rows = render_detail_rows(vec![file]);
+
+    assert!(rows.iter().any(|r| r.contains("+new")));
+    assert!(
+        !rows.iter().any(|r| r.contains("(no content changes)")
+            || r.contains("(empty file)")
+            || r.contains("Binary file differs")),
+        "a file with hunks must not be marked, got:\n{}",
+        rows.join("\n")
+    );
 }
