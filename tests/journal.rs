@@ -217,7 +217,7 @@ fn v1_journal_without_interrupted_op_migrates_and_keeps_undo() {
     // The file was rewritten to the current version with the undo stack intact.
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(doc["version"], 2);
+    assert_eq!(doc["version"], 3);
     assert_eq!(
         doc["undo"].as_array().unwrap().len(),
         1,
@@ -260,6 +260,53 @@ fn v1_journal_with_interrupted_op_is_flagged_and_file_left_untouched() {
     assert_eq!(
         before, after,
         "an interrupted v1 journal must be left untouched, not overwritten"
+    );
+}
+
+/// A v2 journal is upgraded in place. Unlike v1, its in-progress record *is*
+/// representable in the current schema, so a paused operation must survive the
+/// upgrade and still recover — never be reported as `UpgradeInterrupted`.
+#[test]
+fn v2_journal_with_interrupted_op_migrates_and_still_recovers() {
+    let test = common::TestRepo::new();
+    let v2 = r#"{
+        "version": 2,
+        "in_progress": {
+            "Conflict": {
+                "operation_label": "Squash",
+                "original_branch_oid": "aaaa",
+                "new_tip_oid": "bbbb",
+                "conflicting_commit_oid": "cccc",
+                "conflicting_files": ["a.txt"],
+                "still_unresolved": false,
+                "resume": { "Chain": { "remaining_oids": [], "orphan_root": false, "moved_commit_oid": null } },
+                "autofixup_context": null
+            }
+        },
+        "undo": [
+            { "kind": "RefMove", "label": "Drop", "tip_before": "1111", "tip_after": "2222" }
+        ],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v2);
+
+    let git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::Recovered(recovered) => match *recovered {
+            InProgress::Conflict(state) => assert_eq!(state.operation_label, "Squash"),
+            other => panic!("expected a conflict record, got {other:?}"),
+        },
+        other => panic!("expected Recovered, got {other:?}"),
+    }
+
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 3);
+    assert_eq!(
+        doc["undo"].as_array().unwrap().len(),
+        1,
+        "the undo stack must survive migration"
     );
 }
 
