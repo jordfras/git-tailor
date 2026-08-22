@@ -27,3 +27,5 @@ mod happy_path;
 mod rename;
 #[path = "squash_commit/root_commit.rs"]
 mod root_commit;
+#[path = "squash_commit/worktree.rs"]
+mod worktree;
