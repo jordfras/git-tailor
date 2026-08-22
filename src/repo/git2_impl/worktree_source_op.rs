@@ -92,9 +92,32 @@ pub(super) fn begin(
     // record must already be on disk if the process dies mid-way.
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
 
+    match create_temp_commit(repo, &head, temp_tree_oid, &snapshot) {
+        Ok(temp_oid) => Ok(Some(WorktreeSourceCommit { temp_oid, snapshot })),
+        Err(e) => {
+            // Never leave the caller a half-made operation to reason about: the
+            // record is already on disk, so unwind through it and report the
+            // original failure. Falls back to dropping the record when even that
+            // does not work, so nothing is stranded either way.
+            if abort(repo, &snapshot).is_err() {
+                let _ = journal::set_worktree_source(repo, None);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Commit `temp_tree` on top of `head` and move the branch to it, leaving the
+/// index describing what the row did not take.
+fn create_temp_commit(
+    repo: &Git2Repo,
+    head: &git2::Commit,
+    temp_tree: git2::Oid,
+    snapshot: &WorktreeSourceSnapshot,
+) -> Result<Oid> {
     let temp_tree = repo
         .inner
-        .find_tree(temp_tree_oid)
+        .find_tree(temp_tree)
         .context("failed to find the working-tree source tree")?;
     let sig = repo
         .inner
@@ -102,20 +125,17 @@ pub(super) fn begin(
         .context("failed to build commit signature (set user.name / user.email)")?;
     let temp_oid = repo
         .inner
-        .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
+        .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[head])
         .context("failed to commit the working-tree changes")?;
     repo.advance_branch_ref(temp_oid, "git-tailor: working-tree squash source")?;
 
     // The unstaged row left its changes in the commit, so what remains staged is
     // the whole working tree relative to it.
-    if source == WorktreeSource::Unstaged {
-        set_index_tree(repo, worktree_tree)?;
+    if snapshot.source == WorktreeSource::Unstaged {
+        set_index_tree(repo, git2::Oid::from(&snapshot.worktree_tree))?;
     }
 
-    Ok(Some(WorktreeSourceCommit {
-        temp_oid: Oid::from(temp_oid),
-        snapshot,
-    }))
+    Ok(Oid::from(temp_oid))
 }
 
 /// Unwind back to `snapshot`. See
