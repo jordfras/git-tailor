@@ -262,3 +262,123 @@ fn beginning_records_the_snapshot_in_the_journal() {
         other => panic!("expected Recovered, got {other:?}"),
     }
 }
+
+/// Discarding a journal must discard the snapshot with it.
+///
+/// A snapshot left behind is not inert: it tells every later operation that the
+/// dirty working tree is accounted for, so the guard that protects uncommitted
+/// changes stops firing — and the next startup would "recover" it by resetting
+/// the branch and working tree to a state that has nothing to do with the
+/// repository any more.
+#[test]
+fn discarding_the_journal_discards_the_snapshot() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("base.txt", "base\n", "base");
+    test.commit_file("a.txt", "a1\n", "second");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    let git_repo = test.git_repo();
+    git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    git_repo.clear_journal().unwrap();
+
+    assert!(
+        matches!(
+            git_repo.read_journal().unwrap(),
+            git_tailor::repo::JournalStatus::None
+        ),
+        "a cleared journal must not still offer the snapshot for recovery"
+    );
+
+    // The guard on uncommitted changes must be back in force.
+    let head = git_repo.head_oid().unwrap();
+    let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[0]
+        .oid
+        .expect_real_oid();
+    let err = git_repo
+        .drop_commit(&victim, &head)
+        .expect_err("a dirty working tree must still refuse a rewrite");
+    assert!(
+        format!("{err:#}").contains("staged or unstaged changes"),
+        "got: {err:#}"
+    );
+}
+
+/// A stale snapshot from some earlier run must not disable the guard either.
+/// The snapshot only makes the dirty tree safe while it still describes it.
+#[test]
+fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("base.txt", "base\n", "base");
+    test.commit_file("a.txt", "a1\n", "second");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    let git_repo = test.git_repo();
+    git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    // The user carries on working, so the recorded working tree is history.
+    test.write_file("a.txt", "a3\n");
+
+    let head = git_repo.head_oid().unwrap();
+    let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[0]
+        .oid
+        .expect_real_oid();
+    let err = git_repo
+        .drop_commit(&victim, &head)
+        .expect_err("a working tree the snapshot no longer covers must refuse a rewrite");
+    assert!(
+        format!("{err:#}").contains("staged or unstaged changes"),
+        "got: {err:#}"
+    );
+}
+
+/// Pruning must leave a fold in flight alone. Its temporary commit puts the
+/// branch somewhere the undo stack does not expect, which is not the same thing
+/// as history having been changed behind git-tailor's back.
+#[test]
+fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("base.txt", "base\n", "base");
+    let second = test.commit_file("a.txt", "a1\n", "second");
+    test.commit_file("b.txt", "b1\n", "third");
+    let git_repo = test.git_repo();
+
+    // An earlier, completed operation to have some history worth keeping.
+    let head = git_repo.head_oid().unwrap();
+    git_repo
+        .reword_commit(&Oid::from(second), "second reworded", &head)
+        .unwrap();
+    assert!(matches!(
+        git_repo.read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    git_repo.prune_stale_journal().unwrap();
+
+    // Unwind, then the earlier reword must still be undoable.
+    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    match git_repo.undo().unwrap() {
+        git_tailor::repo::UndoOutcome::Done { label } => assert_eq!(label, "Reword"),
+        other => panic!("the earlier operation should still be undoable, got {other:?}"),
+    }
+    assert_eq!(
+        git_repo
+            .list_commits(&git_repo.head_oid().unwrap(), &Oid::from(base))
+            .unwrap()
+            .len(),
+        2
+    );
+}
