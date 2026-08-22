@@ -209,6 +209,41 @@ fn test_worktree_row_confirm_returns_a_worktree_source() {
     }
 }
 
+/// The other working-tree row is not something changes can be folded into, and
+/// it sits below the source so the cursor can reach it.
+#[test]
+fn test_worktree_row_cannot_target_the_other_row() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 1;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Fixup,
+    };
+
+    let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert!(app.status.is_error);
+    assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
+}
+
+/// With no commits on the branch at all there is nothing to fold a row into.
+#[test]
+fn test_worktree_row_blocked_without_any_commit() {
+    let mut app = AppState::new();
+    app.list.commits = vec![CommitInfo {
+        oid: VirtualOid::Unstaged,
+        summary: "unstaged".to_string(),
+        ..common::create_test_commit("unstaged", "unstaged")
+    }];
+    app.list.selection_index = 0;
+    app.mode = AppMode::CommitList;
+
+    app.enter_fixup_select();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(app.status.is_error);
+}
+
 /// A lone commit has nothing earlier to fold into.
 #[test]
 fn test_squash_blocked_on_single_commit() {
