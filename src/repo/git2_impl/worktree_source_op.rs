@@ -71,6 +71,7 @@ pub(super) fn begin(
         tip_before: Oid::from(head.id()),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
+        source_tree: Oid::from(temp_tree_oid),
     };
     // Write-ahead: from here on there is a temporary commit to unwind, so the
     // record must already be on disk if the process dies mid-way.
@@ -115,7 +116,7 @@ pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resul
     restore(
         repo,
         current,
-        snapshot,
+        git2::Oid::from(&snapshot.worktree_tree),
         git2::Oid::from(&snapshot.index_tree_before),
     )?;
     journal::set_worktree_source(repo, None)?;
@@ -125,40 +126,75 @@ pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resul
 /// Put the other row's changes back after the squash reached `tip_after`, and
 /// report the resulting index tree so the undo record can restore it.
 ///
-/// The working tree goes back to what it was — the operation only moved content
-/// between committed, staged and unstaged, never changed it. What ends up in the
-/// index differs by row: the staged row's changes are now committed, so the
-/// index matches the new tip, while the unstaged row's are committed and the
-/// staged ones stay staged, which is the whole working tree.
+/// Nothing needs merging in the ordinary case: the squash committed exactly the
+/// temporary commit's tree, so the working tree goes back to what it was. It is
+/// only when the user resolved a conflict along the way that the new tip differs
+/// from what was folded in — and then the other row's changes have to be carried
+/// onto the resolution rather than reverting it, which is a three-way merge with
+/// the temporary commit's tree as the base.
+///
+/// What ends up in the index differs by row: the staged row's changes are now
+/// committed, so the index matches the new tip, while the unstaged row's are
+/// committed and the staged ones stay staged, which is the whole working tree.
 pub(super) fn finish(
     repo: &Git2Repo,
     snapshot: &WorktreeSourceSnapshot,
     tip_after: &Oid,
 ) -> Result<Oid> {
+    let tip_tree = repo
+        .inner
+        .find_commit(git2::Oid::from(tip_after))
+        .context("failed to read the new branch tip")?
+        .tree_id();
+    let worktree_tree = carry_onto(repo, snapshot, tip_tree)?;
     let index_tree = match snapshot.source {
-        WorktreeSource::Staged => repo
-            .inner
-            .find_commit(git2::Oid::from(tip_after))
-            .context("failed to read the new branch tip")?
-            .tree_id(),
-        WorktreeSource::Unstaged => git2::Oid::from(&snapshot.worktree_tree),
+        WorktreeSource::Staged => tip_tree,
+        WorktreeSource::Unstaged => worktree_tree,
     };
-    restore(repo, head_tree_id(repo)?, snapshot, index_tree)?;
+    restore(repo, head_tree_id(repo)?, worktree_tree, index_tree)?;
     Ok(Oid::from(index_tree))
 }
 
-/// Reset the working tree to `snapshot.worktree_tree` and the index to
-/// `index_tree`. `current` is the tree the working tree reflects on entry.
+/// The recorded working tree carried onto `tip_tree`.
+///
+/// Identical to the recorded tree whenever the squash committed what it was
+/// given, which is every run that did not stop at a conflict. Falls back to it
+/// too when the merge itself conflicts — the user's changes are all still there,
+/// which is what matters, even if they no longer sit on the resolution.
+fn carry_onto(
+    repo: &Git2Repo,
+    snapshot: &WorktreeSourceSnapshot,
+    tip_tree: git2::Oid,
+) -> Result<git2::Oid> {
+    let recorded = git2::Oid::from(&snapshot.worktree_tree);
+    let base = git2::Oid::from(&snapshot.source_tree);
+    if tip_tree == base {
+        return Ok(recorded);
+    }
+    let mut merged = repo.inner.merge_trees(
+        &repo.inner.find_tree(base)?,
+        &repo.inner.find_tree(tip_tree)?,
+        &repo.inner.find_tree(recorded)?,
+        None,
+    )?;
+    if merged.has_conflicts() {
+        return Ok(recorded);
+    }
+    Ok(merged.write_tree_to(&repo.inner)?)
+}
+
+/// Reset the working tree to `worktree_tree` and the index to `index_tree`.
+/// `current` is the tree the working tree reflects on entry.
 fn restore(
     repo: &Git2Repo,
     current: git2::Oid,
-    snapshot: &WorktreeSourceSnapshot,
+    worktree_tree: git2::Oid,
     index_tree: git2::Oid,
 ) -> Result<()> {
     let worktree_tree = repo
         .inner
-        .find_tree(git2::Oid::from(&snapshot.worktree_tree))
-        .context("failed to find the recorded working tree")?;
+        .find_tree(worktree_tree)
+        .context("failed to find the target working tree")?;
 
     // A force checkout alone leaves files behind: once the index holds the
     // target tree, anything absent from it counts as untracked and is skipped.

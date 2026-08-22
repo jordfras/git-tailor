@@ -232,3 +232,73 @@ fn aborting_a_conflicted_fold_restores_everything() {
         git_tailor::repo::JournalStatus::None
     ));
 }
+
+/// Resolving a conflicted fold finishes the operation: the resolution is
+/// committed and the other row's changes come back on their own side.
+#[test]
+fn resolving_a_conflicted_fold_completes_it() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "one\ntwo\n", "base");
+    let target = test.commit_file("a.txt", "one\nTARGET\n", "target commit");
+    test.commit_file("a.txt", "one\nLATER\n", "later commit");
+    test.write_file("a.txt", "one\nWIP\n");
+    test.write_file("b.txt", "b1\n");
+    test.stage_file("b.txt");
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Unstaged)
+        .unwrap()
+        .unwrap();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "target commit",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+
+    test.write_file("a.txt", "one\nRESOLVED\n");
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    // The row's own changes clashed with the target, so this resumes the way
+    // the conflict dialog does for a squash-tree conflict.
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let next = git_repo
+        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .unwrap();
+
+    // Replaying the commits after the target hits the same lines, so the fold
+    // conflicts a second time and finishes through the ordinary continue path.
+    let state = expect_rebase_conflict!(next);
+    assert!(matches!(state.resume, Resume::Chain { .. }));
+    test.write_file("a.txt", "one\nLATER\n");
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    // The resolution stands in the working tree — the row's changes were folded
+    // in, not reverted back on top of it.
+    assert_eq!(workdir(&test, "a.txt"), "one\nLATER\n");
+    assert!(git_repo.unstaged_diff(3).unwrap().is_none());
+    assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["b.txt"]);
+    assert_eq!(workdir(&test, "b.txt"), "b1\n");
+
+    let reopened = test.git_repo();
+    assert!(matches!(
+        reopened.read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+
+    // Still one undoable operation, not two.
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
+}

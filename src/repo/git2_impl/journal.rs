@@ -443,6 +443,7 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
             &snapshot.tip_before,
             &snapshot.index_tree_before,
             &snapshot.worktree_tree,
+            &snapshot.source_tree,
         ]);
     }
     for (i, oid) in oids.into_iter().enumerate() {

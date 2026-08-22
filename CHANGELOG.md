@@ -13,7 +13,8 @@ The format is based on
 - Squash (`s`) and fixup (`f`) now work on the Staged and Unstaged rows, folding
   work-in-progress changes straight into an earlier commit without a throwaway
   commit first. Whatever is on the other row keeps its staged/unstaged state,
-  and the whole fold is a single undo step.
+  and the whole fold is a single undo step. Works without `--autostash`, since
+  the pre-operation state is recorded exactly rather than stashed.
 - Shell completion for `bash`, `zsh`, and `fish`. It covers all flags and value
   options (e.g. `--matrix-theme`), and completes the base argument with branch
   and tag

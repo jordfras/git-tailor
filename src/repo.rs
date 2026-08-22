@@ -127,6 +127,10 @@ pub struct WorktreeSourceSnapshot {
     /// The working tree (tracked paths) as a tree object. Unchanged by the
     /// operation — it only moves content between committed, staged and unstaged.
     pub worktree_tree: Oid,
+    /// The temporary commit's tree: the working tree with the row's changes
+    /// taken out of it. The merge base for putting the other row's changes back
+    /// on top of wherever the squash ended up.
+    pub source_tree: Oid,
 }
 
 /// A working-tree row lifted into a temporary commit on top of HEAD.
