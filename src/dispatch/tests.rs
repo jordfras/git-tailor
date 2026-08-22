@@ -236,6 +236,18 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("commit failed"))
         }
     }
+    fn begin_worktree_source(
+        &self,
+        _: git_tailor::repo::WorktreeSource,
+    ) -> anyhow::Result<Option<git_tailor::repo::WorktreeSourceCommit>> {
+        unimplemented!()
+    }
+    fn abort_worktree_source(
+        &self,
+        _: &git_tailor::repo::WorktreeSourceSnapshot,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
         self.autostash_save_calls
             .set(self.autostash_save_calls.get() + 1);

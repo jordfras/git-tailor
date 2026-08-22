@@ -48,6 +48,7 @@ mod split_op;
 mod squash_op;
 mod stage_op;
 mod stash;
+mod worktree_source_op;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
@@ -445,6 +446,17 @@ impl RepoWrite for Git2Repo {
                 Ok(super::CommitOutcome::Committed)
             }
         }
+    }
+
+    fn begin_worktree_source(
+        &self,
+        source: super::WorktreeSource,
+    ) -> Result<Option<super::WorktreeSourceCommit>> {
+        worktree_source_op::begin(self, source)
+    }
+
+    fn abort_worktree_source(&self, snapshot: &super::WorktreeSourceSnapshot) -> Result<()> {
+        worktree_source_op::abort(self, snapshot)
     }
 
     fn autostash_save(&mut self) -> Result<()> {

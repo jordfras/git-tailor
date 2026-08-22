@@ -87,6 +87,58 @@ pub enum CommitOutcome {
     NothingStaged,
 }
 
+/// Which working-tree row a squash or fixup draws its changes from — the
+/// synthetic "staged" / "unstaged" entries the commit list shows above the real
+/// commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum WorktreeSource {
+    #[default]
+    Staged,
+    Unstaged,
+}
+
+impl WorktreeSource {
+    /// How the row is named in status messages, sentence-initial.
+    pub fn label(self) -> &'static str {
+        match self {
+            WorktreeSource::Staged => "Staged changes",
+            WorktreeSource::Unstaged => "Unstaged changes",
+        }
+    }
+}
+
+/// The pre-operation state a working-tree-sourced squash must be able to get
+/// back to.
+///
+/// The three trees pin down the whole starting point: `tip_before` is where the
+/// branch sat, `index_tree_before` what was staged, and `worktree_tree` what was
+/// on disk (tracked paths only — untracked files belong to neither row and are
+/// never touched). Restoring from them is exact and needs no merge, which is why
+/// these operations do not go through the auto-stash.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorktreeSourceSnapshot {
+    /// The row whose changes were lifted into the temporary commit.
+    pub source: WorktreeSource,
+    /// The branch tip before the temporary commit was created.
+    pub tip_before: Oid,
+    /// The index tree before the operation.
+    pub index_tree_before: Oid,
+    /// The working tree (tracked paths) as a tree object. Unchanged by the
+    /// operation — it only moves content between committed, staged and unstaged.
+    pub worktree_tree: Oid,
+}
+
+/// A working-tree row lifted into a temporary commit on top of HEAD.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeSourceCommit {
+    /// The temporary commit, whose diff against its parent is exactly the row's
+    /// diff. Serves as both `source_oid` and `head_oid` for the squash.
+    pub temp_oid: Oid,
+    /// How to unwind or finish the operation built on it.
+    pub snapshot: WorktreeSourceSnapshot,
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -168,6 +220,10 @@ impl Default for Resume {
 pub enum InProgress {
     Conflict(Box<ConflictState>),
     Edit(EditInProgress),
+    /// A working-tree row has been lifted into a temporary commit but the squash
+    /// built on it has not reached a conflict or completion yet. Recovery
+    /// rewinds it.
+    WorktreeSquash(WorktreeSourceSnapshot),
 }
 
 /// State captured while an "Edit" (interactive shell edit of a commit) is in
@@ -192,6 +248,7 @@ impl InProgress {
         match self {
             InProgress::Conflict(c) => &c.original_branch_oid,
             InProgress::Edit(e) => &e.original_branch_oid,
+            InProgress::WorktreeSquash(s) => &s.tip_before,
         }
     }
 }
@@ -667,6 +724,31 @@ pub trait RepoWrite {
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
     fn commit_staged(&self, message: &str) -> Result<CommitOutcome>;
+
+    /// Lift the staged or unstaged working-tree changes into a temporary commit
+    /// on top of HEAD, so the squash machinery can take them as its source.
+    ///
+    /// The commit's diff against its parent is exactly the row's diff, and the
+    /// *other* row's changes are left in the index and working tree, still on
+    /// their own side of the staged/unstaged line. Returns `None` when the row
+    /// has nothing to fold in.
+    ///
+    /// Records the returned snapshot in the journal write-ahead, so a crash
+    /// before the squash finishes leaves a recoverable temporary commit rather
+    /// than a stray one. Every path out of the operation must end in either
+    /// [`abort_worktree_source`](Self::abort_worktree_source) or a completed
+    /// squash.
+    ///
+    /// Fails when the unstaged row cannot be separated from the staged one —
+    /// edits to the same lines have no meaningful split.
+    fn begin_worktree_source(&self, source: WorktreeSource)
+    -> Result<Option<WorktreeSourceCommit>>;
+
+    /// Unwind [`begin_worktree_source`](Self::begin_worktree_source): put the
+    /// branch, the index and the working tree back exactly as `snapshot`
+    /// recorded them, and clear the journal record. Untracked files are left
+    /// alone.
+    fn abort_worktree_source(&self, snapshot: &WorktreeSourceSnapshot) -> Result<()>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a

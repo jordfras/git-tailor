@@ -328,6 +328,21 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
                         .set_error_message(format!("Failed to recover an interrupted Edit: {e:#}")),
                 }
             }
+            InProgress::WorktreeSquash(snapshot) => {
+                // A squash of working-tree changes died between lifting them
+                // into a temporary commit and folding it away. The snapshot
+                // holds the exact pre-operation state, so unwinding it is
+                // lossless — nothing to prompt about.
+                let label = snapshot.source.label().to_lowercase();
+                match git_repo.abort_worktree_source(&snapshot) {
+                    Ok(()) => app.set_error_message(format!(
+                        "Recovered an interrupted squash of {label} — restored the branch"
+                    )),
+                    Err(e) => app.set_error_message(format!(
+                        "Failed to recover an interrupted squash of {label}: {e:#}"
+                    )),
+                }
+            }
             InProgress::Conflict(state) => {
                 // Only offer recovery when the branch is still where the
                 // interrupted operation left it; otherwise the journal is stale
