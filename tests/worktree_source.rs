@@ -312,6 +312,43 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
     );
 }
 
+/// A staged submodule pointer must survive a fold of the staged row.
+///
+/// Submodule contents belong to neither row, so a fold has no business dropping
+/// the pointer — nor tripping over the directory it points at.
+#[test]
+fn a_staged_submodule_pointer_survives_a_fold() {
+    let test = common::TestRepo::new();
+    let first = test.commit_file("a.txt", "a1\n", "base");
+    test.commit_file("t.txt", "t\n", "second");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.stage_gitlink("sub", first);
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes to fold in");
+
+    assert!(
+        test.repo
+            .find_tree(git2::Oid::from(&started.snapshot.worktree_tree))
+            .unwrap()
+            .get_path(std::path::Path::new("sub"))
+            .is_ok(),
+        "the recorded working tree must keep the submodule pointer"
+    );
+    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    assert!(
+        test.repo.workdir().unwrap().join("sub").exists(),
+        "unwinding must not trip over the submodule directory"
+    );
+    let mut staged = row_paths(git_repo.staged_diff(3).unwrap());
+    staged.sort();
+    assert_eq!(staged, ["a.txt", "sub"]);
+}
+
 /// Discarding a journal must discard the snapshot with it.
 ///
 /// A snapshot left behind is not inert: it tells every later operation that the

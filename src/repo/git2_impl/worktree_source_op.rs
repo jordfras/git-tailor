@@ -295,9 +295,16 @@ fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
 /// HEAD's tree plus the unstaged delta and nothing else — the tree a commit of
 /// just the unstaged row would have.
 ///
-/// With nothing staged that is the working tree itself. Otherwise the unstaged
-/// delta has to be lifted off the staged changes it sits on, which only works
-/// when the two do not overlap.
+/// This is a three-way merge, not a patch: with the index as the base, taking
+/// HEAD on one side undoes the staged changes and taking the working tree on the
+/// other keeps the unstaged ones, which leaves exactly the row's own changes on
+/// top of HEAD. Going through trees rather than hunks means binary files and
+/// submodule pointers separate as readily as text, and the only thing that can
+/// fail is a genuine overlap — the two rows editing the same lines, which has no
+/// answer worth guessing at.
+///
+/// With nothing staged the base equals HEAD and the result is the working tree
+/// itself.
 fn unstaged_only_tree(
     repo: &Git2Repo,
     head_tree: &git2::Tree,
@@ -308,20 +315,22 @@ fn unstaged_only_tree(
         return Ok(worktree_tree);
     }
 
-    let staged = repo.inner.find_tree(index_tree)?;
-    let worktree = repo.inner.find_tree(worktree_tree)?;
-    let unstaged_delta = repo
+    let mut separated = repo
         .inner
-        .diff_tree_to_tree(Some(&staged), Some(&worktree), None)
-        .context("failed to diff the unstaged changes")?;
-    let mut applied = repo
-        .inner
-        .apply_to_tree(head_tree, &unstaged_delta, None)
-        .context(
+        .merge_trees(
+            &repo.inner.find_tree(index_tree)?,
+            head_tree,
+            &repo.inner.find_tree(worktree_tree)?,
+            None,
+        )
+        .context("failed to separate the unstaged changes")?;
+    if separated.has_conflicts() {
+        anyhow::bail!(
             "the unstaged changes overlap your staged changes and cannot be \
-             separated — commit or unstage the staged changes first",
-        )?;
-    applied
+             separated — commit or unstage the staged changes first"
+        );
+    }
+    separated
         .write_tree_to(&repo.inner)
         .context("failed to write the unstaged-only tree")
 }
