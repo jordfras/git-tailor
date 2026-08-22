@@ -273,18 +273,16 @@ pub(crate) fn dispatch_action(
             );
         }
         AppAction::PrepareSquash {
-            source_oid,
+            source,
             target_oid,
-            source_message,
             target_message,
             squash_mode,
         } => {
             return handle_prepare_squash(
                 git_repo,
                 app,
-                source_oid,
+                source,
                 target_oid,
-                source_message,
                 target_message,
                 squash_mode,
                 terminal_guard,

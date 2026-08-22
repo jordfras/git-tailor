@@ -20,7 +20,7 @@ use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
-    app::{AppAction, AppMode, AppState, KeyCommand, SquashMode},
+    app::{AppAction, AppMode, AppState, KeyCommand, SquashMode, SquashSource},
     fragmap::TouchKind,
     views,
     views::theme::Theme,
@@ -70,11 +70,15 @@ fn test_squash_confirm_returns_prepare_squash() {
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     match result {
         AppAction::PrepareSquash {
-            source_oid,
-            target_oid,
-            ..
+            source, target_oid, ..
         } => {
-            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(
+                source,
+                SquashSource::Commit {
+                    oid: Oid::from("333333333333"),
+                    message: "Newest commit (HEAD)".to_string(),
+                }
+            );
             assert_eq!(target_oid, Oid::from("111111111111"));
         }
         other => panic!("Expected PrepareSquash, got {:?}", other),
@@ -339,12 +343,18 @@ fn test_fixup_confirm_returns_prepare_fixup() {
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     match result {
         AppAction::PrepareSquash {
-            source_oid,
+            source,
             target_oid,
             squash_mode,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(
+                source,
+                SquashSource::Commit {
+                    oid: Oid::from("333333333333"),
+                    message: "Newest commit (HEAD)".to_string(),
+                }
+            );
             assert_eq!(target_oid, Oid::from("111111111111"));
             assert_eq!(squash_mode, SquashMode::Fixup);
         }

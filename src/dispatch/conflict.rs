@@ -16,7 +16,7 @@
 // the merge tool or editor, and continuing or aborting the paused operation.
 
 use anyhow::Result;
-use git_tailor::app::{AppMode, AppState, SquashMode};
+use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
 
@@ -105,17 +105,17 @@ pub(crate) fn handle_rebase_continue(
                 Ok(msg) => msg,
             }
         };
-        let success_msg = match ctx_clone.squash_mode {
-            SquashMode::Fixup => "Commit fixed up",
-            SquashMode::Squash => "Commits squashed",
-        };
+        // Named after the operation, not its source: resuming here knows only
+        // that a squash or a fixup is finishing, and it may well have started
+        // from a working-tree row rather than a commit.
+        let success_msg = format!("{} complete", state.operation_label);
         let outcome = git_repo.squash_finalize(
             &ctx_clone,
             &final_msg,
             &original_oid,
             state.autofixup_context.as_ref(),
         );
-        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
+        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", &success_msg);
         return Ok(apply_pending_autofixup_selection(
             pending,
             is_autofixup,
