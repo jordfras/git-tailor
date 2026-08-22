@@ -244,7 +244,9 @@ fn remove_dropped_files(repo: &Git2Repo, from: &git2::Tree, to: &git2::Tree) -> 
             && let Some(path) = delta.old_file().path()
         {
             let full = workdir.join(path);
-            if full.exists() {
+            // Only ever a file: a submodule's directory is not this operation's
+            // to delete, and neither is anything else that grew into one.
+            if full.is_file() {
                 std::fs::remove_file(&full)
                     .with_context(|| format!("failed to remove {}", full.display()))?;
             }
@@ -279,9 +281,25 @@ fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
     }
     let index_tree = index.write_tree().context("failed to write index tree")?;
 
+    // `update_all` judges a submodule by what is checked out at its path, so a
+    // pointer with nothing checked out reads as deleted. Submodule contents are
+    // part of neither row, so carry the index's pointers through untouched
+    // rather than letting the snapshot quietly drop them. Re-adding a pointer
+    // `update_all` left alone is a no-op, so this stays correct whichever way
+    // libgit2 decides to treat them.
+    let gitlink_mode = u32::from(git2::FileMode::Commit);
+    let gitlinks: Vec<git2::IndexEntry> = index
+        .iter()
+        .filter(|entry| entry.mode == gitlink_mode)
+        .collect();
     index
         .update_all(["*"].iter(), None)
         .context("failed to read working-tree changes")?;
+    for entry in gitlinks {
+        index
+            .add(&entry)
+            .context("failed to keep a submodule pointer")?;
+    }
     let worktree_tree = index
         .write_tree()
         .context("failed to write working-tree tree")?;
