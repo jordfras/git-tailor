@@ -68,12 +68,16 @@ impl Operation {
                 ops
             }
             VirtualOid::Unstaged => vec![
+                Operation::Squash,
+                Operation::Fixup,
                 Operation::Stage,
                 Operation::Autofixup,
                 Operation::Undo,
                 Operation::Redo,
             ],
             VirtualOid::Staged => vec![
+                Operation::Squash,
+                Operation::Fixup,
                 Operation::Commit,
                 Operation::Unstage,
                 Operation::Autofixup,
@@ -143,8 +147,8 @@ impl Operation {
     pub fn description(self) -> &'static str {
         match self {
             Operation::Split => "Break into commits",
-            Operation::Squash => "Merge into another",
-            Operation::Fixup => "Merge, keep its message",
+            Operation::Squash => "Fold into an earlier commit",
+            Operation::Fixup => "Fold in, keep its message",
             Operation::Reword => "Edit the message",
             Operation::Move => "Reorder this commit",
             Operation::Drop => "Delete this commit",
@@ -199,6 +203,8 @@ mod tests {
         assert_eq!(
             Operation::available_for(&VirtualOid::Unstaged, false),
             vec![
+                Operation::Squash,
+                Operation::Fixup,
                 Operation::Stage,
                 Operation::Autofixup,
                 Operation::Undo,
@@ -212,6 +218,8 @@ mod tests {
         assert_eq!(
             Operation::available_for(&VirtualOid::Staged, false),
             vec![
+                Operation::Squash,
+                Operation::Fixup,
                 Operation::Commit,
                 Operation::Unstage,
                 Operation::Autofixup,

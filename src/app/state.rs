@@ -316,12 +316,18 @@ impl AppState {
 
     fn enter_squash_or_fixup_select(&mut self, squash_mode: SquashMode) {
         let label = squash_mode.label().to_lowercase();
-        if self.selected_real_commit(&label).is_none() {
+        let Some(selected) = self.list.selected_virtual_oid() else {
             return;
-        }
-        if self.list.real_commit_count() < 2 {
+        };
+        // A working-tree row is a valid source: it gets folded into a target
+        // without ever becoming a commit of its own. That also means it needs
+        // only one commit to fold into, where a commit source needs another
+        // besides itself.
+        let from_worktree = selected.is_synthetic();
+        let needed = if from_worktree { 1 } else { 2 };
+        if self.list.real_commit_count() < needed {
             self.set_error_message(format!(
-                "Nothing to {label} — only one commit on the branch"
+                "Nothing to {label} — no earlier commit on the branch"
             ));
             return;
         }

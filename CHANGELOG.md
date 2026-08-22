@@ -10,6 +10,10 @@ The format is based on
 
 ### Added
 
+- Squash (`s`) and fixup (`f`) now work on the Staged and Unstaged rows, folding
+  work-in-progress changes straight into an earlier commit without a throwaway
+  commit first. Whatever is on the other row keeps its staged/unstaged state,
+  and the whole fold is a single undo step.
 - Shell completion for `bash`, `zsh`, and `fish`. It covers all flags and value
   options (e.g. `--matrix-theme`), and completes the base argument with branch
   and tag
@@ -21,8 +25,9 @@ The format is based on
 - Operation picker: press `Space` on any row to open a menu of the operations
   available for it, so you can run one without memorizing its shortcut key. The
   menu is filtered to the selected row — a real commit offers
-  split/squash/fixup/reword/move/drop, the Staged row offers commit/unstage, the
-  Unstaged row offers stage, and undo/redo are always available. Each entry
+  split/squash/fixup/reword/move/drop, the Staged row offers
+  squash/fixup/commit/unstage, the Unstaged row offers squash/fixup/stage, and
+  undo/redo are always available. Each entry
   shows its shortcut key, and pressing that key inside the dialog runs the
   operation directly. In the commit detail view `Space` still pages down.
 - Adjust the diff context lines in the commit detail view with `+` and `-`

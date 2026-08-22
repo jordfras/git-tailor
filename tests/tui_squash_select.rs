@@ -129,8 +129,9 @@ fn test_squash_esc_cancels() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
-#[test]
-fn test_squash_blocked_on_staged_row() {
+/// A commit list with one real commit followed by the two synthetic
+/// working-tree rows, as the loader builds it.
+fn app_with_worktree_rows() -> AppState {
     let mut app = AppState::new();
     app.list.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
@@ -139,17 +140,76 @@ fn test_squash_blocked_on_staged_row() {
             summary: "staged".to_string(),
             ..common::create_test_commit("staged", "staged")
         },
+        CommitInfo {
+            oid: VirtualOid::Unstaged,
+            summary: "unstaged".to_string(),
+            ..common::create_test_commit("unstaged", "unstaged")
+        },
     ];
-    app.list.selection_index = 1;
     app.mode = AppMode::CommitList;
-
-    app.enter_squash_select();
-
-    // Should still be in CommitList (blocked)
-    assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status.is_error);
+    app
 }
 
+/// Working-tree changes can be folded straight into a commit, so the rows are
+/// valid squash sources.
+#[test]
+fn test_squash_starts_from_a_worktree_row() {
+    for (index, row) in [(1, "staged"), (2, "unstaged")] {
+        let mut app = app_with_worktree_rows();
+        app.list.selection_index = index;
+
+        app.enter_squash_select();
+
+        assert_eq!(
+            app.mode,
+            AppMode::SquashSelect {
+                source_index: index,
+                squash_mode: SquashMode::Squash,
+            },
+            "{row} row should be a valid squash source"
+        );
+        assert!(!app.status.is_error, "{row}");
+    }
+}
+
+/// Folding a row in needs only one commit to fold into, unlike a commit source
+/// which needs another besides itself.
+#[test]
+fn test_worktree_row_folds_into_a_lone_commit() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 2;
+
+    app.enter_fixup_select();
+
+    assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
+    assert!(!app.status.is_error);
+}
+
+/// Confirming a row source names the row, not a commit OID.
+#[test]
+fn test_worktree_row_confirm_returns_a_worktree_source() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Fixup,
+    };
+
+    match views::squash_select::handle_key(KeyCommand::Confirm, &mut app) {
+        AppAction::PrepareSquash {
+            source, target_oid, ..
+        } => {
+            assert_eq!(
+                source,
+                SquashSource::Worktree(git_tailor::repo::WorktreeSource::Unstaged)
+            );
+            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+        }
+        other => panic!("Expected PrepareSquash, got {other:?}"),
+    }
+}
+
+/// A lone commit has nothing earlier to fold into.
 #[test]
 fn test_squash_blocked_on_single_commit() {
     let mut app = AppState::new();

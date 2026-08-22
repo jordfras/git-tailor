@@ -534,10 +534,10 @@ fn row_text_style(
         FocusContext::Squash { source_idx } => {
             if commit_idx == *source_idx {
                 Style::new().fg(Color::White)
-            } else if commit_idx > *source_idx {
+            // Later commits are out of reach, and a working-tree row is not
+            // something another row's changes can be folded into.
+            } else if commit_idx > *source_idx || is_synthetic {
                 Style::new().fg(Color::DarkGray)
-            } else if is_synthetic {
-                Style::new().fg(COLOR_SYNTHETIC_LABEL)
             } else if let Some(ref fm) = app.fragmap {
                 hunk_groups::commit_text_style(fm, *source_idx, commit_idx, app.theme.as_theme())
             } else {
