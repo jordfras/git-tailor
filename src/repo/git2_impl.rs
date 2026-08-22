@@ -113,11 +113,48 @@ impl Git2Repo {
                 }
                 super::RebaseOutcome::Complete => {
                     journal::clear_in_progress(self)?;
-                    self.record_undo_if_changed(label, tip_before)?;
+                    // The snapshot belongs to this operation only if the
+                    // operation started from the temporary commit it made.
+                    // Anything else is a record stranded by an earlier run, and
+                    // restoring its working tree over this result — and calling
+                    // that this operation's undo entry — would be wrong twice
+                    // over.
+                    match journal::worktree_source(self)? {
+                        Some(snapshot) if tip_before == &snapshot.temp_oid => {
+                            self.finish_worktree_source(label, &snapshot)?
+                        }
+                        _ => self.record_undo_if_changed(label, tip_before)?,
+                    }
                 }
             }
         }
         outcome
+    }
+
+    /// Complete a squash whose source was a working-tree row: put the other
+    /// row's changes back where they came from and record the operation as one
+    /// undoable step.
+    ///
+    /// The undo has to restore the index alongside the branch — the row's
+    /// changes were staged or unstaged before and are committed after — so this
+    /// records a mixed reset rather than the plain ref move every other
+    /// operation uses.
+    fn finish_worktree_source(
+        &self,
+        label: &str,
+        snapshot: &super::WorktreeSourceSnapshot,
+    ) -> Result<()> {
+        let tip_after = reads::head_oid(self)?;
+        let index_tree_after = worktree_source_op::finish(self, snapshot, &tip_after)?;
+        journal::record_mixed_undo(
+            self,
+            label,
+            &snapshot.tip_before,
+            &tip_after,
+            &snapshot.index_tree_before,
+            &index_tree_after,
+        )?;
+        journal::set_worktree_source(self, None)
     }
 
     /// Wrap a `Result<()>` operation (reword, split): on success, record an
@@ -393,6 +430,12 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
+        // A squash sourced from a working-tree row has a temporary commit below
+        // the conflict, holding changes the generic reset knows nothing about.
+        // The snapshot rewinds past both, exactly.
+        if let Some(snapshot) = journal::worktree_source(self)? {
+            return worktree_source_op::abort(self, &snapshot);
+        }
         conflict::rebase_abort(self, state)?;
         journal::clear_in_progress(self)
     }
@@ -587,6 +630,13 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
+        // A working-tree-sourced squash deliberately leaves the *other* row's
+        // changes in place. They are recorded in the snapshot and restored when
+        // the operation finishes, so they are not the unexpected dirt this guard
+        // is here to catch.
+        if journal::worktree_source(self)?.is_some() {
+            return Ok(());
+        }
         if self.is_worktree_dirty()? {
             anyhow::bail!(
                 "You have staged or unstaged changes. \

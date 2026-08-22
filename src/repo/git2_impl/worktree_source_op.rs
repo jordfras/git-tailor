@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use super::Git2Repo;
 use super::journal;
 use crate::Oid;
-use crate::repo::{InProgress, WorktreeSource, WorktreeSourceCommit, WorktreeSourceSnapshot};
+use crate::repo::{WorktreeSource, WorktreeSourceCommit, WorktreeSourceSnapshot};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
@@ -74,7 +74,7 @@ pub(super) fn begin(
     };
     // Write-ahead: from here on there is a temporary commit to unwind, so the
     // record must already be on disk if the process dies mid-way.
-    journal::set_in_progress(repo, &InProgress::WorktreeSquash(snapshot.clone()))?;
+    journal::set_worktree_source(repo, Some(snapshot.clone()))?;
 
     let temp_tree = repo
         .inner
@@ -118,6 +118,7 @@ pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resul
         snapshot,
         git2::Oid::from(&snapshot.index_tree_before),
     )?;
+    journal::set_worktree_source(repo, None)?;
     journal::clear_in_progress(repo)
 }
 

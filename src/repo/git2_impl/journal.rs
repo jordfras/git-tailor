@@ -41,7 +41,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{InProgress, JournalCleanSummary, JournalStatus, UndoOutcome};
+use super::super::{
+    InProgress, JournalCleanSummary, JournalStatus, UndoOutcome, WorktreeSourceSnapshot,
+};
 use super::Git2Repo;
 use super::reads;
 use crate::Oid;
@@ -106,6 +108,18 @@ enum UndoRecord {
         tip_before: Oid,
         tip_after: Oid,
     },
+    /// A squash whose source was a working-tree row. Undo/redo are *mixed*
+    /// resets (`reset --mixed`): the ref moves and the index tree is restored,
+    /// but the working tree is left alone — the operation only moved content
+    /// between committed, staged and unstaged, so the files on disk are the same
+    /// before and after.
+    MixedReset {
+        label: String,
+        tip_before: Oid,
+        tip_after: Oid,
+        index_tree_before: Oid,
+        index_tree_after: Oid,
+    },
 }
 
 impl UndoRecord {
@@ -113,7 +127,8 @@ impl UndoRecord {
         match self {
             UndoRecord::RefMove { label, .. }
             | UndoRecord::IndexChange { label, .. }
-            | UndoRecord::Commit { label, .. } => label,
+            | UndoRecord::Commit { label, .. }
+            | UndoRecord::MixedReset { label, .. } => label,
         }
     }
 
@@ -123,7 +138,9 @@ impl UndoRecord {
     fn skips_autostash(&self) -> bool {
         matches!(
             self,
-            UndoRecord::IndexChange { .. } | UndoRecord::Commit { .. }
+            UndoRecord::IndexChange { .. }
+                | UndoRecord::Commit { .. }
+                | UndoRecord::MixedReset { .. }
         )
     }
 
@@ -131,9 +148,9 @@ impl UndoRecord {
     /// after the ref move, or unchanged for an index-only op.
     fn applied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_after, .. } | UndoRecord::Commit { tip_after, .. } => {
-                tip_after
-            }
+            UndoRecord::RefMove { tip_after, .. }
+            | UndoRecord::Commit { tip_after, .. }
+            | UndoRecord::MixedReset { tip_after, .. } => tip_after,
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
@@ -142,9 +159,9 @@ impl UndoRecord {
     /// back at the pre-op tip, or unchanged for an index-only op.
     fn unapplied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_before, .. } | UndoRecord::Commit { tip_before, .. } => {
-                tip_before
-            }
+            UndoRecord::RefMove { tip_before, .. }
+            | UndoRecord::Commit { tip_before, .. }
+            | UndoRecord::MixedReset { tip_before, .. } => tip_before,
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
@@ -167,6 +184,13 @@ impl UndoRecord {
                 index_tree_after,
                 ..
             } => vec![index_tree_before, index_tree_after],
+            UndoRecord::MixedReset {
+                tip_before,
+                tip_after,
+                index_tree_before,
+                index_tree_after,
+                ..
+            } => vec![tip_before, tip_after, index_tree_before, index_tree_after],
         }
     }
 }
@@ -208,6 +232,12 @@ struct JournalDoc {
     /// completes or aborts (survives a crash so recovery can restore the user's
     /// working-tree changes).
     autostash: Option<AutostashRecord>,
+    /// Pre-operation state of a squash whose source is a working-tree row. Like
+    /// the auto-stash it is a sibling of `in_progress` rather than part of it,
+    /// because it has to outlive the phase changes — `in_progress` becomes a
+    /// conflict record the moment the squash conflicts, and the snapshot is
+    /// still what abort and completion restore from.
+    worktree_source: Option<WorktreeSourceSnapshot>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -276,6 +306,23 @@ fn is_empty(doc: &JournalDoc) -> bool {
         && doc.undo.is_empty()
         && doc.redo.is_empty()
         && doc.autostash.is_none()
+        && doc.worktree_source.is_none()
+}
+
+/// Read the recorded working-tree-source snapshot, if any.
+pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<WorktreeSourceSnapshot>> {
+    Ok(load_doc(repo)?.worktree_source)
+}
+
+/// Record (or clear, with `None`) the working-tree-source snapshot for the
+/// in-flight operation.
+pub(super) fn set_worktree_source(
+    repo: &Git2Repo,
+    snapshot: Option<WorktreeSourceSnapshot>,
+) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.worktree_source = snapshot;
+    save(repo, &mut doc)
 }
 
 /// Read the recorded auto-stash, if any.
@@ -389,6 +436,14 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     let mut oids: BTreeSet<&Oid> = BTreeSet::new();
     for rec in doc.undo.iter().chain(doc.redo.iter()) {
         oids.extend(rec.pinned_oids());
+    }
+    // The snapshot's trees are loose objects no ref reaches.
+    if let Some(snapshot) = &doc.worktree_source {
+        oids.extend([
+            &snapshot.tip_before,
+            &snapshot.index_tree_before,
+            &snapshot.worktree_tree,
+        ]);
     }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
@@ -531,6 +586,27 @@ pub(super) fn record_commit_undo(
     )
 }
 
+/// Push a completed working-tree-sourced squash onto the undo stack.
+pub(super) fn record_mixed_undo(
+    repo: &Git2Repo,
+    label: &str,
+    tip_before: &Oid,
+    tip_after: &Oid,
+    index_tree_before: &Oid,
+    index_tree_after: &Oid,
+) -> Result<()> {
+    push_undo(
+        repo,
+        UndoRecord::MixedReset {
+            label: label.to_string(),
+            tip_before: tip_before.clone(),
+            tip_after: tip_after.clone(),
+            index_tree_before: index_tree_before.clone(),
+            index_tree_after: index_tree_after.clone(),
+        },
+    )
+}
+
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
 fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
@@ -600,6 +676,28 @@ pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
                 return Ok(UndoOutcome::Stale);
             }
         }
+        UndoRecord::MixedReset {
+            tip_before,
+            tip_after,
+            index_tree_before,
+            index_tree_after,
+            label,
+        } => {
+            if !revert_mixed(
+                repo,
+                &mut doc,
+                MixedRevert {
+                    expected_tip: tip_after,
+                    expected_index: index_tree_after,
+                    target_tip: tip_before,
+                    target_index: index_tree_before,
+                },
+                "undo",
+                label,
+            )? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
     }
 
     doc.undo.pop();
@@ -644,6 +742,28 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
             label,
         } => {
             if !revert_soft(repo, &mut doc, tip_before, tip_after, "redo", label)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::MixedReset {
+            tip_before,
+            tip_after,
+            index_tree_before,
+            index_tree_after,
+            label,
+        } => {
+            if !revert_mixed(
+                repo,
+                &mut doc,
+                MixedRevert {
+                    expected_tip: tip_before,
+                    expected_index: index_tree_before,
+                    target_tip: tip_after,
+                    target_index: index_tree_after,
+                },
+                "redo",
+                label,
+            )? {
                 return Ok(UndoOutcome::Stale);
             }
         }
@@ -715,6 +835,40 @@ fn revert_soft(
         git2::Oid::from(target),
         &format!("git-tailor: {verb} {}", label.to_lowercase()),
     )?;
+    Ok(true)
+}
+
+/// Where a mixed reset is coming from and going to.
+struct MixedRevert<'a> {
+    expected_tip: &'a Oid,
+    expected_index: &'a Oid,
+    target_tip: &'a Oid,
+    target_index: &'a Oid,
+}
+
+/// Move the branch ref *and* the index (`reset --mixed`), leaving the working
+/// tree alone. Returns `false` (after clearing the now-stale stacks) when either
+/// the ref or the index has drifted — as for an index-only record, a mismatch
+/// means the user changed things outside this history, and forcing the recorded
+/// state over it would discard their work.
+fn revert_mixed(
+    repo: &Git2Repo,
+    doc: &mut JournalDoc,
+    revert: MixedRevert<'_>,
+    verb: &str,
+    label: &str,
+) -> Result<bool> {
+    if &reads::head_oid(repo)? != revert.expected_tip
+        || &current_index_tree(repo)? != revert.expected_index
+    {
+        clear_stacks(repo, doc)?;
+        return Ok(false);
+    }
+    repo.advance_branch_ref(
+        git2::Oid::from(revert.target_tip),
+        &format!("git-tailor: {verb} {}", label.to_lowercase()),
+    )?;
+    restore_index(repo, revert.target_index)?;
     Ok(true)
 }
 
@@ -803,7 +957,15 @@ pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
 fn classify(doc: JournalDoc) -> JournalStatus {
     match doc.in_progress {
         Some(record) => JournalStatus::Recovered(Box::new(record)),
-        None => JournalStatus::None,
+        // A snapshot with no paused operation means the squash died between
+        // lifting the working-tree row into its temporary commit and reaching a
+        // conflict or completion. Surface it as its own recoverable phase.
+        None => match doc.worktree_source {
+            Some(snapshot) => {
+                JournalStatus::Recovered(Box::new(InProgress::WorktreeSquash(snapshot)))
+            }
+            None => JournalStatus::None,
+        },
     }
 }
 
@@ -879,5 +1041,6 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         undo: old.undo,
         redo: old.redo,
         autostash: old.autostash,
+        worktree_source: None,
     }
 }

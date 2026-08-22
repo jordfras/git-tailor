@@ -35,12 +35,14 @@ fn workdir(test: &common::TestRepo, path: &str) -> String {
     std::fs::read_to_string(test.repo.workdir().unwrap().join(path)).unwrap()
 }
 
-/// Two commits, then `a.txt` edited and staged and `b.txt` edited but not.
+/// A branch whose target commit introduces both `a.txt` and `b.txt`, with
+/// `a.txt` then edited and staged and `b.txt` edited but left unstaged — so
+/// either row can be folded into the target.
 fn mixed_state() -> (common::TestRepo, git2::Oid, git2::Oid) {
     let test = common::TestRepo::new();
     let base = test.commit_file("base.txt", "base\n", "base");
-    let target = test.commit_file("a.txt", "a1\n", "target commit");
-    test.commit_file("b.txt", "b1\n", "later commit");
+    let target = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "target commit");
+    test.commit_file("c.txt", "c1\n", "later commit");
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     test.write_file("b.txt", "b2\n");
