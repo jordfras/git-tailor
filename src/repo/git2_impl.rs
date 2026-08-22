@@ -445,7 +445,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn clear_journal(&self) -> Result<()> {
-        journal::clear_in_progress(self)
+        journal::discard_in_flight(self)
     }
 
     fn prune_stale_journal(&self) -> Result<()> {
@@ -633,8 +633,9 @@ impl Git2Repo {
         // A working-tree-sourced squash deliberately leaves the *other* row's
         // changes in place. They are recorded in the snapshot and restored when
         // the operation finishes, so they are not the unexpected dirt this guard
-        // is here to catch.
-        if journal::worktree_source(self)?.is_some() {
+        // is here to catch — as long as the snapshot still describes what is
+        // actually there.
+        if worktree_source_op::covers_working_tree(self)? {
             return Ok(());
         }
         if self.is_worktree_dirty()? {

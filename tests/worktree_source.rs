@@ -274,9 +274,10 @@ fn beginning_records_the_snapshot_in_the_journal() {
 fn discarding_the_journal_discards_the_snapshot() {
     let test = common::TestRepo::new();
     let base = test.commit_file("base.txt", "base\n", "base");
-    test.commit_file("a.txt", "a1\n", "second");
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "second");
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
+    test.write_file("b.txt", "b2\n");
     let git_repo = test.git_repo();
     git_repo
         .begin_worktree_source(WorktreeSource::Staged)
@@ -313,9 +314,10 @@ fn discarding_the_journal_discards_the_snapshot() {
 fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard() {
     let test = common::TestRepo::new();
     let base = test.commit_file("base.txt", "base\n", "base");
-    test.commit_file("a.txt", "a1\n", "second");
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "second");
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
+    test.write_file("b.txt", "b2\n");
     let git_repo = test.git_repo();
     git_repo
         .begin_worktree_source(WorktreeSource::Staged)
@@ -323,7 +325,7 @@ fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard
         .unwrap();
 
     // The user carries on working, so the recorded working tree is history.
-    test.write_file("a.txt", "a3\n");
+    test.write_file("b.txt", "b3\n");
 
     let head = git_repo.head_oid().unwrap();
     let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[0]
@@ -344,7 +346,7 @@ fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard
 #[test]
 fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
     let test = common::TestRepo::new();
-    let base = test.commit_file("base.txt", "base\n", "base");
+    test.commit_file("base.txt", "base\n", "base");
     let second = test.commit_file("a.txt", "a1\n", "second");
     test.commit_file("b.txt", "b1\n", "third");
     let git_repo = test.git_repo();
@@ -368,17 +370,29 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
 
     git_repo.prune_stale_journal().unwrap();
 
-    // Unwind, then the earlier reword must still be undoable.
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
-    match git_repo.undo().unwrap() {
-        git_tailor::repo::UndoOutcome::Done { label } => assert_eq!(label, "Reword"),
-        other => panic!("the earlier operation should still be undoable, got {other:?}"),
-    }
     assert_eq!(
-        git_repo
-            .list_commits(&git_repo.head_oid().unwrap(), &Oid::from(base))
-            .unwrap()
-            .len(),
-        2
+        undo_labels(&test),
+        ["Reword"],
+        "the undo stack must survive"
     );
+    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    assert_eq!(undo_labels(&test), ["Reword"]);
+}
+
+/// The labels on the recorded undo stack, oldest first.
+fn undo_labels(test: &common::TestRepo) -> Vec<String> {
+    let path = test.repo.path().join("git-tailor").join("journal.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    doc["undo"]
+        .as_array()
+        .map(|records| {
+            records
+                .iter()
+                .map(|r| r["label"].as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }

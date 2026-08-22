@@ -379,8 +379,11 @@ pub(super) fn drop_reverted_undo_record(
 pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
 
+    // A fold in flight is an operation in progress too, even before it reaches a
+    // conflict: its temporary commit moves the branch off the tip the undo stack
+    // records, which is not history changing behind git-tailor's back.
     let mut cleared = false;
-    if doc.in_progress.is_none() {
+    if doc.in_progress.is_none() && doc.worktree_source.is_none() {
         if stacks_stale(repo, &doc)? {
             doc.undo.clear();
             doc.redo.clear();
@@ -478,6 +481,21 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
+    save(repo, &mut doc)?;
+    delete_orig_ref(repo);
+    Ok(())
+}
+
+/// Abandon whatever operation was in flight: the paused record *and* the
+/// working-tree snapshot. Used when a journal is discarded as unusable, where
+/// leaving the snapshot behind would keep telling later operations that a dirty
+/// working tree is accounted for. Distinct from
+/// [`clear_in_progress`], which only ends one phase of an operation that is
+/// still running.
+pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.in_progress = None;
+    doc.worktree_source = None;
     save(repo, &mut doc)?;
     delete_orig_ref(repo);
     Ok(())

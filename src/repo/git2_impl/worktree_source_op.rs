@@ -41,6 +41,21 @@ use crate::repo::{WorktreeSource, WorktreeSourceCommit, WorktreeSourceSnapshot};
 /// between creating it and folding it away, where naming it plainly helps.
 const TEMP_MESSAGE: &str = "git-tailor: working-tree changes";
 
+/// Whether a fold is in flight over a working tree the snapshot still accounts
+/// for.
+///
+/// The snapshot is what makes it safe to run a squash over a dirty working tree,
+/// so it only excuses the dirt it actually recorded. A snapshot stranded by an
+/// earlier run describes a working tree that is long gone, and must not keep the
+/// guard on uncommitted changes switched off.
+pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
+    let Some(snapshot) = journal::worktree_source(repo)? else {
+        return Ok(false);
+    };
+    let (_, worktree_tree) = snapshot_trees(repo)?;
+    Ok(worktree_tree == git2::Oid::from(&snapshot.worktree_tree))
+}
+
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
 /// changes. See [`super::Git2Repo::begin_worktree_source`] for the contract.
 pub(super) fn begin(
