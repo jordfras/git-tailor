@@ -263,6 +263,55 @@ fn beginning_records_the_snapshot_in_the_journal() {
     }
 }
 
+/// Separating the unstaged row from the staged one must not be limited to
+/// changes that can be expressed as a text patch. A binary file the row rewrites
+/// has no hunks to apply, and a staged submodule pointer none either.
+#[test]
+fn a_row_separates_from_staged_binary_and_submodule_changes() {
+    let test = common::TestRepo::new();
+    let first = test.commit_file("a.txt", "a1\n", "base");
+    std::fs::write(
+        test.repo.workdir().unwrap().join("bin.dat"),
+        [0u8, 1, 2, 0, 3],
+    )
+    .unwrap();
+    test.stage_file("bin.dat");
+    test.commit("add binary");
+
+    // Unstaged: rewrite the binary. Staged: a text edit and a submodule pointer.
+    std::fs::write(
+        test.repo.workdir().unwrap().join("bin.dat"),
+        [0u8, 9, 9, 0, 7],
+    )
+    .unwrap();
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.stage_gitlink("sub", first);
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Unstaged)
+        .unwrap()
+        .expect("the binary rewrite is the unstaged row");
+
+    // Only the binary went into the temporary commit.
+    let diff = git_repo.commit_diff(&started.temp_oid, 3).unwrap();
+    assert_eq!(
+        diff.files
+            .iter()
+            .filter_map(|f| f.new_path.clone())
+            .collect::<Vec<_>>(),
+        vec!["bin.dat".to_string()]
+    );
+    let mut staged = row_paths(git_repo.staged_diff(3).unwrap());
+    staged.sort();
+    assert_eq!(staged, ["a.txt", "sub"]);
+    assert_eq!(
+        std::fs::read(test.repo.workdir().unwrap().join("bin.dat")).unwrap(),
+        [0u8, 9, 9, 0, 7]
+    );
+}
+
 /// Discarding a journal must discard the snapshot with it.
 ///
 /// A snapshot left behind is not inert: it tells every later operation that the
