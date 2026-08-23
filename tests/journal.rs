@@ -217,7 +217,7 @@ fn v1_journal_without_interrupted_op_migrates_and_keeps_undo() {
     // The file was rewritten to the current version with the undo stack intact.
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(doc["version"], 3);
+    assert_eq!(doc["version"], 2);
     assert_eq!(
         doc["undo"].as_array().unwrap().len(),
         1,
@@ -263,13 +263,13 @@ fn v1_journal_with_interrupted_op_is_flagged_and_file_left_untouched() {
     );
 }
 
-/// A v2 journal is upgraded in place. Unlike v1, its in-progress record *is*
-/// representable in the current schema, so a paused operation must survive the
-/// upgrade and still recover — never be reported as `UpgradeInterrupted`.
+/// The current on-disk shape, spelled out. Reading a hand-written document
+/// pins the field names and layout that a released git-tailor will meet, so a
+/// rename or a retyped field cannot slip through as "just a refactor".
 #[test]
-fn v2_journal_with_interrupted_op_migrates_and_still_recovers() {
+fn a_journal_in_the_current_format_recovers_a_paused_operation() {
     let test = common::TestRepo::new();
-    let v2 = r#"{
+    let current = r#"{
         "version": 2,
         "in_progress": {
             "Conflict": {
@@ -289,7 +289,7 @@ fn v2_journal_with_interrupted_op_migrates_and_still_recovers() {
         "redo": [],
         "autostash": null
     }"#;
-    write_raw_journal(&test, v2);
+    write_raw_journal(&test, current);
 
     let git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
@@ -302,12 +302,8 @@ fn v2_journal_with_interrupted_op_migrates_and_still_recovers() {
 
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(doc["version"], 3);
-    assert_eq!(
-        doc["undo"].as_array().unwrap().len(),
-        1,
-        "the undo stack must survive migration"
-    );
+    assert_eq!(doc["version"], 2);
+    assert_eq!(doc["undo"].as_array().unwrap().len(), 1);
 }
 
 // Helpers --------------------------------------------------------------------

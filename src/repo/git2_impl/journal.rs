@@ -48,9 +48,15 @@ use super::Git2Repo;
 use super::reads;
 use crate::Oid;
 
-/// On-disk journal format version. Bump when the schema changes in a
-/// non-additive way and add a matching arm in [`migrate`].
-const JOURNAL_VERSION: u32 = 3;
+/// On-disk journal format version.
+///
+/// Bump when a document this version writes would no longer *parse* in the
+/// version before it, and add a matching upgrade branch in [`read`]. A new
+/// optional field on [`JournalDoc`] is safe, since an older reader skips what it
+/// does not know; a new [`UndoRecord`] variant is not, because the enum is
+/// tagged and an unknown tag fails the whole document — the reader then reports
+/// a perfectly good journal as corrupt instead of as one from the future.
+const JOURNAL_VERSION: u32 = 2;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
 /// the leaf names below build on it, and `--clean-journal` finds every ref by
@@ -954,14 +960,22 @@ pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
         return JournalStatus::NewerVersion(header.version);
     }
 
-    // Older versions: read the version-specific shape and upgrade. Every upgrade
-    // rewrites the file to the current version; whether a *paused* operation
-    // survives depends on the version it came from, so each gets its own arm.
+    // Older versions: read the version-specific shape and upgrade. A v1
+    // in-progress record (the old flat ConflictState) isn't representable in the
+    // current schema. If one is present we must NOT rewrite the file — leaving it
+    // as-is lets an older git-tailor still finish the operation — and we surface
+    // it as UpgradeInterrupted. Otherwise the upgrade is lossless: undo/redo/
+    // autostash carry over and the file is rewritten to the current version.
+    // See CHANGELOG.
     if header.version < JOURNAL_VERSION {
-        let upgraded = match migrate(&bytes, header.version) {
-            Ok(doc) => doc,
-            Err(status) => return status,
+        let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
+            Ok(d) => d,
+            Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
         };
+        if let Some(op) = old.interrupted_op_label() {
+            return JournalStatus::UpgradeInterrupted { op };
+        }
+        let upgraded = migrate_v1(old);
         let _ = write_doc(repo, &upgraded);
         return classify(upgraded);
     }
@@ -1017,38 +1031,6 @@ impl JournalDocV1 {
                 .unwrap_or("an operation")
                 .to_string(),
         )
-    }
-}
-
-/// Upgrade an older on-disk document to the current schema.
-///
-/// Returns `Err(status)` when the file must be reported rather than upgraded —
-/// either it does not parse, or it holds an operation this version cannot take
-/// over. In the latter case the caller leaves the file untouched.
-fn migrate(bytes: &[u8], version: u32) -> Result<JournalDoc, JournalStatus> {
-    let parse_err =
-        |e: serde_json::Error| JournalStatus::Corrupt(format!("invalid journal JSON: {e}"));
-    match version {
-        // A v1 in-progress record (the old flat ConflictState) isn't
-        // representable in the current schema. If one is present we must NOT
-        // rewrite the file — leaving it as-is lets an older git-tailor still
-        // finish the operation. See CHANGELOG.
-        0 | 1 => {
-            let old: JournalDocV1 = serde_json::from_slice(bytes).map_err(parse_err)?;
-            match old.interrupted_op_label() {
-                Some(op) => Err(JournalStatus::UpgradeInterrupted { op }),
-                None => Ok(migrate_v1(old)),
-            }
-        }
-        // v2 and the current schema differ only by additive enum variants, so a
-        // paused operation carries over untouched.
-        _ => {
-            let doc: JournalDoc = serde_json::from_slice(bytes).map_err(parse_err)?;
-            Ok(JournalDoc {
-                version: JOURNAL_VERSION,
-                ..doc
-            })
-        }
     }
 }
 
