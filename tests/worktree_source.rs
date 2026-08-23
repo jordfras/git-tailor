@@ -369,6 +369,64 @@ fn a_staged_submodule_pointer_survives_a_fold() {
     assert_eq!(staged, ["a.txt", "sub"]);
 }
 
+/// A snapshot that is no longer the operation in hand must not be applied to
+/// whatever operation *is*.
+///
+/// Completing an operation consults the recorded snapshot, because that is how a
+/// fold resumed after a conflict finishes. A record stranded by something else
+/// would otherwise be restored over an unrelated operation's result, and
+/// recorded as that operation's undo entry.
+#[test]
+fn a_stale_snapshot_is_not_applied_to_another_operation() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("keep.txt", "keep\n", "base");
+    let victim = test.commit_file("victim.txt", "v\n", "victim");
+    test.commit_file("top.txt", "t\n", "top");
+    test.write_file("keep.txt", "staged\n");
+    test.stage_file("keep.txt");
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    // Strand the record: the branch goes back but nothing clears it, as a failed
+    // unwind or a failed recovery would leave things.
+    let tip_before = git2::Oid::from(&started.snapshot.tip_before);
+    test.repo
+        .reference("refs/heads/main", tip_before, true, "strand")
+        .unwrap();
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.force();
+    test.repo
+        .checkout_tree(
+            &test.repo.find_commit(tip_before).unwrap().into_object(),
+            Some(&mut checkout),
+        )
+        .unwrap();
+    test.repo
+        .index()
+        .unwrap()
+        .read_tree(&test.repo.find_commit(tip_before).unwrap().tree().unwrap())
+        .unwrap();
+
+    let head = git_repo.head_oid().unwrap();
+    assert_rebase_complete!(git_repo.drop_commit(&Oid::from(victim), &head).unwrap());
+
+    assert_history!(&test, base, &["top"]);
+    assert_eq!(
+        workdir(&test, "keep.txt"),
+        "keep\n",
+        "the stale snapshot's working tree must not be restored over the drop"
+    );
+    assert_eq!(
+        undo_kinds(&test),
+        ["RefMove"],
+        "the drop must record its own undo entry, not a fold's"
+    );
+}
+
 /// Discarding a journal must discard the snapshot with it.
 ///
 /// A snapshot left behind is not inert: it tells every later operation that the
@@ -485,14 +543,31 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
     assert_eq!(undo_labels(&test), ["Reword"]);
 }
 
+/// The record kinds on the recorded undo stack, oldest first.
+fn undo_kinds(test: &common::TestRepo) -> Vec<String> {
+    journal_doc(test)["undo"]
+        .as_array()
+        .map(|records| {
+            records
+                .iter()
+                .map(|r| r["kind"].as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The parsed journal document, or null when there is none.
+fn journal_doc(test: &common::TestRepo) -> serde_json::Value {
+    let path = test.repo.path().join("git-tailor").join("journal.json");
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap(),
+        Err(_) => serde_json::Value::Null,
+    }
+}
+
 /// The labels on the recorded undo stack, oldest first.
 fn undo_labels(test: &common::TestRepo) -> Vec<String> {
-    let path = test.repo.path().join("git-tailor").join("journal.json");
-    let Ok(raw) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    doc["undo"]
+    journal_doc(test)["undo"]
         .as_array()
         .map(|records| {
             records
