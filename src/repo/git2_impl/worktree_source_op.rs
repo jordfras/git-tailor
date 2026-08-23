@@ -81,19 +81,39 @@ pub(super) fn begin(
         return Ok(None);
     }
 
+    // Created before anything is recorded: an unreferenced commit is garbage the
+    // next gc collects, where a record naming a commit that was never made
+    // describes a state nothing can be recovered to.
+    let temp_tree = repo
+        .inner
+        .find_tree(temp_tree_oid)
+        .context("failed to find the working-tree source tree")?;
+    let sig = repo
+        .inner
+        .signature()
+        .context("failed to build commit signature (set user.name / user.email)")?;
+    let temp_oid = repo
+        .inner
+        .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
+        .context("failed to commit the working-tree changes")?;
+
     let snapshot = WorktreeSourceSnapshot {
         source,
         tip_before: Oid::from(head.id()),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
         source_tree: Oid::from(temp_tree_oid),
+        temp_oid: Oid::from(temp_oid),
     };
-    // Write-ahead: from here on there is a temporary commit to unwind, so the
-    // record must already be on disk if the process dies mid-way.
+    // Write-ahead: the branch is about to move onto the temporary commit, so the
+    // record has to be on disk before it does.
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
 
-    match create_temp_commit(repo, &head, temp_tree_oid, &snapshot) {
-        Ok(temp_oid) => Ok(Some(WorktreeSourceCommit { temp_oid, snapshot })),
+    match place_temp_commit(repo, &snapshot) {
+        Ok(()) => Ok(Some(WorktreeSourceCommit {
+            temp_oid: snapshot.temp_oid.clone(),
+            snapshot,
+        })),
         Err(e) => {
             // Never leave the caller a half-made operation to reason about: the
             // record is already on disk, so unwind through it and report the
@@ -107,35 +127,20 @@ pub(super) fn begin(
     }
 }
 
-/// Commit `temp_tree` on top of `head` and move the branch to it, leaving the
-/// index describing what the row did not take.
-fn create_temp_commit(
-    repo: &Git2Repo,
-    head: &git2::Commit,
-    temp_tree: git2::Oid,
-    snapshot: &WorktreeSourceSnapshot,
-) -> Result<Oid> {
-    let temp_tree = repo
-        .inner
-        .find_tree(temp_tree)
-        .context("failed to find the working-tree source tree")?;
-    let sig = repo
-        .inner
-        .signature()
-        .context("failed to build commit signature (set user.name / user.email)")?;
-    let temp_oid = repo
-        .inner
-        .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[head])
-        .context("failed to commit the working-tree changes")?;
-    repo.advance_branch_ref(temp_oid, "git-tailor: working-tree squash source")?;
+/// Move the branch onto the temporary commit, leaving the index describing what
+/// the row did not take.
+fn place_temp_commit(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Result<()> {
+    repo.advance_branch_ref(
+        git2::Oid::from(&snapshot.temp_oid),
+        "git-tailor: working-tree squash source",
+    )?;
 
     // The unstaged row left its changes in the commit, so what remains staged is
     // the whole working tree relative to it.
     if snapshot.source == WorktreeSource::Unstaged {
         set_index_tree(repo, git2::Oid::from(&snapshot.worktree_tree))?;
     }
-
-    Ok(Oid::from(temp_oid))
+    Ok(())
 }
 
 /// Unwind back to `snapshot`. See
@@ -312,6 +317,23 @@ fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
         .iter()
         .filter(|entry| entry.mode == gitlink_mode)
         .collect();
+    let worktree_tree = build_worktree_tree(&mut index, gitlinks);
+    // Unconditional: the staging above happens in the repository's shared
+    // in-memory index, so it has to be put back whether or not the tree was
+    // built, rather than leaking into whatever reads the index next.
+    index
+        .read(true)
+        .context("failed to restore index after snapshot")?;
+
+    Ok((index_tree, worktree_tree?))
+}
+
+/// Stage every tracked change into `index` and write the result as a tree,
+/// keeping the submodule pointers `update_all` would drop.
+fn build_worktree_tree(
+    index: &mut git2::Index,
+    gitlinks: Vec<git2::IndexEntry>,
+) -> Result<git2::Oid> {
     index
         .update_all(["*"].iter(), None)
         .context("failed to read working-tree changes")?;
@@ -320,14 +342,9 @@ fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
             .add(&entry)
             .context("failed to keep a submodule pointer")?;
     }
-    let worktree_tree = index
-        .write_tree()
-        .context("failed to write working-tree tree")?;
     index
-        .read(true)
-        .context("failed to restore index after snapshot")?;
-
-    Ok((index_tree, worktree_tree))
+        .write_tree()
+        .context("failed to write working-tree tree")
 }
 
 /// HEAD's tree plus the unstaged delta and nothing else — the tree a commit of

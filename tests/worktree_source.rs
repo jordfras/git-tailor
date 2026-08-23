@@ -64,6 +64,7 @@ fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
         .expect("the staged row has changes to fold in");
 
     assert_eq!(git_repo.head_oid().unwrap(), started.temp_oid);
+    assert_eq!(started.snapshot.temp_oid, started.temp_oid);
     assert_eq!(started.snapshot.tip_before, head_before);
 
     // The temp commit carries only the staged change.
@@ -237,6 +238,25 @@ fn overlapping_staged_and_unstaged_edits_are_refused() {
     assert_eq!(git_repo.head_oid().unwrap(), head_before);
     assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["a.txt"]);
     assert_eq!(workdir(&test, "a.txt"), "one\nUNSTAGED\nthree\n");
+}
+
+/// The snapshot names the commit the branch was left on, which is what tells a
+/// later run whether the record still describes the repository or something that
+/// has long moved on.
+#[test]
+fn the_snapshot_names_the_commit_the_branch_was_left_on() {
+    let test = mixed_state();
+    let git_repo = test.git_repo();
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Unstaged)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(started.snapshot.temp_oid, git_repo.head_oid().unwrap());
+
+    // Once the branch moves elsewhere the record no longer matches it.
+    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    assert_ne!(started.snapshot.temp_oid, git_repo.head_oid().unwrap());
 }
 
 /// A crash between the temp commit and the squash must be recoverable, so the

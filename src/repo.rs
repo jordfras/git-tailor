@@ -131,6 +131,12 @@ pub struct WorktreeSourceSnapshot {
     /// taken out of it. The merge base for putting the other row's changes back
     /// on top of wherever the squash ended up.
     pub source_tree: Oid,
+    /// The temporary commit itself, which the fold left the branch on. Identifies
+    /// the snapshot as belonging to the operation in hand: a record whose
+    /// temporary commit is not where the branch is describes something that has
+    /// already moved on, and unwinding it would take the user's later work with
+    /// it.
+    pub temp_oid: Oid,
 }
 
 /// A working-tree row lifted into a temporary commit on top of HEAD.

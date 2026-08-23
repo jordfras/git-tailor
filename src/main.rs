@@ -330,17 +330,31 @@ fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
             }
             InProgress::WorktreeSquash(snapshot) => {
                 // A squash of working-tree changes died between lifting them
-                // into a temporary commit and folding it away. The snapshot
-                // holds the exact pre-operation state, so unwinding it is
-                // lossless — nothing to prompt about.
+                // into a temporary commit and folding it away. Unwinding is
+                // lossless — the snapshot holds the exact pre-operation state,
+                // so there is nothing to prompt about — but only while the
+                // branch is still on that temporary commit. Anywhere else and
+                // the repository has moved on without us, and the rewind would
+                // take the user's later work with it.
                 let label = snapshot.source.label().to_lowercase();
-                match git_repo.abort_worktree_source(&snapshot) {
-                    Ok(()) => app.set_error_message(format!(
-                        "Recovered an interrupted squash of {label} — restored the branch"
-                    )),
-                    Err(e) => app.set_error_message(format!(
-                        "Failed to recover an interrupted squash of {label}: {e:#}"
-                    )),
+                let head_matches = git_repo
+                    .head_oid()
+                    .map(|head| head == snapshot.temp_oid)
+                    .unwrap_or(false);
+                if !head_matches {
+                    let _ = git_repo.clear_journal();
+                    app.set_error_message(
+                        "Discarded a stale interrupted-operation journal (branch has moved)",
+                    );
+                } else {
+                    match git_repo.abort_worktree_source(&snapshot) {
+                        Ok(()) => app.set_error_message(format!(
+                            "Recovered an interrupted squash of {label} — restored the branch"
+                        )),
+                        Err(e) => app.set_error_message(format!(
+                            "Failed to recover an interrupted squash of {label}: {e:#}"
+                        )),
+                    }
                 }
             }
             InProgress::Conflict(state) => {
