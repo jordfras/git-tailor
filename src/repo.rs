@@ -460,11 +460,15 @@ pub trait RepoRead {
     /// never set).
     fn default_branch(&self) -> Result<Option<String>>;
 
-    /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
+    /// Yield commits incrementally from `from_oid` to `to_oid`, newest first.
     ///
     /// Unlike `list_commits`, this streams one `CommitInfo` per `.next()` call
-    /// so callers can render progress between iterations. The OID range and
-    /// result ordering are identical to `list_commits`.
+    /// so callers can render progress between iterations. It covers the same OID
+    /// range but yields it in the opposite order: `list_commits` collects the
+    /// whole walk and reverses it to oldest-first, which a stream cannot do
+    /// without buffering everything and giving up the incremental progress this
+    /// exists for. Callers wanting oldest-first reverse what they collected, as
+    /// `loader::load_with_progress` does.
     fn commit_walker<'a>(
         &'a self,
         from_oid: &Oid,
