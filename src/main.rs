@@ -19,6 +19,8 @@ mod completions;
 mod dispatch;
 mod external_tool;
 mod loader;
+#[cfg(test)]
+mod mock_repo;
 mod recovery;
 mod terminal_guard;
 mod update_check;
