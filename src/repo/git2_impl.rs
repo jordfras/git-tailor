@@ -149,10 +149,12 @@ impl Git2Repo {
         journal::record_mixed_undo(
             self,
             label,
-            &snapshot.tip_before,
-            &tip_after,
-            &snapshot.index_tree_before,
-            &index_tree_after,
+            journal::MixedUndo {
+                tip_before: &snapshot.tip_before,
+                tip_after: &tip_after,
+                index_tree_before: &snapshot.index_tree_before,
+                index_tree_after: &index_tree_after,
+            },
         )?;
         journal::set_worktree_source(self, None)
     }

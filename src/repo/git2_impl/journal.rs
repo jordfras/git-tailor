@@ -612,23 +612,28 @@ pub(super) fn record_commit_undo(
     )
 }
 
+/// What a completed working-tree-sourced squash moved, for
+/// [`record_mixed_undo`].
+///
+/// Named fields because all four are OIDs, and swapping a before for an after
+/// would still typecheck while recording an undo entry that runs backwards.
+pub(super) struct MixedUndo<'a> {
+    pub tip_before: &'a Oid,
+    pub tip_after: &'a Oid,
+    pub index_tree_before: &'a Oid,
+    pub index_tree_after: &'a Oid,
+}
+
 /// Push a completed working-tree-sourced squash onto the undo stack.
-pub(super) fn record_mixed_undo(
-    repo: &Git2Repo,
-    label: &str,
-    tip_before: &Oid,
-    tip_after: &Oid,
-    index_tree_before: &Oid,
-    index_tree_after: &Oid,
-) -> Result<()> {
+pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'_>) -> Result<()> {
     push_undo(
         repo,
         UndoRecord::MixedReset {
             label: label.to_string(),
-            tip_before: tip_before.clone(),
-            tip_after: tip_after.clone(),
-            index_tree_before: index_tree_before.clone(),
-            index_tree_after: index_tree_after.clone(),
+            tip_before: moved.tip_before.clone(),
+            tip_after: moved.tip_after.clone(),
+            index_tree_before: moved.index_tree_before.clone(),
+            index_tree_after: moved.index_tree_after.clone(),
         },
     )
 }
