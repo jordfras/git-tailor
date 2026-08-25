@@ -101,11 +101,7 @@ pub(crate) fn handle_prepare_squash(
     let Some(prepared) = prepare_source(git_repo, app, &source, label)? else {
         return Ok(LoopAction::Continue);
     };
-    let PreparedSource {
-        source_oid,
-        head_oid,
-        worktree,
-    } = prepared;
+    let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
 
     // A working-tree row has no message of its own, so a squash starts from the
     // target's alone rather than the two joined.
@@ -132,10 +128,9 @@ pub(crate) fn handle_prepare_squash(
             return Ok(LoopAction::Continue);
         }
         Err(e) => {
-            return Ok(abandon_squash(
+            return Ok(prepared.unwind(
                 git_repo,
                 app,
-                worktree.as_ref(),
                 format!("{label} failed: {e:#}"),
                 LoopAction::Continue,
             ));
@@ -149,19 +144,17 @@ pub(crate) fn handle_prepare_squash(
             edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
         match editor_result {
             Err(e) => {
-                return Ok(abandon_squash(
+                return Ok(prepared.unwind(
                     git_repo,
                     app,
-                    worktree.as_ref(),
                     format!("Editor error: {e:#}"),
                     LoopAction::Continue,
                 ));
             }
             Ok(msg) if msg.trim().is_empty() => {
-                return Ok(abandon_squash(
+                return Ok(prepared.unwind(
                     git_repo,
                     app,
-                    worktree.as_ref(),
                     format!("{label} aborted: empty commit message"),
                     LoopAction::Continue,
                 ));
@@ -176,10 +169,9 @@ pub(crate) fn handle_prepare_squash(
         };
         let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
         if let Err(e) = outcome {
-            return Ok(abandon_squash(
+            return Ok(prepared.unwind(
                 git_repo,
                 app,
-                worktree.as_ref(),
                 format!("{label} failed: {e:#}"),
                 LoopAction::Proceed,
             ));
@@ -195,13 +187,70 @@ pub(crate) fn handle_prepare_squash(
     Ok(LoopAction::Proceed)
 }
 
-/// A squash source resolved to something the squash engine can take.
-struct PreparedSource {
-    source_oid: Oid,
-    head_oid: Oid,
-    /// Set when the source was a working-tree row, and the operation therefore
-    /// has a temporary commit to unwind if it does not go through.
-    worktree: Option<WorktreeSourceSnapshot>,
+/// A squash source got into a shape the squash engine accepts, together with
+/// what has to be put back if the squash does not go through.
+///
+/// The two ways of clearing the working tree out of a squash's path pair with
+/// two different ways of restoring it, so they are one choice made once rather
+/// than two made in separate places.
+enum Prepared {
+    /// A commit source, with the working tree stashed out of the way.
+    Commit { source_oid: Oid, head_oid: Oid },
+    /// A working-tree row lifted into a temporary commit, which is both the
+    /// source and the tip the squash runs from.
+    Lifted(WorktreeSourceSnapshot),
+}
+
+impl Prepared {
+    /// The commit whose changes are being folded in.
+    fn source_oid(&self) -> &Oid {
+        match self {
+            Prepared::Commit { source_oid, .. } => source_oid,
+            Prepared::Lifted(snapshot) => &snapshot.temp_oid,
+        }
+    }
+
+    /// The tip the squash rewrites from.
+    fn head_oid(&self) -> &Oid {
+        match self {
+            Prepared::Commit { head_oid, .. } => head_oid,
+            Prepared::Lifted(snapshot) => &snapshot.temp_oid,
+        }
+    }
+
+    /// Report a squash that gave up, putting back whatever was set up for it.
+    ///
+    /// An unwind that itself fails leaves the temporary commit on the branch,
+    /// holding the row's changes. Say so and reload, rather than reporting only
+    /// the original failure and leaving a commit the user cannot see.
+    fn unwind(
+        &self,
+        git_repo: &mut impl GitRepo,
+        app: &mut AppState,
+        message: String,
+        done: LoopAction,
+    ) -> LoopAction {
+        match self {
+            Prepared::Commit { .. } => {
+                let _ = git_repo.autostash_restore();
+                app.set_error_message(message);
+                done
+            }
+            Prepared::Lifted(snapshot) => match git_repo.abort_worktree_source(snapshot) {
+                Ok(()) => {
+                    app.set_error_message(message);
+                    done
+                }
+                Err(e) => {
+                    app.set_error_message(format!(
+                        "{message}; your changes are in a temporary commit on the \
+                         branch — undoing it failed: {e:#}"
+                    ));
+                    LoopAction::Reload
+                }
+            },
+        }
+    }
 }
 
 /// Get the source into a shape the squash engine accepts, and the working tree
@@ -217,7 +266,7 @@ fn prepare_source(
     app: &mut AppState,
     source: &SquashSource,
     label: &str,
-) -> Result<Option<PreparedSource>> {
+) -> Result<Option<Prepared>> {
     match source {
         SquashSource::Commit { oid, .. } => {
             let head_oid = match git_repo.head_oid() {
@@ -231,18 +280,13 @@ fn prepare_source(
                 app.set_error_message(format!("Auto-stash failed: {e:#}"));
                 return Ok(None);
             }
-            Ok(Some(PreparedSource {
+            Ok(Some(Prepared::Commit {
                 source_oid: oid.clone(),
                 head_oid,
-                worktree: None,
             }))
         }
         SquashSource::Worktree(row) => match git_repo.begin_worktree_source(*row) {
-            Ok(Some(started)) => Ok(Some(PreparedSource {
-                source_oid: started.temp_oid.clone(),
-                head_oid: started.temp_oid,
-                worktree: Some(started.snapshot),
-            })),
+            Ok(Some(snapshot)) => Ok(Some(Prepared::Lifted(snapshot))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));
                 Ok(None)
@@ -252,41 +296,5 @@ fn prepare_source(
                 Ok(None)
             }
         },
-    }
-}
-
-/// Report a squash that gave up before it ran, putting back whatever was set up
-/// for it: the auto-stash, or the temporary commit a working-tree row was lifted
-/// into.
-///
-/// An unwind that itself fails leaves that temporary commit on the branch,
-/// holding the row's changes. Say so and reload, rather than reporting only the
-/// original failure and leaving a commit the user cannot see.
-fn abandon_squash(
-    git_repo: &mut impl GitRepo,
-    app: &mut AppState,
-    worktree: Option<&WorktreeSourceSnapshot>,
-    message: String,
-    done: LoopAction,
-) -> LoopAction {
-    match worktree {
-        Some(snapshot) => match git_repo.abort_worktree_source(snapshot) {
-            Ok(()) => {
-                app.set_error_message(message);
-                done
-            }
-            Err(e) => {
-                app.set_error_message(format!(
-                    "{message}; your changes are in a temporary commit on the \
-                     branch — undoing it failed: {e:#}"
-                ));
-                LoopAction::Reload
-            }
-        },
-        None => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(message);
-            done
-        }
     }
 }

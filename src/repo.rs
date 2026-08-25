@@ -131,22 +131,14 @@ pub struct WorktreeSourceSnapshot {
     /// taken out of it. The merge base for putting the other row's changes back
     /// on top of wherever the squash ended up.
     pub source_tree: Oid,
-    /// The temporary commit itself, which the fold left the branch on. Identifies
+    /// The temporary commit itself, which the fold left the branch on. Its diff
+    /// against its parent is exactly the row's diff, so it serves as both
+    /// `source_oid` and `head_oid` for the squash built on it. Also identifies
     /// the snapshot as belonging to the operation in hand: a record whose
     /// temporary commit is not where the branch is describes something that has
     /// already moved on, and unwinding it would take the user's later work with
     /// it.
     pub temp_oid: Oid,
-}
-
-/// A working-tree row lifted into a temporary commit on top of HEAD.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorktreeSourceCommit {
-    /// The temporary commit, whose diff against its parent is exactly the row's
-    /// diff. Serves as both `source_oid` and `head_oid` for the squash.
-    pub temp_oid: Oid,
-    /// How to unwind or finish the operation built on it.
-    pub snapshot: WorktreeSourceSnapshot,
 }
 
 /// Result of a rebase operation that may encounter merge conflicts.
@@ -755,8 +747,10 @@ pub trait RepoWrite {
     ///
     /// Fails when the unstaged row cannot be separated from the staged one —
     /// edits to the same lines have no meaningful split.
-    fn begin_worktree_source(&self, source: WorktreeSource)
-    -> Result<Option<WorktreeSourceCommit>>;
+    fn begin_worktree_source(
+        &self,
+        source: WorktreeSource,
+    ) -> Result<Option<WorktreeSourceSnapshot>>;
 
     /// Unwind [`begin_worktree_source`](Self::begin_worktree_source): put the
     /// branch, the index and the working tree back exactly as `snapshot`

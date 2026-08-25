@@ -501,7 +501,7 @@ impl RepoWrite for Git2Repo {
     fn begin_worktree_source(
         &self,
         source: super::WorktreeSource,
-    ) -> Result<Option<super::WorktreeSourceCommit>> {
+    ) -> Result<Option<super::WorktreeSourceSnapshot>> {
         worktree_source_op::begin(self, source)
     }
 

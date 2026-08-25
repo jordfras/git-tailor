@@ -239,7 +239,7 @@ impl RepoWrite for MockRepo {
     fn begin_worktree_source(
         &self,
         _: git_tailor::repo::WorktreeSource,
-    ) -> anyhow::Result<Option<git_tailor::repo::WorktreeSourceCommit>> {
+    ) -> anyhow::Result<Option<git_tailor::repo::WorktreeSourceSnapshot>> {
         unimplemented!()
     }
     fn abort_worktree_source(

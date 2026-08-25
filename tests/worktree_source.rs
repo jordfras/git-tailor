@@ -64,8 +64,7 @@ fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
         .expect("the staged row has changes to fold in");
 
     assert_eq!(git_repo.head_oid().unwrap(), started.temp_oid);
-    assert_eq!(started.snapshot.temp_oid, started.temp_oid);
-    assert_eq!(started.snapshot.tip_before, head_before);
+    assert_eq!(started.tip_before, head_before);
 
     // The temp commit carries only the staged change.
     let diff = git_repo.commit_diff(&started.temp_oid, 3).unwrap();
@@ -127,7 +126,7 @@ fn unstaged_source_without_staged_changes_commits_the_working_tree() {
 
     assert_eq!(
         test.tree_id(git2::Oid::from(&started.temp_oid)),
-        git2::Oid::from(&started.snapshot.worktree_tree)
+        git2::Oid::from(&started.worktree_tree)
     );
     assert!(git_repo.staged_diff(3).unwrap().is_none());
     assert!(git_repo.unstaged_diff(3).unwrap().is_none());
@@ -143,7 +142,7 @@ fn abort_restores_the_branch_index_and_working_tree() {
         let head_before = git_repo.head_oid().unwrap();
 
         let started = git_repo.begin_worktree_source(source).unwrap().unwrap();
-        git_repo.abort_worktree_source(&started.snapshot).unwrap();
+        git_repo.abort_worktree_source(&started).unwrap();
 
         assert_eq!(git_repo.head_oid().unwrap(), head_before, "{source:?}");
         assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["a.txt"]);
@@ -166,7 +165,7 @@ fn abort_restores_a_file_the_row_deleted() {
         .begin_worktree_source(WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    git_repo.abort_worktree_source(&started).unwrap();
 
     assert!(
         !test.repo.workdir().unwrap().join("gone.txt").exists(),
@@ -189,7 +188,7 @@ fn untracked_files_are_left_alone() {
         .unwrap();
     assert_eq!(workdir(&test, "untracked.txt"), "u1\n");
 
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    git_repo.abort_worktree_source(&started).unwrap();
     assert_eq!(workdir(&test, "untracked.txt"), "u1\n");
 }
 
@@ -252,11 +251,11 @@ fn the_snapshot_names_the_commit_the_branch_was_left_on() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(started.snapshot.temp_oid, git_repo.head_oid().unwrap());
+    assert_eq!(started.temp_oid, git_repo.head_oid().unwrap());
 
     // Once the branch moves elsewhere the record no longer matches it.
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
-    assert_ne!(started.snapshot.temp_oid, git_repo.head_oid().unwrap());
+    git_repo.abort_worktree_source(&started).unwrap();
+    assert_ne!(started.temp_oid, git_repo.head_oid().unwrap());
 }
 
 /// A crash between the temp commit and the squash must be recoverable, so the
@@ -275,7 +274,7 @@ fn beginning_records_the_snapshot_in_the_journal() {
     match reopened.read_journal().unwrap() {
         git_tailor::repo::JournalStatus::Recovered(record) => match *record {
             git_tailor::repo::InProgress::WorktreeSquash(snapshot) => {
-                assert_eq!(snapshot, started.snapshot)
+                assert_eq!(snapshot, started)
             }
             other => panic!("expected a worktree-source record, got {other:?}"),
         },
@@ -353,13 +352,13 @@ fn a_staged_submodule_pointer_survives_a_fold() {
 
     assert!(
         test.repo
-            .find_tree(git2::Oid::from(&started.snapshot.worktree_tree))
+            .find_tree(git2::Oid::from(&started.worktree_tree))
             .unwrap()
             .get_path(std::path::Path::new("sub"))
             .is_ok(),
         "the recorded working tree must keep the submodule pointer"
     );
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    git_repo.abort_worktree_source(&started).unwrap();
     assert!(
         test.repo.workdir().unwrap().join("sub").exists(),
         "unwinding must not trip over the submodule directory"
@@ -393,7 +392,7 @@ fn a_stale_snapshot_is_not_applied_to_another_operation() {
 
     // Strand the record: the branch goes back but nothing clears it, as a failed
     // unwind or a failed recovery would leave things.
-    let tip_before = git2::Oid::from(&started.snapshot.tip_before);
+    let tip_before = git2::Oid::from(&started.tip_before);
     test.repo
         .reference("refs/heads/main", tip_before, true, "strand")
         .unwrap();
@@ -539,7 +538,7 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
         ["Reword"],
         "the undo stack must survive"
     );
-    git_repo.abort_worktree_source(&started.snapshot).unwrap();
+    git_repo.abort_worktree_source(&started).unwrap();
     assert_eq!(undo_labels(&test), ["Reword"]);
 }
 
@@ -595,7 +594,7 @@ fn a_stale_snapshot_is_not_applied_to_another_abort() {
         .begin_worktree_source(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
-    assert_eq!(started.snapshot.tip_before, Oid::from(base));
+    assert_eq!(started.tip_before, Oid::from(base));
 
     // Strand the record at `base`: the branch goes back but nothing clears it,
     // as a failed unwind or a failed recovery would leave things.

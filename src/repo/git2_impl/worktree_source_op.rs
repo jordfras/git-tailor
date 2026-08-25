@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use super::journal;
 use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
-use crate::repo::{WorktreeSource, WorktreeSourceCommit, WorktreeSourceSnapshot};
+use crate::repo::{WorktreeSource, WorktreeSourceSnapshot};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
@@ -61,7 +61,7 @@ pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
 pub(super) fn begin(
     repo: &Git2Repo,
     source: WorktreeSource,
-) -> Result<Option<WorktreeSourceCommit>> {
+) -> Result<Option<WorktreeSourceSnapshot>> {
     let head = repo
         .inner
         .head()
@@ -110,10 +110,7 @@ pub(super) fn begin(
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
 
     match place_temp_commit(repo, &snapshot) {
-        Ok(()) => Ok(Some(WorktreeSourceCommit {
-            temp_oid: snapshot.temp_oid.clone(),
-            snapshot,
-        })),
+        Ok(()) => Ok(Some(snapshot)),
         Err(e) => {
             // Never leave the caller a half-made operation to reason about: the
             // record is already on disk, so unwind through it and report the
