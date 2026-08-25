@@ -14,27 +14,16 @@
 
 use git_tailor::Oid;
 use git_tailor::app::{AppMode, AppState, CommitListState, SplitStrategy};
-use git_tailor::repo::{ConflictState, RepoWrite};
+use git_tailor::repo::RepoWrite;
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
 
-use crate::mock_repo::MockRepo;
+use crate::mock_repo::{MockRepo, make_conflict_state};
 
 use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
 use super::*;
-
-fn make_conflict_state() -> ConflictState {
-    ConflictState {
-        operation_label: "Drop".to_string(),
-        original_branch_oid: Oid::from("b".repeat(40)),
-        new_tip_oid: Oid::from("c".repeat(40)),
-        conflicting_commit_oid: Oid::from("d".repeat(40)),
-        conflicting_files: vec![],
-        ..Default::default()
-    }
-}
 
 #[test]
 fn execute_drop_complete_sets_success_message() {
@@ -913,4 +902,284 @@ mod autofixup_selection {
             "batch abandoned; don't leak into a later, unrelated reload"
         );
     }
+}
+
+// --- Squash from a working-tree row -----------------------------------------
+//
+// The handler itself needs a live terminal for the editor step, so these cover
+// the parts of it that decide anything: how a source is prepared, how it is put
+// back when the squash gives up, and what the two messages say.
+
+use crate::mock_repo::{SquashProbe, WorktreeSourceOutcome, mock_temp_oid};
+use git_tailor::app::{SquashMode, SquashSource};
+use git_tailor::repo::WorktreeSource;
+use rewrite::{prepare_source, squash_editor_seed, squash_success_message};
+
+fn commit_source() -> SquashSource {
+    SquashSource::Commit {
+        oid: Oid::from("b".repeat(40)),
+        message: "the source commit".to_string(),
+    }
+}
+
+fn worktree_source() -> SquashSource {
+    SquashSource::Worktree(WorktreeSource::Staged)
+}
+
+/// A commit source goes through the ordinary auto-stash.
+#[test]
+fn a_commit_source_is_prepared_behind_the_autostash() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .expect("a commit source prepares");
+
+    assert_eq!(repo.autostash_save_calls.get(), 1);
+    assert_eq!(prepared.source_oid(), &Oid::from("b".repeat(40)));
+    assert_eq!(
+        prepared.head_oid(),
+        &Oid::from("a".repeat(40)),
+        "a commit source folds from the real branch tip"
+    );
+}
+
+/// A working-tree row takes no auto-stash: the lift records the pre-operation
+/// state exactly, which is the whole reason the fold works without one.
+#[test]
+fn a_worktree_row_is_prepared_without_the_autostash() {
+    let mut repo = MockRepo {
+        worktree_source: WorktreeSourceOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .expect("a lifted row prepares");
+
+    assert_eq!(
+        repo.autostash_save_calls.get(),
+        0,
+        "the lift replaces the stash, it does not join it"
+    );
+    assert_eq!(prepared.source_oid(), &mock_temp_oid());
+    assert_eq!(
+        prepared.head_oid(),
+        &mock_temp_oid(),
+        "the temporary commit is both the source and the tip to fold from"
+    );
+}
+
+/// An empty row is reported in the operation's own words, not as a failure.
+#[test]
+fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
+    for (label, expected) in [
+        ("Squash", "Nothing to squash"),
+        ("Fixup", "Nothing to fixup"),
+    ] {
+        let mut repo = MockRepo::default();
+        let mut app = AppState::default();
+
+        let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), label).unwrap();
+
+        assert!(prepared.is_none());
+        assert_eq!(app.status.message.as_deref(), Some(expected));
+        assert!(app.status.is_error);
+    }
+}
+
+/// A lift that fails keeps the underlying cause, which is the half that says
+/// what actually went wrong.
+#[test]
+fn a_failed_lift_reports_the_underlying_cause() {
+    let mut repo = MockRepo {
+        worktree_source: WorktreeSourceOutcome::Error,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    assert!(
+        prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+            .unwrap()
+            .is_none()
+    );
+    let message = app.status.message.unwrap();
+    assert!(message.starts_with("Squash failed:"), "got {message:?}");
+    assert!(
+        message.contains("the index has conflicts"),
+        "got {message:?}"
+    );
+}
+
+/// Giving up on a lifted row unwinds the temporary commit rather than the
+/// stash that was never taken.
+#[test]
+fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
+    let mut repo = MockRepo {
+        worktree_source: WorktreeSourceOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(matches!(action, LoopAction::Continue));
+    assert_eq!(repo.abort_worktree_calls.get(), 1);
+    assert_eq!(app.status.message.as_deref(), Some("Squash failed: nope"));
+}
+
+/// An unwind that itself fails leaves the row's changes in a commit on the
+/// branch. Say so, and reload — otherwise the commit is there and invisible.
+#[test]
+fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
+    let mut repo = MockRepo {
+        worktree_source: WorktreeSourceOutcome::Lifted,
+        abort_worktree_ok: false,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(
+        matches!(action, LoopAction::Reload),
+        "the branch has a commit on it the list does not show"
+    );
+    let message = app.status.message.unwrap();
+    assert!(
+        message.contains("your changes are in a temporary commit on the branch"),
+        "got {message:?}"
+    );
+    assert!(message.contains("ref is locked"), "got {message:?}");
+}
+
+/// Abandoning a commit source puts the auto-stash back instead.
+#[test]
+fn abandoning_a_commit_source_restores_the_autostash() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Proceed,
+    );
+
+    assert!(matches!(action, LoopAction::Proceed));
+    assert_eq!(
+        repo.abort_worktree_calls.get(),
+        0,
+        "there is no temporary commit to unwind"
+    );
+}
+
+/// A squash from a commit joins the two messages; a row has none of its own, so
+/// it starts from the target's alone rather than from a blank line under it.
+#[test]
+fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
+    assert_eq!(
+        squash_editor_seed(&commit_source(), "the target commit"),
+        "the target commit\n\nthe source commit"
+    );
+    assert_eq!(
+        squash_editor_seed(&worktree_source(), "the target commit"),
+        "the target commit"
+    );
+}
+
+/// The report names what was folded in, which for a row is the row.
+#[test]
+fn a_completed_fold_names_what_it_folded_in() {
+    assert_eq!(
+        squash_success_message(&commit_source(), SquashMode::Squash),
+        "Commit squashed"
+    );
+    assert_eq!(
+        squash_success_message(&worktree_source(), SquashMode::Fixup),
+        "Staged changes fixed up"
+    );
+    assert_eq!(
+        squash_success_message(
+            &SquashSource::Worktree(WorktreeSource::Unstaged),
+            SquashMode::Squash
+        ),
+        "Unstaged changes squashed"
+    );
+}
+
+/// The probe runs against the temporary commit and is given the message the
+/// fold would keep.
+#[test]
+fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
+    let mut repo = MockRepo {
+        worktree_source: WorktreeSourceOutcome::Lifted,
+        squash_probe: SquashProbe::Conflict,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Fixup")
+        .unwrap()
+        .unwrap();
+
+    let probe = repo
+        .squash_try_combine(
+            prepared.source_oid(),
+            &Oid::from("b".repeat(40)),
+            "the target commit",
+            SquashMode::Fixup,
+            prepared.head_oid(),
+        )
+        .unwrap();
+
+    assert!(probe.is_some());
+    assert_eq!(
+        repo.squash_probe_message.borrow().as_deref(),
+        Some("the target commit")
+    );
+}
+
+/// A probe that fails carries its cause up, the same as a failed lift.
+#[test]
+fn a_failed_conflict_probe_reports_the_underlying_cause() {
+    let repo = MockRepo {
+        squash_probe: SquashProbe::Error,
+        ..Default::default()
+    };
+
+    let error = repo
+        .squash_try_combine(
+            &Oid::from("b".repeat(40)),
+            &Oid::from("c".repeat(40)),
+            "the target commit",
+            SquashMode::Fixup,
+            &Oid::from("a".repeat(40)),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        format!("{error:#}"),
+        "failed to combine the two commits: tree is unmergeable"
+    );
 }

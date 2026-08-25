@@ -129,3 +129,189 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock_repo::{MockRepo, make_conflict_state, mock_snapshot};
+    use git_tailor::Oid;
+    use git_tailor::repo::{ConflictState, EditInProgress, WorktreeSource, WorktreeSourceSnapshot};
+
+    /// The OID `MockRepo::head_oid` reports.
+    fn mock_head() -> Oid {
+        Oid::from("a".repeat(40))
+    }
+
+    /// A snapshot whose temporary commit is where the branch actually is — an
+    /// operation this run can still recover.
+    fn live_snapshot(source: WorktreeSource) -> WorktreeSourceSnapshot {
+        WorktreeSourceSnapshot {
+            source,
+            temp_oid: mock_head(),
+            ..mock_snapshot()
+        }
+    }
+
+    /// A paused conflict whose new tip is where the branch actually is.
+    fn conflict_at_head() -> ConflictState {
+        ConflictState {
+            new_tip_oid: mock_head(),
+            ..make_conflict_state()
+        }
+    }
+
+    fn recover(repo: &mut MockRepo) -> AppState {
+        let mut app = AppState::default();
+        check_journal_recovery(repo, &mut app);
+        app
+    }
+
+    #[test]
+    fn an_interrupted_fold_still_on_its_temporary_commit_is_unwound() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(live_snapshot(
+                WorktreeSource::Staged,
+            ))),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.abort_worktree_calls.get(), 1);
+        assert_eq!(repo.clear_journal_calls.get(), 0);
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some("Recovered an interrupted squash of staged changes — restored the branch")
+        );
+    }
+
+    /// The row the fold started from names itself in the report, so the user can
+    /// tell which half of their work just came back.
+    #[test]
+    fn an_unwound_fold_names_the_row_it_started_from() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(live_snapshot(
+                WorktreeSource::Unstaged,
+            ))),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some("Recovered an interrupted squash of unstaged changes — restored the branch")
+        );
+    }
+
+    /// Unwinding is only lossless while the branch is still on the temporary
+    /// commit. Anywhere else, the repository has moved on without us and the
+    /// rewind would take the user's later work with it.
+    #[test]
+    fn an_interrupted_fold_whose_branch_has_moved_is_discarded() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(mock_snapshot())),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.abort_worktree_calls.get(),
+            0,
+            "a record that no longer describes the repository must not be applied"
+        );
+        assert_eq!(repo.clear_journal_calls.get(), 1);
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some("Discarded a stale interrupted-operation journal (branch has moved)")
+        );
+    }
+
+    /// HEAD that cannot be read is not a match, so the record is discarded
+    /// rather than applied on a guess.
+    #[test]
+    fn an_interrupted_fold_is_discarded_when_head_cannot_be_read() {
+        let mut repo = MockRepo {
+            head_ok: false,
+            journal: Some(InProgress::WorktreeSquash(live_snapshot(
+                WorktreeSource::Staged,
+            ))),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.abort_worktree_calls.get(), 0);
+        assert_eq!(repo.clear_journal_calls.get(), 1);
+        assert!(app.status.is_error);
+    }
+
+    #[test]
+    fn a_failed_fold_recovery_reports_the_underlying_cause() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(live_snapshot(
+                WorktreeSource::Staged,
+            ))),
+            abort_worktree_ok: false,
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        let message = app.status.message.unwrap();
+        assert!(
+            message.starts_with("Failed to recover an interrupted squash of staged changes:"),
+            "got {message:?}"
+        );
+        assert!(
+            message.contains("ref is locked"),
+            "the underlying cause must survive: {message:?}"
+        );
+    }
+
+    #[test]
+    fn an_interrupted_edit_restores_the_branch() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Edit(EditInProgress {
+                original_branch_oid: mock_head(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some(
+                "Recovered an interrupted Edit — restored the branch \
+                 (in-shell commits remain in the reflog)"
+            )
+        );
+    }
+
+    /// A paused conflict is the one case the user is asked about, because
+    /// resuming it needs their resolution.
+    #[test]
+    fn a_paused_conflict_still_at_its_tip_is_offered_for_recovery() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(conflict_at_head()))),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(matches!(app.mode, AppMode::RecoverConfirm(_)));
+        assert_eq!(repo.clear_journal_calls.get(), 0);
+    }
+
+    #[test]
+    fn a_paused_conflict_whose_branch_has_moved_is_discarded() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(make_conflict_state()))),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(!matches!(app.mode, AppMode::RecoverConfirm(_)));
+        assert_eq!(repo.clear_journal_calls.get(), 1);
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some("Discarded a stale interrupted-operation journal (branch has moved)")
+        );
+    }
+}

@@ -103,12 +103,7 @@ pub(crate) fn handle_prepare_squash(
     };
     let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
 
-    // A working-tree row has no message of its own, so a squash starts from the
-    // target's alone rather than the two joined.
-    let combined = match source.message() {
-        Some(source_message) => format!("{target_message}\n\n{source_message}"),
-        None => target_message.clone(),
-    };
+    let combined = squash_editor_seed(&source, &target_message);
     let message_for_context = if squash_mode.keeps_target_message() {
         target_message.clone()
     } else {
@@ -163,10 +158,7 @@ pub(crate) fn handle_prepare_squash(
         }
     };
     if let Some(msg) = final_message {
-        let success_msg = match squash_mode {
-            SquashMode::Fixup => format!("{} fixed up", source.label()),
-            SquashMode::Squash => format!("{} squashed", source.label()),
-        };
+        let success_msg = squash_success_message(&source, squash_mode);
         let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
         if let Err(e) = outcome {
             return Ok(prepared.unwind(
@@ -193,7 +185,7 @@ pub(crate) fn handle_prepare_squash(
 /// The two ways of clearing the working tree out of a squash's path pair with
 /// two different ways of restoring it, so they are one choice made once rather
 /// than two made in separate places.
-enum Prepared {
+pub(super) enum Prepared {
     /// A commit source, with the working tree stashed out of the way.
     Commit { source_oid: Oid, head_oid: Oid },
     /// A working-tree row lifted into a temporary commit, which is both the
@@ -203,7 +195,7 @@ enum Prepared {
 
 impl Prepared {
     /// The commit whose changes are being folded in.
-    fn source_oid(&self) -> &Oid {
+    pub(super) fn source_oid(&self) -> &Oid {
         match self {
             Prepared::Commit { source_oid, .. } => source_oid,
             Prepared::Lifted(snapshot) => &snapshot.temp_oid,
@@ -211,7 +203,7 @@ impl Prepared {
     }
 
     /// The tip the squash rewrites from.
-    fn head_oid(&self) -> &Oid {
+    pub(super) fn head_oid(&self) -> &Oid {
         match self {
             Prepared::Commit { head_oid, .. } => head_oid,
             Prepared::Lifted(snapshot) => &snapshot.temp_oid,
@@ -223,7 +215,7 @@ impl Prepared {
     /// An unwind that itself fails leaves the temporary commit on the branch,
     /// holding the row's changes. Say so and reload, rather than reporting only
     /// the original failure and leaving a commit the user cannot see.
-    fn unwind(
+    pub(super) fn unwind(
         &self,
         git_repo: &mut impl GitRepo,
         app: &mut AppState,
@@ -261,7 +253,7 @@ impl Prepared {
 /// only the other row's changes behind — recorded exactly, so no stash is
 /// needed. Returns `None` when the caller should give up (the error message is
 /// already set).
-fn prepare_source(
+pub(super) fn prepare_source(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source: &SquashSource,
@@ -296,5 +288,25 @@ fn prepare_source(
                 Ok(None)
             }
         },
+    }
+}
+
+/// The message a `squash` seeds its editor with: the target's, and the source's
+/// under it.
+///
+/// A working-tree row has no message of its own, so a squash from one starts
+/// from the target's alone rather than the two joined.
+pub(super) fn squash_editor_seed(source: &SquashSource, target_message: &str) -> String {
+    match source.message() {
+        Some(source_message) => format!("{target_message}\n\n{source_message}"),
+        None => target_message.to_string(),
+    }
+}
+
+/// What a completed squash or fixup reports, named after what it folded in.
+pub(super) fn squash_success_message(source: &SquashSource, squash_mode: SquashMode) -> String {
+    match squash_mode {
+        SquashMode::Fixup => format!("{} fixed up", source.label()),
+        SquashMode::Squash => format!("{} squashed", source.label()),
     }
 }

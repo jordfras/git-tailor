@@ -45,6 +45,76 @@ pub(crate) struct MockRepo {
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
     pub(crate) conflicting_files: Vec<String>,
+    /// What `begin_worktree_source` answers: `Ok(None)` for an empty row, an
+    /// error, or a snapshot to build the fold on.
+    pub(crate) worktree_source: WorktreeSourceOutcome,
+    /// Whether `abort_worktree_source` succeeds. A failed unwind leaves the
+    /// temporary commit on the branch, which the caller has to report.
+    pub(crate) abort_worktree_ok: bool,
+    /// Counts `abort_worktree_source` invocations.
+    pub(crate) abort_worktree_calls: std::cell::Cell<usize>,
+    /// What `read_journal` answers, for the startup-recovery tests.
+    pub(crate) journal: Option<git_tailor::repo::InProgress>,
+    /// Counts `clear_journal` invocations, so a test can tell a discarded
+    /// journal from a recovered one.
+    pub(crate) clear_journal_calls: std::cell::Cell<usize>,
+    /// Whether `abort_edit` succeeds.
+    pub(crate) abort_edit_ok: bool,
+    /// What `squash_try_combine` answers: no conflict, a conflict, or an error.
+    pub(crate) squash_probe: SquashProbe,
+    /// The message `squash_try_combine` was last given, so a test can check what
+    /// a squash would seed its editor with.
+    pub(crate) squash_probe_message: std::cell::RefCell<Option<String>>,
+}
+
+/// What [`MockRepo::begin_worktree_source`] answers.
+#[derive(Default)]
+pub(crate) enum WorktreeSourceOutcome {
+    /// The row has nothing to fold in.
+    #[default]
+    Empty,
+    /// The row could not be lifted.
+    Error,
+    /// The row was lifted into a temporary commit.
+    Lifted,
+}
+
+/// What [`MockRepo::squash_try_combine`] answers.
+#[derive(Default)]
+pub(crate) enum SquashProbe {
+    #[default]
+    Clean,
+    Conflict,
+    Error,
+}
+
+/// A conflict state for tests that need one.
+pub(crate) fn make_conflict_state() -> ConflictState {
+    ConflictState {
+        operation_label: "Drop".to_string(),
+        original_branch_oid: Oid::from("b".repeat(40)),
+        new_tip_oid: Oid::from("c".repeat(40)),
+        conflicting_commit_oid: Oid::from("d".repeat(40)),
+        conflicting_files: vec![],
+        ..Default::default()
+    }
+}
+
+/// The temporary commit [`WorktreeSourceOutcome::Lifted`] pretends to have made.
+pub(crate) fn mock_temp_oid() -> Oid {
+    Oid::from("c".repeat(40))
+}
+
+/// The snapshot [`WorktreeSourceOutcome::Lifted`] hands back.
+pub(crate) fn mock_snapshot() -> git_tailor::repo::WorktreeSourceSnapshot {
+    git_tailor::repo::WorktreeSourceSnapshot {
+        source: git_tailor::repo::WorktreeSource::Staged,
+        tip_before: Oid::from("a".repeat(40)),
+        index_tree_before: Oid::from("d".repeat(40)),
+        worktree_tree: Oid::from("e".repeat(40)),
+        source_tree: Oid::from("f".repeat(40)),
+        temp_oid: mock_temp_oid(),
+    }
 }
 
 impl Default for MockRepo {
@@ -66,6 +136,14 @@ impl Default for MockRepo {
             autostash_save_calls: std::cell::Cell::new(0),
             commit_diff: None,
             conflicting_files: Vec::new(),
+            worktree_source: WorktreeSourceOutcome::default(),
+            abort_worktree_ok: true,
+            abort_worktree_calls: std::cell::Cell::new(0),
+            journal: None,
+            clear_journal_calls: std::cell::Cell::new(0),
+            abort_edit_ok: true,
+            squash_probe: SquashProbe::default(),
+            squash_probe_message: std::cell::RefCell::new(None),
         }
     }
 }
@@ -174,7 +252,11 @@ impl RepoWrite for MockRepo {
         unimplemented!()
     }
     fn abort_edit(&self) -> anyhow::Result<()> {
-        unimplemented!()
+        if self.abort_edit_ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("abort edit failed"))
+        }
     }
     fn rebase_abort(&self, _: &ConflictState) -> anyhow::Result<()> {
         if self.abort_ok {
@@ -184,9 +266,14 @@ impl RepoWrite for MockRepo {
         }
     }
     fn read_journal(&self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
-        Ok(git_tailor::repo::JournalStatus::None)
+        Ok(match &self.journal {
+            Some(record) => git_tailor::repo::JournalStatus::Recovered(Box::new(record.clone())),
+            None => git_tailor::repo::JournalStatus::None,
+        })
     }
     fn clear_journal(&self) -> anyhow::Result<()> {
+        self.clear_journal_calls
+            .set(self.clear_journal_calls.get() + 1);
         Ok(())
     }
     fn prune_stale_journal(&self) -> anyhow::Result<()> {
@@ -243,13 +330,25 @@ impl RepoWrite for MockRepo {
         &self,
         _: git_tailor::repo::WorktreeSource,
     ) -> anyhow::Result<Option<git_tailor::repo::WorktreeSourceSnapshot>> {
-        unimplemented!()
+        match self.worktree_source {
+            WorktreeSourceOutcome::Empty => Ok(None),
+            // Mirrors the real shape: a libgit2 cause under an anyhow context.
+            WorktreeSourceOutcome::Error => Err(anyhow::anyhow!("the index has conflicts")
+                .context("failed to lift the working-tree changes")),
+            WorktreeSourceOutcome::Lifted => Ok(Some(mock_snapshot())),
+        }
     }
     fn abort_worktree_source(
         &self,
         _: &git_tailor::repo::WorktreeSourceSnapshot,
     ) -> anyhow::Result<()> {
-        unimplemented!()
+        self.abort_worktree_calls
+            .set(self.abort_worktree_calls.get() + 1);
+        if self.abort_worktree_ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))
+        }
     }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
         self.autostash_save_calls
@@ -320,11 +419,19 @@ impl RepoWrite for MockRepo {
         &self,
         _: &Oid,
         _: &Oid,
-        _: &str,
+        message: &str,
         _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
-        unimplemented!()
+        *self.squash_probe_message.borrow_mut() = Some(message.to_string());
+        match self.squash_probe {
+            SquashProbe::Clean => Ok(None),
+            SquashProbe::Conflict => Ok(Some(make_conflict_state())),
+            SquashProbe::Error => {
+                Err(anyhow::anyhow!("tree is unmergeable")
+                    .context("failed to combine the two commits"))
+            }
+        }
     }
     fn squash_finalize(
         &self,
