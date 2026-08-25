@@ -32,8 +32,8 @@
 
 use anyhow::{Context, Result};
 
-use super::Git2Repo;
 use super::journal;
+use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
 use crate::repo::{WorktreeSource, WorktreeSourceCommit, WorktreeSourceSnapshot};
 
@@ -138,7 +138,7 @@ fn place_temp_commit(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resu
     // The unstaged row left its changes in the commit, so what remains staged is
     // the whole working tree relative to it.
     if snapshot.source == WorktreeSource::Unstaged {
-        set_index_tree(repo, git2::Oid::from(&snapshot.worktree_tree))?;
+        repo.set_index_tree(git2::Oid::from(&snapshot.worktree_tree))?;
     }
     Ok(())
 }
@@ -153,12 +153,11 @@ pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resul
         git2::Oid::from(&snapshot.tip_before),
         "git-tailor: abort working-tree squash",
     )?;
-    restore(
-        repo,
-        current,
-        git2::Oid::from(&snapshot.worktree_tree),
-        git2::Oid::from(&snapshot.index_tree_before),
-    )?;
+    repo.reset_worktree(WorktreeReset {
+        from_tree: current,
+        worktree_tree: git2::Oid::from(&snapshot.worktree_tree),
+        index_tree: git2::Oid::from(&snapshot.index_tree_before),
+    })?;
     journal::set_worktree_source(repo, None)?;
     journal::clear_in_progress(repo)
 }
@@ -191,7 +190,11 @@ pub(super) fn finish(
         WorktreeSource::Staged => tip_tree,
         WorktreeSource::Unstaged => worktree_tree,
     };
-    restore(repo, head_tree_id(repo)?, worktree_tree, index_tree)?;
+    repo.reset_worktree(WorktreeReset {
+        from_tree: head_tree_id(repo)?,
+        worktree_tree,
+        index_tree,
+    })?;
     Ok(Oid::from(index_tree))
 }
 
@@ -221,63 +224,6 @@ fn carry_onto(
         return Ok(recorded);
     }
     Ok(merged.write_tree_to(&repo.inner)?)
-}
-
-/// Reset the working tree to `worktree_tree` and the index to `index_tree`.
-/// `current` is the tree the working tree reflects on entry.
-fn restore(
-    repo: &Git2Repo,
-    current: git2::Oid,
-    worktree_tree: git2::Oid,
-    index_tree: git2::Oid,
-) -> Result<()> {
-    let worktree_tree = repo
-        .inner
-        .find_tree(worktree_tree)
-        .context("failed to find the target working tree")?;
-
-    // A force checkout alone leaves files behind: once the index holds the
-    // target tree, anything absent from it counts as untracked and is skipped.
-    // Delete exactly the paths the target tree drops, as checkout_head does, so
-    // the user's own untracked files survive.
-    let current = repo
-        .inner
-        .find_tree(current)
-        .context("failed to find the current tree")?;
-    remove_dropped_files(repo, &current, &worktree_tree)?;
-
-    set_index_tree(repo, worktree_tree.id())?;
-    let mut checkout = git2::build::CheckoutBuilder::new();
-    checkout.force();
-    repo.inner
-        .checkout_index(None, Some(&mut checkout))
-        .context("failed to restore the working tree")?;
-    set_index_tree(repo, index_tree)
-}
-
-/// Delete working-tree files present in `from` but absent from `to`.
-fn remove_dropped_files(repo: &Git2Repo, from: &git2::Tree, to: &git2::Tree) -> Result<()> {
-    let Some(workdir) = repo.inner.workdir() else {
-        return Ok(());
-    };
-    let diff = repo
-        .inner
-        .diff_tree_to_tree(Some(from), Some(to), None)
-        .context("failed to diff for dropped files")?;
-    for delta in diff.deltas() {
-        if delta.status() == git2::Delta::Deleted
-            && let Some(path) = delta.old_file().path()
-        {
-            let full = workdir.join(path);
-            // Only ever a file: a submodule's directory is not this operation's
-            // to delete, and neither is anything else that grew into one.
-            if full.is_file() {
-                std::fs::remove_file(&full)
-                    .with_context(|| format!("failed to remove {}", full.display()))?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// The index tree and the working tree (tracked paths only) as tree objects.
@@ -399,16 +345,4 @@ fn head_tree_id(repo: &Git2Repo) -> Result<git2::Oid> {
         .peel_to_tree()
         .context("failed to read HEAD tree")?
         .id())
-}
-
-/// Point the on-disk index at `tree`, clearing any conflict stages.
-fn set_index_tree(repo: &Git2Repo, tree: git2::Oid) -> Result<()> {
-    let tree = repo
-        .inner
-        .find_tree(tree)
-        .context("failed to find index tree")?;
-    let mut index = repo.inner.index().context("failed to open index")?;
-    index.read_tree(&tree).context("failed to set index tree")?;
-    index.write().context("failed to write index")?;
-    Ok(())
 }

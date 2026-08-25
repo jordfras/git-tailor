@@ -623,6 +623,22 @@ impl RepoWrite for Git2Repo {
     }
 }
 
+/// The trees a [`Git2Repo::reset_worktree`] moves between.
+///
+/// Named fields because all three are tree OIDs: transposed positionally, a
+/// reset would silently put the index's content on disk, or the other way
+/// round, and still typecheck.
+pub(super) struct WorktreeReset {
+    /// The tree the working tree reflects on entry. Paths it has that
+    /// `worktree_tree` does not are deleted from disk.
+    pub from_tree: git2::Oid,
+    /// The tree the files on disk must end up matching.
+    pub worktree_tree: git2::Oid,
+    /// The tree the index must end up holding — equal to `worktree_tree` when
+    /// the reset leaves nothing staged.
+    pub index_tree: git2::Oid,
+}
+
 impl Git2Repo {
     /// Refuse if the working tree or index has any staged or unstaged changes,
     /// ignoring submodule pointer updates (consistent with `git rebase`).
@@ -740,56 +756,101 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Reset the working tree to `reset.worktree_tree` and the index to
+    /// `reset.index_tree`, deleting the paths `reset.from_tree` has that the
+    /// target working tree does not.
+    ///
+    /// A force checkout alone leaves those paths behind: once the index holds
+    /// the target tree, anything absent from it counts as untracked and is
+    /// skipped. Deleting exactly the paths the target drops is what keeps the
+    /// user's *own* untracked files, where `remove_untracked` would take them
+    /// too.
+    ///
+    /// Going through the index rather than `checkout_head` also sidesteps a
+    /// stale on-disk index: the cherry-pick chain builds its trees in memory
+    /// (`apply_to_tree`, `merge_trees`), so the repository's singleton index may
+    /// not describe the result yet, and libgit2 compares against whatever is on
+    /// disk — leaving every file as a staged deletion with the real files
+    /// untracked.
+    pub(super) fn reset_worktree(&self, reset: WorktreeReset) -> Result<()> {
+        let from = self
+            .inner
+            .find_tree(reset.from_tree)
+            .context("failed to find the current tree")?;
+        let to = self
+            .inner
+            .find_tree(reset.worktree_tree)
+            .context("failed to find the target working tree")?;
+        self.remove_dropped_files(&from, &to)?;
+
+        self.set_index_tree(reset.worktree_tree)?;
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        self.inner
+            .checkout_index(None, Some(&mut checkout))
+            .context("failed to restore the working tree")?;
+        if reset.index_tree != reset.worktree_tree {
+            self.set_index_tree(reset.index_tree)?;
+        }
+        Ok(())
+    }
+
+    /// Delete working-tree files present in `from` but absent from `to`.
+    fn remove_dropped_files(&self, from: &git2::Tree, to: &git2::Tree) -> Result<()> {
+        let Some(workdir) = self.inner.workdir() else {
+            return Ok(());
+        };
+        let diff = self
+            .inner
+            .diff_tree_to_tree(Some(from), Some(to), None)
+            .context("failed to diff for dropped files")?;
+        for delta in diff.deltas() {
+            if delta.status() == git2::Delta::Deleted
+                && let Some(path) = delta.old_file().path()
+            {
+                let full = workdir.join(path);
+                // Only ever a file: a submodule's directory is not this
+                // operation's to delete, and neither is anything else that grew
+                // into one.
+                if full.is_file() {
+                    std::fs::remove_file(&full).with_context(|| {
+                        format!("failed to remove dropped file {}", full.display())
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Point the on-disk index at `tree`, clearing any conflict stages.
+    pub(super) fn set_index_tree(&self, tree: git2::Oid) -> Result<()> {
+        let tree = self
+            .inner
+            .find_tree(tree)
+            .context("failed to find index tree")?;
+        let mut index = self.inner.index().context("failed to open index")?;
+        index.read_tree(&tree).context("failed to set index tree")?;
+        index.write().context("failed to write index")?;
+        Ok(())
+    }
+
     /// Reset the working tree and index to match HEAD, removing files that the
     /// just-completed operation dropped.
     ///
     /// `prev_tip` is the branch tip the working tree currently reflects, before
-    /// this operation advanced the ref. Files present in `prev_tip` but absent
-    /// from the new HEAD must be deleted from the working tree. A force checkout
-    /// alone won't do it: we reset the index to HEAD's tree below, which turns
-    /// those files into untracked leftovers that checkout leaves untouched. We
-    /// delete exactly those files, so the user's own untracked files survive.
+    /// this operation advanced the ref.
     fn checkout_head(&self, prev_tip: &Oid) -> Result<()> {
-        let repo = &self.inner;
-        let new_tree = repo.head()?.peel_to_commit()?.tree()?;
-
-        let prev_tree = repo.find_commit(git2::Oid::from(prev_tip))?.tree()?;
-        let diff = repo.diff_tree_to_tree(Some(&prev_tree), Some(&new_tree), None)?;
-        if let Some(workdir) = repo.workdir() {
-            for delta in diff.deltas() {
-                if delta.status() == git2::Delta::Deleted
-                    && let Some(path) = delta.old_file().path()
-                {
-                    let full = workdir.join(path);
-                    // Only ever a file: a submodule's directory is not this
-                    // operation's to delete, and neither is anything else that
-                    // grew into one.
-                    if full.is_file() {
-                        std::fs::remove_file(&full).with_context(|| {
-                            format!("failed to remove dropped file {}", full.display())
-                        })?;
-                    }
-                }
-            }
-        }
-
-        // Explicitly reset the index to HEAD's tree before forcing a workdir
-        // checkout. cherry_pick_chain uses in-memory index operations
-        // (apply_to_tree, merge_trees) whose returned indexes are distinct from
-        // the repo's singleton index, but libgit2's checkout_head re-reads the
-        // on-disk index to compare against HEAD. If the on-disk index is stale
-        // (not yet written after the chain completed), checkout can silently
-        // leave the index empty — all files appear as staged deletions with the
-        // actual files untracked. Writing HEAD's tree into the index first
-        // guarantees a clean baseline regardless of prior index state.
-        let mut index = repo.index()?;
-        index.read_tree(&new_tree)?;
-        index.write()?;
-
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        repo.checkout_head(Some(&mut checkout))?;
-        Ok(())
+        let new_tree = self.inner.head()?.peel_to_commit()?.tree()?.id();
+        let prev_tree = self
+            .inner
+            .find_commit(git2::Oid::from(prev_tip))?
+            .tree()?
+            .id();
+        self.reset_worktree(WorktreeReset {
+            from_tree: prev_tree,
+            worktree_tree: new_tree,
+            index_tree: new_tree,
+        })
     }
 
     /// The empty (no-entries) git tree — the three-way-merge base for building

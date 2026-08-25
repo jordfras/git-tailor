@@ -930,15 +930,7 @@ pub(super) fn current_index_tree(repo: &Git2Repo) -> Result<Oid> {
 /// untouched. Always returns `Ok(true)` so callers can treat it as the
 /// non-stale arm of `revert_index`.
 fn restore_index(repo: &Git2Repo, target: &Oid) -> Result<bool> {
-    let tree = repo
-        .inner
-        .find_tree(git2::Oid::from(target))
-        .context("failed to find recorded index tree")?;
-    let mut index = repo.inner.index().context("failed to open index")?;
-    index
-        .read_tree(&tree)
-        .context("failed to restore index tree")?;
-    index.write().context("failed to write index")?;
+    repo.set_index_tree(git2::Oid::from(target))?;
     Ok(true)
 }
 
