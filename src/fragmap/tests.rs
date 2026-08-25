@@ -1759,3 +1759,52 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
         "both groups must actually receive hunks"
     );
 }
+
+/// A delta with no hunks contributes no cluster.
+///
+/// The staged/unstaged rows now appear for a change that carries no hunks — a
+/// binary file, an empty one, a mode-only change — and a fragmap is about line
+/// ranges, which such a change has none of. The row is present with an empty
+/// column rather than dropped or faked onto lines it does not touch.
+#[test]
+fn test_hunkless_delta_contributes_no_cluster() {
+    let hunkless = CommitDiff {
+        commit: make_commit_info(),
+        files: vec![FileDiff {
+            old_path: Some("image.png".to_string()),
+            new_path: Some("image.png".to_string()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: true,
+            hunks: vec![],
+        }],
+    };
+    let with_hunks = CommitDiff {
+        commit: make_commit_info(),
+        files: vec![FileDiff {
+            old_path: Some("file.txt".to_string()),
+            new_path: Some("file.txt".to_string()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }],
+    };
+
+    assert!(extract_spans(&hunkless).is_empty());
+
+    let fragmap = build_fragmap(&[hunkless, with_hunks], false, &mut |_| true).unwrap();
+    assert_eq!(fragmap.matrix.len(), 2, "both commits keep a row");
+    assert!(
+        fragmap.matrix[0].iter().all(|t| *t == TouchKind::None),
+        "the hunkless commit touches no cluster"
+    );
+    assert!(
+        fragmap.matrix[1].iter().any(|t| *t != TouchKind::None),
+        "the commit with hunks still clusters"
+    );
+}

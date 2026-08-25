@@ -462,3 +462,79 @@ fn test_split_files_select_pages_by_one_viewport() {
         other => panic!("Expected SplitFilesSelect, got {other:?}"),
     }
 }
+
+/// Render the file picker with `files`, cursor on `file_index`, and return the
+/// rendered rows.
+fn render_picker_rows(files: Vec<FileDiff>, file_index: usize) -> Vec<String> {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = common::app_state_from_commit_summaries(&["Change files", "Add feature X"]);
+    app.list.selection_index = 0;
+    app.mode = AppMode::SplitFilesSelect {
+        commit_oid: Oid::from("111111111111"),
+        files,
+        file_index,
+        selected: Default::default(),
+        preview_h_scroll: 0,
+        preview_v_scroll: 0,
+    };
+    let buf = harness.render(|frame| views::split_files_select::render(&mut app, frame));
+    (0..buf.area.height)
+        .map(|y| {
+            (0..buf.area.width)
+                .filter_map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()))
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect()
+}
+
+/// A file with no diff hunks — binary, empty, or mode-only — must say what
+/// happened to it, the way the detail view does. Previewing a bare `path:`
+/// header with nothing under it reads as an empty change.
+#[test]
+fn test_preview_marks_a_hunkless_file() {
+    for (is_binary, status, expected) in [
+        (true, DeltaStatus::Modified, "Binary file differs"),
+        (false, DeltaStatus::Added, "(empty file)"),
+        (false, DeltaStatus::Modified, "(no content changes)"),
+    ] {
+        let files = vec![
+            FileDiff {
+                old_path: Some("hunkless.bin".to_string()),
+                new_path: Some("hunkless.bin".to_string()),
+                status,
+                is_binary,
+                hunks: vec![],
+            },
+            file_diff(
+                "b.txt",
+                DeltaStatus::Modified,
+                vec![hunk(1, "b-old", "b-new")],
+            ),
+        ];
+        let rows = render_picker_rows(files, 0);
+        assert!(
+            rows.iter().any(|r| r.contains(expected)),
+            "expected {expected:?} in the preview, got:\n{}",
+            rows.join("\n")
+        );
+    }
+}
+
+/// A file that does have hunks keeps showing them, with no marker.
+#[test]
+fn test_preview_does_not_mark_a_file_with_hunks() {
+    let rows = render_picker_rows(make_entries(), 0);
+    assert!(rows.iter().any(|r| r.contains("a-new-1")));
+    for marker in [
+        "Binary file differs",
+        "(empty file)",
+        "(no content changes)",
+    ] {
+        assert!(
+            !rows.iter().any(|r| r.contains(marker)),
+            "unexpected {marker:?} in the preview"
+        );
+    }
+}
