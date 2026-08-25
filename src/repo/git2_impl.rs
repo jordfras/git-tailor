@@ -432,8 +432,13 @@ impl RepoWrite for Git2Repo {
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
         // A squash sourced from a working-tree row has a temporary commit below
         // the conflict, holding changes the generic reset knows nothing about.
-        // The snapshot rewinds past both, exactly.
-        if let Some(snapshot) = journal::worktree_source(self)? {
+        // The snapshot rewinds past both, exactly — but only when the operation
+        // being aborted is the one that made it. A record stranded by an earlier
+        // run names a commit this abort has never heard of, and rewinding to it
+        // would take the aborted operation's history with it.
+        if let Some(snapshot) = journal::worktree_source(self)?
+            && state.original_branch_oid == snapshot.temp_oid
+        {
             return worktree_source_op::abort(self, &snapshot);
         }
         conflict::rebase_abort(self, state)?;
