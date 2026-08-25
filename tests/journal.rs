@@ -18,7 +18,7 @@
 mod common;
 
 use common::prelude::*;
-use git_tailor::repo::{InProgress, JournalStatus};
+use git_tailor::repo::{InProgress, JournalStatus, WorktreeSource};
 
 /// After an operation conflicts, the journal records the in-progress state and
 /// pins the original tip — and a freshly opened repo handle (simulating a
@@ -304,6 +304,63 @@ fn a_journal_in_the_current_format_recovers_a_paused_operation() {
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(doc["version"], 2);
     assert_eq!(doc["undo"].as_array().unwrap().len(), 1);
+}
+
+/// The shapes the working-tree fold added to the on-disk format, pinned the same
+/// way: a snapshot alongside the paused record, and the mixed-reset undo entry a
+/// completed fold leaves behind.
+///
+/// Renaming any of these fields silently breaks recovery for anyone whose
+/// journal was written by an earlier build, which is what this catches.
+#[test]
+fn a_journal_pins_the_working_tree_fold_shapes() {
+    let test = common::TestRepo::new();
+    let current = r#"{
+        "version": 2,
+        "in_progress": null,
+        "worktree_source": {
+            "source": "Unstaged",
+            "tip_before": "1111",
+            "index_tree_before": "2222",
+            "worktree_tree": "3333",
+            "source_tree": "4444",
+            "temp_oid": "5555"
+        },
+        "undo": [
+            {
+                "kind": "MixedReset",
+                "label": "Squash",
+                "tip_before": "1111",
+                "tip_after": "6666",
+                "index_tree_before": "2222",
+                "index_tree_after": "7777"
+            }
+        ],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, current);
+
+    let git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::Recovered(recovered) => match *recovered {
+            InProgress::WorktreeSquash(snapshot) => {
+                assert_eq!(snapshot.source, WorktreeSource::Unstaged);
+                assert_eq!(snapshot.tip_before, Oid::from("1111"));
+                assert_eq!(snapshot.index_tree_before, Oid::from("2222"));
+                assert_eq!(snapshot.worktree_tree, Oid::from("3333"));
+                assert_eq!(snapshot.source_tree, Oid::from("4444"));
+                assert_eq!(snapshot.temp_oid, Oid::from("5555"));
+            }
+            other => panic!("expected a working-tree fold record, got {other:?}"),
+        },
+        other => panic!("expected Recovered, got {other:?}"),
+    }
+
+    // The undo entry parsed alongside it, rather than failing the document.
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["undo"][0]["kind"], "MixedReset");
 }
 
 // Helpers --------------------------------------------------------------------

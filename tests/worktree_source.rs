@@ -350,13 +350,16 @@ fn a_staged_submodule_pointer_survives_a_fold() {
         .unwrap()
         .expect("the staged row has changes to fold in");
 
-    assert!(
-        test.repo
-            .find_tree(git2::Oid::from(&started.worktree_tree))
-            .unwrap()
-            .get_path(std::path::Path::new("sub"))
-            .is_ok(),
-        "the recorded working tree must keep the submodule pointer"
+    let recorded = test
+        .repo
+        .find_tree(git2::Oid::from(&started.worktree_tree))
+        .unwrap()
+        .get_path(std::path::Path::new("sub"))
+        .expect("the recorded working tree must keep the submodule pointer");
+    assert_eq!(
+        recorded.id(),
+        first,
+        "and keep it pointing where it pointed"
     );
     git_repo.abort_worktree_source(&started).unwrap();
     assert!(
@@ -777,4 +780,125 @@ fn an_unborn_head_is_refused() {
         format!("{error:#}").contains("HEAD"),
         "the failure must name what is missing, got {error:#}"
     );
+}
+
+/// Everything the snapshot names is a loose object no ref reaches, so a `git gc`
+/// between the lift and the fold finishing would take the operation with it.
+#[test]
+fn a_fold_in_flight_pins_everything_its_snapshot_names() {
+    let test = mixed_state();
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    let pins: Vec<git2::Oid> = test
+        .repo
+        .references_glob("refs/git-tailor/undo/*")
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .filter_map(|r| r.target())
+        .collect();
+    for (name, oid) in [
+        ("tip_before", &started.tip_before),
+        ("index_tree_before", &started.index_tree_before),
+        ("worktree_tree", &started.worktree_tree),
+        ("source_tree", &started.source_tree),
+        ("temp_oid", &started.temp_oid),
+    ] {
+        assert!(
+            pins.contains(&git2::Oid::from(oid)),
+            "{name} must be pinned against gc"
+        );
+    }
+}
+
+/// A completed fold pins what its undo entry needs, including the index trees —
+/// neither of which any ref reaches once the branch has moved on.
+#[test]
+fn a_completed_fold_pins_what_its_undo_needs() {
+    let test = mixed_state();
+    let git_repo = test.git_repo();
+    let target = test.repo.head().unwrap().target().unwrap();
+    let tip_before = git_repo.head_oid().unwrap();
+    let index_before = staged_tree(&test);
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "second",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+
+    let pins: Vec<git2::Oid> = test
+        .repo
+        .references_glob("refs/git-tailor/undo/*")
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .filter_map(|r| r.target())
+        .collect();
+    assert!(
+        pins.contains(&git2::Oid::from(&tip_before)),
+        "the tip the undo goes back to must be pinned"
+    );
+    assert!(
+        pins.contains(&index_before),
+        "and the index tree it restores"
+    );
+}
+
+/// Redo, like undo, refuses once the index has moved on rather than forcing the
+/// recorded state over whatever the user staged since.
+#[test]
+fn redo_refuses_once_the_index_has_moved_on() {
+    let test = mixed_state();
+    let git_repo = test.git_repo();
+    let target = test.repo.head().unwrap().target().unwrap();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "second",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.undo().unwrap(),
+        git_tailor::repo::UndoOutcome::Done { .. }
+    ));
+
+    // Stage something else, so the index no longer matches what redo expects.
+    test.write_file("b.txt", "b3\n");
+    test.stage_file("b.txt");
+    let head_before = git_repo.head_oid().unwrap();
+
+    assert!(matches!(
+        git_repo.redo().unwrap(),
+        git_tailor::repo::UndoOutcome::Stale
+    ));
+    assert_eq!(git_repo.head_oid().unwrap(), head_before);
+}
+
+/// The index tree currently staged.
+fn staged_tree(test: &common::TestRepo) -> git2::Oid {
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.write_tree().unwrap()
 }

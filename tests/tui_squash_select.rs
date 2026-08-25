@@ -512,3 +512,22 @@ fn test_squash_select_pages_in_both_display_orders() {
         }
     }
 }
+
+/// Picking a target from a working-tree row: the other row is dimmed alongside
+/// the commits out of reach, because changes cannot be folded into it.
+#[test]
+fn test_squash_from_a_worktree_row_dims_the_other_row() {
+    let mut harness = TuiTestHarness::short();
+
+    let mut app = app_with_worktree_rows();
+    // Source is the unstaged row (last), cursor on the one real commit.
+    app.list.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Squash,
+    };
+
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
+}

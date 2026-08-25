@@ -278,6 +278,10 @@ fn test_staged_diff_shows_a_new_empty_file() {
         .staged_diff(3)
         .unwrap()
         .expect("staging an empty file should produce a staged row");
+    assert!(
+        !diff.files[0].is_binary,
+        "an empty file is not binary — the two render differently"
+    );
     assert_eq!(diff.files.len(), 1);
     assert_eq!(diff.files[0].new_path.as_deref(), Some("empty.txt"));
     assert!(repo.staged_diff_for_fragmap().unwrap().is_some());
@@ -301,6 +305,14 @@ fn test_staged_diff_shows_a_new_binary_file() {
         .expect("staging a binary file should produce a staged row");
     assert_eq!(diff.files.len(), 1);
     assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert!(
+        diff.files[0].is_binary,
+        "git calls this binary, and the detail view says so from this flag"
+    );
+    assert!(
+        diff.files[0].hunks.is_empty(),
+        "a binary delta carries none"
+    );
     assert!(repo.staged_diff_for_fragmap().unwrap().is_some());
 }
 
@@ -320,6 +332,8 @@ fn test_unstaged_diff_shows_a_binary_file_change() {
         .expect("editing a binary file should produce an unstaged row");
     assert_eq!(diff.files.len(), 1);
     assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert!(diff.files[0].is_binary);
+    assert!(diff.files[0].hunks.is_empty());
     assert!(repo.unstaged_diff_for_fragmap().unwrap().is_some());
 }
 
