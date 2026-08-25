@@ -13,8 +13,12 @@ The format is based on
 - Squash (`s`) and fixup (`f`) now work on the Staged and Unstaged rows, folding
   work-in-progress changes straight into an earlier commit without a throwaway
   commit first. Whatever is on the other row keeps its staged/unstaged state,
-  and the whole fold is a single undo step. Works without `--autostash`, since
-  the pre-operation state is recorded exactly rather than stashed.
+  and the whole fold is one undo step. No `--autostash` needed. If the fold
+  hits a conflict, the other row's changes are carried onto your resolution.
+- A file with no diff hunks now says what happened to it — `Binary file
+  differs`, `(empty file)`, or `(no content changes)` for a mode- or path-only
+  change — instead of a bare `---`/`+++` header pair with nothing under it.
+  Shown in the commit detail view and in the split-out-file(s) preview.
 - Shell completion for `bash`, `zsh`, and `fish`. It covers all flags and value
   options (e.g. `--matrix-theme`), and completes the base argument with branch
   and tag
@@ -92,6 +96,12 @@ The format is based on
 - Error messages in the status bar now include the underlying cause, not just
   the outermost summary — so a failed operation says what actually went wrong
   instead of only that it failed.
+- Dropping, moving or undoing a commit that removes a submodule no longer fails
+  with "Is a directory". The cleanup that follows a rewrite now leaves the
+  submodule's directory alone, as git does.
+- Aborting a merge conflict no longer rewinds the branch to an unrelated place
+  when an earlier fold of working-tree changes left a record behind that could
+  not be cleaned up.
 - Rewording or splitting a commit is now refused, with an explanation, when a
   merge commit sits between it and the branch tip. Previously you got libgit2's
   raw "mainline branch is not specified" error — and because the walk that
@@ -140,10 +150,6 @@ The format is based on
   that carries no diff hunks — a new empty file, a binary file, or a mode-only
   change such as `chmod +x`. Previously such a change was invisible unless
   something else was staged alongside it.
-- The commit detail view now says what happened to a file that has no diff
-  hunks, instead of showing a bare `---`/`+++` header pair: `Binary file
-  differs`, `(empty file)`, or `(no content changes)` for a mode- or path-only
-  change.
 
 
 ## [2.0.0] - 2026-07-02
