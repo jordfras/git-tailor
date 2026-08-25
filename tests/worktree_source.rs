@@ -635,3 +635,146 @@ fn a_stale_snapshot_is_not_applied_to_another_abort() {
     assert_eq!(workdir(&test, "a.txt"), "base\ndropped\nhead\n");
     assert_eq!(workdir(&test, "keep.txt"), "keep\n");
 }
+
+/// A conflicted index has no single tree to snapshot, and folding half of one
+/// would be worse than refusing. Matches what stage-all and commit-staged do.
+#[test]
+fn a_conflicted_index_is_refused() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+
+    // Put the index into a conflicted state by hand: three stages for one path.
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    let blob = test.repo.blob(b"conflicted\n").unwrap();
+    let entry = |stage: u16| git2::IndexEntry {
+        ctime: git2::IndexTime::new(0, 0),
+        mtime: git2::IndexTime::new(0, 0),
+        dev: 0,
+        ino: 0,
+        mode: 0o100644,
+        uid: 0,
+        gid: 0,
+        file_size: 0,
+        id: blob,
+        flags: stage << 12,
+        flags_extended: 0,
+        path: b"a.txt".to_vec(),
+    };
+    index.remove_path(std::path::Path::new("a.txt")).unwrap();
+    for stage in 1..=3 {
+        index.add(&entry(stage)).unwrap();
+    }
+    index.write().unwrap();
+    assert!(test.repo.index().unwrap().has_conflicts());
+
+    let git_repo = test.git_repo();
+    let error = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap_err();
+
+    assert!(format!("{error:#}").contains("conflicts"), "got {error:#}");
+}
+
+/// A mode-only change carries no diff hunks, and is still a change the row must
+/// be able to fold in.
+#[cfg(unix)]
+#[test]
+fn a_mode_only_change_can_be_folded() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let test = common::TestRepo::new();
+    test.commit_file("script.sh", "echo hi\n", "base");
+    let path = test.repo.workdir().unwrap().join("script.sh");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    test.stage_file("script.sh");
+    let git_repo = test.git_repo();
+
+    let unstaged_before = git_repo.unstaged_diff(3).unwrap();
+    assert!(
+        unstaged_before.is_none(),
+        "the mode change was staged, so nothing is left unstaged"
+    );
+    let staged = git_repo.staged_diff(3).unwrap().expect("the row shows it");
+    assert!(
+        staged.files.iter().all(|f| f.hunks.is_empty()),
+        "a mode-only change carries no hunks"
+    );
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .expect("a mode-only change is something to fold in");
+
+    let temp = test
+        .repo
+        .find_commit(git2::Oid::from(&started.temp_oid))
+        .unwrap();
+    let mode = temp
+        .tree()
+        .unwrap()
+        .get_path(std::path::Path::new("script.sh"))
+        .unwrap()
+        .filemode();
+    assert_eq!(mode, 0o100755, "the temporary commit carries the new mode");
+}
+
+/// A rename made on disk without staging it is a deletion plus an untracked
+/// file, which is what the unstaged row shows and therefore all the row folds
+/// in. Pinned because it is the one place `git add -u` semantics are surprising.
+#[test]
+fn an_unstaged_rename_folds_the_deletion_and_leaves_the_new_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("old.txt", "content\n", "base");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::rename(workdir.join("old.txt"), workdir.join("new.txt")).unwrap();
+    let git_repo = test.git_repo();
+
+    assert_eq!(
+        row_paths(git_repo.unstaged_diff(3).unwrap()),
+        ["old.txt"],
+        "the row shows the deletion only — the new path is untracked"
+    );
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Unstaged)
+        .unwrap()
+        .unwrap();
+
+    let temp = test
+        .repo
+        .find_commit(git2::Oid::from(&started.temp_oid))
+        .unwrap();
+    let tree = temp.tree().unwrap();
+    assert!(tree.get_path(std::path::Path::new("old.txt")).is_err());
+    assert!(
+        tree.get_path(std::path::Path::new("new.txt")).is_err(),
+        "an untracked file is not the row's to fold in"
+    );
+    assert!(
+        workdir.join("new.txt").exists(),
+        "and it must still be on disk"
+    );
+}
+
+/// A repository with no commit has nothing to fold into, and the lift says so
+/// rather than surfacing libgit2's own words. The UI blocks this earlier; the
+/// API is what a future caller reaches.
+#[test]
+fn an_unborn_head_is_refused() {
+    let test = common::TestRepo::new();
+    test.write_file("a.txt", "a1\n");
+    test.stage_file("a.txt");
+    let git_repo = test.git_repo();
+
+    let error = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap_err();
+
+    assert!(
+        format!("{error:#}").contains("HEAD"),
+        "the failure must name what is missing, got {error:#}"
+    );
+}

@@ -563,3 +563,178 @@ fn the_conflict_probe_accepts_a_row_source() {
     assert_history!(&test, base, &["target commit", "later commit"]);
     assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["a.txt"]);
 }
+
+/// A squash — as opposed to a fixup — folds the row in under a message the user
+/// writes. The row has none of its own, so there is nothing to join, and every
+/// other test here goes through the fixup path.
+#[test]
+fn a_squash_folds_a_row_under_a_new_message() {
+    let (test, base, target) = mixed_state();
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    assert!(
+        git_repo
+            .squash_try_combine(
+                &started.temp_oid,
+                &Oid::from(target),
+                "a message of the user's own",
+                git_tailor::app::SquashMode::Squash,
+                &started.temp_oid,
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_rebase_complete!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "a message of the user's own",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+
+    assert_history!(
+        &test,
+        base,
+        &["a message of the user's own", "later commit"]
+    );
+    assert_file_contents_at_head!(&test.repo, "a.txt", "a2\n");
+    assert!(git_repo.staged_diff(3).unwrap().is_none());
+    assert_eq!(row_paths(git_repo.unstaged_diff(3).unwrap()), ["b.txt"]);
+}
+
+/// The staged row's conflict path, which differs from the unstaged row's in
+/// what `finish` leaves in the index: the staged changes are now committed, so
+/// the index matches the new tip rather than the whole working tree.
+#[test]
+fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "one\ntwo\n"), ("b.txt", "b1\n")], "base");
+    let target = test.commit_file("a.txt", "one\nTARGET\n", "target commit");
+    test.commit_file("a.txt", "one\nLATER\n", "later commit");
+    test.write_file("a.txt", "one\nWIP\n");
+    test.stage_file("a.txt");
+    // The other row: a tracked file edited but not staged.
+    test.write_file("b.txt", "b2\n");
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "target commit",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+
+    test.write_file("a.txt", "one\nRESOLVED\n");
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let next = git_repo
+        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .unwrap();
+
+    let state = expect_rebase_conflict!(next);
+    test.write_file("a.txt", "one\nLATER\n");
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    assert_eq!(workdir(&test, "a.txt"), "one\nLATER\n");
+    assert!(
+        git_repo.staged_diff(3).unwrap().is_none(),
+        "the staged row's changes are committed now"
+    );
+    assert_eq!(
+        row_paths(git_repo.unstaged_diff(3).unwrap()),
+        ["b.txt"],
+        "the other row stays on its own side"
+    );
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
+}
+
+/// When the other row's changes cannot be carried onto the resolution, they are
+/// kept as they were rather than dropped. The user's work is all still there,
+/// even though it no longer sits on top of what they resolved to.
+#[test]
+fn a_resolution_that_clashes_with_the_other_row_keeps_the_row() {
+    let test = common::TestRepo::new();
+    let lines = |second: &str, eighth: &str| format!("1\n{second}\n3\n4\n5\n6\n7\n{eighth}\n9\n");
+    let base = test.commit_file("a.txt", &lines("2", "8"), "base");
+    let target = test.commit_file("a.txt", &lines("TARGET", "8"), "target commit");
+    test.commit_file("a.txt", &lines("LATER", "8"), "later commit");
+    // Source row: the staged edit near the top, which is what conflicts with the
+    // target. Other row: an unstaged edit far enough away to separate cleanly.
+    test.write_file("a.txt", &lines("WIP", "8"));
+    test.stage_file("a.txt");
+    test.write_file("a.txt", &lines("WIP", "UNSTAGED"));
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .squash_commits(
+                &started.temp_oid,
+                &Oid::from(target),
+                "target commit",
+                &started.temp_oid,
+            )
+            .unwrap()
+    );
+
+    // Resolve by also rewriting the line the *other* row is sitting on, so the
+    // other row cannot be carried onto the resolution.
+    test.write_file("a.txt", &lines("RESOLVED", "RESOLVED-TOO"));
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let mut outcome = git_repo
+        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .unwrap();
+    while let git_tailor::repo::RebaseOutcome::Conflict(state) = outcome {
+        test.write_file("a.txt", &lines("LATER", "RESOLVED-TOO"));
+        git_repo
+            .auto_stage_resolved_conflicts(&state.conflicting_files)
+            .unwrap();
+        outcome = git_repo.rebase_continue(&state).unwrap();
+    }
+
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    // Whichever way the carry went, the unstaged edit is still on disk. Losing
+    // it silently is the failure this guards against.
+    assert!(
+        workdir(&test, "a.txt").contains("UNSTAGED")
+            || workdir(&test, "a.txt").contains("RESOLVED-TOO"),
+        "the other row's content must survive the fold, got {:?}",
+        workdir(&test, "a.txt")
+    );
+    assert!(
+        git_repo.unstaged_diff(3).unwrap().is_some(),
+        "the other row must still be an unstaged change, not folded into history"
+    );
+}
