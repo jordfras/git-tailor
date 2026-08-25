@@ -761,7 +761,10 @@ impl Git2Repo {
                     && let Some(path) = delta.old_file().path()
                 {
                     let full = workdir.join(path);
-                    if full.exists() {
+                    // Only ever a file: a submodule's directory is not this
+                    // operation's to delete, and neither is anything else that
+                    // grew into one.
+                    if full.is_file() {
                         std::fs::remove_file(&full).with_context(|| {
                             format!("failed to remove dropped file {}", full.display())
                         })?;
