@@ -577,3 +577,62 @@ fn undo_labels(test: &common::TestRepo) -> Vec<String> {
         })
         .unwrap_or_default()
 }
+
+/// Aborting a conflict consults the recorded snapshot, because a fold that
+/// conflicted has a temporary commit below the conflict that the generic reset
+/// knows nothing about. A record stranded by something else describes a
+/// repository that has moved on, and rewinding to it would take an unrelated
+/// operation's history — and the user's work — with it.
+#[test]
+fn a_stale_snapshot_is_not_applied_to_another_abort() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "base\n"), ("keep.txt", "keep\n")], "base");
+    test.write_file("keep.txt", "staged\n");
+    test.stage_file("keep.txt");
+    let git_repo = test.git_repo();
+
+    let started = git_repo
+        .begin_worktree_source(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    assert_eq!(started.snapshot.tip_before, Oid::from(base));
+
+    // Strand the record at `base`: the branch goes back but nothing clears it,
+    // as a failed unwind or a failed recovery would leave things.
+    test.repo
+        .reference("refs/heads/main", base, true, "strand")
+        .unwrap();
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.force();
+    test.repo
+        .checkout_tree(
+            &test.repo.find_commit(base).unwrap().into_object(),
+            Some(&mut checkout),
+        )
+        .unwrap();
+    test.repo
+        .index()
+        .unwrap()
+        .read_tree(&test.repo.find_commit(base).unwrap().tree().unwrap())
+        .unwrap();
+
+    // History moves on, well past where the stranded record thinks the branch is.
+    let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+    git_repo.rebase_abort(&state).unwrap();
+
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        Oid::from(head),
+        "the abort must restore the aborted operation's own tip, not the stale snapshot's"
+    );
+    assert_history!(&test, base, &["add dropped line", "add head line"]);
+    assert_eq!(workdir(&test, "a.txt"), "base\ndropped\nhead\n");
+    assert_eq!(workdir(&test, "keep.txt"), "keep\n");
+}
