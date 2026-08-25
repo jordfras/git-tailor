@@ -381,7 +381,7 @@ fn build_file_list_lines(files: &[crate::FileDiff], colors: Colors) -> Vec<Line<
 /// A non-binary delta with no hunks has no lines on either side: for an
 /// added or deleted file that means the file is empty, otherwise only the
 /// mode or the path changed.
-fn hunkless_marker(file: &crate::FileDiff) -> &'static str {
+pub(super) fn hunkless_marker(file: &crate::FileDiff) -> &'static str {
     use crate::DeltaStatus;
     if file.is_binary {
         "Binary file differs"
