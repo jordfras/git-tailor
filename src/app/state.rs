@@ -304,7 +304,9 @@ impl AppState {
     }
 
     /// Enter squash target selection mode.
-    /// Only allowed for real commits (not staged/unstaged synthetic rows).
+    ///
+    /// The source may be a real commit or one of the staged/unstaged rows; the
+    /// *target* must always be a real commit.
     pub fn enter_squash_select(&mut self) {
         self.enter_squash_or_fixup_select(SquashMode::Squash);
     }

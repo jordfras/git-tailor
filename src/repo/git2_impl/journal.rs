@@ -116,9 +116,14 @@ enum UndoRecord {
     },
     /// A squash whose source was a working-tree row. Undo/redo are *mixed*
     /// resets (`reset --mixed`): the ref moves and the index tree is restored,
-    /// but the working tree is left alone — the operation only moved content
-    /// between committed, staged and unstaged, so the files on disk are the same
-    /// before and after.
+    /// but the working tree is left alone — a fold that ran clean only moved
+    /// content between committed, staged and unstaged, so the files on disk are
+    /// the same before and after.
+    ///
+    /// A fold the user resolved a conflict in is the exception: the resolution
+    /// is what ends up on disk, and undo does not take it back off. The undo
+    /// restores what was committed and what was staged, and the resolution stays
+    /// as the unstaged difference from it.
     MixedReset {
         label: String,
         tip_before: Oid,

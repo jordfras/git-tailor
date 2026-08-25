@@ -225,22 +225,18 @@ fn carry_onto(
 
 /// The index tree and the working tree (tracked paths only) as tree objects.
 ///
+/// Not a plain read: building `W` means staging every tracked change into the
+/// repository's *shared* index, so the on-disk index is reloaded afterwards to
+/// put it back — unconditionally, including when building the tree failed.
+///
 /// `update_all` mirrors `stage_all`: it only revisits paths already in the
 /// index, so untracked files stay out of `W` exactly as they stay out of the
 /// unstaged row's diff. The changes are never written to disk — the on-disk
 /// index is reloaded afterwards.
 fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
-    // Refresh the index against the working tree first. libgit2 decides which
-    // tracked files are dirty from each entry's cached stat (size + mtime), so a
-    // same-size edit whose mtime collides with that cache would be judged
-    // unchanged and silently dropped from `W`. See `save_autostash`.
-    {
-        let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true).update_index(true);
-        repo.inner
-            .statuses(Some(&mut opts))
-            .context("failed to refresh the index")?;
-    }
+    // Without this, a same-size edit would be judged unchanged and silently
+    // dropped from `W`.
+    repo.refresh_index_stat_cache()?;
 
     let mut index = repo.inner.index().context("failed to open index")?;
     index.read(true).context("failed to refresh index")?;

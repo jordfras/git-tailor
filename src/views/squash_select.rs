@@ -22,10 +22,12 @@ use crate::{CommitInfo, VirtualOid};
 
 /// Handle an action while in SquashSelect mode.
 ///
-/// The user navigates the commit list to pick a squash target. The source
-/// commit (from `source_index`) will be squashed *into* the chosen target.
-/// Navigation is clamped so the cursor cannot move to commits later than
-/// the source — squashing into a later commit is not supported.
+/// The user navigates the commit list to pick a squash target. The source row
+/// (from `source_index`) — a commit, or one of the staged/unstaged rows — is
+/// squashed *into* the chosen target, which must be a real commit. Navigation
+/// is clamped so the cursor cannot move to rows later than the source: folding
+/// into a later commit is not supported, and the other working-tree row is not
+/// something changes can be folded into at all.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let (source_index, squash_mode) = match app.mode {
         AppMode::SquashSelect {

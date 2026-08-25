@@ -674,9 +674,12 @@ pub trait RepoWrite {
     /// (via the normal conflict flow) or abort it.
     fn read_journal(&self) -> Result<JournalStatus>;
 
-    /// Discard the journal's in-progress record without otherwise touching the
-    /// repository. Used when a recovered operation is stale (the branch has
-    /// moved since it was journaled), so resuming or aborting would be unsafe.
+    /// Discard whatever the journal says is in flight — the paused record *and*
+    /// any working-tree snapshot — without otherwise touching the repository.
+    /// Used when a recovered operation is stale (the branch has moved since it
+    /// was journaled), so resuming or aborting would be unsafe. The snapshot has
+    /// to go too: left behind, it keeps telling later operations that a dirty
+    /// working tree is accounted for.
     fn clear_journal(&self) -> Result<()>;
 
     /// Drop undo/redo history (and its `refs/git-tailor/*` gc-pins) that no
