@@ -95,6 +95,34 @@ fn drop_removes_added_file_from_working_tree() {
     );
 }
 
+/// A symlink is a file git tracks like any other, and dropping the commit that
+/// added one has to take it off disk. The guard that keeps a submodule's
+/// directory out of the cleanup must not catch a symlink pointing at one.
+#[cfg(unix)]
+#[test]
+fn drop_removes_added_symlink_to_a_directory() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("dir/x.txt", "x\n", "base");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::os::unix::fs::symlink("dir", workdir.join("link")).unwrap();
+    let to_drop = test.commit_path("link", "add a symlink");
+    let child = test.commit_file("a.txt", "a\n", "later commit");
+
+    let git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(child))
+            .unwrap()
+    );
+
+    let _ = base;
+    assert!(
+        workdir.join("link").symlink_metadata().is_err(),
+        "the symlink the dropped commit added must be gone, not left behind"
+    );
+}
+
 #[test]
 fn drop_with_multiple_descendants() {
     let test = common::TestRepo::new();

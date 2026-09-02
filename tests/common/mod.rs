@@ -136,6 +136,13 @@ impl TestRepo {
         self.commit(message)
     }
 
+    /// Commit a path that is already on disk, whatever it is — a symlink, say,
+    /// which `commit_file` cannot write.
+    pub fn commit_path(&self, path: &str, message: &str) -> git2::Oid {
+        self.stage_file(path);
+        self.commit(message)
+    }
+
     /// Create a single commit that writes (or overwrites) multiple files at once.
     pub fn commit_files(&self, files: &[(&str, &str)], message: &str) -> git2::Oid {
         for (path, content) in files {
