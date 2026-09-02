@@ -952,6 +952,60 @@ fn a_clash_continued_unresolved_says_so_in_the_journal() {
     );
 }
 
+/// A fixup's clash says "fixup". The dialog before it does — the probe builds
+/// its state from the mode — so a carry calling itself a squash would have one
+/// operation contradicting itself halfway through.
+///
+/// Resolved so that the commit after the target still applies: with nothing
+/// left to conflict on, the fold finishes inside `squash_finalize`, which is
+/// the path that has to know the mode. When a replay conflicts instead, the
+/// carry is raised from `rebase_continue`, which carries the label along
+/// already.
+#[test]
+fn a_fixups_clash_is_labelled_a_fixup() {
+    let (test, _base, target) = clashing_repo(WorktreeSource::Staged);
+    let git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    // The dispatch order for a fixup: the probe runs first, and it is the probe
+    // that knows the mode.
+    let state = git_repo
+        .squash_try_combine(
+            &lifted.temp_oid,
+            &Oid::from(target),
+            "target commit",
+            SquashMode::Fixup,
+            &lifted.temp_oid,
+        )
+        .unwrap()
+        .expect("the fold conflicts with the target");
+    assert_eq!(state.operation_label, "Fixup");
+
+    // Keep the target's own line, so the commit after it replays cleanly, and
+    // rewrite the other row's line, so the carry is what stops the fold.
+    test.write_file("a.txt", &lines("TARGET", "RESOLVED-TOO"));
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let carry = expect_rebase_conflict!(
+        git_repo
+            .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+            .unwrap()
+    );
+
+    assert!(matches!(carry.resume, Resume::CarryRow(_)));
+    assert_eq!(
+        carry.operation_label, "Fixup",
+        "the carry belongs to the fixup that raised it"
+    );
+}
+
 /// A clash paused by a crash resumes from a freshly opened repository: the
 /// journaled state is all the dialog was holding, so recovery finishes the fold
 /// the same way continuing it would.
