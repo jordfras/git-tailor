@@ -910,7 +910,7 @@ mod autofixup_selection {
 // the parts of it that decide anything: how a source is prepared, how it is put
 // back when the squash gives up, and what the two messages say.
 
-use crate::mock_repo::{SquashProbe, WorktreeSourceOutcome, mock_temp_oid};
+use crate::mock_repo::{LiftOutcome, SquashProbe, mock_temp_oid};
 use git_tailor::app::{SquashMode, SquashSource};
 use git_tailor::repo::WorktreeSource;
 use rewrite::{prepare_source, squash_editor_seed, squash_success_message};
@@ -950,7 +950,7 @@ fn a_commit_source_is_prepared_behind_the_autostash() {
 #[test]
 fn a_worktree_row_is_prepared_without_the_autostash() {
     let mut repo = MockRepo {
-        worktree_source: WorktreeSourceOutcome::Lifted,
+        lift: LiftOutcome::Lifted,
         ..Default::default()
     };
     let mut app = AppState::default();
@@ -995,7 +995,7 @@ fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
 #[test]
 fn a_failed_lift_reports_the_underlying_cause() {
     let mut repo = MockRepo {
-        worktree_source: WorktreeSourceOutcome::Error,
+        lift: LiftOutcome::Error,
         ..Default::default()
     };
     let mut app = AppState::default();
@@ -1018,7 +1018,7 @@ fn a_failed_lift_reports_the_underlying_cause() {
 #[test]
 fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
     let mut repo = MockRepo {
-        worktree_source: WorktreeSourceOutcome::Lifted,
+        lift: LiftOutcome::Lifted,
         ..Default::default()
     };
     let mut app = AppState::default();
@@ -1034,7 +1034,7 @@ fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
     );
 
     assert!(matches!(action, LoopAction::Continue));
-    assert_eq!(repo.abort_worktree_calls.get(), 1);
+    assert_eq!(repo.restore_lifted_calls.get(), 1);
     assert_eq!(app.status.message.as_deref(), Some("Squash failed: nope"));
 }
 
@@ -1043,8 +1043,8 @@ fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
 #[test]
 fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
     let mut repo = MockRepo {
-        worktree_source: WorktreeSourceOutcome::Lifted,
-        abort_worktree_ok: false,
+        lift: LiftOutcome::Lifted,
+        restore_lifted_ok: false,
         ..Default::default()
     };
     let mut app = AppState::default();
@@ -1089,7 +1089,7 @@ fn abandoning_a_commit_source_restores_the_autostash() {
 
     assert!(matches!(action, LoopAction::Proceed));
     assert_eq!(
-        repo.abort_worktree_calls.get(),
+        repo.restore_lifted_calls.get(),
         0,
         "there is no temporary commit to unwind"
     );
@@ -1134,7 +1134,7 @@ fn a_completed_fold_names_what_it_folded_in() {
 #[test]
 fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
     let mut repo = MockRepo {
-        worktree_source: WorktreeSourceOutcome::Lifted,
+        lift: LiftOutcome::Lifted,
         squash_probe: SquashProbe::Conflict,
         ..Default::default()
     };

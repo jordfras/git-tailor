@@ -19,7 +19,7 @@
 use anyhow::Result;
 use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
-use git_tailor::repo::{GitRepo, WorktreeSourceSnapshot};
+use git_tailor::repo::{GitRepo, LiftedRow};
 
 use crate::dispatch::{LoopAction, edit_message_suspended, handle_rebase_outcome};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
@@ -190,7 +190,7 @@ pub(super) enum Prepared {
     Commit { source_oid: Oid, head_oid: Oid },
     /// A working-tree row lifted into a temporary commit, which is both the
     /// source and the tip the squash runs from.
-    Lifted(WorktreeSourceSnapshot),
+    Lifted(LiftedRow),
 }
 
 impl Prepared {
@@ -228,7 +228,7 @@ impl Prepared {
                 app.set_error_message(message);
                 done
             }
-            Prepared::Lifted(snapshot) => match git_repo.abort_worktree_source(snapshot) {
+            Prepared::Lifted(snapshot) => match git_repo.restore_lifted_row(snapshot) {
                 Ok(()) => {
                     app.set_error_message(message);
                     done
@@ -277,7 +277,7 @@ pub(super) fn prepare_source(
                 head_oid,
             }))
         }
-        SquashSource::Worktree(row) => match git_repo.begin_worktree_source(*row) {
+        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row) {
             Ok(Some(snapshot)) => Ok(Some(Prepared::Lifted(snapshot))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));

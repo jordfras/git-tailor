@@ -72,7 +72,7 @@ fn fixup_row(
         .commit
         .message;
     let started = git_repo
-        .begin_worktree_source(source)
+        .lift_worktree_row(source)
         .unwrap()
         .expect("the row has changes to fold in");
     git_repo
@@ -231,7 +231,7 @@ fn aborting_a_conflicted_fold_restores_everything() {
     let head_before = git_repo.head_oid().unwrap();
 
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Unstaged)
+        .lift_worktree_row(WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -274,7 +274,7 @@ fn resolving_a_conflicted_fold_completes_it() {
     let git_repo = test.git_repo();
 
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Unstaged)
+        .lift_worktree_row(WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -535,7 +535,7 @@ fn the_conflict_probe_accepts_a_row_source() {
     let (test, base, target) = mixed_state();
     let git_repo = test.git_repo();
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Unstaged)
+        .lift_worktree_row(WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
 
@@ -573,7 +573,7 @@ fn a_squash_folds_a_row_under_a_new_message() {
     let git_repo = test.git_repo();
 
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Staged)
+        .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert!(
@@ -625,7 +625,7 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
     let git_repo = test.git_repo();
 
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Staged)
+        .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -690,7 +690,7 @@ fn a_resolution_that_clashes_with_the_other_row_keeps_the_row() {
     let git_repo = test.git_repo();
 
     let started = git_repo
-        .begin_worktree_source(WorktreeSource::Staged)
+        .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(

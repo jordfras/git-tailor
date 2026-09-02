@@ -68,7 +68,7 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                         "Discarded a stale interrupted-operation journal (branch has moved)",
                     );
                 } else {
-                    match git_repo.abort_worktree_source(&snapshot) {
+                    match git_repo.restore_lifted_row(&snapshot) {
                         Ok(()) => app.set_error_message(format!(
                             "Recovered an interrupted squash of {label} — restored the branch"
                         )),
@@ -133,9 +133,9 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock_repo::{MockRepo, make_conflict_state, mock_snapshot};
+    use crate::mock_repo::{MockRepo, make_conflict_state, mock_lifted_row};
     use git_tailor::Oid;
-    use git_tailor::repo::{ConflictState, EditInProgress, WorktreeSource, WorktreeSourceSnapshot};
+    use git_tailor::repo::{ConflictState, EditInProgress, LiftedRow, WorktreeSource};
 
     /// The OID `MockRepo::head_oid` reports.
     fn mock_head() -> Oid {
@@ -144,11 +144,11 @@ mod tests {
 
     /// A snapshot whose temporary commit is where the branch actually is — an
     /// operation this run can still recover.
-    fn live_snapshot(source: WorktreeSource) -> WorktreeSourceSnapshot {
-        WorktreeSourceSnapshot {
+    fn live_snapshot(source: WorktreeSource) -> LiftedRow {
+        LiftedRow {
             source,
             temp_oid: mock_head(),
-            ..mock_snapshot()
+            ..mock_lifted_row()
         }
     }
 
@@ -176,7 +176,7 @@ mod tests {
         };
         let app = recover(&mut repo);
 
-        assert_eq!(repo.abort_worktree_calls.get(), 1);
+        assert_eq!(repo.restore_lifted_calls.get(), 1);
         assert_eq!(repo.clear_journal_calls.get(), 0);
         assert_eq!(
             app.status.message.as_deref(),
@@ -208,13 +208,13 @@ mod tests {
     #[test]
     fn an_interrupted_fold_whose_branch_has_moved_is_discarded() {
         let mut repo = MockRepo {
-            journal: Some(InProgress::WorktreeSquash(mock_snapshot())),
+            journal: Some(InProgress::WorktreeSquash(mock_lifted_row())),
             ..Default::default()
         };
         let app = recover(&mut repo);
 
         assert_eq!(
-            repo.abort_worktree_calls.get(),
+            repo.restore_lifted_calls.get(),
             0,
             "a record that no longer describes the repository must not be applied"
         );
@@ -238,7 +238,7 @@ mod tests {
         };
         let app = recover(&mut repo);
 
-        assert_eq!(repo.abort_worktree_calls.get(), 0);
+        assert_eq!(repo.restore_lifted_calls.get(), 0);
         assert_eq!(repo.clear_journal_calls.get(), 1);
         assert!(app.status.is_error);
     }
@@ -249,7 +249,7 @@ mod tests {
             journal: Some(InProgress::WorktreeSquash(live_snapshot(
                 WorktreeSource::Staged,
             ))),
-            abort_worktree_ok: false,
+            restore_lifted_ok: false,
             ..Default::default()
         };
         let app = recover(&mut repo);

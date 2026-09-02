@@ -41,9 +41,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{
-    InProgress, JournalCleanSummary, JournalStatus, UndoOutcome, WorktreeSourceSnapshot,
-};
+use super::super::{InProgress, JournalCleanSummary, JournalStatus, LiftedRow, UndoOutcome};
 use super::Git2Repo;
 use super::reads;
 use crate::Oid;
@@ -248,7 +246,11 @@ struct JournalDoc {
     /// because it has to outlive the phase changes — `in_progress` becomes a
     /// conflict record the moment the squash conflicts, and the snapshot is
     /// still what abort and completion restore from.
-    worktree_source: Option<WorktreeSourceSnapshot>,
+    ///
+    /// The key keeps the name the type had when v2 was written: a journal from an
+    /// earlier build of this format must still read back, and `serde(default)`
+    /// would turn a renamed key into a silently stranded temporary commit.
+    worktree_source: Option<LiftedRow>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -321,16 +323,13 @@ fn is_empty(doc: &JournalDoc) -> bool {
 }
 
 /// Read the recorded working-tree-source snapshot, if any.
-pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<WorktreeSourceSnapshot>> {
+pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
     Ok(load_doc(repo)?.worktree_source)
 }
 
 /// Record (or clear, with `None`) the working-tree-source snapshot for the
 /// in-flight operation.
-pub(super) fn set_worktree_source(
-    repo: &Git2Repo,
-    snapshot: Option<WorktreeSourceSnapshot>,
-) -> Result<()> {
+pub(super) fn set_worktree_source(repo: &Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.worktree_source = snapshot;
     save(repo, &mut doc)

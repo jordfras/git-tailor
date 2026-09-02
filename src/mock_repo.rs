@@ -45,14 +45,14 @@ pub(crate) struct MockRepo {
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
     pub(crate) conflicting_files: Vec<String>,
-    /// What `begin_worktree_source` answers: `Ok(None)` for an empty row, an
-    /// error, or a snapshot to build the fold on.
-    pub(crate) worktree_source: WorktreeSourceOutcome,
-    /// Whether `abort_worktree_source` succeeds. A failed unwind leaves the
+    /// What `lift_worktree_row` answers: `Ok(None)` for an empty row, an
+    /// error, or a lifted row to build the fold on.
+    pub(crate) lift: LiftOutcome,
+    /// Whether `restore_lifted_row` succeeds. A failed unwind leaves the
     /// temporary commit on the branch, which the caller has to report.
-    pub(crate) abort_worktree_ok: bool,
-    /// Counts `abort_worktree_source` invocations.
-    pub(crate) abort_worktree_calls: std::cell::Cell<usize>,
+    pub(crate) restore_lifted_ok: bool,
+    /// Counts `restore_lifted_row` invocations.
+    pub(crate) restore_lifted_calls: std::cell::Cell<usize>,
     /// What `read_journal` answers, for the startup-recovery tests.
     pub(crate) journal: Option<git_tailor::repo::InProgress>,
     /// Counts `clear_journal` invocations, so a test can tell a discarded
@@ -67,9 +67,9 @@ pub(crate) struct MockRepo {
     pub(crate) squash_probe_message: std::cell::RefCell<Option<String>>,
 }
 
-/// What [`MockRepo::begin_worktree_source`] answers.
+/// What [`MockRepo::lift_worktree_row`] answers.
 #[derive(Default)]
-pub(crate) enum WorktreeSourceOutcome {
+pub(crate) enum LiftOutcome {
     /// The row has nothing to fold in.
     #[default]
     Empty,
@@ -100,14 +100,14 @@ pub(crate) fn make_conflict_state() -> ConflictState {
     }
 }
 
-/// The temporary commit [`WorktreeSourceOutcome::Lifted`] pretends to have made.
+/// The temporary commit [`LiftOutcome::Lifted`] pretends to have made.
 pub(crate) fn mock_temp_oid() -> Oid {
     Oid::from("c".repeat(40))
 }
 
-/// The snapshot [`WorktreeSourceOutcome::Lifted`] hands back.
-pub(crate) fn mock_snapshot() -> git_tailor::repo::WorktreeSourceSnapshot {
-    git_tailor::repo::WorktreeSourceSnapshot {
+/// The lifted row [`LiftOutcome::Lifted`] hands back.
+pub(crate) fn mock_lifted_row() -> git_tailor::repo::LiftedRow {
+    git_tailor::repo::LiftedRow {
         source: git_tailor::repo::WorktreeSource::Staged,
         tip_before: Oid::from("a".repeat(40)),
         index_tree_before: Oid::from("d".repeat(40)),
@@ -136,9 +136,9 @@ impl Default for MockRepo {
             autostash_save_calls: std::cell::Cell::new(0),
             commit_diff: None,
             conflicting_files: Vec::new(),
-            worktree_source: WorktreeSourceOutcome::default(),
-            abort_worktree_ok: true,
-            abort_worktree_calls: std::cell::Cell::new(0),
+            lift: LiftOutcome::default(),
+            restore_lifted_ok: true,
+            restore_lifted_calls: std::cell::Cell::new(0),
             journal: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
@@ -326,25 +326,22 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("commit failed"))
         }
     }
-    fn begin_worktree_source(
+    fn lift_worktree_row(
         &self,
         _: git_tailor::repo::WorktreeSource,
-    ) -> anyhow::Result<Option<git_tailor::repo::WorktreeSourceSnapshot>> {
-        match self.worktree_source {
-            WorktreeSourceOutcome::Empty => Ok(None),
+    ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
+        match self.lift {
+            LiftOutcome::Empty => Ok(None),
             // Mirrors the real shape: a libgit2 cause under an anyhow context.
-            WorktreeSourceOutcome::Error => Err(anyhow::anyhow!("the index has conflicts")
+            LiftOutcome::Error => Err(anyhow::anyhow!("the index has conflicts")
                 .context("failed to lift the working-tree changes")),
-            WorktreeSourceOutcome::Lifted => Ok(Some(mock_snapshot())),
+            LiftOutcome::Lifted => Ok(Some(mock_lifted_row())),
         }
     }
-    fn abort_worktree_source(
-        &self,
-        _: &git_tailor::repo::WorktreeSourceSnapshot,
-    ) -> anyhow::Result<()> {
-        self.abort_worktree_calls
-            .set(self.abort_worktree_calls.get() + 1);
-        if self.abort_worktree_ok {
+    fn restore_lifted_row(&self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<()> {
+        self.restore_lifted_calls
+            .set(self.restore_lifted_calls.get() + 1);
+        if self.restore_lifted_ok {
             Ok(())
         } else {
             Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))

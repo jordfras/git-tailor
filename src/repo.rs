@@ -107,8 +107,8 @@ impl WorktreeSource {
     }
 }
 
-/// The pre-operation state a working-tree-sourced squash must be able to get
-/// back to.
+/// A working-tree row lifted into a temporary commit, with the pre-operation
+/// state the fold must be able to get back to.
 ///
 /// The three trees pin down the whole starting point: `tip_before` is where the
 /// branch sat, `index_tree_before` what was staged, and `worktree_tree` what was
@@ -117,7 +117,7 @@ impl WorktreeSource {
 /// these operations do not go through the auto-stash.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct WorktreeSourceSnapshot {
+pub struct LiftedRow {
     /// The row whose changes were lifted into the temporary commit.
     pub source: WorktreeSource,
     /// The branch tip before the temporary commit was created.
@@ -134,7 +134,7 @@ pub struct WorktreeSourceSnapshot {
     /// The temporary commit itself, which the fold left the branch on. Its diff
     /// against its parent is exactly the row's diff, so it serves as both
     /// `source_oid` and `head_oid` for the squash built on it. Also identifies
-    /// the snapshot as belonging to the operation in hand: a record whose
+    /// the record as belonging to the operation in hand: a record whose
     /// temporary commit is not where the branch is describes something that has
     /// already moved on, and unwinding it would take the user's later work with
     /// it.
@@ -225,7 +225,7 @@ pub enum InProgress {
     /// A working-tree row has been lifted into a temporary commit but the squash
     /// built on it has not reached a conflict or completion yet. Recovery
     /// rewinds it.
-    WorktreeSquash(WorktreeSourceSnapshot),
+    WorktreeSquash(LiftedRow),
 }
 
 /// State captured while an "Edit" (interactive shell edit of a commit) is in
@@ -742,24 +742,19 @@ pub trait RepoWrite {
     /// their own side of the staged/unstaged line. Returns `None` when the row
     /// has nothing to fold in.
     ///
-    /// Records the returned snapshot in the journal write-ahead, so a crash
-    /// before the squash finishes leaves a recoverable temporary commit rather
-    /// than a stray one. Every path out of the operation must end in either
-    /// [`abort_worktree_source`](Self::abort_worktree_source) or a completed
-    /// squash.
+    /// Records the returned row in the journal write-ahead, so a crash before
+    /// the squash finishes leaves a recoverable temporary commit rather than a
+    /// stray one. Every path out of the operation must end in either
+    /// [`restore_lifted_row`](Self::restore_lifted_row) or a completed squash.
     ///
     /// Fails when the unstaged row cannot be separated from the staged one —
     /// edits to the same lines have no meaningful split.
-    fn begin_worktree_source(
-        &self,
-        source: WorktreeSource,
-    ) -> Result<Option<WorktreeSourceSnapshot>>;
+    fn lift_worktree_row(&self, source: WorktreeSource) -> Result<Option<LiftedRow>>;
 
-    /// Unwind [`begin_worktree_source`](Self::begin_worktree_source): put the
-    /// branch, the index and the working tree back exactly as `snapshot`
-    /// recorded them, and clear the journal record. Untracked files are left
-    /// alone.
-    fn abort_worktree_source(&self, snapshot: &WorktreeSourceSnapshot) -> Result<()>;
+    /// Unwind [`lift_worktree_row`](Self::lift_worktree_row): put the branch,
+    /// the index and the working tree back exactly as `lifted` recorded them,
+    /// and clear the journal record. Untracked files are left alone.
+    fn restore_lifted_row(&self, lifted: &LiftedRow) -> Result<()>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a

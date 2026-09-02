@@ -41,6 +41,7 @@ mod drop_op;
 mod edit_op;
 mod hunks;
 mod journal;
+mod lift_op;
 mod move_op;
 mod reads;
 mod reword_op;
@@ -48,7 +49,6 @@ mod split_op;
 mod squash_op;
 mod stage_op;
 mod stash;
-mod worktree_source_op;
 
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
@@ -139,13 +139,9 @@ impl Git2Repo {
     /// changes were staged or unstaged before and are committed after — so this
     /// records a mixed reset rather than the plain ref move every other
     /// operation uses.
-    fn finish_worktree_source(
-        &self,
-        label: &str,
-        snapshot: &super::WorktreeSourceSnapshot,
-    ) -> Result<()> {
+    fn finish_worktree_source(&self, label: &str, snapshot: &super::LiftedRow) -> Result<()> {
         let tip_after = reads::head_oid(self)?;
-        let index_tree_after = worktree_source_op::finish(self, snapshot, &tip_after)?;
+        let index_tree_after = lift_op::finish(self, snapshot, &tip_after)?;
         journal::record_mixed_undo(
             self,
             label,
@@ -441,7 +437,7 @@ impl RepoWrite for Git2Repo {
         if let Some(snapshot) = journal::worktree_source(self)?
             && state.original_branch_oid == snapshot.temp_oid
         {
-            return worktree_source_op::abort(self, &snapshot);
+            return lift_op::restore(self, &snapshot);
         }
         conflict::rebase_abort(self, state)?;
         journal::clear_in_progress(self)
@@ -498,15 +494,12 @@ impl RepoWrite for Git2Repo {
         }
     }
 
-    fn begin_worktree_source(
-        &self,
-        source: super::WorktreeSource,
-    ) -> Result<Option<super::WorktreeSourceSnapshot>> {
-        worktree_source_op::begin(self, source)
+    fn lift_worktree_row(&self, source: super::WorktreeSource) -> Result<Option<super::LiftedRow>> {
+        lift_op::lift(self, source)
     }
 
-    fn abort_worktree_source(&self, snapshot: &super::WorktreeSourceSnapshot) -> Result<()> {
-        worktree_source_op::abort(self, snapshot)
+    fn restore_lifted_row(&self, lifted: &super::LiftedRow) -> Result<()> {
+        lift_op::restore(self, lifted)
     }
 
     fn autostash_save(&mut self) -> Result<()> {
@@ -658,7 +651,7 @@ impl Git2Repo {
         // the operation finishes, so they are not the unexpected dirt this guard
         // is here to catch — as long as the snapshot still describes what is
         // actually there.
-        if worktree_source_op::covers_working_tree(self)? {
+        if lift_op::covers_working_tree(self)? {
             return Ok(());
         }
         if self.is_worktree_dirty()? {

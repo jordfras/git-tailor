@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use super::journal;
 use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
-use crate::repo::{WorktreeSource, WorktreeSourceSnapshot};
+use crate::repo::{LiftedRow, WorktreeSource};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
@@ -57,11 +57,8 @@ pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
 }
 
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
-/// changes. See [`super::Git2Repo::begin_worktree_source`] for the contract.
-pub(super) fn begin(
-    repo: &Git2Repo,
-    source: WorktreeSource,
-) -> Result<Option<WorktreeSourceSnapshot>> {
+/// changes. See [`super::Git2Repo::lift_worktree_row`] for the contract.
+pub(super) fn lift(repo: &Git2Repo, source: WorktreeSource) -> Result<Option<LiftedRow>> {
     let head = repo
         .inner
         .head()
@@ -97,7 +94,7 @@ pub(super) fn begin(
         .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
         .context("failed to commit the working-tree changes")?;
 
-    let snapshot = WorktreeSourceSnapshot {
+    let snapshot = LiftedRow {
         source,
         tip_before: Oid::from(head.id()),
         index_tree_before: Oid::from(index_tree_before),
@@ -116,7 +113,7 @@ pub(super) fn begin(
             // record is already on disk, so unwind through it and report the
             // original failure. Falls back to dropping the record when even that
             // does not work, so nothing is stranded either way.
-            if abort(repo, &snapshot).is_err() {
+            if restore(repo, &snapshot).is_err() {
                 let _ = journal::set_worktree_source(repo, None);
             }
             Err(e)
@@ -126,7 +123,7 @@ pub(super) fn begin(
 
 /// Move the branch onto the temporary commit, leaving the index describing what
 /// the row did not take.
-fn place_temp_commit(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Result<()> {
+fn place_temp_commit(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     repo.advance_branch_ref(
         git2::Oid::from(&snapshot.temp_oid),
         "git-tailor: working-tree squash source",
@@ -141,8 +138,8 @@ fn place_temp_commit(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resu
 }
 
 /// Unwind back to `snapshot`. See
-/// [`super::Git2Repo::abort_worktree_source`] for the contract.
-pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Result<()> {
+/// [`super::Git2Repo::restore_lifted_row`] for the contract.
+pub(super) fn restore(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     // Captured before the ref moves: this is the tree the working tree reflects
     // right now, whether that is the temporary commit or a half-built rewrite.
     let current = head_tree_id(repo)?;
@@ -172,11 +169,7 @@ pub(super) fn abort(repo: &Git2Repo, snapshot: &WorktreeSourceSnapshot) -> Resul
 /// What ends up in the index differs by row: the staged row's changes are now
 /// committed, so the index matches the new tip, while the unstaged row's are
 /// committed and the staged ones stay staged, which is the whole working tree.
-pub(super) fn finish(
-    repo: &Git2Repo,
-    snapshot: &WorktreeSourceSnapshot,
-    tip_after: &Oid,
-) -> Result<Oid> {
+pub(super) fn finish(repo: &Git2Repo, snapshot: &LiftedRow, tip_after: &Oid) -> Result<Oid> {
     let tip_tree = repo
         .inner
         .find_commit(git2::Oid::from(tip_after))
@@ -201,11 +194,7 @@ pub(super) fn finish(
 /// given, which is every run that did not stop at a conflict. Falls back to it
 /// too when the merge itself conflicts — the user's changes are all still there,
 /// which is what matters, even if they no longer sit on the resolution.
-fn carry_onto(
-    repo: &Git2Repo,
-    snapshot: &WorktreeSourceSnapshot,
-    tip_tree: git2::Oid,
-) -> Result<git2::Oid> {
+fn carry_onto(repo: &Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<git2::Oid> {
     let recorded = git2::Oid::from(&snapshot.worktree_tree);
     let base = git2::Oid::from(&snapshot.source_tree);
     if tip_tree == base {
