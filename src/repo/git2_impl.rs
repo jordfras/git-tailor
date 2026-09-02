@@ -41,6 +41,7 @@ mod drop_op;
 mod edit_op;
 mod hunks;
 mod journal;
+mod lift_op;
 mod move_op;
 mod reads;
 mod reword_op;
@@ -112,11 +113,86 @@ impl Git2Repo {
                 }
                 super::RebaseOutcome::Complete => {
                     journal::clear_in_progress(self)?;
-                    self.record_undo_if_changed(label, tip_before)?;
+                    // The snapshot belongs to this operation only if the
+                    // operation started from the temporary commit it made.
+                    // Anything else is a record stranded by an earlier run, and
+                    // restoring its working tree over this result — and calling
+                    // that this operation's undo entry — would be wrong twice
+                    // over.
+                    match journal::worktree_source(self)? {
+                        Some(snapshot) if tip_before == &snapshot.temp_oid => {
+                            // The rewrite landed, but the other row may have
+                            // nowhere to land: that is a conflict of its own,
+                            // and the operation is not complete until it is
+                            // resolved.
+                            if let Some(state) = self.finish_worktree_source(label, &snapshot)? {
+                                return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                            }
+                        }
+                        _ => self.record_undo_if_changed(label, tip_before)?,
+                    }
                 }
             }
         }
         outcome
+    }
+
+    /// Complete a squash whose source was a working-tree row: put the other
+    /// row's changes back where they came from and record the operation as one
+    /// undoable step.
+    ///
+    /// The undo has to restore the index alongside the branch — the row's
+    /// changes were staged or unstaged before and are committed after — so this
+    /// records a mixed reset rather than the plain ref move every other
+    /// operation uses.
+    ///
+    /// Returns the conflict to resolve when the other row's changes cannot be
+    /// carried onto what the user resolved the fold to. The rewrite stands
+    /// either way; only the working tree is still in the air, and the record
+    /// stays in the journal until it settles.
+    fn finish_worktree_source(
+        &self,
+        label: &str,
+        snapshot: &super::LiftedRow,
+    ) -> Result<Option<super::ConflictState>> {
+        let tip_after = reads::head_oid(self)?;
+        let index_tree_after = match lift_op::finish(self, snapshot, &tip_after)? {
+            lift_op::Settled::Done(index_tree) => index_tree,
+            lift_op::Settled::Clash(merged) => {
+                let state = super::ConflictState {
+                    operation_label: label.to_string(),
+                    // The lift is what an abort rewinds to, which unwinds the
+                    // whole fold — the rewrite included.
+                    original_branch_oid: snapshot.temp_oid.clone(),
+                    new_tip_oid: tip_after.clone(),
+                    conflicting_commit_oid: tip_after,
+                    conflicting_files: conflict::collect_conflict_files_from_index(&merged),
+                    still_unresolved: false,
+                    resume: super::Resume::CarryRow(snapshot.clone()),
+                    autofixup_context: None,
+                };
+                // Write-ahead: the markers are about to go on disk, and a crash
+                // between the two would leave them there unexplained.
+                journal::set_in_progress(
+                    self,
+                    &super::InProgress::Conflict(Box::new(state.clone())),
+                )?;
+                lift_op::write_clash(self, &merged)?;
+                return Ok(Some(state));
+            }
+        };
+        journal::record_mixed_undo(
+            self,
+            label,
+            journal::MixedUndo {
+                tip_before: &snapshot.tip_before,
+                tip_after: &tip_after,
+                index_tree_before: &snapshot.index_tree_before,
+                index_tree_after: &index_tree_after,
+            },
+        )?;
+        journal::set_worktree_source(self, None)?;
+        Ok(None)
     }
 
     /// Wrap a `Result<()>` operation (reword, split): on success, record an
@@ -377,6 +453,12 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        // A carry conflict is not a rebase step: the history it belongs to is
+        // already written, and what is left settles the working tree and records
+        // the fold's undo entry itself, so it does not go through `journaled`.
+        if let super::Resume::CarryRow(lifted) = &state.resume {
+            return lift_op::continue_carry(self, lifted, state);
+        }
         if state.autofixup_context.is_some() {
             return self.journaled(
                 "Autofixup",
@@ -392,6 +474,17 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
+        // A squash sourced from a working-tree row has a temporary commit below
+        // the conflict, holding changes the generic reset knows nothing about.
+        // The snapshot rewinds past both, exactly — but only when the operation
+        // being aborted is the one that made it. A record stranded by an earlier
+        // run names a commit this abort has never heard of, and rewinding to it
+        // would take the aborted operation's history with it.
+        if let Some(snapshot) = journal::worktree_source(self)?
+            && state.original_branch_oid == snapshot.temp_oid
+        {
+            return lift_op::restore(self, &snapshot);
+        }
         conflict::rebase_abort(self, state)?;
         journal::clear_in_progress(self)
     }
@@ -401,7 +494,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn clear_journal(&self) -> Result<()> {
-        journal::clear_in_progress(self)
+        journal::discard_in_flight(self)
     }
 
     fn prune_stale_journal(&self) -> Result<()> {
@@ -445,6 +538,18 @@ impl RepoWrite for Git2Repo {
                 Ok(super::CommitOutcome::Committed)
             }
         }
+    }
+
+    fn lift_worktree_row(&self, source: super::WorktreeSource) -> Result<Option<super::LiftedRow>> {
+        lift_op::lift(self, source)
+    }
+
+    fn restore_lifted_row(&self, lifted: &super::LiftedRow) -> Result<()> {
+        lift_op::restore(self, lifted)
+    }
+
+    fn rescue_lifted_row(&self, lifted: &super::LiftedRow) -> Result<Option<String>> {
+        lift_op::rescue(self, lifted)
     }
 
     fn autostash_save(&mut self) -> Result<()> {
@@ -542,8 +647,11 @@ impl RepoWrite for Git2Repo {
                 ),
             );
         }
+        // The mode's own word, not "Squash" for both: the dialog that sent the
+        // user here was built from `ctx.squash_mode`, and a working-tree fold
+        // can raise a second dialog from this very call.
         self.journaled(
-            "Squash",
+            ctx.squash_mode.label(),
             original_branch_oid,
             squash_op::squash_finalize(self, ctx, message, original_branch_oid),
         )
@@ -563,6 +671,22 @@ impl RepoWrite for Git2Repo {
     }
 }
 
+/// The trees a [`Git2Repo::reset_worktree`] moves between.
+///
+/// Named fields because all three are tree OIDs: transposed positionally, a
+/// reset would silently put the index's content on disk, or the other way
+/// round, and still typecheck.
+pub(super) struct WorktreeReset {
+    /// The tree the working tree reflects on entry. Paths it has that
+    /// `worktree_tree` does not are deleted from disk.
+    pub from_tree: git2::Oid,
+    /// The tree the files on disk must end up matching.
+    pub worktree_tree: git2::Oid,
+    /// The tree the index must end up holding — equal to `worktree_tree` when
+    /// the reset leaves nothing staged.
+    pub index_tree: git2::Oid,
+}
+
 impl Git2Repo {
     /// Refuse if the working tree or index has any staged or unstaged changes,
     /// ignoring submodule pointer updates (consistent with `git rebase`).
@@ -575,6 +699,14 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&self) -> Result<()> {
+        // A working-tree-sourced squash deliberately leaves the *other* row's
+        // changes in place. They are recorded in the snapshot and restored when
+        // the operation finishes, so they are not the unexpected dirt this guard
+        // is here to catch — as long as the snapshot still describes what is
+        // actually there.
+        if lift_op::covers_working_tree(self)? {
+            return Ok(());
+        }
         if self.is_worktree_dirty()? {
             anyhow::bail!(
                 "You have staged or unstaged changes. \
@@ -672,53 +804,121 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Reset the working tree to `reset.worktree_tree` and the index to
+    /// `reset.index_tree`, deleting the paths `reset.from_tree` has that the
+    /// target working tree does not.
+    ///
+    /// A force checkout alone leaves those paths behind: once the index holds
+    /// the target tree, anything absent from it counts as untracked and is
+    /// skipped. Deleting exactly the paths the target drops is what keeps the
+    /// user's *own* untracked files, where `remove_untracked` would take them
+    /// too.
+    ///
+    /// Going through the index rather than `checkout_head` also sidesteps a
+    /// stale on-disk index: the cherry-pick chain builds its trees in memory
+    /// (`apply_to_tree`, `merge_trees`), so the repository's singleton index may
+    /// not describe the result yet, and libgit2 compares against whatever is on
+    /// disk — leaving every file as a staged deletion with the real files
+    /// untracked.
+    pub(super) fn reset_worktree(&self, reset: WorktreeReset) -> Result<()> {
+        let from = self
+            .inner
+            .find_tree(reset.from_tree)
+            .context("failed to find the current tree")?;
+        let to = self
+            .inner
+            .find_tree(reset.worktree_tree)
+            .context("failed to find the target working tree")?;
+        self.remove_dropped_files(&from, &to)?;
+
+        self.set_index_tree(reset.worktree_tree)?;
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        self.inner
+            .checkout_index(None, Some(&mut checkout))
+            .context("failed to restore the working tree")?;
+        if reset.index_tree != reset.worktree_tree {
+            self.set_index_tree(reset.index_tree)?;
+        }
+        Ok(())
+    }
+
+    /// Delete working-tree files present in `from` but absent from `to`.
+    fn remove_dropped_files(&self, from: &git2::Tree, to: &git2::Tree) -> Result<()> {
+        let Some(workdir) = self.inner.workdir() else {
+            return Ok(());
+        };
+        let diff = self
+            .inner
+            .diff_tree_to_tree(Some(from), Some(to), None)
+            .context("failed to diff for dropped files")?;
+        for delta in diff.deltas() {
+            if delta.status() == git2::Delta::Deleted
+                && let Some(path) = delta.old_file().path()
+            {
+                let full = workdir.join(path);
+                // Anything but a directory: a submodule's checkout is not this
+                // operation's to delete, and neither is anything else that grew
+                // into one. Asking `symlink_metadata` rather than `is_file`
+                // keeps a symlink in scope — git tracked it as a file, and
+                // following it would judge the entry by whatever it points at.
+                if full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
+                    std::fs::remove_file(&full).with_context(|| {
+                        format!("failed to remove dropped file {}", full.display())
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-examine the working tree so the index's cached stats describe what is
+    /// actually on disk.
+    ///
+    /// libgit2 decides which tracked files are dirty from each index entry's
+    /// cached stat — size and mtime — so a same-size edit whose mtime collides
+    /// with that cache (an edit made within the filesystem's mtime tick of the
+    /// last index write) reads as unchanged. Anything that then serialises the
+    /// working tree, whether into a stash or into a tree object, silently uses
+    /// the stale blob and the edit is lost.
+    pub(super) fn refresh_index_stat_cache(&self) -> Result<()> {
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(true).update_index(true);
+        self.inner
+            .statuses(Some(&mut opts))
+            .context("failed to refresh the index")?;
+        Ok(())
+    }
+
+    /// Point the on-disk index at `tree`, clearing any conflict stages.
+    pub(super) fn set_index_tree(&self, tree: git2::Oid) -> Result<()> {
+        let tree = self
+            .inner
+            .find_tree(tree)
+            .context("failed to find index tree")?;
+        let mut index = self.inner.index().context("failed to open index")?;
+        index.read_tree(&tree).context("failed to set index tree")?;
+        index.write().context("failed to write index")?;
+        Ok(())
+    }
+
     /// Reset the working tree and index to match HEAD, removing files that the
     /// just-completed operation dropped.
     ///
     /// `prev_tip` is the branch tip the working tree currently reflects, before
-    /// this operation advanced the ref. Files present in `prev_tip` but absent
-    /// from the new HEAD must be deleted from the working tree. A force checkout
-    /// alone won't do it: we reset the index to HEAD's tree below, which turns
-    /// those files into untracked leftovers that checkout leaves untouched. We
-    /// delete exactly those files, so the user's own untracked files survive.
+    /// this operation advanced the ref.
     fn checkout_head(&self, prev_tip: &Oid) -> Result<()> {
-        let repo = &self.inner;
-        let new_tree = repo.head()?.peel_to_commit()?.tree()?;
-
-        let prev_tree = repo.find_commit(git2::Oid::from(prev_tip))?.tree()?;
-        let diff = repo.diff_tree_to_tree(Some(&prev_tree), Some(&new_tree), None)?;
-        if let Some(workdir) = repo.workdir() {
-            for delta in diff.deltas() {
-                if delta.status() == git2::Delta::Deleted
-                    && let Some(path) = delta.old_file().path()
-                {
-                    let full = workdir.join(path);
-                    if full.exists() {
-                        std::fs::remove_file(&full).with_context(|| {
-                            format!("failed to remove dropped file {}", full.display())
-                        })?;
-                    }
-                }
-            }
-        }
-
-        // Explicitly reset the index to HEAD's tree before forcing a workdir
-        // checkout. cherry_pick_chain uses in-memory index operations
-        // (apply_to_tree, merge_trees) whose returned indexes are distinct from
-        // the repo's singleton index, but libgit2's checkout_head re-reads the
-        // on-disk index to compare against HEAD. If the on-disk index is stale
-        // (not yet written after the chain completed), checkout can silently
-        // leave the index empty — all files appear as staged deletions with the
-        // actual files untracked. Writing HEAD's tree into the index first
-        // guarantees a clean baseline regardless of prior index state.
-        let mut index = repo.index()?;
-        index.read_tree(&new_tree)?;
-        index.write()?;
-
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        repo.checkout_head(Some(&mut checkout))?;
-        Ok(())
+        let new_tree = self.inner.head()?.peel_to_commit()?.tree()?.id();
+        let prev_tree = self
+            .inner
+            .find_commit(git2::Oid::from(prev_tip))?
+            .tree()?
+            .id();
+        self.reset_worktree(WorktreeReset {
+            from_tree: prev_tree,
+            worktree_tree: new_tree,
+            index_tree: new_tree,
+        })
     }
 
     /// The empty (no-entries) git tree — the three-way-merge base for building

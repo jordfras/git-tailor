@@ -7,7 +7,7 @@ Buffer {
     content: [
         "SHA        Title                                                                ",
         "11111111   R┌ Help — Commit List ──────────────────────────────────┐            ",
-        "22222222   A│   f              Fixup commit (pick target)          │            ",
+        "22222222   A│   f              Fixup into an earlier commit        │            ",
         "            │   r              Reword commit message               █            ",
         "            │   d              Drop commit                         │            ",
         "            │   m              Move commit (pick new position)     │            ",

@@ -136,6 +136,13 @@ impl TestRepo {
         self.commit(message)
     }
 
+    /// Commit a path that is already on disk, whatever it is — a symlink, say,
+    /// which `commit_file` cannot write.
+    pub fn commit_path(&self, path: &str, message: &str) -> git2::Oid {
+        self.stage_file(path);
+        self.commit(message)
+    }
+
     /// Create a single commit that writes (or overwrites) multiple files at once.
     pub fn commit_files(&self, files: &[(&str, &str)], message: &str) -> git2::Oid {
         for (path, content) in files {
@@ -293,7 +300,7 @@ impl TestRepo {
                 mtime: git2::IndexTime::new(0, 0),
                 dev: 0,
                 ino: 0,
-                mode: 0o160000,
+                mode: u32::from(git2::FileMode::Commit),
                 uid: 0,
                 gid: 0,
                 file_size: 0,
@@ -411,6 +418,7 @@ pub fn create_test_commit_diff(
             old_path: Some(path.to_string()),
             new_path: Some(path.to_string()),
             status: DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: hunk_range.0,
                 old_lines: hunk_range.1,

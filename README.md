@@ -70,6 +70,11 @@ selected you can:
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`
 
+**Squash** and **Fixup** also work on the synthetic **staged** and **unstaged**
+rows, so a work-in-progress change can go straight into the commit it belongs to
+without a throwaway commit first. Whatever is on the other row stays where it
+was, and the whole fold is a single undo step.
+
 Pressing `Enter` (or `i`) opens the **commit detail view** with the full diff
 and incremental regex search. If an operation hits a merge conflict, git-tailor
 opens a resolution dialog where you can fix it up in your editor or merge tool

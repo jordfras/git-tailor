@@ -38,7 +38,7 @@ pub(crate) fn handle_execute_edit(
     autostash_save_or_bail!(git_repo, app);
     if let Err(e) = git_repo.begin_edit(&commit_oid, &head_oid) {
         let _ = git_repo.autostash_restore();
-        app.set_error_message(format!("Edit failed: {e}"));
+        app.set_error_message(format!("Edit failed: {e:#}"));
         return Ok(LoopAction::Proceed);
     }
 
@@ -57,7 +57,7 @@ pub(crate) fn handle_execute_edit(
             // The shell could not even be launched — abort so the branch is restored.
             let _ = git_repo.abort_edit();
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e}"));
+            app.set_error_message(format!("Edit failed: {e:#}"));
             return Ok(LoopAction::Reload);
         }
         dirty = git_repo.is_worktree_dirty().unwrap_or(false);
@@ -96,7 +96,7 @@ fn handle_edit_outcome(
         }
         Err(e) => {
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e}"));
+            app.set_error_message(format!("Edit failed: {e:#}"));
             LoopAction::Reload
         }
     }

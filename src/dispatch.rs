@@ -112,7 +112,7 @@ macro_rules! get_head_oid_or_continue {
         match $git_repo.head_oid() {
             Ok(oid) => oid,
             Err(e) => {
-                $app.set_error_message(format!("Failed to get HEAD: {e}"));
+                $app.set_error_message(format!("Failed to get HEAD: {e:#}"));
                 return Ok(LoopAction::Continue);
             }
         }
@@ -127,7 +127,7 @@ macro_rules! get_head_oid_or_continue {
 macro_rules! autostash_save_or_bail {
     ($git_repo:expr, $app:expr) => {
         if let Err(e) = $git_repo.autostash_save() {
-            $app.set_error_message(format!("Auto-stash failed: {e}"));
+            $app.set_error_message(format!("Auto-stash failed: {e:#}"));
             return Ok(LoopAction::Proceed);
         }
     };
@@ -273,18 +273,16 @@ pub(crate) fn dispatch_action(
             );
         }
         AppAction::PrepareSquash {
-            source_oid,
+            source,
             target_oid,
-            source_message,
             target_message,
             squash_mode,
         } => {
             return handle_prepare_squash(
                 git_repo,
                 app,
-                source_oid,
+                source,
                 target_oid,
-                source_message,
                 target_message,
                 squash_mode,
                 terminal_guard,
@@ -356,7 +354,7 @@ pub(crate) fn report_stage_outcome(
             LoopAction::Proceed
         }
         Err(e) => {
-            app.set_error_message(format!("{e}"));
+            app.set_error_message(format!("{e:#}"));
             LoopAction::Proceed
         }
     }
@@ -389,7 +387,7 @@ pub(crate) fn settle_autostash(
             LoopAction::Continue
         }
         Err(e) => {
-            app.set_error_message(format!("{success}; auto-stash NOT restored: {e}"));
+            app.set_error_message(format!("{success}; auto-stash NOT restored: {e:#}"));
             done
         }
     }
@@ -443,7 +441,7 @@ pub(crate) fn handle_rebase_outcome(
         Err(e) => {
             // The operation did not complete — restore the working tree.
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("{op_label} failed: {e}"));
+            app.set_error_message(format!("{op_label} failed: {e:#}"));
             LoopAction::Proceed
         }
     }

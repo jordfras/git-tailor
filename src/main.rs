@@ -19,15 +19,15 @@ mod completions;
 mod dispatch;
 mod external_tool;
 mod loader;
+#[cfg(test)]
+mod mock_repo;
+mod recovery;
 mod terminal_guard;
 mod update_check;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use git_tailor::repo::{
-    AutostashRestore, Git2Repo, GitRepo, InProgress, JournalStatus, RepoRead, RepoWrite,
-    StashConflictState,
-};
+use git_tailor::repo::{Git2Repo, GitRepo, JournalStatus, RepoRead, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState},
@@ -39,6 +39,7 @@ use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
 use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
+use crate::recovery::check_journal_recovery;
 use crate::terminal_guard::setup_terminal;
 
 /// A transient footer status is dismissed only by a real key press. Non-key
@@ -258,7 +259,7 @@ fn main() -> Result<()> {
                     _ => app.list.selection_index,
                 };
                 match git_repo.head_oid() {
-                    Err(e) => app.set_error_message(format!("Reload failed: {e}")),
+                    Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
                     Ok(head_oid) => {
                         let reference_oid = app.reference_oid.clone();
                         let include_ref = app.include_reference_oid;
@@ -272,7 +273,7 @@ fn main() -> Result<()> {
                             include_ref,
                             full,
                         ) {
-                            Err(e) => app.set_error_message(format!("Reload failed: {e}")),
+                            Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
                             Ok(true)
                                 if preserve
                                     || matches!(
@@ -300,85 +301,6 @@ fn main() -> Result<()> {
 
     terminal_guard.shutdown()?;
     Ok(())
-}
-
-/// On startup, detect an operation a previous run was killed in the middle of
-/// (from the persisted journal) and surface a recovery prompt — or inform the
-/// user when the journal can't be used.
-fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppState) {
-    // Drop undo/redo history (and its gc-pin refs) left stale by external
-    // history changes, so it doesn't clutter the journal or tools like gitk.
-    let _ = git_repo.prune_stale_journal();
-
-    match git_repo.read_journal() {
-        Ok(JournalStatus::Recovered(record)) => match *record {
-            InProgress::Edit(_) => {
-                // A crashed Edit: the shell session cannot be resumed and the
-                // branch may be anywhere the user left it, so the only safe action
-                // is to restore the branch to its original tip. In-shell commits
-                // remain reachable via the reflog and the pinned `orig` ref;
-                // uncommitted in-shell changes are discarded by the restoring
-                // checkout.
-                match git_repo.abort_edit() {
-                    Ok(()) => app.set_error_message(
-                        "Recovered an interrupted Edit — restored the branch \
-                         (in-shell commits remain in the reflog)",
-                    ),
-                    Err(e) => {
-                        app.set_error_message(format!("Failed to recover an interrupted Edit: {e}"))
-                    }
-                }
-            }
-            InProgress::Conflict(state) => {
-                // Only offer recovery when the branch is still where the
-                // interrupted operation left it; otherwise the journal is stale
-                // (history changed outside git-tailor) and resuming or aborting
-                // would be unsafe.
-                let head_matches = git_repo
-                    .head_oid()
-                    .map(|head| head == state.new_tip_oid)
-                    .unwrap_or(false);
-                if head_matches {
-                    app.enter_recover_confirm(*state);
-                } else {
-                    let _ = git_repo.clear_journal();
-                    app.set_error_message(
-                        "Discarded a stale interrupted-operation journal (branch has moved)",
-                    );
-                }
-            }
-        },
-        Ok(JournalStatus::NewerVersion(v)) => {
-            app.set_error_message(format!(
-                "Ignoring a journal written by a newer git-tailor (format v{v}); \
-                 upgrade git-tailor or remove .git/git-tailor/journal.json"
-            ));
-        }
-        // Handled before the TUI starts (see main): this path bails out early,
-        // so reaching here would be a bug. Nothing to do.
-        Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
-        Ok(JournalStatus::Corrupt(e)) => {
-            app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
-        }
-        Ok(JournalStatus::None) => {}
-        Err(e) => {
-            app.set_error_message(format!("Failed to read operation journal: {e}"));
-        }
-    }
-
-    // A leftover auto-stash with no operation to recover (e.g. a crash after the
-    // op finished but before the stash was reapplied) — restore it now. If it
-    // conflicts (or a previous run already left markers), open the resolution
-    // dialog so the user can finish or abort rather than being stuck.
-    if !matches!(app.mode, AppMode::RecoverConfirm(_))
-        && let Ok(AutostashRestore::Conflict { files }) = git_repo.autostash_restore()
-    {
-        app.enter_stash_conflict(StashConflictState {
-            operation_label: "the operation".to_string(),
-            conflicting_files: files,
-            still_unresolved: false,
-        });
-    }
 }
 
 /// Wipe all git-tailor recovery state (`--clean-journal`) and report what was

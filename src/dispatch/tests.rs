@@ -13,353 +13,17 @@
 // limitations under the License.
 
 use git_tailor::Oid;
-use git_tailor::app::{AppMode, AppState, CommitListState, SplitStrategy, SquashMode};
-use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
+use git_tailor::app::{AppMode, AppState, CommitListState, SplitStrategy};
+use git_tailor::repo::RepoWrite;
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
 
+use crate::mock_repo::{MockRepo, make_conflict_state};
+
 use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
 use super::*;
-
-/// Minimal `GitRepo` stub for testing terminal-free dispatch helpers.
-struct MockRepo {
-    head_ok: bool,
-    drop_ok: bool,
-    move_ok: bool,
-    autofixup_ok: bool,
-    autofixup_conflicts: bool,
-    abort_ok: bool,
-    autostash_restore_ok: bool,
-    count_per_file: usize,
-    count_ok: bool,
-    stage_ok: bool,
-    stage_changed: bool,
-    undo_skips_autostash: bool,
-    redo_skips_autostash: bool,
-    /// Counts `autostash_save` invocations so tests can assert the working-tree-
-    /// preserving undo/redo paths skip the stash dance.
-    autostash_save_calls: std::cell::Cell<usize>,
-    /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
-    commit_diff: Option<CommitDiff>,
-    /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
-    conflicting_files: Vec<String>,
-}
-
-impl Default for MockRepo {
-    fn default() -> Self {
-        Self {
-            head_ok: true,
-            drop_ok: true,
-            move_ok: true,
-            autofixup_ok: true,
-            autofixup_conflicts: false,
-            abort_ok: true,
-            autostash_restore_ok: true,
-            count_per_file: 0,
-            count_ok: true,
-            stage_ok: true,
-            stage_changed: true,
-            undo_skips_autostash: false,
-            redo_skips_autostash: false,
-            autostash_save_calls: std::cell::Cell::new(0),
-            commit_diff: None,
-            conflicting_files: Vec::new(),
-        }
-    }
-}
-
-fn mock_stage_outcome(ok: bool, changed: bool) -> anyhow::Result<git_tailor::repo::StageOutcome> {
-    if !ok {
-        return Err(anyhow::anyhow!("stage failed"));
-    }
-    Ok(if changed {
-        git_tailor::repo::StageOutcome::Changed
-    } else {
-        git_tailor::repo::StageOutcome::NoOp
-    })
-}
-
-impl RepoRead for MockRepo {
-    fn head_oid(&self) -> anyhow::Result<Oid> {
-        if self.head_ok {
-            Ok(Oid::from("a".repeat(40)))
-        } else {
-            Err(anyhow::anyhow!("head error"))
-        }
-    }
-    fn list_commits(&self, _: &Oid, _: &Oid) -> anyhow::Result<Vec<CommitInfo>> {
-        Ok(vec![])
-    }
-    fn staged_diff(&self, _context_lines: u32) -> anyhow::Result<Option<CommitDiff>> {
-        Ok(None)
-    }
-    fn staged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
-        Ok(None)
-    }
-    fn unstaged_diff(&self, _context_lines: u32) -> anyhow::Result<Option<CommitDiff>> {
-        Ok(None)
-    }
-    fn unstaged_diff_for_fragmap(&self) -> anyhow::Result<Option<CommitDiff>> {
-        Ok(None)
-    }
-    fn commit_diff_for_fragmap(&self, _: &Oid) -> anyhow::Result<CommitDiff> {
-        unimplemented!()
-    }
-    fn find_reference_point(&self, _: &str) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_diff(&self, _: &Oid, _context_lines: u32) -> anyhow::Result<CommitDiff> {
-        self.commit_diff
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("commit_diff not configured"))
-    }
-    fn get_config_string(&self, _: &str) -> anyhow::Result<Option<String>> {
-        unimplemented!()
-    }
-    fn workdir(&self) -> Option<std::path::PathBuf> {
-        unimplemented!()
-    }
-    fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
-        unimplemented!()
-    }
-    fn read_conflicting_files(&self) -> Vec<String> {
-        self.conflicting_files.clone()
-    }
-    fn default_branch(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    fn root_commit_oid(&self) -> anyhow::Result<Oid> {
-        unimplemented!()
-    }
-    fn commit_walker<'a>(
-        &'a self,
-        _from_oid: &Oid,
-        _to_oid: &Oid,
-    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
-        unimplemented!()
-    }
-}
-
-impl RepoWrite for MockRepo {
-    fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
-        if self.drop_ok {
-            Ok(RebaseOutcome::Complete)
-        } else {
-            Err(anyhow::anyhow!("drop failed"))
-        }
-    }
-    fn move_commit(&self, _: &Oid, _: Option<&Oid>, _: &Oid) -> anyhow::Result<RebaseOutcome> {
-        if self.move_ok {
-            Ok(RebaseOutcome::Complete)
-        } else {
-            Err(anyhow::anyhow!("move failed"))
-        }
-    }
-    fn begin_edit(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn finish_edit(&self, _: &Oid) -> anyhow::Result<git_tailor::repo::EditOutcome> {
-        unimplemented!()
-    }
-    fn abort_edit(&self) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn rebase_abort(&self, _: &ConflictState) -> anyhow::Result<()> {
-        if self.abort_ok {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("abort failed"))
-        }
-    }
-    fn read_journal(&self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
-        Ok(git_tailor::repo::JournalStatus::None)
-    }
-    fn clear_journal(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-    fn prune_stale_journal(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-    fn clean_journal(&self) -> anyhow::Result<git_tailor::repo::JournalCleanSummary> {
-        Ok(git_tailor::repo::JournalCleanSummary {
-            refs_removed: 0,
-            journal_removed: false,
-        })
-    }
-    fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
-        if self.undo_skips_autostash {
-            Ok(git_tailor::repo::UndoOutcome::Done {
-                label: "Stage all".to_string(),
-            })
-        } else {
-            Ok(git_tailor::repo::UndoOutcome::Empty)
-        }
-    }
-    fn redo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
-        if self.redo_skips_autostash {
-            Ok(git_tailor::repo::UndoOutcome::Done {
-                label: "Stage all".to_string(),
-            })
-        } else {
-            Ok(git_tailor::repo::UndoOutcome::Empty)
-        }
-    }
-    fn pending_undo_skips_autostash(&self) -> anyhow::Result<bool> {
-        Ok(self.undo_skips_autostash)
-    }
-    fn pending_redo_skips_autostash(&self) -> anyhow::Result<bool> {
-        Ok(self.redo_skips_autostash)
-    }
-    fn stage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
-        mock_stage_outcome(self.stage_ok, self.stage_changed)
-    }
-    fn unstage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
-        mock_stage_outcome(self.stage_ok, self.stage_changed)
-    }
-    fn commit_staged(&self, _: &str) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
-        if self.stage_ok {
-            Ok(if self.stage_changed {
-                git_tailor::repo::CommitOutcome::Committed
-            } else {
-                git_tailor::repo::CommitOutcome::NothingStaged
-            })
-        } else {
-            Err(anyhow::anyhow!("commit failed"))
-        }
-    }
-    fn autostash_save(&mut self) -> anyhow::Result<()> {
-        self.autostash_save_calls
-            .set(self.autostash_save_calls.get() + 1);
-        Ok(())
-    }
-    fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {
-        if self.autostash_restore_ok {
-            Ok(git_tailor::repo::AutostashRestore::Done)
-        } else {
-            Ok(git_tailor::repo::AutostashRestore::Conflict {
-                files: vec!["conflict.txt".to_string()],
-            })
-        }
-    }
-    fn autostash_conflict_continue(
-        &mut self,
-    ) -> anyhow::Result<git_tailor::repo::AutostashContinue> {
-        Ok(git_tailor::repo::AutostashContinue::Resolved)
-    }
-    fn autostash_conflict_abort(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
-    fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
-        if self.count_ok {
-            Ok(self.count_per_file)
-        } else {
-            Err(anyhow::anyhow!("count failed"))
-        }
-    }
-    fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_out_files(&self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn split_commit_out_hunks(
-        &self,
-        _: &Oid,
-        _: &[(usize, usize)],
-        _: &Oid,
-        _: u32,
-    ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
-        unimplemented!()
-    }
-    fn reword_commit(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_commits(&self, _: &Oid, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_try_combine(
-        &self,
-        _: &Oid,
-        _: &Oid,
-        _: &str,
-        _: SquashMode,
-        _: &Oid,
-    ) -> anyhow::Result<Option<ConflictState>> {
-        unimplemented!()
-    }
-    fn squash_finalize(
-        &self,
-        _: &SquashContext,
-        _: &str,
-        _: &Oid,
-        _: Option<&git_tailor::repo::AutofixupContext>,
-    ) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn autofixup(
-        &self,
-        _: &Oid,
-        _: &Oid,
-        _: &std::collections::HashMap<String, String>,
-    ) -> anyhow::Result<RebaseOutcome> {
-        if self.autofixup_conflicts {
-            return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                operation_label: "Squash".to_string(),
-                original_branch_oid: Oid::from("a".repeat(40)),
-                new_tip_oid: Oid::from("b".repeat(40)),
-                conflicting_commit_oid: Oid::from("c".repeat(40)),
-                conflicting_files: vec![],
-                autofixup_context: Some(git_tailor::repo::AutofixupContext {
-                    reference_oid: Oid::from("d".repeat(40)),
-                    message_overrides: std::collections::HashMap::new(),
-                }),
-                ..Default::default()
-            })));
-        }
-        if self.autofixup_ok {
-            Ok(RebaseOutcome::Complete)
-        } else {
-            Err(anyhow::anyhow!("autofixup failed"))
-        }
-    }
-    fn stage_file(&self, _: &str) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn auto_stage_resolved_conflicts(&self, _: &[String]) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-}
-
-fn make_conflict_state() -> ConflictState {
-    ConflictState {
-        operation_label: "Drop".to_string(),
-        original_branch_oid: Oid::from("b".repeat(40)),
-        new_tip_oid: Oid::from("c".repeat(40)),
-        conflicting_commit_oid: Oid::from("d".repeat(40)),
-        conflicting_files: vec![],
-        ..Default::default()
-    }
-}
 
 #[test]
 fn execute_drop_complete_sets_success_message() {
@@ -569,12 +233,14 @@ fn three_hunk_commit_diff() -> CommitDiff {
                 old_path: Some("a.txt".to_string()),
                 new_path: Some("a.txt".to_string()),
                 status: DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![one_line_hunk(1), one_line_hunk(10)],
             },
             FileDiff {
                 old_path: Some("b.txt".to_string()),
                 new_path: Some("b.txt".to_string()),
                 status: DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
         ],
@@ -669,18 +335,21 @@ fn three_file_commit_diff() -> CommitDiff {
                 old_path: Some("a.txt".to_string()),
                 new_path: Some("a.txt".to_string()),
                 status: DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
                 old_path: Some("b.txt".to_string()),
                 new_path: Some("b.txt".to_string()),
                 status: DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
                 old_path: Some("c.txt".to_string()),
                 new_path: None,
                 status: DeltaStatus::Deleted,
+                is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
         ],
@@ -794,6 +463,33 @@ fn stage_all_error_sets_error_message() {
     );
     assert!(matches!(action, LoopAction::Proceed));
     assert!(app.status.is_error);
+}
+
+#[test]
+fn stage_all_error_message_keeps_the_underlying_cause() {
+    // `format!("{e}")` on an `anyhow::Error` prints only the outermost context
+    // and drops the source chain, which hid libgit2's "invalid path: 'nul'"
+    // behind a bare "failed to stage working-tree changes".
+    let repo = MockRepo {
+        stage_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    report_stage_outcome(
+        &mut app,
+        repo.stage_all(),
+        "Staged all changes",
+        "Nothing to stage",
+    );
+    let message = app.status.message.as_deref().unwrap();
+    assert!(
+        message.contains("failed to stage working-tree changes"),
+        "outer context missing from {message:?}"
+    );
+    assert!(
+        message.contains("invalid path: 'nul'"),
+        "underlying cause missing from {message:?}"
+    );
 }
 
 #[test]
@@ -1206,4 +902,305 @@ mod autofixup_selection {
             "batch abandoned; don't leak into a later, unrelated reload"
         );
     }
+}
+
+// --- Squash from a working-tree row -----------------------------------------
+//
+// The handler itself needs a live terminal for the editor step, so these cover
+// the parts of it that decide anything: how a source is prepared, how it is put
+// back when the squash gives up, and what the two messages say.
+
+use crate::mock_repo::{LiftOutcome, SquashProbe, mock_temp_oid};
+use git_tailor::app::{SquashMode, SquashSource};
+use git_tailor::repo::WorktreeSource;
+use rewrite::{prepare_source, squash_editor_seed, squash_success_message};
+
+fn commit_source() -> SquashSource {
+    SquashSource::Commit {
+        oid: Oid::from("b".repeat(40)),
+        message: "the source commit".to_string(),
+    }
+}
+
+fn worktree_source() -> SquashSource {
+    SquashSource::Worktree(WorktreeSource::Staged)
+}
+
+/// A commit source goes through the ordinary auto-stash.
+#[test]
+fn a_commit_source_is_prepared_behind_the_autostash() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .expect("a commit source prepares");
+
+    assert_eq!(repo.autostash_save_calls.get(), 1);
+    assert_eq!(prepared.source_oid(), &Oid::from("b".repeat(40)));
+    assert_eq!(
+        prepared.head_oid(),
+        &Oid::from("a".repeat(40)),
+        "a commit source folds from the real branch tip"
+    );
+    prepared.discard();
+}
+
+/// A working-tree row takes no auto-stash: the lift records the pre-operation
+/// state exactly, which is the whole reason the fold works without one.
+#[test]
+fn a_worktree_row_is_prepared_without_the_autostash() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .expect("a lifted row prepares");
+
+    assert_eq!(
+        repo.autostash_save_calls.get(),
+        0,
+        "the lift replaces the stash, it does not join it"
+    );
+    assert_eq!(prepared.source_oid(), &mock_temp_oid());
+    assert_eq!(
+        prepared.head_oid(),
+        &mock_temp_oid(),
+        "the temporary commit is both the source and the tip to fold from"
+    );
+    prepared.discard();
+}
+
+/// An empty row is reported in the operation's own words, not as a failure.
+#[test]
+fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
+    for (label, expected) in [
+        ("Squash", "Nothing to squash"),
+        ("Fixup", "Nothing to fixup"),
+    ] {
+        let mut repo = MockRepo::default();
+        let mut app = AppState::default();
+
+        let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), label).unwrap();
+
+        assert!(prepared.is_none());
+        assert_eq!(app.status.message.as_deref(), Some(expected));
+        assert!(app.status.is_error);
+    }
+}
+
+/// A lift that fails keeps the underlying cause, which is the half that says
+/// what actually went wrong.
+#[test]
+fn a_failed_lift_reports_the_underlying_cause() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Error,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    assert!(
+        prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+            .unwrap()
+            .is_none()
+    );
+    let message = app.status.message.unwrap();
+    assert!(message.starts_with("Squash failed:"), "got {message:?}");
+    assert!(
+        message.contains("the index has conflicts"),
+        "got {message:?}"
+    );
+}
+
+/// The tripwire itself: a way out of a squash that names no ending is caught
+/// where it is written, rather than by a user finding a temporary commit on
+/// their branch.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "dropped without an ending")]
+fn a_prepared_source_that_names_no_ending_trips() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let _prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
+}
+
+/// Giving up on a lifted row unwinds the temporary commit rather than the
+/// stash that was never taken.
+#[test]
+fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(matches!(action, LoopAction::Continue));
+    assert_eq!(repo.restore_lifted_calls.get(), 1);
+    assert_eq!(app.status.message.as_deref(), Some("Squash failed: nope"));
+}
+
+/// An unwind that itself fails leaves the row's changes in a commit on the
+/// branch. Say so, and reload — otherwise the commit is there and invisible.
+#[test]
+fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        restore_lifted_ok: false,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(
+        matches!(action, LoopAction::Reload),
+        "the branch has a commit on it the list does not show"
+    );
+    let message = app.status.message.unwrap();
+    assert!(
+        message.contains("your changes are in a temporary commit on the branch"),
+        "got {message:?}"
+    );
+    assert!(message.contains("ref is locked"), "got {message:?}");
+}
+
+/// Abandoning a commit source puts the auto-stash back instead.
+#[test]
+fn abandoning_a_commit_source_restores_the_autostash() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    let action = prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Proceed,
+    );
+
+    assert!(matches!(action, LoopAction::Proceed));
+    assert_eq!(
+        repo.restore_lifted_calls.get(),
+        0,
+        "there is no temporary commit to unwind"
+    );
+}
+
+/// A squash from a commit joins the two messages; a row has none of its own, so
+/// it starts from the target's alone rather than from a blank line under it.
+#[test]
+fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
+    assert_eq!(
+        squash_editor_seed(&commit_source(), "the target commit"),
+        "the target commit\n\nthe source commit"
+    );
+    assert_eq!(
+        squash_editor_seed(&worktree_source(), "the target commit"),
+        "the target commit"
+    );
+}
+
+/// The report names what was folded in, which for a row is the row.
+#[test]
+fn a_completed_fold_names_what_it_folded_in() {
+    assert_eq!(
+        squash_success_message(&commit_source(), SquashMode::Squash),
+        "Commit squashed"
+    );
+    assert_eq!(
+        squash_success_message(&worktree_source(), SquashMode::Fixup),
+        "Staged changes fixed up"
+    );
+    assert_eq!(
+        squash_success_message(
+            &SquashSource::Worktree(WorktreeSource::Unstaged),
+            SquashMode::Squash
+        ),
+        "Unstaged changes squashed"
+    );
+}
+
+/// The probe runs against the temporary commit and is given the message the
+/// fold would keep.
+#[test]
+fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        squash_probe: SquashProbe::Conflict,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Fixup")
+        .unwrap()
+        .unwrap();
+
+    let probe = repo
+        .squash_try_combine(
+            prepared.source_oid(),
+            &Oid::from("b".repeat(40)),
+            "the target commit",
+            SquashMode::Fixup,
+            prepared.head_oid(),
+        )
+        .unwrap();
+
+    assert!(probe.is_some());
+    assert_eq!(
+        repo.squash_probe_message.borrow().as_deref(),
+        Some("the target commit")
+    );
+    prepared.discard();
+}
+
+/// A probe that fails carries its cause up, the same as a failed lift.
+#[test]
+fn a_failed_conflict_probe_reports_the_underlying_cause() {
+    let repo = MockRepo {
+        squash_probe: SquashProbe::Error,
+        ..Default::default()
+    };
+
+    let error = repo
+        .squash_try_combine(
+            &Oid::from("b".repeat(40)),
+            &Oid::from("c".repeat(40)),
+            "the target commit",
+            SquashMode::Fixup,
+            &Oid::from("a".repeat(40)),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        format!("{error:#}"),
+        "failed to combine the two commits: tree is unmergeable"
+    );
 }

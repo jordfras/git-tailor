@@ -94,6 +94,10 @@ pub struct FileDiff {
     pub new_path: Option<String>,
     /// The git delta status indicating the type of change.
     pub status: DeltaStatus,
+    /// Whether git considers either side of this delta binary. Binary deltas
+    /// carry no hunks, so `hunks` alone cannot tell them apart from a change
+    /// that genuinely has no lines (an empty file, a mode-only change).
+    pub is_binary: bool,
     /// The list of changed regions in this file. A simple one-line change
     /// produces one hunk; scattered edits produce multiple hunks.
     pub hunks: Vec<Hunk>,

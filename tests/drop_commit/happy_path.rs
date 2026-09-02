@@ -95,6 +95,34 @@ fn drop_removes_added_file_from_working_tree() {
     );
 }
 
+/// A symlink is a file git tracks like any other, and dropping the commit that
+/// added one has to take it off disk. The guard that keeps a submodule's
+/// directory out of the cleanup must not catch a symlink pointing at one.
+#[cfg(unix)]
+#[test]
+fn drop_removes_added_symlink_to_a_directory() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("dir/x.txt", "x\n", "base");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::os::unix::fs::symlink("dir", workdir.join("link")).unwrap();
+    let to_drop = test.commit_path("link", "add a symlink");
+    let child = test.commit_file("a.txt", "a\n", "later commit");
+
+    let git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(child))
+            .unwrap()
+    );
+
+    let _ = base;
+    assert!(
+        workdir.join("link").symlink_metadata().is_err(),
+        "the symlink the dropped commit added must be gone, not left behind"
+    );
+}
+
 #[test]
 fn drop_with_multiple_descendants() {
     let test = common::TestRepo::new();
@@ -147,5 +175,50 @@ fn drop_preserves_commit_messages() {
         rebased.message().unwrap(),
         "important change\n\nDetailed body text.",
         "rebased descendant should keep its full commit message"
+    );
+}
+
+/// Dropping a commit that added a submodule must not trip over the submodule's
+/// directory.
+///
+/// The checkout that follows a rewrite deletes the paths the new tree no longer
+/// has, because a force checkout leaves them behind as untracked. A submodule
+/// pointer's path is a directory, which is not this operation's to delete —
+/// libgit2 does not recurse into it either.
+#[test]
+fn drop_a_commit_that_added_a_submodule() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.stage_gitlink("sub", base);
+    let to_drop = test.commit("add submodule");
+    let _child = test.commit_file("c.txt", "c1\n", "after");
+
+    // A checked-out submodule is a directory on disk, which is what the
+    // post-rewrite checkout has to leave alone.
+    let sub_dir = test.repo.workdir().unwrap().join("sub");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    std::fs::write(sub_dir.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
+
+    let git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .drop_commit(&Oid::from(to_drop), &head_oid)
+        .unwrap();
+
+    assert_history!(&test, base, &["after"]);
+    assert!(
+        test.repo
+            .find_commit(test.commits_from_head(base)[0])
+            .unwrap()
+            .tree()
+            .unwrap()
+            .get_path(std::path::Path::new("sub"))
+            .is_err(),
+        "the dropped commit's submodule pointer must be gone from history"
+    );
+    assert!(
+        sub_dir.is_dir(),
+        "the submodule directory must survive the drop"
     );
 }

@@ -16,7 +16,7 @@
 // the merge tool or editor, and continuing or aborting the paused operation.
 
 use anyhow::Result;
-use git_tailor::app::{AppMode, AppState, SquashMode};
+use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
 
@@ -50,7 +50,7 @@ pub(crate) fn handle_rebase_abort(
             ))
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e}"));
+            app.set_error_message(format!("Abort failed: {e:#}"));
             Ok(LoopAction::Proceed)
         }
     }
@@ -92,7 +92,7 @@ pub(crate) fn handle_rebase_continue(
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
-                    app.set_error_message(format!("Editor error: {e}"));
+                    app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
                 Ok(msg) if msg.trim().is_empty() => {
@@ -105,24 +105,31 @@ pub(crate) fn handle_rebase_continue(
                 Ok(msg) => msg,
             }
         };
-        let success_msg = match ctx_clone.squash_mode {
-            SquashMode::Fixup => "Commit fixed up",
-            SquashMode::Squash => "Commits squashed",
-        };
+        // Named after the operation, not its source: resuming here knows only
+        // that a squash or a fixup is finishing, and it may well have started
+        // from a working-tree row rather than a commit.
+        let success_msg = format!("{} complete", state.operation_label);
         let outcome = git_repo.squash_finalize(
             &ctx_clone,
             &final_msg,
             &original_oid,
             state.autofixup_context.as_ref(),
         );
-        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", success_msg);
+        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", &success_msg);
         return Ok(apply_pending_autofixup_selection(
             pending,
             is_autofixup,
             result,
         ));
     }
-    let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
+    // A carry conflict finishes the fold it belongs to, not a commit: the
+    // rewrite landed before the dialog opened, and what the user just resolved
+    // is where the other row's changes ended up.
+    let success_msg = if state.is_carry_conflict() {
+        format!("{} complete", state.operation_label)
+    } else {
+        format!("Commit {} complete", state.operation_label.to_lowercase())
+    };
     let outcome = git_repo.rebase_continue(&state);
     let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
     Ok(apply_pending_autofixup_selection(
@@ -204,7 +211,7 @@ fn finish_conflict_tool(
             app.set_error_message("No merge tool configured (set merge.tool in git config)");
         }
         Err(e) => {
-            app.set_error_message(format!("{tool_name} failed: {e}"));
+            app.set_error_message(format!("{tool_name} failed: {e:#}"));
         }
     }
     LoopAction::Proceed
@@ -274,7 +281,7 @@ pub(crate) fn handle_autostash_continue(
             Ok(LoopAction::Continue)
         }
         Err(e) => {
-            app.set_error_message(format!("Failed to finish auto-stash: {e}"));
+            app.set_error_message(format!("Failed to finish auto-stash: {e:#}"));
             Ok(LoopAction::Continue)
         }
     }
@@ -300,7 +307,7 @@ pub(crate) fn handle_autostash_abort(
             Ok(LoopAction::Reload)
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e}"));
+            app.set_error_message(format!("Abort failed: {e:#}"));
             Ok(LoopAction::Continue)
         }
     }

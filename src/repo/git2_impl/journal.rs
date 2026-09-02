@@ -41,13 +41,19 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::super::{InProgress, JournalCleanSummary, JournalStatus, UndoOutcome};
+use super::super::{InProgress, JournalCleanSummary, JournalStatus, LiftedRow, UndoOutcome};
 use super::Git2Repo;
 use super::reads;
 use crate::Oid;
 
-/// On-disk journal format version. Bump when the schema changes in a
-/// non-additive way and add a matching arm in [`migrate`].
+/// On-disk journal format version.
+///
+/// Bump when a document this version writes would no longer *parse* in the
+/// version before it, and add a matching upgrade branch in [`read`]. A new
+/// optional field on [`JournalDoc`] is safe, since an older reader skips what it
+/// does not know; a new [`UndoRecord`] variant is not, because the enum is
+/// tagged and an unknown tag fails the whole document — the reader then reports
+/// a perfectly good journal as corrupt instead of as one from the future.
 const JOURNAL_VERSION: u32 = 2;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
@@ -64,6 +70,17 @@ const ORIG_REF_LEAF: &str = "orig";
 /// Leaf (under [`REF_NAMESPACE`]) of the subdirectory pinning every tip
 /// referenced by the undo/redo stacks.
 const UNDO_REF_LEAF: &str = "undo/";
+
+/// Leaf (under [`REF_NAMESPACE`]) of the subdirectory keeping the working tree
+/// a discarded lift record still named, so the uncommitted work in it stays
+/// reachable rather than becoming garbage the next `git gc` collects.
+const RESCUE_REF_LEAF: &str = "rescue/";
+
+/// Full name of the rescue ref holding `tree`. Named after the tree so rescuing
+/// the same content twice is one ref rather than two.
+pub(super) fn rescue_ref(tree: &Oid) -> String {
+    format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{}", tree.short())
+}
 
 /// Full name of the in-progress `orig` pin.
 fn orig_ref() -> String {
@@ -106,6 +123,23 @@ enum UndoRecord {
         tip_before: Oid,
         tip_after: Oid,
     },
+    /// A squash whose source was a working-tree row. Undo/redo are *mixed*
+    /// resets (`reset --mixed`): the ref moves and the index tree is restored,
+    /// but the working tree is left alone — a fold that ran clean only moved
+    /// content between committed, staged and unstaged, so the files on disk are
+    /// the same before and after.
+    ///
+    /// A fold the user resolved a conflict in is the exception: the resolution
+    /// is what ends up on disk, and undo does not take it back off. The undo
+    /// restores what was committed and what was staged, and the resolution stays
+    /// as the unstaged difference from it.
+    MixedReset {
+        label: String,
+        tip_before: Oid,
+        tip_after: Oid,
+        index_tree_before: Oid,
+        index_tree_after: Oid,
+    },
 }
 
 impl UndoRecord {
@@ -113,7 +147,8 @@ impl UndoRecord {
         match self {
             UndoRecord::RefMove { label, .. }
             | UndoRecord::IndexChange { label, .. }
-            | UndoRecord::Commit { label, .. } => label,
+            | UndoRecord::Commit { label, .. }
+            | UndoRecord::MixedReset { label, .. } => label,
         }
     }
 
@@ -123,7 +158,9 @@ impl UndoRecord {
     fn skips_autostash(&self) -> bool {
         matches!(
             self,
-            UndoRecord::IndexChange { .. } | UndoRecord::Commit { .. }
+            UndoRecord::IndexChange { .. }
+                | UndoRecord::Commit { .. }
+                | UndoRecord::MixedReset { .. }
         )
     }
 
@@ -131,9 +168,9 @@ impl UndoRecord {
     /// after the ref move, or unchanged for an index-only op.
     fn applied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_after, .. } | UndoRecord::Commit { tip_after, .. } => {
-                tip_after
-            }
+            UndoRecord::RefMove { tip_after, .. }
+            | UndoRecord::Commit { tip_after, .. }
+            | UndoRecord::MixedReset { tip_after, .. } => tip_after,
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
@@ -142,15 +179,15 @@ impl UndoRecord {
     /// back at the pre-op tip, or unchanged for an index-only op.
     fn unapplied_head(&self) -> &Oid {
         match self {
-            UndoRecord::RefMove { tip_before, .. } | UndoRecord::Commit { tip_before, .. } => {
-                tip_before
-            }
+            UndoRecord::RefMove { tip_before, .. }
+            | UndoRecord::Commit { tip_before, .. }
+            | UndoRecord::MixedReset { tip_before, .. } => tip_before,
             UndoRecord::IndexChange { head, .. } => head,
         }
     }
 
     /// OIDs that must stay reachable (gc-pinned) while this record lives.
-    fn pinned_oids(&self) -> [&Oid; 2] {
+    fn pinned_oids(&self) -> Vec<&Oid> {
         match self {
             UndoRecord::RefMove {
                 tip_before,
@@ -161,12 +198,19 @@ impl UndoRecord {
                 tip_before,
                 tip_after,
                 ..
-            } => [tip_before, tip_after],
+            } => vec![tip_before, tip_after],
             UndoRecord::IndexChange {
                 index_tree_before,
                 index_tree_after,
                 ..
-            } => [index_tree_before, index_tree_after],
+            } => vec![index_tree_before, index_tree_after],
+            UndoRecord::MixedReset {
+                tip_before,
+                tip_after,
+                index_tree_before,
+                index_tree_after,
+                ..
+            } => vec![tip_before, tip_after, index_tree_before, index_tree_after],
         }
     }
 }
@@ -208,6 +252,16 @@ struct JournalDoc {
     /// completes or aborts (survives a crash so recovery can restore the user's
     /// working-tree changes).
     autostash: Option<AutostashRecord>,
+    /// Pre-operation state of a squash whose source is a working-tree row. Like
+    /// the auto-stash it is a sibling of `in_progress` rather than part of it,
+    /// because it has to outlive the phase changes — `in_progress` becomes a
+    /// conflict record the moment the squash conflicts, and the snapshot is
+    /// still what abort and completion restore from.
+    ///
+    /// The key keeps the name the type had when v2 was written: a journal from an
+    /// earlier build of this format must still read back, and `serde(default)`
+    /// would turn a renamed key into a silently stranded temporary commit.
+    worktree_source: Option<LiftedRow>,
 }
 
 /// Just the version field, parsed first so a newer-format file can be rejected
@@ -276,6 +330,20 @@ fn is_empty(doc: &JournalDoc) -> bool {
         && doc.undo.is_empty()
         && doc.redo.is_empty()
         && doc.autostash.is_none()
+        && doc.worktree_source.is_none()
+}
+
+/// Read the recorded working-tree-source snapshot, if any.
+pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
+    Ok(load_doc(repo)?.worktree_source)
+}
+
+/// Record (or clear, with `None`) the working-tree-source snapshot for the
+/// in-flight operation.
+pub(super) fn set_worktree_source(repo: &Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.worktree_source = snapshot;
+    save(repo, &mut doc)
 }
 
 /// Read the recorded auto-stash, if any.
@@ -332,8 +400,11 @@ pub(super) fn drop_reverted_undo_record(
 pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
 
+    // A fold in flight is an operation in progress too, even before it reaches a
+    // conflict: its temporary commit moves the branch off the tip the undo stack
+    // records, which is not history changing behind git-tailor's back.
     let mut cleared = false;
-    if doc.in_progress.is_none() {
+    if doc.in_progress.is_none() && doc.worktree_source.is_none() {
         if stacks_stale(repo, &doc)? {
             doc.undo.clear();
             doc.redo.clear();
@@ -390,6 +461,16 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     for rec in doc.undo.iter().chain(doc.redo.iter()) {
         oids.extend(rec.pinned_oids());
     }
+    // The snapshot's trees are loose objects no ref reaches.
+    if let Some(snapshot) = &doc.worktree_source {
+        oids.extend([
+            &snapshot.tip_before,
+            &snapshot.index_tree_before,
+            &snapshot.worktree_tree,
+            &snapshot.source_tree,
+            &snapshot.temp_oid,
+        ]);
+    }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
             &format!("{REF_NAMESPACE}{UNDO_REF_LEAF}{i}"),
@@ -422,6 +503,21 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
+    save(repo, &mut doc)?;
+    delete_orig_ref(repo);
+    Ok(())
+}
+
+/// Abandon whatever operation was in flight: the paused record *and* the
+/// working-tree snapshot. Used when a journal is discarded as unusable, where
+/// leaving the snapshot behind would keep telling later operations that a dirty
+/// working tree is accounted for. Distinct from
+/// [`clear_in_progress`], which only ends one phase of an operation that is
+/// still running.
+pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.in_progress = None;
+    doc.worktree_source = None;
     save(repo, &mut doc)?;
     delete_orig_ref(repo);
     Ok(())
@@ -531,6 +627,32 @@ pub(super) fn record_commit_undo(
     )
 }
 
+/// What a completed working-tree-sourced squash moved, for
+/// [`record_mixed_undo`].
+///
+/// Named fields because all four are OIDs, and swapping a before for an after
+/// would still typecheck while recording an undo entry that runs backwards.
+pub(super) struct MixedUndo<'a> {
+    pub tip_before: &'a Oid,
+    pub tip_after: &'a Oid,
+    pub index_tree_before: &'a Oid,
+    pub index_tree_after: &'a Oid,
+}
+
+/// Push a completed working-tree-sourced squash onto the undo stack.
+pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'_>) -> Result<()> {
+    push_undo(
+        repo,
+        UndoRecord::MixedReset {
+            label: label.to_string(),
+            tip_before: moved.tip_before.clone(),
+            tip_after: moved.tip_after.clone(),
+            index_tree_before: moved.index_tree_before.clone(),
+            index_tree_after: moved.index_tree_after.clone(),
+        },
+    )
+}
+
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
 fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
@@ -600,6 +722,28 @@ pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
                 return Ok(UndoOutcome::Stale);
             }
         }
+        UndoRecord::MixedReset {
+            tip_before,
+            tip_after,
+            index_tree_before,
+            index_tree_after,
+            label,
+        } => {
+            if !revert_mixed(
+                repo,
+                &mut doc,
+                MixedRevert {
+                    expected_tip: tip_after,
+                    expected_index: index_tree_after,
+                    target_tip: tip_before,
+                    target_index: index_tree_before,
+                },
+                "undo",
+                label,
+            )? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
     }
 
     doc.undo.pop();
@@ -644,6 +788,28 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
             label,
         } => {
             if !revert_soft(repo, &mut doc, tip_before, tip_after, "redo", label)? {
+                return Ok(UndoOutcome::Stale);
+            }
+        }
+        UndoRecord::MixedReset {
+            tip_before,
+            tip_after,
+            index_tree_before,
+            index_tree_after,
+            label,
+        } => {
+            if !revert_mixed(
+                repo,
+                &mut doc,
+                MixedRevert {
+                    expected_tip: tip_before,
+                    expected_index: index_tree_before,
+                    target_tip: tip_after,
+                    target_index: index_tree_after,
+                },
+                "redo",
+                label,
+            )? {
                 return Ok(UndoOutcome::Stale);
             }
         }
@@ -718,6 +884,40 @@ fn revert_soft(
     Ok(true)
 }
 
+/// Where a mixed reset is coming from and going to.
+struct MixedRevert<'a> {
+    expected_tip: &'a Oid,
+    expected_index: &'a Oid,
+    target_tip: &'a Oid,
+    target_index: &'a Oid,
+}
+
+/// Move the branch ref *and* the index (`reset --mixed`), leaving the working
+/// tree alone. Returns `false` (after clearing the now-stale stacks) when either
+/// the ref or the index has drifted — as for an index-only record, a mismatch
+/// means the user changed things outside this history, and forcing the recorded
+/// state over it would discard their work.
+fn revert_mixed(
+    repo: &Git2Repo,
+    doc: &mut JournalDoc,
+    revert: MixedRevert<'_>,
+    verb: &str,
+    label: &str,
+) -> Result<bool> {
+    if &reads::head_oid(repo)? != revert.expected_tip
+        || &current_index_tree(repo)? != revert.expected_index
+    {
+        clear_stacks(repo, doc)?;
+        return Ok(false);
+    }
+    repo.advance_branch_ref(
+        git2::Oid::from(revert.target_tip),
+        &format!("git-tailor: {verb} {}", label.to_lowercase()),
+    )?;
+    restore_index(repo, revert.target_index)?;
+    Ok(true)
+}
+
 fn clear_stacks(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.undo.clear();
     doc.redo.clear();
@@ -750,15 +950,7 @@ pub(super) fn current_index_tree(repo: &Git2Repo) -> Result<Oid> {
 /// untouched. Always returns `Ok(true)` so callers can treat it as the
 /// non-stale arm of `revert_index`.
 fn restore_index(repo: &Git2Repo, target: &Oid) -> Result<bool> {
-    let tree = repo
-        .inner
-        .find_tree(git2::Oid::from(target))
-        .context("failed to find recorded index tree")?;
-    let mut index = repo.inner.index().context("failed to open index")?;
-    index
-        .read_tree(&tree)
-        .context("failed to restore index tree")?;
-    index.write().context("failed to write index")?;
+    repo.set_index_tree(git2::Oid::from(target))?;
     Ok(true)
 }
 
@@ -811,7 +1003,15 @@ pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
 fn classify(doc: JournalDoc) -> JournalStatus {
     match doc.in_progress {
         Some(record) => JournalStatus::Recovered(Box::new(record)),
-        None => JournalStatus::None,
+        // A snapshot with no paused operation means the squash died between
+        // lifting the working-tree row into its temporary commit and reaching a
+        // conflict or completion. Surface it as its own recoverable phase.
+        None => match doc.worktree_source {
+            Some(snapshot) => {
+                JournalStatus::Recovered(Box::new(InProgress::WorktreeSquash(snapshot)))
+            }
+            None => JournalStatus::None,
+        },
     }
 }
 
@@ -855,5 +1055,6 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         undo: old.undo,
         redo: old.redo,
         autostash: old.autostash,
+        worktree_source: None,
     }
 }

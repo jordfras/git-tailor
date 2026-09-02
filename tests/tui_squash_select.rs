@@ -20,7 +20,7 @@ use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{
     CommitInfo, Oid, VirtualOid,
-    app::{AppAction, AppMode, AppState, KeyCommand, SquashMode},
+    app::{AppAction, AppMode, AppState, KeyCommand, SquashMode, SquashSource},
     fragmap::TouchKind,
     views,
     views::theme::Theme,
@@ -70,11 +70,15 @@ fn test_squash_confirm_returns_prepare_squash() {
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     match result {
         AppAction::PrepareSquash {
-            source_oid,
-            target_oid,
-            ..
+            source, target_oid, ..
         } => {
-            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(
+                source,
+                SquashSource::Commit {
+                    oid: Oid::from("333333333333"),
+                    message: "Newest commit (HEAD)".to_string(),
+                }
+            );
             assert_eq!(target_oid, Oid::from("111111111111"));
         }
         other => panic!("Expected PrepareSquash, got {:?}", other),
@@ -125,8 +129,9 @@ fn test_squash_esc_cancels() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
-#[test]
-fn test_squash_blocked_on_staged_row() {
+/// A commit list with one real commit followed by the two synthetic
+/// working-tree rows, as the loader builds it.
+fn app_with_worktree_rows() -> AppState {
     let mut app = AppState::new();
     app.list.commits = vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
@@ -135,17 +140,111 @@ fn test_squash_blocked_on_staged_row() {
             summary: "staged".to_string(),
             ..common::create_test_commit("staged", "staged")
         },
+        CommitInfo {
+            oid: VirtualOid::Unstaged,
+            summary: "unstaged".to_string(),
+            ..common::create_test_commit("unstaged", "unstaged")
+        },
     ];
+    app.mode = AppMode::CommitList;
+    app
+}
+
+/// Working-tree changes can be folded straight into a commit, so the rows are
+/// valid squash sources.
+#[test]
+fn test_squash_starts_from_a_worktree_row() {
+    for (index, row) in [(1, "staged"), (2, "unstaged")] {
+        let mut app = app_with_worktree_rows();
+        app.list.selection_index = index;
+
+        app.enter_squash_select();
+
+        assert_eq!(
+            app.mode,
+            AppMode::SquashSelect {
+                source_index: index,
+                squash_mode: SquashMode::Squash,
+            },
+            "{row} row should be a valid squash source"
+        );
+        assert!(!app.status.is_error, "{row}");
+    }
+}
+
+/// Folding a row in needs only one commit to fold into, unlike a commit source
+/// which needs another besides itself.
+#[test]
+fn test_worktree_row_folds_into_a_lone_commit() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 2;
+
+    app.enter_fixup_select();
+
+    assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
+    assert!(!app.status.is_error);
+}
+
+/// Confirming a row source names the row, not a commit OID.
+#[test]
+fn test_worktree_row_confirm_returns_a_worktree_source() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Fixup,
+    };
+
+    match views::squash_select::handle_key(KeyCommand::Confirm, &mut app) {
+        AppAction::PrepareSquash {
+            source, target_oid, ..
+        } => {
+            assert_eq!(
+                source,
+                SquashSource::Worktree(git_tailor::repo::WorktreeSource::Unstaged)
+            );
+            assert_eq!(target_oid, Oid::from("aaa111bbb222"));
+        }
+        other => panic!("Expected PrepareSquash, got {other:?}"),
+    }
+}
+
+/// The other working-tree row is not something changes can be folded into, and
+/// it sits below the source so the cursor can reach it.
+#[test]
+fn test_worktree_row_cannot_target_the_other_row() {
+    let mut app = app_with_worktree_rows();
     app.list.selection_index = 1;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Fixup,
+    };
+
+    let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
+    assert!(matches!(result, AppAction::Handled));
+    assert!(app.status.is_error);
+    assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
+}
+
+/// With no commits on the branch at all there is nothing to fold a row into.
+#[test]
+fn test_worktree_row_blocked_without_any_commit() {
+    let mut app = AppState::new();
+    app.list.commits = vec![CommitInfo {
+        oid: VirtualOid::Unstaged,
+        summary: "unstaged".to_string(),
+        ..common::create_test_commit("unstaged", "unstaged")
+    }];
+    app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
-    app.enter_squash_select();
+    app.enter_fixup_select();
 
-    // Should still be in CommitList (blocked)
     assert_eq!(app.mode, AppMode::CommitList);
     assert!(app.status.is_error);
 }
 
+/// A lone commit has nothing earlier to fold into.
 #[test]
 fn test_squash_blocked_on_single_commit() {
     let mut app = AppState::new();
@@ -339,12 +438,18 @@ fn test_fixup_confirm_returns_prepare_fixup() {
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     match result {
         AppAction::PrepareSquash {
-            source_oid,
+            source,
             target_oid,
             squash_mode,
             ..
         } => {
-            assert_eq!(source_oid, Oid::from("333333333333"));
+            assert_eq!(
+                source,
+                SquashSource::Commit {
+                    oid: Oid::from("333333333333"),
+                    message: "Newest commit (HEAD)".to_string(),
+                }
+            );
             assert_eq!(target_oid, Oid::from("111111111111"));
             assert_eq!(squash_mode, SquashMode::Fixup);
         }
@@ -406,4 +511,23 @@ fn test_squash_select_pages_in_both_display_orders() {
             );
         }
     }
+}
+
+/// Picking a target from a working-tree row: the other row is dimmed alongside
+/// the commits out of reach, because changes cannot be folded into it.
+#[test]
+fn test_squash_from_a_worktree_row_dims_the_other_row() {
+    let mut harness = TuiTestHarness::short();
+
+    let mut app = app_with_worktree_rows();
+    // Source is the unstaged row (last), cursor on the one real commit.
+    app.list.selection_index = 0;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Squash,
+    };
+
+    insta::assert_debug_snapshot!(
+        harness.render(|frame| views::commit_list::render(&mut app, frame))
+    );
 }

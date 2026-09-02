@@ -39,6 +39,7 @@ fn test_extract_spans_single_hunk() {
             old_path: Some("file.txt".to_string()),
             new_path: Some("file.txt".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 10,
                 old_lines: 3,
@@ -65,6 +66,7 @@ fn test_extract_spans_multiple_hunks() {
             old_path: Some("file.txt".to_string()),
             new_path: Some("file.txt".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![
                 Hunk {
                     old_start: 5,
@@ -105,6 +107,7 @@ fn test_extract_spans_multiple_files() {
                 old_path: Some("a.txt".to_string()),
                 new_path: Some("a.txt".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 1,
                     old_lines: 1,
@@ -117,6 +120,7 @@ fn test_extract_spans_multiple_files() {
                 old_path: Some("b.txt".to_string()),
                 new_path: Some("b.txt".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 10,
                     old_lines: 3,
@@ -149,6 +153,7 @@ fn test_extract_spans_skips_deleted_files() {
                 old_path: Some("file.txt".to_string()),
                 new_path: Some("file.txt".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 1,
                     old_lines: 1,
@@ -161,6 +166,7 @@ fn test_extract_spans_skips_deleted_files() {
                 old_path: Some("deleted.txt".to_string()),
                 new_path: None, // File was deleted
                 status: crate::DeltaStatus::Deleted,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 1,
                     old_lines: 5,
@@ -187,6 +193,7 @@ fn test_extract_spans_skips_empty_hunks() {
             old_path: Some("file.txt".to_string()),
             new_path: Some("file.txt".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![
                 Hunk {
                     old_start: 5,
@@ -222,6 +229,7 @@ fn test_extract_spans_added_file() {
             old_path: None, // File was added
             new_path: Some("new_file.txt".to_string()),
             status: crate::DeltaStatus::Added,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 0,
                 old_lines: 0,
@@ -248,6 +256,7 @@ fn test_extract_spans_single_line_change() {
             old_path: Some("file.txt".to_string()),
             new_path: Some("file.txt".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 42,
                 old_lines: 1,
@@ -288,6 +297,7 @@ fn test_propagation_sequential_commits_same_file() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 10,
                     old_lines: 5,
@@ -303,6 +313,7 @@ fn test_propagation_sequential_commits_same_file() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 50,
                     old_lines: 5,
@@ -329,6 +340,7 @@ fn test_propagation_overlapping_hunks_are_related() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 10,
                     old_lines: 5,
@@ -344,6 +356,7 @@ fn test_propagation_overlapping_hunks_are_related() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 30,
                     old_lines: 10,
@@ -369,6 +382,7 @@ fn test_propagation_distant_changes_not_related() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 10,
                     old_lines: 3,
@@ -384,6 +398,7 @@ fn test_propagation_distant_changes_not_related() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 200,
                     old_lines: 5,
@@ -429,6 +444,7 @@ fn make_file_diff(
         old_path: old_path.map(|s| s.to_string()),
         new_path: new_path.map(|s| s.to_string()),
         status: crate::DeltaStatus::Modified,
+        is_binary: false,
         hunks: vec![Hunk {
             old_start,
             old_lines,
@@ -1408,6 +1424,7 @@ fn build_fragmap_far_deletion_does_not_cluster_with_unrelated_modify() {
                 old_path: Some("f.rs".to_string()),
                 new_path: Some("f.rs".to_string()),
                 status: crate::DeltaStatus::Modified,
+                is_binary: false,
                 hunks: vec![Hunk {
                     old_start: 50,
                     old_lines: 3,
@@ -1432,6 +1449,7 @@ fn build_fragmap_file_rename_cluster_uses_canonical_path() {
             old_path: Some("foo.rs".to_string()),
             new_path: Some("bar.rs".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 5,
                 old_lines: 3,
@@ -1462,6 +1480,7 @@ fn build_fragmap_rename_groups_old_and_new_in_same_cluster() {
             old_path: Some("foo.rs".to_string()),
             new_path: Some("bar.rs".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 5,
                 old_lines: 6,
@@ -1599,6 +1618,7 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
             old_path: None,
             new_path: Some("f.rs".to_string()),
             status: crate::DeltaStatus::Added,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 0,
                 old_lines: 0,
@@ -1631,6 +1651,7 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
             old_path: Some("f.rs".to_string()),
             new_path: Some("f.rs".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 29,
                 old_lines: 0,
@@ -1663,6 +1684,7 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
             old_path: Some("f.rs".to_string()),
             new_path: Some("f.rs".to_string()),
             status: crate::DeltaStatus::Modified,
+            is_binary: false,
             hunks: vec![Hunk {
                 old_start: 31,
                 old_lines: 0,
@@ -1735,5 +1757,54 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
         assignment.touched_groups().len(),
         2,
         "both groups must actually receive hunks"
+    );
+}
+
+/// A delta with no hunks contributes no cluster.
+///
+/// The staged/unstaged rows now appear for a change that carries no hunks — a
+/// binary file, an empty one, a mode-only change — and a fragmap is about line
+/// ranges, which such a change has none of. The row is present with an empty
+/// column rather than dropped or faked onto lines it does not touch.
+#[test]
+fn test_hunkless_delta_contributes_no_cluster() {
+    let hunkless = CommitDiff {
+        commit: make_commit_info(),
+        files: vec![FileDiff {
+            old_path: Some("image.png".to_string()),
+            new_path: Some("image.png".to_string()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: true,
+            hunks: vec![],
+        }],
+    };
+    let with_hunks = CommitDiff {
+        commit: make_commit_info(),
+        files: vec![FileDiff {
+            old_path: Some("file.txt".to_string()),
+            new_path: Some("file.txt".to_string()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }],
+    };
+
+    assert!(extract_spans(&hunkless).is_empty());
+
+    let fragmap = build_fragmap(&[hunkless, with_hunks], false, &mut |_| true).unwrap();
+    assert_eq!(fragmap.matrix.len(), 2, "both commits keep a row");
+    assert!(
+        fragmap.matrix[0].iter().all(|t| *t == TouchKind::None),
+        "the hunkless commit touches no cluster"
+    );
+    assert!(
+        fragmap.matrix[1].iter().any(|t| *t != TouchKind::None),
+        "the commit with hunks still clusters"
     );
 }

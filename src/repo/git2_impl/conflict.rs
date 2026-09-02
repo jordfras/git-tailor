@@ -112,9 +112,7 @@ pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()>
     // the target commit's tree), so checkout_head alone cannot restore files that
     // exist in HEAD but were absent from that tree.
     let head_commit = repo.inner.find_commit(original_oid)?;
-    let mut index = repo.inner.index()?;
-    index.read_tree(&head_commit.tree()?)?;
-    index.write()?;
+    repo.set_index_tree(head_commit.tree()?.id())?;
 
     // Force-checkout HEAD and remove files that were written to the workdir
     // by the conflict checkout but are not tracked by the original HEAD.

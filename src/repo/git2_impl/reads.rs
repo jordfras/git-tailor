@@ -222,7 +222,10 @@ fn build_synthetic_diff(
     summary: &str,
 ) -> Result<Option<CommitDiff>> {
     let files = extract_files_from_diff(diff)?;
-    if files.iter().all(|f| f.hunks.is_empty()) {
+    // Emptiness is "no deltas", not "no hunks": an empty file, a binary file or
+    // a mode-only change is a real delta that carries no hunks, and the row must
+    // still appear for it.
+    if files.is_empty() {
         return Ok(None);
     }
     Ok(Some(CommitDiff {
@@ -421,6 +424,10 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
         let patch = git2::Patch::from_diff(diff, delta_idx)?
             .context("Failed to extract patch from diff")?;
 
+        // Taken from the patch, not the diff: libgit2 only sets the binary flag
+        // once the patch has loaded the file contents.
+        let is_binary = patch.delta().flags().is_binary();
+
         let mut hunks = Vec::new();
         for hunk_idx in 0..patch.num_hunks() {
             let (hunk_header, _num_lines) = patch.hunk(hunk_idx)?;
@@ -450,6 +457,7 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
             old_path,
             new_path,
             status,
+            is_binary,
             hunks,
         });
     }

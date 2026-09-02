@@ -87,6 +87,69 @@ pub enum CommitOutcome {
     NothingStaged,
 }
 
+/// Which working-tree row a squash or fixup draws its changes from — the
+/// synthetic "staged" / "unstaged" entries the commit list shows above the real
+/// commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum WorktreeSource {
+    #[default]
+    Staged,
+    Unstaged,
+}
+
+impl WorktreeSource {
+    /// How the row is named in status messages, sentence-initial.
+    pub fn label(self) -> &'static str {
+        match self {
+            WorktreeSource::Staged => "Staged changes",
+            WorktreeSource::Unstaged => "Unstaged changes",
+        }
+    }
+
+    /// The row a fold from this one leaves behind, whose changes have to go
+    /// back where they came from once the fold lands.
+    pub fn other(self) -> Self {
+        match self {
+            WorktreeSource::Staged => WorktreeSource::Unstaged,
+            WorktreeSource::Unstaged => WorktreeSource::Staged,
+        }
+    }
+}
+
+/// A working-tree row lifted into a temporary commit, with the pre-operation
+/// state the fold must be able to get back to.
+///
+/// The three trees pin down the whole starting point: `tip_before` is where the
+/// branch sat, `index_tree_before` what was staged, and `worktree_tree` what was
+/// on disk (tracked paths only — untracked files belong to neither row and are
+/// never touched). Restoring from them is exact and needs no merge, which is why
+/// these operations do not go through the auto-stash.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiftedRow {
+    /// The row whose changes were lifted into the temporary commit.
+    pub source: WorktreeSource,
+    /// The branch tip before the temporary commit was created.
+    pub tip_before: Oid,
+    /// The index tree before the operation.
+    pub index_tree_before: Oid,
+    /// The working tree (tracked paths) as a tree object. Unchanged by the
+    /// operation — it only moves content between committed, staged and unstaged.
+    pub worktree_tree: Oid,
+    /// The temporary commit's tree: the working tree with the row's changes
+    /// taken out of it. The merge base for putting the other row's changes back
+    /// on top of wherever the squash ended up.
+    pub source_tree: Oid,
+    /// The temporary commit itself, which the fold left the branch on. Its diff
+    /// against its parent is exactly the row's diff, so it serves as both
+    /// `source_oid` and `head_oid` for the squash built on it. Also identifies
+    /// the record as belonging to the operation in hand: a record whose
+    /// temporary commit is not where the branch is describes something that has
+    /// already moved on, and unwinding it would take the user's later work with
+    /// it.
+    pub temp_oid: Oid,
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -149,6 +212,12 @@ pub enum Resume {
     /// Finalize a squash (open the editor if needed, then `squash_finalize`)
     /// after the user resolves the squash-tree conflict.
     Squash(SquashContext),
+    /// Put the *other* working-tree row back after the user resolves its clash
+    /// with the fold's own resolution. The history is already rewritten by the
+    /// time this conflict is raised — what is left is where the row's changes
+    /// go, so continuing settles the working tree and aborting unwinds the whole
+    /// fold through [`LiftedRow`].
+    CarryRow(LiftedRow),
 }
 
 impl Default for Resume {
@@ -168,6 +237,10 @@ impl Default for Resume {
 pub enum InProgress {
     Conflict(Box<ConflictState>),
     Edit(EditInProgress),
+    /// A working-tree row has been lifted into a temporary commit but the squash
+    /// built on it has not reached a conflict or completion yet. Recovery
+    /// rewinds it.
+    WorktreeSquash(LiftedRow),
 }
 
 /// State captured while an "Edit" (interactive shell edit of a commit) is in
@@ -192,6 +265,7 @@ impl InProgress {
         match self {
             InProgress::Conflict(c) => &c.original_branch_oid,
             InProgress::Edit(e) => &e.original_branch_oid,
+            InProgress::WorktreeSquash(s) => &s.tip_before,
         }
     }
 }
@@ -393,11 +467,15 @@ pub trait RepoRead {
     /// never set).
     fn default_branch(&self) -> Result<Option<String>>;
 
-    /// Yield commits incrementally from `from_oid` to `to_oid` (oldest first).
+    /// Yield commits incrementally from `from_oid` to `to_oid`, newest first.
     ///
     /// Unlike `list_commits`, this streams one `CommitInfo` per `.next()` call
-    /// so callers can render progress between iterations. The OID range and
-    /// result ordering are identical to `list_commits`.
+    /// so callers can render progress between iterations. It covers the same OID
+    /// range but yields it in the opposite order: `list_commits` collects the
+    /// whole walk and reverses it to oldest-first, which a stream cannot do
+    /// without buffering everything and giving up the incremental progress this
+    /// exists for. Callers wanting oldest-first reverse what they collected, as
+    /// `loader::load_with_progress` does.
     fn commit_walker<'a>(
         &'a self,
         from_oid: &Oid,
@@ -611,9 +689,12 @@ pub trait RepoWrite {
     /// (via the normal conflict flow) or abort it.
     fn read_journal(&self) -> Result<JournalStatus>;
 
-    /// Discard the journal's in-progress record without otherwise touching the
-    /// repository. Used when a recovered operation is stale (the branch has
-    /// moved since it was journaled), so resuming or aborting would be unsafe.
+    /// Discard whatever the journal says is in flight — the paused record *and*
+    /// any working-tree snapshot — without otherwise touching the repository.
+    /// Used when a recovered operation is stale (the branch has moved since it
+    /// was journaled), so resuming or aborting would be unsafe. The snapshot has
+    /// to go too: left behind, it keeps telling later operations that a dirty
+    /// working tree is accounted for.
     fn clear_journal(&self) -> Result<()>;
 
     /// Drop undo/redo history (and its `refs/git-tailor/*` gc-pins) that no
@@ -634,6 +715,13 @@ pub trait RepoWrite {
     /// stack). Refuses if the working tree is dirty; reports
     /// [`UndoOutcome::Stale`] and discards the stack if the branch no longer
     /// matches the recorded post-operation tip.
+    ///
+    /// Undoing a working-tree fold moves the branch and the index and leaves the
+    /// files alone, which restores everything a fold that ran cleanly touched —
+    /// it only ever moved content between committed, staged and unstaged. A fold
+    /// that went through a conflict also changed the files, to whatever the user
+    /// resolved to, and that stands: what they replaced is gone the moment they
+    /// resolve, so there is nothing left to put back.
     fn undo(&self) -> Result<UndoOutcome>;
 
     /// Redo the most recently undone operation, restoring its post-operation
@@ -650,9 +738,10 @@ pub trait RepoWrite {
     /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
     fn pending_redo_skips_autostash(&self) -> Result<bool>;
 
-    /// Stage all working-tree changes (modifications, untracked additions, and
-    /// deletions), like `git add -A`. Recorded as an undoable index-only
-    /// operation. Returns [`StageOutcome::NoOp`] when there was nothing to stage.
+    /// Stage all changes to tracked files (modifications and deletions), like
+    /// `git add -u`. Untracked files are left alone, matching what the unstaged
+    /// row's diff shows. Recorded as an undoable index-only operation. Returns
+    /// [`StageOutcome::NoOp`] when there was nothing to stage.
     fn stage_all(&self) -> Result<StageOutcome>;
 
     /// Unstage all staged changes by resetting the index to HEAD. Recorded as an
@@ -666,6 +755,37 @@ pub trait RepoWrite {
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
     fn commit_staged(&self, message: &str) -> Result<CommitOutcome>;
+
+    /// Lift the staged or unstaged working-tree changes into a temporary commit
+    /// on top of HEAD, so the squash machinery can take them as its source.
+    ///
+    /// The commit's diff against its parent is exactly the row's diff, and the
+    /// *other* row's changes are left in the index and working tree, still on
+    /// their own side of the staged/unstaged line. Returns `None` when the row
+    /// has nothing to fold in.
+    ///
+    /// Records the returned row in the journal write-ahead, so a crash before
+    /// the squash finishes leaves a recoverable temporary commit rather than a
+    /// stray one. Every path out of the operation must end in either
+    /// [`restore_lifted_row`](Self::restore_lifted_row) or a completed squash.
+    ///
+    /// Fails when the unstaged row cannot be separated from the staged one —
+    /// edits to the same lines have no meaningful split.
+    fn lift_worktree_row(&self, source: WorktreeSource) -> Result<Option<LiftedRow>>;
+
+    /// Unwind [`lift_worktree_row`](Self::lift_worktree_row): put the branch,
+    /// the index and the working tree back exactly as `lifted` recorded them,
+    /// and clear the journal record. Untracked files are left alone.
+    fn restore_lifted_row(&self, lifted: &LiftedRow) -> Result<()>;
+
+    /// Keep the working tree `lifted` recorded reachable under a ref, for a
+    /// record that is about to be discarded because the branch has moved past
+    /// it.
+    ///
+    /// Returns the ref's name, or `None` when the recorded tree is what HEAD
+    /// already holds and there is nothing to lose. The ref lives under the
+    /// git-tailor namespace, so `--clean-journal` sweeps it along with the rest.
+    fn rescue_lifted_row(&self, lifted: &LiftedRow) -> Result<Option<String>>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a
@@ -819,7 +939,13 @@ impl ConflictState {
     pub fn remaining_oids(&self) -> &[Oid] {
         match &self.resume {
             Resume::Chain { remaining_oids, .. } => remaining_oids,
-            Resume::Squash(_) => &[],
+            Resume::Squash(_) | Resume::CarryRow(_) => &[],
         }
+    }
+
+    /// Whether this conflict is the *other* working-tree row failing to land on
+    /// what the user resolved the fold to, rather than a rewrite conflicting.
+    pub fn is_carry_conflict(&self) -> bool {
+        matches!(self.resume, Resume::CarryRow(_))
     }
 }

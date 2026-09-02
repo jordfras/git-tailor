@@ -244,6 +244,12 @@ fn build_file_preview(app: &AppState, file: Option<&FileDiff>) -> Vec<Line<'stat
         Style::default().fg(app.colors.resolve(Color::Yellow)),
     )));
     lines.push(Line::from(""));
+    if file.hunks.is_empty() {
+        lines.push(Line::from(Span::styled(
+            super::commit_detail::hunkless_marker(file),
+            Style::default().fg(app.colors.resolve(Color::DarkGray)),
+        )));
+    }
     for hunk in &file.hunks {
         lines.push(Line::from(Span::styled(
             format!(

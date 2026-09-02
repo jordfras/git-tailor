@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Stage or unstage all working-tree changes at once (`git add -A` / reset to
-//! HEAD). These only mutate the index; the journalling wrapper that makes them
-//! undoable lives in [`super::Git2Repo::journaled_index_op`].
+//! Stage or unstage all changes to tracked files at once (`git add -u` / reset
+//! to HEAD). These only mutate the index; the journalling wrapper that makes
+//! them undoable lives in [`super::Git2Repo::journaled_index_op`].
 
 use anyhow::{Context, Result};
 
 use super::Git2Repo;
 
-/// Stage every working-tree change: modifications, untracked additions, and
-/// deletions. Equivalent to `git add -A`.
+/// Stage every change to a tracked file: modifications and deletions.
+/// Equivalent to `git add -u`. Untracked files are deliberately left alone —
+/// they are invisible in the unstaged row's diff, so sweeping them in would
+/// stage files the user never saw.
 pub(super) fn stage_all(repo: &Git2Repo) -> Result<()> {
     let mut index = repo.inner.index().context("failed to open index")?;
     index.read(true).context("failed to refresh index")?;
@@ -32,14 +34,11 @@ pub(super) fn stage_all(repo: &Git2Repo) -> Result<()> {
         anyhow::bail!("cannot stage while the index has unresolved conflicts");
     }
 
-    // `add_all` stages modifications and untracked files but not removals;
-    // `update_all` captures deletions of already-tracked files.
-    index
-        .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
-        .context("failed to stage working-tree changes")?;
+    // `update_all` only touches paths already in the index, so it picks up
+    // modifications and deletions while skipping untracked files.
     index
         .update_all(["*"].iter(), None)
-        .context("failed to stage deletions")?;
+        .context("failed to stage working-tree changes")?;
     index.write().context("failed to write index")?;
     Ok(())
 }

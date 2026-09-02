@@ -93,15 +93,19 @@ fn dirty_repo() -> common::TestRepo {
 }
 
 #[test]
-fn stage_all_stages_modifications_additions_and_deletions() {
+fn stage_all_stages_modifications_and_deletions_but_not_untracked_files() {
     let test = dirty_repo();
     let git_repo = test.git_repo();
 
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::Changed);
 
     let (staged, unstaged) = staged_and_unstaged(test.repo.path());
-    assert_eq!(staged, vec!["a.txt", "b.txt", "c.txt"]);
-    assert!(unstaged.is_empty(), "nothing should remain unstaged");
+    assert_eq!(staged, vec!["a.txt", "b.txt"]);
+    assert_eq!(
+        unstaged,
+        vec!["c.txt"],
+        "an untracked file must not be staged"
+    );
 }
 
 #[test]
@@ -166,11 +170,11 @@ fn undo_stage_all_moves_changes_back_to_unstaged_without_touching_worktree() {
     assert_eq!(head_oid(&test), tip, "undo must not move the branch ref");
     assert_eq!(read_workdir(&test, "a.txt"), "a changed\n");
 
-    // Redo re-stages everything.
+    // Redo re-stages the tracked changes.
     assert_eq!(expect_done(git_repo.redo().unwrap()), "Stage all");
     let (staged, unstaged) = staged_and_unstaged(test.repo.path());
-    assert_eq!(staged, vec!["a.txt", "b.txt", "c.txt"]);
-    assert!(unstaged.is_empty());
+    assert_eq!(staged, vec!["a.txt", "b.txt"]);
+    assert_eq!(unstaged, vec!["c.txt"]);
 }
 
 #[test]
@@ -183,8 +187,8 @@ fn undo_unstage_all_restages() {
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Unstage all");
 
     let (staged, unstaged) = staged_and_unstaged(test.repo.path());
-    assert_eq!(staged, vec!["a.txt", "b.txt", "c.txt"]);
-    assert!(unstaged.is_empty());
+    assert_eq!(staged, vec!["a.txt", "b.txt"]);
+    assert_eq!(unstaged, vec!["c.txt"]);
 }
 
 #[test]
@@ -225,15 +229,18 @@ fn index_and_ref_ops_undo_in_lifo_order() {
     );
     assert_eq!(test.commits_from_head(base).len(), 1);
 
-    // Index-only op next. An untracked file keeps the tree "clean" for the later
-    // ref undo (untracked files are not treated as dirty).
-    test.write_file("d.txt", "d\n");
+    // Index-only op next.
+    test.write_file("a.txt", "a changed\n");
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::Changed);
 
     // Undo pops the index op first.
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Stage all");
     let (staged, _) = staged_and_unstaged(test.repo.path());
-    assert!(staged.is_empty(), "the staged d.txt should be reverted");
+    assert!(staged.is_empty(), "the staged a.txt should be reverted");
+
+    // Undoing the stage leaves the change unstaged, and the ref undo below
+    // refuses a dirty tree, so put the file back the way it was.
+    test.write_file("a.txt", "a\n");
 
     // Then the ref op, restoring the dropped commit.
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Drop");

@@ -44,7 +44,7 @@ pub(crate) fn handle_prepare_split(
         SplitStrategy::OutHunks => unreachable!("OutHunks uses PrepareSplitOutHunks"),
     };
     match count_result {
-        Err(e) => app.set_error_message(e.to_string()),
+        Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
             app.enter_split_confirm(strategy, commit_oid, head_oid, count);
         }
@@ -69,7 +69,7 @@ pub(crate) fn handle_prepare_split_out_files(
     commit_oid: Oid,
 ) -> Result<LoopAction> {
     match git_repo.commit_diff(&commit_oid, DEFAULT_CONTEXT_LINES) {
-        Err(e) => app.set_error_message(e.to_string()),
+        Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(diff) if diff.files.len() < 2 => {
             app.set_error_message("Commit touches fewer than 2 files — nothing to split out");
         }
@@ -90,7 +90,7 @@ pub(crate) fn handle_prepare_split_out_hunks(
     context_lines: u32,
 ) -> Result<LoopAction> {
     match git_repo.commit_diff(&commit_oid, context_lines) {
-        Err(e) => app.set_error_message(e.to_string()),
+        Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(diff) => {
             let hunks: Vec<HunkPickerEntry> = diff
                 .files
@@ -160,7 +160,7 @@ pub(crate) fn execute_split(
     // is not refused: a split reproduces the same final tree, so reapplying the
     // stash afterwards is always conflict-free.
     if let Err(e) = git_repo.autostash_save() {
-        app.set_error_message(format!("Auto-stash failed: {e}"));
+        app.set_error_message(format!("Auto-stash failed: {e:#}"));
         return LoopAction::Proceed;
     }
     let result = match strategy {
@@ -196,7 +196,7 @@ fn settle_split_autostash(
         ),
         Err(e) => {
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Split failed: {e}"));
+            app.set_error_message(format!("Split failed: {e:#}"));
             LoopAction::Proceed
         }
     }

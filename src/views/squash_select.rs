@@ -16,14 +16,18 @@
 // commit list footer (see `render_footer` in commit_list.rs).
 
 use super::list_nav::{self, ListNav};
-use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashSource};
+use crate::repo::WorktreeSource;
+use crate::{CommitInfo, VirtualOid};
 
 /// Handle an action while in SquashSelect mode.
 ///
-/// The user navigates the commit list to pick a squash target. The source
-/// commit (from `source_index`) will be squashed *into* the chosen target.
-/// Navigation is clamped so the cursor cannot move to commits later than
-/// the source — squashing into a later commit is not supported.
+/// The user navigates the commit list to pick a squash target. The source row
+/// (from `source_index`) — a commit, or one of the staged/unstaged rows — is
+/// squashed *into* the chosen target, which must be a real commit. Navigation
+/// is clamped so the cursor cannot move to rows later than the source: folding
+/// into a later commit is not supported, and the other working-tree row is not
+/// something changes can be folded into at all.
 pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     let (source_index, squash_mode) = match app.mode {
         AppMode::SquashSelect {
@@ -57,9 +61,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
 
             let source = &app.list.commits[source_index];
             let result = AppAction::PrepareSquash {
-                source_oid: source.oid.expect_real_oid(),
+                source: squash_source(source),
                 target_oid,
-                source_message: source.message.clone(),
                 target_message,
                 squash_mode,
             };
@@ -76,5 +79,18 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         ListNav::Unhandled => AppAction::Handled,
+    }
+}
+
+/// Where the selected row's changes come from: an existing commit, or one of
+/// the synthetic working-tree rows.
+fn squash_source(source: &CommitInfo) -> SquashSource {
+    match source.oid {
+        VirtualOid::Staged => SquashSource::Worktree(WorktreeSource::Staged),
+        VirtualOid::Unstaged => SquashSource::Worktree(WorktreeSource::Unstaged),
+        VirtualOid::Real(_) => SquashSource::Commit {
+            oid: source.oid.expect_real_oid(),
+            message: source.message.clone(),
+        },
     }
 }
