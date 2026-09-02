@@ -119,6 +119,7 @@ pub(crate) fn handle_prepare_squash(
         Ok(Some(conflict_state)) => {
             // Squash-tree conflict — defer restoring the working tree until the
             // user resolves and the squash finalizes (or aborts).
+            prepared.handed_off();
             app.enter_rebase_conflict(conflict_state);
             return Ok(LoopAction::Continue);
         }
@@ -133,7 +134,7 @@ pub(crate) fn handle_prepare_squash(
         Ok(None) => {}
     }
     let final_message = if squash_mode.keeps_target_message() {
-        Some(target_message)
+        target_message
     } else {
         let editor_result =
             edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
@@ -154,29 +155,27 @@ pub(crate) fn handle_prepare_squash(
                     LoopAction::Continue,
                 ));
             }
-            Ok(msg) => Some(msg),
+            Ok(msg) => msg,
         }
     };
-    if let Some(msg) = final_message {
-        let success_msg = squash_success_message(&source, squash_mode);
-        let outcome = git_repo.squash_commits(&source_oid, &target_oid, &msg, &head_oid);
-        if let Err(e) = outcome {
-            return Ok(prepared.unwind(
-                git_repo,
-                app,
-                format!("{label} failed: {e:#}"),
-                LoopAction::Proceed,
-            ));
-        }
-        return Ok(handle_rebase_outcome(
+    let success_msg = squash_success_message(&source, squash_mode);
+    let outcome = git_repo.squash_commits(&source_oid, &target_oid, &final_message, &head_oid);
+    if let Err(e) = outcome {
+        return Ok(prepared.unwind(
             git_repo,
             app,
-            outcome,
-            label,
-            &success_msg,
+            format!("{label} failed: {e:#}"),
+            LoopAction::Proceed,
         ));
     }
-    Ok(LoopAction::Proceed)
+    prepared.handed_off();
+    Ok(handle_rebase_outcome(
+        git_repo,
+        app,
+        outcome,
+        label,
+        &success_msg,
+    ))
 }
 
 /// A squash source got into a shape the squash engine accepts, together with
@@ -185,7 +184,20 @@ pub(crate) fn handle_prepare_squash(
 /// The two ways of clearing the working tree out of a squash's path pair with
 /// two different ways of restoring it, so they are one choice made once rather
 /// than two made in separate places.
-pub(super) enum Prepared {
+///
+/// Every ending takes `self`, so each way out of a squash has to name which one
+/// it is rather than simply stopping. A real guard cannot do the work in `Drop`:
+/// unwinding needs the repository and the app state, and two of the endings must
+/// not unwind at all. The assert in [`Prepared::drop`] is what remains — it
+/// catches a path added later that names no ending, in debug builds. Nothing is
+/// lost when one slips through: the lift is journaled write-ahead, so startup
+/// recovery unwinds a stranded temporary commit.
+pub(super) struct Prepared {
+    kind: PreparedKind,
+    handled: bool,
+}
+
+enum PreparedKind {
     /// A commit source, with the working tree stashed out of the way.
     Commit { source_oid: Oid, head_oid: Oid },
     /// A working-tree row lifted into a temporary commit, which is both the
@@ -194,41 +206,60 @@ pub(super) enum Prepared {
 }
 
 impl Prepared {
+    fn commit(source_oid: Oid, head_oid: Oid) -> Self {
+        Self {
+            kind: PreparedKind::Commit {
+                source_oid,
+                head_oid,
+            },
+            handled: false,
+        }
+    }
+
+    fn lifted(lifted: LiftedRow) -> Self {
+        Self {
+            kind: PreparedKind::Lifted(lifted),
+            handled: false,
+        }
+    }
+
     /// The commit whose changes are being folded in.
     pub(super) fn source_oid(&self) -> &Oid {
-        match self {
-            Prepared::Commit { source_oid, .. } => source_oid,
-            Prepared::Lifted(snapshot) => &snapshot.temp_oid,
+        match &self.kind {
+            PreparedKind::Commit { source_oid, .. } => source_oid,
+            PreparedKind::Lifted(lifted) => &lifted.temp_oid,
         }
     }
 
     /// The tip the squash rewrites from.
     pub(super) fn head_oid(&self) -> &Oid {
-        match self {
-            Prepared::Commit { head_oid, .. } => head_oid,
-            Prepared::Lifted(snapshot) => &snapshot.temp_oid,
+        match &self.kind {
+            PreparedKind::Commit { head_oid, .. } => head_oid,
+            PreparedKind::Lifted(lifted) => &lifted.temp_oid,
         }
     }
 
-    /// Report a squash that gave up, putting back whatever was set up for it.
+    /// Ending: report a squash that gave up, putting back whatever was set up
+    /// for it.
     ///
     /// An unwind that itself fails leaves the temporary commit on the branch,
     /// holding the row's changes. Say so and reload, rather than reporting only
     /// the original failure and leaving a commit the user cannot see.
     pub(super) fn unwind(
-        &self,
+        mut self,
         git_repo: &mut impl GitRepo,
         app: &mut AppState,
         message: String,
         done: LoopAction,
     ) -> LoopAction {
-        match self {
-            Prepared::Commit { .. } => {
+        self.handled = true;
+        match &self.kind {
+            PreparedKind::Commit { .. } => {
                 let _ = git_repo.autostash_restore();
                 app.set_error_message(message);
                 done
             }
-            Prepared::Lifted(snapshot) => match git_repo.restore_lifted_row(snapshot) {
+            PreparedKind::Lifted(lifted) => match git_repo.restore_lifted_row(lifted) {
                 Ok(()) => {
                     app.set_error_message(message);
                     done
@@ -242,6 +273,30 @@ impl Prepared {
                 }
             },
         }
+    }
+
+    /// Ending: the squash ran, so what was set up is the journal's to settle —
+    /// either a conflict waiting to be resolved or aborted, or a completed
+    /// squash that has already folded the lift away and restored the stash.
+    pub(super) fn handed_off(mut self) {
+        self.handled = true;
+    }
+
+    /// Ending for tests that inspect a prepared source without running a squash
+    /// through it.
+    #[cfg(test)]
+    pub(super) fn discard(mut self) {
+        self.handled = true;
+    }
+}
+
+impl Drop for Prepared {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.handled || std::thread::panicking(),
+            "a prepared squash source was dropped without an ending: every way out \
+             of a squash must unwind it or hand it to the journal"
+        );
     }
 }
 
@@ -272,13 +327,10 @@ pub(super) fn prepare_source(
                 app.set_error_message(format!("Auto-stash failed: {e:#}"));
                 return Ok(None);
             }
-            Ok(Some(Prepared::Commit {
-                source_oid: oid.clone(),
-                head_oid,
-            }))
+            Ok(Some(Prepared::commit(oid.clone(), head_oid)))
         }
         SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row) {
-            Ok(Some(snapshot)) => Ok(Some(Prepared::Lifted(snapshot))),
+            Ok(Some(lifted)) => Ok(Some(Prepared::lifted(lifted))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));
                 Ok(None)

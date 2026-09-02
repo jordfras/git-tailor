@@ -943,6 +943,7 @@ fn a_commit_source_is_prepared_behind_the_autostash() {
         &Oid::from("a".repeat(40)),
         "a commit source folds from the real branch tip"
     );
+    prepared.discard();
 }
 
 /// A working-tree row takes no auto-stash: the lift records the pre-operation
@@ -970,6 +971,7 @@ fn a_worktree_row_is_prepared_without_the_autostash() {
         &mock_temp_oid(),
         "the temporary commit is both the source and the tip to fold from"
     );
+    prepared.discard();
 }
 
 /// An empty row is reported in the operation's own words, not as a failure.
@@ -1011,6 +1013,24 @@ fn a_failed_lift_reports_the_underlying_cause() {
         message.contains("the index has conflicts"),
         "got {message:?}"
     );
+}
+
+/// The tripwire itself: a way out of a squash that names no ending is caught
+/// where it is written, rather than by a user finding a temporary commit on
+/// their branch.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "dropped without an ending")]
+fn a_prepared_source_that_names_no_ending_trips() {
+    let mut repo = MockRepo {
+        lift: LiftOutcome::Lifted,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let _prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        .unwrap()
+        .unwrap();
 }
 
 /// Giving up on a lifted row unwinds the temporary commit rather than the
@@ -1158,6 +1178,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         repo.squash_probe_message.borrow().as_deref(),
         Some("the target commit")
     );
+    prepared.discard();
 }
 
 /// A probe that fails carries its cause up, the same as a failed lift.
