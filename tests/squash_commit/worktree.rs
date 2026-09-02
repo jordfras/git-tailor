@@ -814,6 +814,45 @@ fn resolving_a_clashing_carry_finishes_the_fold() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
+/// A clash paused by a crash resumes from a freshly opened repository: the
+/// journaled state is all the dialog was holding, so recovery finishes the fold
+/// the same way continuing it would.
+#[test]
+fn a_clashing_carry_survives_a_restart() {
+    let (test, base, target) = clashing_repo();
+    let state = {
+        let git_repo = test.git_repo();
+        fold_until_the_carry_clashes(&test, &git_repo, target)
+    };
+
+    let reopened = test.git_repo();
+    let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
+    else {
+        panic!("the paused carry must be recoverable");
+    };
+    let git_tailor::repo::InProgress::Conflict(recovered) = *record else {
+        panic!("expected a paused conflict");
+    };
+    assert_eq!(
+        *recovered, state,
+        "recovery resumes what the fold paused at"
+    );
+
+    let resolved = lines("LATER", "BOTH");
+    test.write_file("a.txt", &resolved);
+    reopened
+        .auto_stage_resolved_conflicts(&recovered.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(reopened.rebase_continue(&recovered).unwrap());
+
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    assert_eq!(workdir(&test, "a.txt"), resolved);
+    assert!(matches!(
+        test.git_repo().read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+}
+
 /// Aborting the clash unwinds the whole fold, not just the carry: the branch,
 /// both rows and the files on disk go back to before the squash ran.
 #[test]
