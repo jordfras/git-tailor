@@ -53,6 +53,9 @@ pub(crate) struct MockRepo {
     pub(crate) restore_lifted_ok: bool,
     /// Counts `restore_lifted_row` invocations.
     pub(crate) restore_lifted_calls: std::cell::Cell<usize>,
+    /// What `rescue_lifted_row` answers: the ref it kept the working tree under,
+    /// or `None` for a record with nothing worth keeping.
+    pub(crate) rescued_ref: Option<String>,
     /// What `read_journal` answers, for the startup-recovery tests.
     pub(crate) journal: Option<git_tailor::repo::InProgress>,
     /// Counts `clear_journal` invocations, so a test can tell a discarded
@@ -139,6 +142,7 @@ impl Default for MockRepo {
             lift: LiftOutcome::default(),
             restore_lifted_ok: true,
             restore_lifted_calls: std::cell::Cell::new(0),
+            rescued_ref: None,
             journal: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
@@ -346,6 +350,9 @@ impl RepoWrite for MockRepo {
         } else {
             Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))
         }
+    }
+    fn rescue_lifted_row(&self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<Option<String>> {
+        Ok(self.rescued_ref.clone())
     }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
         self.autostash_save_calls

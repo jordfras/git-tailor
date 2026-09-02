@@ -548,6 +548,10 @@ impl RepoWrite for Git2Repo {
         lift_op::restore(self, lifted)
     }
 
+    fn rescue_lifted_row(&self, lifted: &super::LiftedRow) -> Result<Option<String>> {
+        lift_op::rescue(self, lifted)
+    }
+
     fn autostash_save(&mut self) -> Result<()> {
         self.save_autostash()
     }

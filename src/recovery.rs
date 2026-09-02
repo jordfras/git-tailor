@@ -63,10 +63,21 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                     .map(|head| head == snapshot.temp_oid)
                     .unwrap_or(false);
                 if !head_matches {
+                    // The changes this record describes are not on disk — the
+                    // fold had not put them back yet — so discarding it silently
+                    // would take uncommitted work with it. Keep the tree it
+                    // named, before the journal that pins it goes away.
+                    let rescued = git_repo.rescue_lifted_row(&snapshot).ok().flatten();
                     let _ = git_repo.clear_journal();
-                    app.set_error_message(
-                        "Discarded a stale interrupted-operation journal (branch has moved)",
-                    );
+                    app.set_error_message(match rescued {
+                        Some(kept) => format!(
+                            "Discarded a stale interrupted-operation journal (branch has \
+                             moved); the working tree it recorded is kept at {kept}"
+                        ),
+                        None => "Discarded a stale interrupted-operation journal (branch has \
+                                 moved)"
+                            .to_string(),
+                    });
                 } else {
                     match git_repo.restore_lifted_row(&snapshot) {
                         Ok(()) => app.set_error_message(format!(
@@ -222,6 +233,26 @@ mod tests {
         assert_eq!(
             app.status.message.as_deref(),
             Some("Discarded a stale interrupted-operation journal (branch has moved)")
+        );
+    }
+
+    /// Discarding the record throws away the only reference to the working tree
+    /// it named, so the report says where that tree was kept.
+    #[test]
+    fn a_discarded_fold_names_where_its_working_tree_went() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(mock_lifted_row())),
+            rescued_ref: Some("refs/git-tailor/rescue/eeeeeeee".to_string()),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some(
+                "Discarded a stale interrupted-operation journal (branch has moved); \
+                 the working tree it recorded is kept at refs/git-tailor/rescue/eeeeeeee"
+            )
         );
     }
 

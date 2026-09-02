@@ -771,6 +771,15 @@ pub trait RepoWrite {
     /// and clear the journal record. Untracked files are left alone.
     fn restore_lifted_row(&self, lifted: &LiftedRow) -> Result<()>;
 
+    /// Keep the working tree `lifted` recorded reachable under a ref, for a
+    /// record that is about to be discarded because the branch has moved past
+    /// it.
+    ///
+    /// Returns the ref's name, or `None` when the recorded tree is what HEAD
+    /// already holds and there is nothing to lose. The ref lives under the
+    /// git-tailor namespace, so `--clean-journal` sweeps it along with the rest.
+    fn rescue_lifted_row(&self, lifted: &LiftedRow) -> Result<Option<String>>;
+
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a
     /// following operation sees a clean tree. Idempotent: a second call while a

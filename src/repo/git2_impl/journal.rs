@@ -71,6 +71,17 @@ const ORIG_REF_LEAF: &str = "orig";
 /// referenced by the undo/redo stacks.
 const UNDO_REF_LEAF: &str = "undo/";
 
+/// Leaf (under [`REF_NAMESPACE`]) of the subdirectory keeping the working tree
+/// a discarded lift record still named, so the uncommitted work in it stays
+/// reachable rather than becoming garbage the next `git gc` collects.
+const RESCUE_REF_LEAF: &str = "rescue/";
+
+/// Full name of the rescue ref holding `tree`. Named after the tree so rescuing
+/// the same content twice is one ref rather than two.
+pub(super) fn rescue_ref(tree: &Oid) -> String {
+    format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{}", tree.short())
+}
+
 /// Full name of the in-progress `orig` pin.
 fn orig_ref() -> String {
     format!("{REF_NAMESPACE}{ORIG_REF_LEAF}")

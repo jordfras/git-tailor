@@ -331,6 +331,67 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
     );
 }
 
+/// A record whose branch has moved on is discarded, and the working tree it
+/// named goes with it — so keep that tree under a ref first. The changes are
+/// not on disk at that point: the fold had not put them back yet.
+#[test]
+fn a_discarded_record_keeps_the_working_tree_it_recorded() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    // The unstaged edit is the one at risk: the fold lifts the staged row, and
+    // this is what a discarded record would take with it.
+    test.write_file("b.txt", "b2\n");
+    let git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    let kept = git_repo
+        .rescue_lifted_row(&lifted)
+        .unwrap()
+        .expect("the recorded tree holds an unstaged edit HEAD does not");
+
+    let reference = test.repo.find_reference(&kept).unwrap();
+    assert_eq!(
+        reference.target().unwrap(),
+        git2::Oid::from(&lifted.worktree_tree),
+        "the ref must resolve to the tree the record named"
+    );
+    let tree = test.repo.find_tree(reference.target().unwrap()).unwrap();
+    let entry = tree.get_path(std::path::Path::new("b.txt")).unwrap();
+    let blob = test.repo.find_blob(entry.id()).unwrap();
+    assert_eq!(
+        std::str::from_utf8(blob.content()).unwrap(),
+        "b2\n",
+        "and hold the edit that was about to be discarded"
+    );
+
+    git_repo.restore_lifted_row(&lifted).unwrap();
+}
+
+/// Nothing to keep when the record's working tree is what HEAD already holds:
+/// a ref there would be noise, and the message that names one would be a lie.
+#[test]
+fn a_record_with_nothing_uncommitted_is_not_kept() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    let git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    // The lift left the branch on the temporary commit, whose tree is the whole
+    // working tree — nothing is uncommitted any more.
+    assert!(git_repo.rescue_lifted_row(&lifted).unwrap().is_none());
+
+    git_repo.restore_lifted_row(&lifted).unwrap();
+}
+
 /// A staged submodule pointer must survive a fold of the staged row.
 ///
 /// Submodule contents belong to neither row, so a fold has no business dropping

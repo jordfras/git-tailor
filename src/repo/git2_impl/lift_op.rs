@@ -427,6 +427,24 @@ fn unstaged_only_tree(
         .context("failed to write the unstaged-only tree")
 }
 
+/// Keep `lifted`'s recorded working tree reachable under a ref. See
+/// [`super::Git2Repo::rescue_lifted_row`] for the contract.
+pub(super) fn rescue(repo: &Git2Repo, lifted: &LiftedRow) -> Result<Option<String>> {
+    if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
+        return Ok(None);
+    }
+    let name = journal::rescue_ref(&lifted.worktree_tree);
+    repo.inner
+        .reference(
+            &name,
+            git2::Oid::from(&lifted.worktree_tree),
+            true,
+            "git-tailor: kept the working tree of a discarded fold",
+        )
+        .context("failed to keep the recorded working tree")?;
+    Ok(Some(name))
+}
+
 /// The tree HEAD currently points at.
 fn head_tree_id(repo: &Git2Repo) -> Result<git2::Oid> {
     Ok(repo
