@@ -331,6 +331,48 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
     );
 }
 
+/// The guard on uncommitted changes is switched off for the row's own changes
+/// only while the fold that recorded them is actually running. A record left
+/// behind by a fold that failed part-way describes the same working tree, and
+/// must not go on excusing it for every later operation in the session.
+#[test]
+fn a_stranded_record_stops_excusing_a_dirty_working_tree() {
+    let test = common::TestRepo::new();
+    let first = test.commit_file("a.txt", "a1\n", "base");
+    let second = test.commit_file("c.txt", "c1\n", "second");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "b1\n");
+    test.stage_file("b.txt");
+    test.write_file("b.txt", "b2\n");
+    let git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+
+    // The fold got as far as moving the branch and then failed before settling:
+    // the record is still in the journal, and the working tree still looks
+    // exactly like the one it recorded.
+    test.repo
+        .reference(
+            "refs/heads/main",
+            git2::Oid::from(&lifted.tip_before),
+            true,
+            "test: a fold that failed part-way",
+        )
+        .unwrap();
+
+    let err = git_repo
+        .drop_commit(&Oid::from(second), &Oid::from(lifted.tip_before.long()))
+        .expect_err("a stranded record must not wave a later operation through");
+    assert!(
+        format!("{err:#}").contains("staged or unstaged changes"),
+        "got {err:#}"
+    );
+    let _ = first;
+}
+
 /// A record whose branch has moved on is discarded, and the working tree it
 /// named goes with it — so keep that tree under a ref first. The changes are
 /// not on disk at that point: the fold had not put them back yet.
