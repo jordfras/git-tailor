@@ -922,6 +922,36 @@ fn a_deletion_survives_a_clashing_carry() {
     );
 }
 
+/// Continuing with the markers still in place keeps the clash open — and says
+/// so in the journal, so a crash right then recovers the dialog the user was
+/// actually looking at rather than the one they had already moved past.
+#[test]
+fn a_clash_continued_unresolved_says_so_in_the_journal() {
+    let (test, _base, target) = clashing_repo(WorktreeSource::Staged);
+    let git_repo = test.git_repo();
+    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    assert!(!state.still_unresolved);
+
+    // Continue without touching the markers.
+    let again = expect_rebase_conflict!(git_repo.rebase_continue(&state).unwrap());
+
+    assert!(again.still_unresolved);
+    assert!(matches!(again.resume, Resume::CarryRow(_)));
+
+    let reopened = test.git_repo();
+    let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
+    else {
+        panic!("the clash must still be journaled");
+    };
+    let git_tailor::repo::InProgress::Conflict(journaled) = *record else {
+        panic!("expected a paused conflict");
+    };
+    assert!(
+        journaled.still_unresolved,
+        "the journal must hold what the dialog is showing"
+    );
+}
+
 /// A clash paused by a crash resumes from a freshly opened repository: the
 /// journaled state is all the dialog was holding, so recovery finishes the fold
 /// the same way continuing it would.
