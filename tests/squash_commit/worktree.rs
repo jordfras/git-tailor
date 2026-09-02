@@ -880,6 +880,48 @@ fn resolving_a_clashing_carry_from_the_unstaged_row_keeps_the_staged_changes() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
+/// A clash settles the whole of the other row, not just the file it clashed
+/// on: a deletion the row carries has to come off disk too. Writing the merge
+/// out puts files in place, but nothing in that path takes one away, so this is
+/// what says whether the checkout does it.
+#[test]
+fn a_deletion_survives_a_clashing_carry() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", &lines("2", "8")), ("b.txt", "b1\n")], "base");
+    let target = test.commit_file("a.txt", &lines("TARGET", "8"), "target commit");
+    test.commit_file("a.txt", &lines("LATER", "8"), "later commit");
+    test.write_file("a.txt", &lines("WIP", "8"));
+    test.stage_file("a.txt");
+    // The unstaged row: an edit that will clash, and a deletion that must not
+    // be forgotten while the clash is being settled.
+    test.write_file("a.txt", &lines("WIP", "OTHER"));
+    let b_path = test.repo.workdir().unwrap().join("b.txt");
+    std::fs::remove_file(&b_path).unwrap();
+
+    let git_repo = test.git_repo();
+    // Not vacuous: the fold's own conflict checks the new tip out, which puts
+    // `b.txt` back on disk. Writing the clash out is what takes it away again.
+    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+
+    let resolved = by_row(WorktreeSource::Staged, "LATER", "BOTH");
+    test.write_file("a.txt", &resolved);
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    assert!(
+        !b_path.exists(),
+        "the row's deletion must survive the clash, not come back on disk"
+    );
+    assert_eq!(
+        row_paths(git_repo.unstaged_diff(3).unwrap()),
+        ["a.txt", "b.txt"],
+        "and stay part of the row it came from"
+    );
+}
+
 /// A clash paused by a crash resumes from a freshly opened repository: the
 /// journaled state is all the dialog was holding, so recovery finishes the fold
 /// the same way continuing it would.
