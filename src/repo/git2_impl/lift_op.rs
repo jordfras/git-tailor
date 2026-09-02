@@ -52,6 +52,14 @@ pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
     let Some(snapshot) = journal::worktree_source(repo)? else {
         return Ok(false);
     };
+    // Only while the fold is running: the branch sits on the temporary commit
+    // from the lift until the squash settles, which is exactly when the guard
+    // has to be lenient. A record left behind by a fold that failed part-way
+    // describes the same working tree and would go on excusing it — the same
+    // provenance the other two readers of this record insist on.
+    if super::reads::head_oid(repo)? != snapshot.temp_oid {
+        return Ok(false);
+    }
     let (_, worktree_tree) = snapshot_trees(repo)?;
     Ok(worktree_tree == git2::Oid::from(&snapshot.worktree_tree))
 }
