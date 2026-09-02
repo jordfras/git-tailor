@@ -647,8 +647,11 @@ impl RepoWrite for Git2Repo {
                 ),
             );
         }
+        // The mode's own word, not "Squash" for both: the dialog that sent the
+        // user here was built from `ctx.squash_mode`, and a working-tree fold
+        // can raise a second dialog from this very call.
         self.journaled(
-            "Squash",
+            ctx.squash_mode.label(),
             original_branch_oid,
             squash_op::squash_finalize(self, ctx, message, original_branch_oid),
         )
