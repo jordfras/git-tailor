@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use super::journal;
 use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
-use crate::repo::{ConflictState, LiftedRow, RebaseOutcome, WorktreeSource};
+use crate::repo::{ConflictState, InProgress, LiftedRow, RebaseOutcome, WorktreeSource};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
@@ -245,11 +245,16 @@ pub(super) fn continue_carry(
     let mut index = repo.inner.index().context("failed to open index")?;
     index.read(true).context("failed to refresh index")?;
     if index.has_conflicts() {
-        return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+        // Journaled as well as returned: the chain path gets this from the
+        // `journaled` wrapper, which a carry does not go through, and a crash
+        // here should recover the dialog the user is looking at.
+        let unresolved = ConflictState {
             conflicting_files: super::conflict::collect_conflict_files_from_index(&index),
             still_unresolved: true,
             ..state.clone()
-        })));
+        };
+        journal::set_in_progress(repo, &InProgress::Conflict(Box::new(unresolved.clone())))?;
+        return Ok(RebaseOutcome::Conflict(Box::new(unresolved)));
     }
     let worktree_tree = index
         .write_tree()
