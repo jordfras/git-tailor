@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use super::journal;
 use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
-use crate::repo::{LiftedRow, WorktreeSource};
+use crate::repo::{ConflictState, LiftedRow, RebaseOutcome, WorktreeSource};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
@@ -157,7 +157,8 @@ pub(super) fn restore(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 }
 
 /// Put the other row's changes back after the squash reached `tip_after`, and
-/// report the resulting index tree so the undo record can restore it.
+/// report the resulting index tree so the undo record can restore it — or the
+/// merge that says they have nowhere to go.
 ///
 /// Nothing needs merging in the ordinary case: the squash committed exactly the
 /// temporary commit's tree, so the working tree goes back to what it was. It is
@@ -169,13 +170,16 @@ pub(super) fn restore(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// What ends up in the index differs by row: the staged row's changes are now
 /// committed, so the index matches the new tip, while the unstaged row's are
 /// committed and the staged ones stay staged, which is the whole working tree.
-pub(super) fn finish(repo: &Git2Repo, snapshot: &LiftedRow, tip_after: &Oid) -> Result<Oid> {
+pub(super) fn finish(repo: &Git2Repo, snapshot: &LiftedRow, tip_after: &Oid) -> Result<Settled> {
     let tip_tree = repo
         .inner
         .find_commit(git2::Oid::from(tip_after))
         .context("failed to read the new branch tip")?
         .tree_id();
-    let worktree_tree = carry_onto(repo, snapshot, tip_tree)?;
+    let worktree_tree = match carry_onto(repo, snapshot, tip_tree)? {
+        Carried::Tree(tree) => tree,
+        Carried::Clash(merged) => return Ok(Settled::Clash(merged)),
+    };
     let index_tree = match snapshot.source {
         WorktreeSource::Staged => tip_tree,
         WorktreeSource::Unstaged => worktree_tree,
@@ -185,20 +189,114 @@ pub(super) fn finish(repo: &Git2Repo, snapshot: &LiftedRow, tip_after: &Oid) -> 
         worktree_tree,
         index_tree,
     })?;
-    Ok(Oid::from(index_tree))
+    Ok(Settled::Done(Oid::from(index_tree)))
+}
+
+/// What [`finish`] made of the other row's changes.
+pub(super) enum Settled {
+    /// They are back where they came from; the index tree the undo record needs.
+    Done(Oid),
+    /// They cannot go back as they are: the user resolved the fold's conflict
+    /// into something they clash with. The merge that says so, for
+    /// [`write_clash`] to put in front of the user.
+    Clash(git2::Index),
+}
+
+/// Paths the carry could not settle on its own.
+pub(super) fn clashing_paths(merged: &git2::Index) -> Vec<String> {
+    super::conflict::collect_conflict_files_from_index(merged)
+}
+
+/// Put a clashing carry in front of the user: the merge into the index, and its
+/// conflict markers into the files.
+///
+/// The caller journals the conflict first — a crash between the two would
+/// otherwise leave markers on disk with nothing recording why they are there.
+pub(super) fn write_clash(repo: &Git2Repo, merged: &git2::Index) -> Result<()> {
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index.clear().context("failed to clear the index")?;
+    for entry in merged.iter() {
+        index
+            .add(&entry)
+            .context("failed to write the clash into the index")?;
+    }
+    index.write().context("failed to write the index")?;
+
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.force();
+    checkout.allow_conflicts(true);
+    repo.inner
+        .checkout_index(Some(&mut index), Some(&mut checkout))
+        .context("failed to write the clash into the working tree")?;
+    Ok(())
+}
+
+/// Finish a fold whose carry clashed, once the user has resolved it.
+///
+/// The resolution is already on disk and staged, so there is no merge left to
+/// do — what remains is the same tail [`finish`] runs: put the index on the side
+/// of the staged/unstaged line the row's own changes came from, and record the
+/// whole fold as one undoable step.
+pub(super) fn continue_carry(
+    repo: &Git2Repo,
+    lifted: &LiftedRow,
+    state: &ConflictState,
+) -> Result<RebaseOutcome> {
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index.read(true).context("failed to refresh index")?;
+    if index.has_conflicts() {
+        return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+            conflicting_files: super::conflict::collect_conflict_files_from_index(&index),
+            still_unresolved: true,
+            ..state.clone()
+        })));
+    }
+    let worktree_tree = index
+        .write_tree()
+        .context("failed to write the resolved working tree")?;
+
+    let tip_after = super::reads::head_oid(repo)?;
+    let tip_tree = repo
+        .inner
+        .find_commit(git2::Oid::from(&tip_after))
+        .context("failed to read the new branch tip")?
+        .tree_id();
+    let index_tree = match lifted.source {
+        WorktreeSource::Staged => tip_tree,
+        WorktreeSource::Unstaged => worktree_tree,
+    };
+    // Only the index moves: what the user resolved to is already the working
+    // tree, and a checkout over it would be a no-op at best.
+    repo.set_index_tree(index_tree)?;
+
+    journal::record_mixed_undo(
+        repo,
+        &state.operation_label,
+        journal::MixedUndo {
+            tip_before: &lifted.tip_before,
+            tip_after: &tip_after,
+            index_tree_before: &lifted.index_tree_before,
+            index_tree_after: &Oid::from(index_tree),
+        },
+    )?;
+    journal::set_worktree_source(repo, None)?;
+    journal::clear_in_progress(repo)?;
+    Ok(RebaseOutcome::Complete)
 }
 
 /// The recorded working tree carried onto `tip_tree`.
 ///
 /// Identical to the recorded tree whenever the squash committed what it was
-/// given, which is every run that did not stop at a conflict. Falls back to it
-/// too when the merge itself conflicts — the user's changes are all still there,
-/// which is what matters, even if they no longer sit on the resolution.
-fn carry_onto(repo: &Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<git2::Oid> {
+/// given, which is every run that did not stop at a conflict. When the merge
+/// itself conflicts the user resolved the fold into something the other row
+/// cannot sit on, and that is theirs to settle: the merge comes back for
+/// [`write_clash`] rather than being quietly dropped in favour of content that
+/// would revert half the resolution.
+fn carry_onto(repo: &Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<Carried> {
     let recorded = git2::Oid::from(&snapshot.worktree_tree);
     let base = git2::Oid::from(&snapshot.source_tree);
     if tip_tree == base {
-        return Ok(recorded);
+        return Ok(Carried::Tree(recorded));
     }
     let mut merged = repo.inner.merge_trees(
         &repo.inner.find_tree(base)?,
@@ -207,9 +305,15 @@ fn carry_onto(repo: &Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Res
         None,
     )?;
     if merged.has_conflicts() {
-        return Ok(recorded);
+        return Ok(Carried::Clash(merged));
     }
-    Ok(merged.write_tree_to(&repo.inner)?)
+    Ok(Carried::Tree(merged.write_tree_to(&repo.inner)?))
+}
+
+/// The result of carrying the other row's changes onto the new tip.
+enum Carried {
+    Tree(git2::Oid),
+    Clash(git2::Index),
 }
 
 /// The index tree and the working tree (tracked paths only) as tree objects.

@@ -122,7 +122,14 @@ pub(crate) fn handle_rebase_continue(
             result,
         ));
     }
-    let success_msg = format!("Commit {} complete", state.operation_label.to_lowercase());
+    // A carry conflict finishes the fold it belongs to, not a commit: the
+    // rewrite landed before the dialog opened, and what the user just resolved
+    // is where the other row's changes ended up.
+    let success_msg = if state.is_carry_conflict() {
+        format!("{} complete", state.operation_label)
+    } else {
+        format!("Commit {} complete", state.operation_label.to_lowercase())
+    };
     let outcome = git_repo.rebase_continue(&state);
     let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
     Ok(apply_pending_autofixup_selection(

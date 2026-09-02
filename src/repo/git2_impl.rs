@@ -121,7 +121,13 @@ impl Git2Repo {
                     // over.
                     match journal::worktree_source(self)? {
                         Some(snapshot) if tip_before == &snapshot.temp_oid => {
-                            self.finish_worktree_source(label, &snapshot)?
+                            // The rewrite landed, but the other row may have
+                            // nowhere to land: that is a conflict of its own,
+                            // and the operation is not complete until it is
+                            // resolved.
+                            if let Some(state) = self.finish_worktree_source(label, &snapshot)? {
+                                return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                            }
                         }
                         _ => self.record_undo_if_changed(label, tip_before)?,
                     }
@@ -139,9 +145,42 @@ impl Git2Repo {
     /// changes were staged or unstaged before and are committed after — so this
     /// records a mixed reset rather than the plain ref move every other
     /// operation uses.
-    fn finish_worktree_source(&self, label: &str, snapshot: &super::LiftedRow) -> Result<()> {
+    ///
+    /// Returns the conflict to resolve when the other row's changes cannot be
+    /// carried onto what the user resolved the fold to. The rewrite stands
+    /// either way; only the working tree is still in the air, and the record
+    /// stays in the journal until it settles.
+    fn finish_worktree_source(
+        &self,
+        label: &str,
+        snapshot: &super::LiftedRow,
+    ) -> Result<Option<super::ConflictState>> {
         let tip_after = reads::head_oid(self)?;
-        let index_tree_after = lift_op::finish(self, snapshot, &tip_after)?;
+        let index_tree_after = match lift_op::finish(self, snapshot, &tip_after)? {
+            lift_op::Settled::Done(index_tree) => index_tree,
+            lift_op::Settled::Clash(merged) => {
+                let state = super::ConflictState {
+                    operation_label: label.to_string(),
+                    // The lift is what an abort rewinds to, which unwinds the
+                    // whole fold — the rewrite included.
+                    original_branch_oid: snapshot.temp_oid.clone(),
+                    new_tip_oid: tip_after.clone(),
+                    conflicting_commit_oid: tip_after,
+                    conflicting_files: lift_op::clashing_paths(&merged),
+                    still_unresolved: false,
+                    resume: super::Resume::CarryRow(snapshot.clone()),
+                    autofixup_context: None,
+                };
+                // Write-ahead: the markers are about to go on disk, and a crash
+                // between the two would leave them there unexplained.
+                journal::set_in_progress(
+                    self,
+                    &super::InProgress::Conflict(Box::new(state.clone())),
+                )?;
+                lift_op::write_clash(self, &merged)?;
+                return Ok(Some(state));
+            }
+        };
         journal::record_mixed_undo(
             self,
             label,
@@ -152,7 +191,8 @@ impl Git2Repo {
                 index_tree_after: &index_tree_after,
             },
         )?;
-        journal::set_worktree_source(self, None)
+        journal::set_worktree_source(self, None)?;
+        Ok(None)
     }
 
     /// Wrap a `Result<()>` operation (reword, split): on success, record an
@@ -413,6 +453,12 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        // A carry conflict is not a rebase step: the history it belongs to is
+        // already written, and what is left settles the working tree and records
+        // the fold's undo entry itself, so it does not go through `journaled`.
+        if let super::Resume::CarryRow(lifted) = &state.resume {
+            return lift_op::continue_carry(self, lifted, state);
+        }
         if state.autofixup_context.is_some() {
             return self.journaled(
                 "Autofixup",

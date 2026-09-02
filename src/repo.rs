@@ -105,6 +105,15 @@ impl WorktreeSource {
             WorktreeSource::Unstaged => "Unstaged changes",
         }
     }
+
+    /// The row a fold from this one leaves behind, whose changes have to go
+    /// back where they came from once the fold lands.
+    pub fn other(self) -> Self {
+        match self {
+            WorktreeSource::Staged => WorktreeSource::Unstaged,
+            WorktreeSource::Unstaged => WorktreeSource::Staged,
+        }
+    }
 }
 
 /// A working-tree row lifted into a temporary commit, with the pre-operation
@@ -203,6 +212,12 @@ pub enum Resume {
     /// Finalize a squash (open the editor if needed, then `squash_finalize`)
     /// after the user resolves the squash-tree conflict.
     Squash(SquashContext),
+    /// Put the *other* working-tree row back after the user resolves its clash
+    /// with the fold's own resolution. The history is already rewritten by the
+    /// time this conflict is raised — what is left is where the row's changes
+    /// go, so continuing settles the working tree and aborting unwinds the whole
+    /// fold through [`LiftedRow`].
+    CarryRow(LiftedRow),
 }
 
 impl Default for Resume {
@@ -908,7 +923,13 @@ impl ConflictState {
     pub fn remaining_oids(&self) -> &[Oid] {
         match &self.resume {
             Resume::Chain { remaining_oids, .. } => remaining_oids,
-            Resume::Squash(_) => &[],
+            Resume::Squash(_) | Resume::CarryRow(_) => &[],
         }
+    }
+
+    /// Whether this conflict is the *other* working-tree row failing to land on
+    /// what the user resolved the fold to, rather than a rewrite conflicting.
+    pub fn is_carry_conflict(&self) -> bool {
+        matches!(self.resume, Resume::CarryRow(_))
     }
 }

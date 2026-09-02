@@ -672,40 +672,51 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
-/// When the other row's changes cannot be carried onto the resolution, they are
-/// kept as they were rather than dropped. The user's work is all still there,
-/// even though it no longer sits on top of what they resolved to.
-#[test]
-fn a_resolution_that_clashes_with_the_other_row_keeps_the_row() {
+/// A file whose second and eighth lines are the two rows' battleground.
+fn lines(second: &str, eighth: &str) -> String {
+    format!("1\n{second}\n3\n4\n5\n6\n7\n{eighth}\n9\n")
+}
+
+/// A fold whose resolution is going to clash with the other row: the staged
+/// edit near the top of the file conflicts with the target, and the unstaged
+/// edit further down separates cleanly — until the user resolves by rewriting
+/// that line too.
+fn clashing_repo() -> (common::TestRepo, git2::Oid, git2::Oid) {
     let test = common::TestRepo::new();
-    let lines = |second: &str, eighth: &str| format!("1\n{second}\n3\n4\n5\n6\n7\n{eighth}\n9\n");
     let base = test.commit_file("a.txt", &lines("2", "8"), "base");
     let target = test.commit_file("a.txt", &lines("TARGET", "8"), "target commit");
     test.commit_file("a.txt", &lines("LATER", "8"), "later commit");
-    // Source row: the staged edit near the top, which is what conflicts with the
-    // target. Other row: an unstaged edit far enough away to separate cleanly.
     test.write_file("a.txt", &lines("WIP", "8"));
     test.stage_file("a.txt");
     test.write_file("a.txt", &lines("WIP", "UNSTAGED"));
-    let git_repo = test.git_repo();
+    (test, base, target)
+}
 
-    let started = git_repo
+/// Fold the staged row into `target`, resolving every conflict along the way by
+/// rewriting the line the *other* row sits on, and return the state the carry
+/// of that other row stopped at.
+fn fold_until_the_carry_clashes(
+    test: &common::TestRepo,
+    git_repo: &Git2Repo,
+    target: git2::Oid,
+) -> git_tailor::repo::ConflictState {
+    let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
         git_repo
             .squash_commits(
-                &started.temp_oid,
+                &lifted.temp_oid,
                 &Oid::from(target),
                 "target commit",
-                &started.temp_oid,
+                &lifted.temp_oid,
             )
             .unwrap()
     );
 
-    // Resolve by also rewriting the line the *other* row is sitting on, so the
-    // other row cannot be carried onto the resolution.
+    // Resolve the fold's own conflict by also rewriting the line the unstaged
+    // row is sitting on, which is what leaves it nowhere to land.
     test.write_file("a.txt", &lines("RESOLVED", "RESOLVED-TOO"));
     git_repo
         .auto_stage_resolved_conflicts(&state.conflicting_files)
@@ -716,25 +727,112 @@ fn a_resolution_that_clashes_with_the_other_row_keeps_the_row() {
     let mut outcome = git_repo
         .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
         .unwrap();
-    while let git_tailor::repo::RebaseOutcome::Conflict(state) = outcome {
-        test.write_file("a.txt", &lines("LATER", "RESOLVED-TOO"));
-        git_repo
-            .auto_stage_resolved_conflicts(&state.conflicting_files)
-            .unwrap();
-        outcome = git_repo.rebase_continue(&state).unwrap();
+    loop {
+        match outcome {
+            RebaseOutcome::Complete => {
+                panic!("expected the other row's carry to clash, got a clean finish")
+            }
+            RebaseOutcome::Conflict(state) => {
+                if matches!(state.resume, Resume::CarryRow { .. }) {
+                    return *state;
+                }
+                // Replaying the later commit hits the same line; resolve it the
+                // same way.
+                test.write_file("a.txt", &lines("LATER", "RESOLVED-TOO"));
+                git_repo
+                    .auto_stage_resolved_conflicts(&state.conflicting_files)
+                    .unwrap();
+                outcome = git_repo.rebase_continue(&state).unwrap();
+            }
+        }
     }
+}
+
+/// The other row's changes clashing with the resolution is a conflict like any
+/// other: markers on disk, a conflicted index, and a state to resolve or abort.
+/// Keeping the row's old content silently would leave it quietly reverting part
+/// of what the user just resolved to.
+#[test]
+fn a_clashing_carry_is_a_conflict_like_any_other() {
+    let (test, base, target) = clashing_repo();
+    let git_repo = test.git_repo();
+
+    let state = fold_until_the_carry_clashes(&test, &git_repo, target);
+
+    assert_eq!(state.conflicting_files, ["a.txt"]);
+    let on_disk = workdir(&test, "a.txt");
+    assert!(on_disk.contains("<<<<<<<"), "got {on_disk:?}");
+    assert!(
+        on_disk.contains("UNSTAGED") && on_disk.contains("RESOLVED-TOO"),
+        "both sides of the clash belong in the markers, got {on_disk:?}"
+    );
+    // The history is already rewritten — what is left is where the other row's
+    // changes go.
+    assert_history!(&test, base, &["target commit", "later commit"]);
+
+    // And it survives a crash: a reopened repository finds the paused conflict
+    // rather than a working tree full of markers and no record of why.
+    let reopened = test.git_repo();
+    let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
+    else {
+        panic!("the paused carry must be journaled");
+    };
+    assert!(matches!(*record, git_tailor::repo::InProgress::Conflict(_)));
+}
+
+/// Resolving the clash finishes the fold: the resolution stands on disk, the
+/// other row is back on its own side, and the whole thing is still one undo.
+#[test]
+fn resolving_a_clashing_carry_finishes_the_fold() {
+    let (test, base, target) = clashing_repo();
+    let git_repo = test.git_repo();
+    let state = fold_until_the_carry_clashes(&test, &git_repo, target);
+
+    let resolved = lines("LATER", "BOTH");
+    test.write_file("a.txt", &resolved);
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
 
     assert_history!(&test, base, &["target commit", "later commit"]);
-    // Whichever way the carry went, the unstaged edit is still on disk. Losing
-    // it silently is the failure this guards against.
+    assert_eq!(workdir(&test, "a.txt"), resolved);
     assert!(
-        workdir(&test, "a.txt").contains("UNSTAGED")
-            || workdir(&test, "a.txt").contains("RESOLVED-TOO"),
-        "the other row's content must survive the fold, got {:?}",
-        workdir(&test, "a.txt")
+        git_repo.staged_diff(3).unwrap().is_none(),
+        "the staged row was the source, so it is committed now"
     );
-    assert!(
-        git_repo.unstaged_diff(3).unwrap().is_some(),
-        "the other row must still be an unstaged change, not folded into history"
+    assert_eq!(
+        row_paths(git_repo.unstaged_diff(3).unwrap()),
+        ["a.txt"],
+        "what the user resolved the carry to stays unstaged, where it started"
     );
+    assert!(matches!(
+        test.git_repo().read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
+}
+
+/// Aborting the clash unwinds the whole fold, not just the carry: the branch,
+/// both rows and the files on disk go back to before the squash ran.
+#[test]
+fn aborting_a_clashing_carry_puts_the_fold_back() {
+    let (test, base, target) = clashing_repo();
+    let git_repo = test.git_repo();
+    let head_before = git_repo.head_oid().unwrap();
+    let state = fold_until_the_carry_clashes(&test, &git_repo, target);
+
+    git_repo.rebase_abort(&state).unwrap();
+
+    assert_eq!(git_repo.head_oid().unwrap(), head_before);
+    assert_history!(&test, base, &["target commit", "later commit"]);
+    assert_eq!(workdir(&test, "a.txt"), lines("WIP", "UNSTAGED"));
+    assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["a.txt"]);
+    assert_eq!(row_paths(git_repo.unstaged_diff(3).unwrap()), ["a.txt"]);
+    assert!(matches!(
+        test.git_repo().read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }

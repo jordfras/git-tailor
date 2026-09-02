@@ -108,18 +108,47 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
 
     let remaining = state.remaining_oids().len();
 
-    let mut dialog = Dialog::new(DialogKind::Danger, app.colors)
-        .heading(
-            format!("Merge conflict during {label_lower}"),
-            TextRole::Danger,
-        )
-        .push_line(Line::from(vec![
-            Span::raw(" Conflict in "),
-            Span::styled(
-                short_oid.to_string(),
-                Style::default().fg(app.colors.resolve(Color::Cyan)),
-            ),
-        ]));
+    // A carry conflict is not a commit conflicting: the rewrite is already
+    // written, and what is left is the other row with nowhere to land. Naming a
+    // commit here would point at the wrong thing entirely.
+    if let Resume::CarryRow(lifted) = &state.resume {
+        let other = lifted.source.other().label().to_lowercase();
+        let note = format!(
+            "The {label_lower} itself is done. Your {other} could not be put back on top of what you resolved it to. Resolve the markers below, then continue to keep them — or abort to undo the whole {label_lower} and get your changes back unchanged."
+        );
+        let dialog = Dialog::new(DialogKind::Danger, app.colors)
+            .heading(
+                format!("Working-tree conflict after {label_lower}"),
+                TextRole::Danger,
+            )
+            .wrapped(&note, iw);
+        let files = state.conflicting_files.clone();
+        let still_unresolved = state.still_unresolved;
+        let title = format!("{label} Conflict");
+        render_conflict_dialog(
+            app,
+            frame,
+            dialog,
+            &files,
+            still_unresolved,
+            PREFERRED_WIDTH,
+            &title,
+        );
+        return;
+    }
+
+    let mut dialog = Dialog::new(DialogKind::Danger, app.colors).heading(
+        format!("Merge conflict during {label_lower}"),
+        TextRole::Danger,
+    );
+
+    dialog = dialog.push_line(Line::from(vec![
+        Span::raw(" Conflict in "),
+        Span::styled(
+            short_oid.to_string(),
+            Style::default().fg(app.colors.resolve(Color::Cyan)),
+        ),
+    ]));
 
     if !commit_summary.is_empty() {
         dialog = dialog.wrapped(commit_summary, iw.saturating_sub(1));
@@ -131,7 +160,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         Resume::Chain {
             moved_commit_oid, ..
         } => moved_commit_oid.as_ref(),
-        Resume::Squash(_) => None,
+        Resume::Squash(_) | Resume::CarryRow(_) => None,
     };
     if let Some(moved_oid) = moved_commit_oid {
         let note = if state.conflicting_commit_oid == *moved_oid {
