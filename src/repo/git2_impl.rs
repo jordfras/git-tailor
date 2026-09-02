@@ -854,10 +854,12 @@ impl Git2Repo {
                 && let Some(path) = delta.old_file().path()
             {
                 let full = workdir.join(path);
-                // Only ever a file: a submodule's directory is not this
+                // Anything but a directory: a submodule's checkout is not this
                 // operation's to delete, and neither is anything else that grew
-                // into one.
-                if full.is_file() {
+                // into one. Asking `symlink_metadata` rather than `is_file`
+                // keeps a symlink in scope — git tracked it as a file, and
+                // following it would judge the entry by whatever it points at.
+                if full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
                     std::fs::remove_file(&full).with_context(|| {
                         format!("failed to remove dropped file {}", full.display())
                     })?;
