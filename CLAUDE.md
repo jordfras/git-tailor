@@ -60,15 +60,22 @@ git-tailor/
 │   ├── repo/
 │   │   ├── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
 │   │   └── git2_impl/
+│   │       ├── autofixup_op.rs # Bulk fixup!/squash! batch operation
 │   │       ├── cherry_pick.rs  # Cherry-pick chain helpers
+│   │       ├── commit_staged_op.rs # Commit the staged changes
 │   │       ├── conflict.rs     # Conflict detection and state
 │   │       ├── drop_op.rs      # Drop commit operation
+│   │       ├── edit_op.rs      # Edit commit in a shell, then replay
 │   │       ├── hunks.rs        # Hunk extraction and patch building
+│   │       ├── journal.rs      # Crash-safety journal, undo/redo stacks, ref pins
+│   │       ├── lift_op.rs      # Lift a working-tree row into a temporary commit
 │   │       ├── move_op.rs      # Move commit operation
 │   │       ├── reads.rs        # Read-only git operations
 │   │       ├── reword_op.rs    # Reword commit operation
 │   │       ├── split_op.rs     # Split commit operation
-│   │       └── squash_op.rs    # Squash/fixup operation
+│   │       ├── squash_op.rs    # Squash/fixup operation
+│   │       ├── stage_op.rs     # Stage-all / unstage-all
+│   │       └── stash.rs        # Auto-stash save/restore and its conflicts
 │   ├── fragmap.rs          # Span extraction, clustering, matrix generation
 │   ├── fragmap/
 │   │   └── spg.rs          # Span Propagation Graph algorithm

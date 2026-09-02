@@ -166,7 +166,7 @@ impl Git2Repo {
                     original_branch_oid: snapshot.temp_oid.clone(),
                     new_tip_oid: tip_after.clone(),
                     conflicting_commit_oid: tip_after,
-                    conflicting_files: lift_op::clashing_paths(&merged),
+                    conflicting_files: conflict::collect_conflict_files_from_index(&merged),
                     still_unresolved: false,
                     resume: super::Resume::CarryRow(snapshot.clone()),
                     autofixup_context: None,

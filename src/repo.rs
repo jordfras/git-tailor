@@ -715,6 +715,13 @@ pub trait RepoWrite {
     /// stack). Refuses if the working tree is dirty; reports
     /// [`UndoOutcome::Stale`] and discards the stack if the branch no longer
     /// matches the recorded post-operation tip.
+    ///
+    /// Undoing a working-tree fold moves the branch and the index and leaves the
+    /// files alone, which restores everything a fold that ran cleanly touched —
+    /// it only ever moved content between committed, staged and unstaged. A fold
+    /// that went through a conflict also changed the files, to whatever the user
+    /// resolved to, and that stands: what they replaced is gone the moment they
+    /// resolve, so there is nothing left to put back.
     fn undo(&self) -> Result<UndoOutcome>;
 
     /// Redo the most recently undone operation, restoring its post-operation

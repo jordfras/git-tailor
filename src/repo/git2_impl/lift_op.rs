@@ -210,11 +210,6 @@ pub(super) enum Settled {
     Clash(git2::Index),
 }
 
-/// Paths the carry could not settle on its own.
-pub(super) fn clashing_paths(merged: &git2::Index) -> Vec<String> {
-    super::conflict::collect_conflict_files_from_index(merged)
-}
-
 /// Put a clashing carry in front of the user: the merge into the index, and its
 /// conflict markers into the files.
 ///
