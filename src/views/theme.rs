@@ -85,8 +85,9 @@ pub trait FragmapTheme {
 
 /// Uniform heavy-glyph rendering — no focus distinction.
 ///
-/// This is the default theme, matching the original git-tailor rendering:
-/// all squares use `█`, all connectors use `│`, colored only by relation type.
+/// Matches the original git-tailor rendering: all squares use `█`, all
+/// connectors use `│`, and nothing is dimmed by what the selection touches.
+/// [`Theme::Highlight`] is the default; this is `--matrix-theme plain`.
 struct PlainTheme;
 
 impl FragmapTheme for PlainTheme {
