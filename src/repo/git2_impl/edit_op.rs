@@ -103,7 +103,7 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     if branch_tip == commit_git {
         restore_original(repo, &branch_refname, &original)?;
         journal::clear_in_progress(repo)?;
-        return Ok(EditOutcome::Cancelled);
+        return Ok(EditOutcome::Canceled);
     }
 
     // Validate the state the user left. On anything unexpected, restore the

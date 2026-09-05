@@ -65,7 +65,7 @@ pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
                 app.search.input_active = false;
                 // Jump to the first match at or after the current scroll
                 // position, wrapping to match 0 when all matches lie above —
-                // the same behaviour as `less`.
+                // the same behavior as `less`.
                 if !app.search.matches.is_empty() {
                     let next_idx = app
                         .search

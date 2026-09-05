@@ -138,7 +138,7 @@ impl CommitListState {
 
     /// The scroll offset (in display space) to render, given the visible
     /// height. Without an override it follows the selection (pinned to the
-    /// bottom once scrolled, the historical behaviour); with one it honours the
+    /// bottom once scrolled, the historical behavior); with one it honors the
     /// override but always clamps so the selected row stays visible.
     pub fn effective_offset(&self, available_height: usize) -> usize {
         let total = self.commits.len();

@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && printf 'export PATH=%s/bin:$PATH\n' "$CARGO_HOME" > /etc/profile.d/rust-cargo.sh \
     && rustc --version && cargo --version
 
-# gifsicle: post-render GIF optimisation (palette reduction + lossy LZW) so the
+# gifsicle: post-render GIF optimization (palette reduction + lossy LZW) so the
 # recorded artifacts stay small without shrinking their pixel dimensions. Kept
 # in its own layer to leave the (slow) Rust layer above cached.
 RUN apt-get update && apt-get install -y --no-install-recommends gifsicle \
@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL -o "$KOKORO_HOME/models/voices-v1.0.bin" \
         https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 
-# Pillow, for rasterising emoji out of the color font (demo/promo/scripts/make-emoji.py).
+# Pillow, for rasterizing emoji out of the color font (demo/promo/scripts/make-emoji.py).
 # ffmpeg's drawtext cannot: color emoji are bitmap glyphs and it rejects the
 # font outright. Its own layer so the slow model download above stays cached.
 RUN "$KOKORO_HOME/venv/bin/pip" install --no-cache-dir --disable-pip-version-check \

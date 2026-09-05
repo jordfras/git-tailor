@@ -66,7 +66,7 @@ CELL_H=35
 
 # A marker's stroke is drawn immediately outside the cells it marks, with no
 # clearance: the matrix's columns are contiguous with no gutter, so every pixel
-# a marker takes is one it takes off a neighbouring column.
+# a marker takes is one it takes off a neighboring column.
 MARKER_STROKE=4
 
 # Per-video settings. The defaults below are the promo's; video.conf overrides

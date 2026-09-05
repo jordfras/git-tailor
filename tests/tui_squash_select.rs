@@ -346,7 +346,7 @@ fn test_squash_candidate_coloring_with_fragmap() {
         source_index: 2,
         squash_mode: SquashMode::Squash,
     };
-    // Documented colours below are the Plain theme's; pin it for stability.
+    // Documented colors below are the Plain theme's; pin it for stability.
     app.theme = Theme::Plain;
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
@@ -385,7 +385,7 @@ fn test_squash_candidate_coloring_conflicting() {
         source_index: 2,
         squash_mode: SquashMode::Squash,
     };
-    // Documented colours below are the Plain theme's; pin it for stability.
+    // Documented colors below are the Plain theme's; pin it for stability.
     app.theme = Theme::Plain;
 
     // All three commits touch cluster 0 → conflicting between 0 and 2

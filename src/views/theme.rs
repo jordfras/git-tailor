@@ -145,7 +145,7 @@ impl FragmapTheme for HighlightTheme {
             // Brighter on the selected commit's own row, where the relation is
             // about that commit -- "this will not fold" -- rather than about
             // two commits further down. Red is what draws the eye, so that is
-            // the question worth answering in the colour; green is read once
+            // the question worth answering in the color; green is read once
             // you are already looking at a commit, and carries no such shade.
             SquareRelation::Conflict => Style::new().fg(if role == SquareRole::Current {
                 Color::LightRed

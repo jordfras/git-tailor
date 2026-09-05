@@ -81,7 +81,7 @@ Report pass/fail and any warnings. Fix only issues that block the task.
 ### 8. Changelog
 
 Ask whether the change warrants a `CHANGELOG.md` entry:
-- **Yes for:** new CLI flags, new TUI features, changed user-visible behaviour, bug fixes.
+- **Yes for:** new CLI flags, new TUI features, changed user-visible behavior, bug fixes.
 - **No for:** internal refactors, test additions, CI tweaks, doc corrections. Confirm if unsure.
 
 If yes, follow the `update-changelog` skill.

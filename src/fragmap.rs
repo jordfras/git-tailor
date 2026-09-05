@@ -592,7 +592,7 @@ impl FragMap {
     }
 
     /// Determine whether a connector between `commit_idx` and its earliest
-    /// earlier neighbour in `cluster_idx` should be rendered as squashable.
+    /// earlier neighbor in `cluster_idx` should be rendered as squashable.
     ///
     /// Returns `None` if there is no earlier touch in the cluster.
     /// Returns `Some(true)` when the entire commit is fully squashable into

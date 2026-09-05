@@ -55,7 +55,7 @@ for tape in "${tapes[@]}"; do
     # offsets, so sharing one would mean recalibrating and republishing the GIF
     # for every change to a video.
     #
-    # Normalised to a repo-relative path first, since the caller may pass either
+    # Normalized to a repo-relative path first, since the caller may pass either
     # that or the absolute path the default glob produces.
     rel=${tape#"$REPO"/}
     case "$rel" in

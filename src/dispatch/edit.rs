@@ -83,9 +83,9 @@ fn handle_edit_outcome(
             "Commit edited",
             LoopAction::ReloadPreserving,
         ),
-        Ok(EditOutcome::Cancelled) => {
+        Ok(EditOutcome::Canceled) => {
             let _ = git_repo.autostash_restore();
-            app.set_success_message("Edit cancelled — no changes");
+            app.set_success_message("Edit canceled — no changes");
             LoopAction::Reload
         }
         Ok(EditOutcome::Conflict(state)) => {

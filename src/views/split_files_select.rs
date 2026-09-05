@@ -110,7 +110,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 file_paths: chosen,
             }
         }
-        ListNav::Cancelled => {
+        ListNav::Canceled => {
             app.cancel_split_files_select();
             AppAction::Handled
         }

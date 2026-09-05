@@ -130,7 +130,7 @@ cells are the thing being marked, and the box's stroke — `MARKER_STROKE` in
 [`scripts/compose.sh`](scripts/compose.sh) — is drawn immediately outside them,
 so a marker reads as *around* rather than *on*. No clearance beyond that: the
 matrix's columns are contiguous with no gutter, so every pixel a marker takes is
-one it takes off a neighbouring column, and a gap around the marked cells reads
+one it takes off a neighboring column, and a gap around the marked cells reads
 as a marker that has missed. A box at the edge of the picture is capped to the
 picture rather than hanging half off frame.
 
@@ -311,7 +311,7 @@ its own `dark+` palette regardless, so this only touches the shell stretches,
 which is where the gray scenes are.
 
 Scenes are captured as **lossless PNG frame sequences**, not vhs MP4 or GIF, so
-there are no palette or chroma artefacts and the video is encoded exactly once.
+there are no palette or chroma artifacts and the video is encoded exactly once.
 The frames land on the cache volume rather than in `demo/out/` (a few hundred MB
 per render), so `demo/build.sh clean` clears them with the rest of the volume.
 

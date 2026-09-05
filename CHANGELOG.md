@@ -137,8 +137,8 @@ The format is based on
   selected commit's own row keeps a brighter red. Affects the default
   `highlight` theme; `plain` and `classic` are unchanged, since they exist to
   match an older look.
-- The color legends in the README described a green or red square as a judgement
-  about two commits' changes in that one column. It is a judgement about the
+- The color legends in the README described a green or red square as a judgment
+  about two commits' changes in that one column. It is a judgment about the
   whole commit: green means every column it touches leads back to the same
   earlier commit, so the commit can be squashed into that one. They also said
   every commit-list color is relative to the selected commit, which is not true
@@ -238,7 +238,7 @@ The format is based on
 - Moving a commit toward the end of the list (e.g. two or three positions
   "down") no longer crashes. Navigating the insertion cursor past the last
   commit left the selection pointing out of bounds; once the move was confirmed
-  or cancelled, the next commit-list render indexed the list out of bounds and
+  or canceled, the next commit-list render indexed the list out of bounds and
   panicked.
 
 

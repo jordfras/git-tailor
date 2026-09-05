@@ -199,7 +199,7 @@ fn make_two_conflict_fragmap() -> git_tailor::fragmap::FragMap {
 /// relation between two commits below it. Both shades have to appear in one
 /// render for the distinction to be worth anything, which is what this asserts
 /// -- a snapshot covers it only incidentally, and would go on passing if the
-/// two collapsed to one colour.
+/// two collapsed to one color.
 #[test]
 fn test_theme_highlight_conflict_square_brighter_on_selected_row() {
     let mut harness = TuiTestHarness::short();

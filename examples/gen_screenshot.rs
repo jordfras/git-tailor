@@ -197,10 +197,10 @@ fn commit(repo: &Repository, seq: i64, change: &Change) -> Result<()> {
 // The file contents below are illustrative scaffolding for a toy expression
 // interpreter. What matters for the screenshot is *where* successive commits
 // edit each file: re-touching the same line range as an earlier commit makes
-// the two share a hunk-group column, and the colour of the connector between
+// the two share a hunk-group column, and the color of the connector between
 // them shows whether they can be cleanly squashed.
 //
-// The history is arranged to show both connector colours:
+// The history is arranged to show both connector colors:
 //   * yellow — a clean fixup (only re-touches one earlier commit's region), and
 //   * red    — an entangled commit that touches regions belonging to *two*
 //              different earlier commits, so it can't be folded into a single
