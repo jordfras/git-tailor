@@ -72,18 +72,47 @@ MARKER_STROKE=4
 # Per-video settings. The defaults below are the promo's; video.conf overrides
 # them, and "none" switches a whole feature off rather than needing a flag.
 OUT_BASE=promo
+
+# How a capture meets the frame. vhs sizes the terminal to whole cells, so a
+# capture is a little under 1920x1080 either way.
+#
+#   scale  fill the frame, letterboxing what is left over
+#   pad    place it unresized and border it in the terminal's own background
+#
+# `pad` keeps one capture pixel one frame pixel: the text is as sharp as it was
+# captured, and a cell stays a whole number of pixels, which markers need --
+# scaled up, the pitch is fractional and a stroke rounds to one side of a
+# boundary or the other, leaving a line of background showing between a marker
+# and the thing it marks. The picture is a few percent smaller for it, which is
+# a look, so it is a video's own choice rather than the pipeline's.
+PICTURE_FIT=scale
 VOICE_FILTER=$REPO/demo/promo/scripts/broadcast-filter.sh
+
+# Cobalt2's background, the theme every scene tape pins. What a bumper fades to
+# and what `PICTURE_FIT=pad` borders with, so both meet the terminal invisibly.
+TERMINAL_BG=0x122636
 
 # The channel ident the video opens on. It fades to the terminal's own
 # background rather than to black, so the join into the first scene is
 # invisible — the card dissolves and the terminal is simply already there.
-# The color is Cobalt2's background, the theme the scene tapes pin.
 BUMPER=demo/promo/assets/hsn-bumper.svg
 BUMPER_HOLD=2.8
 BUMPER_FADE=0.5
-BUMPER_TO=0x122636
+# Left empty rather than expanded here, so a video overriding TERMINAL_BG moves
+# the fade with the border instead of getting one of each. A video that wants to
+# fade somewhere else still just sets it.
+BUMPER_TO=
 # shellcheck disable=SC1090
 [ -f "$VIDEO_DIR/video.conf" ] && . "$VIDEO_DIR/video.conf"
+BUMPER_TO=${BUMPER_TO:-$TERMINAL_BG}
+
+case $PICTURE_FIT in
+scale | pad) ;;
+*)
+    echo "unknown PICTURE_FIT '$PICTURE_FIT' -- expected 'scale' or 'pad'" >&2
+    exit 1
+    ;;
+esac
 
 # tts.sh reads these from the environment, so a video picks its own voice.
 export TTS_VOICE TTS_SPEED
@@ -107,19 +136,27 @@ duration() {
 #
 # Markers are placed in cells because cells are what they point at -- a matrix
 # column is one cell wide, a commit one row tall -- and because reading pixels
-# off a frame is how a marker ends up a column out. Two things stand between a
-# cell and a pixel, and both live here: vhs sizes the terminal to a whole number
-# of cells, so a capture is not 1920x1080, and the picture chain then scales it
-# to fit and centers it. That leaves a fractional cell pitch, so the arithmetic
-# is done in floating point and rounded once, at the end.
+# off a frame is how a marker ends up a column out. What stands between a cell
+# and a pixel is whatever the picture chain did, so this mirrors it: vhs sizes
+# the terminal to whole cells, so a capture is not 1920x1080, and the chain
+# either scales it to fit or places it unresized.
+#
+# Under `PICTURE_FIT=pad` a cell is a whole number of pixels and a box lands
+# exactly. Scaled, the pitch is fractional, so the arithmetic is in floating
+# point and rounded once at the end -- and a boundary that rounds the wrong way
+# leaves a line of background showing between a marker and what it marks, which
+# is the cost of that fit rather than something this can round away.
 cell_box() {
     local col=$1 row=$2 cols=$3 rows=$4 grow=$5 cap_w=$6 cap_h=$7
     awk -v col="$col" -v row="$row" -v cols="$cols" -v rows="$rows" \
-        -v grow="$grow" -v cw="$CELL_W" -v ch="$CELL_H" \
+        -v grow="$grow" -v cw="$CELL_W" -v ch="$CELL_H" -v fit="$PICTURE_FIT" \
         -v capw="$cap_w" -v caph="$cap_h" -v fw="$W" -v fh="$H" 'BEGIN {
-        # The same fit-and-center the scale/pad pair in the picture chain does,
-        # truncating where ffmpeg truncates.
-        s = (fw / capw < fh / caph) ? fw / capw : fh / caph
+        # The same fit-and-center the picture chain does, truncating where
+        # ffmpeg truncates.
+        s = 1
+        if (fit != "pad") {
+            s = (fw / capw < fh / caph) ? fw / capw : fh / caph
+        }
         pw = int(capw * s); ph = int(caph * s)
         px = int((fw - pw) / 2); py = int((fh - ph) / 2)
 
@@ -536,8 +573,17 @@ for i in $(seq 0 $((n - 1))); do
     a=$((i * 2))
     b=$((i * 2 + 1))
 
-    chain="scale=$W:$H:force_original_aspect_ratio=decrease"
-    chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=$FPS"
+    if [ "$PICTURE_FIT" = pad ]; then
+        # The scale is only a guard for a capture bigger than the frame; at the
+        # size vhs produces it does nothing, which is the point. Bordered in the
+        # terminal's own background so it reads as a border, not a letterbox.
+        chain="scale=w='min(iw,$W)':h='min(ih,$H)':force_original_aspect_ratio=decrease"
+        chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=$TERMINAL_BG"
+    else
+        chain="scale=$W:$H:force_original_aspect_ratio=decrease"
+        chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=black"
+    fi
+    chain="$chain,setsar=1,fps=$FPS"
 
     # The infomercial "problem" look. Applied before the title card so the card
     # itself stays white rather than going gray with the footage.

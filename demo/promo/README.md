@@ -138,11 +138,19 @@ Coordinates are terminal cells, counted from the top-left of the terminal, and
 everything a marker can point at is on that grid: a matrix column is one cell
 wide, a commit one row tall, the header is row 0 and the first commit is row 1.
 `cell_box` in [`scripts/compose.sh`](scripts/compose.sh) is the only thing that
-converts them, and it is where the two awkward steps live — vhs sizes the
-terminal to a whole number of cells, so a capture is not quite 1920×1080, and
-the picture chain then scales it to fit and centers it. `CELL_W` and `CELL_H`
-there are the cell size in a capture at the `Set FontSize` every scene tape
-pins; change the font size and they change with it.
+converts them, and it is where the awkward step lives — vhs sizes the terminal
+to a whole number of cells, so a capture is not quite 1920×1080, and how the
+picture chain meets the frame decides whether a cell is a whole number of pixels.
+`CELL_W` and `CELL_H` there are the cell size in a capture at the `Set FontSize`
+every scene tape pins; change the font size and they change with it.
+
+That is what `PICTURE_FIT` chooses. `scale` (the promo's) fills the frame, which
+resamples every glyph and puts the grid on a fractional pitch: a stroke then
+rounds to one side of a boundary or the other, and where it rounds short, a line
+of background shows between the marker and the column it marks. `pad`
+(the tutorial's) places the capture unresized and borders it in the terminal's
+own background, so one capture pixel is one frame pixel, the grid stays whole and
+every box lands exactly — at the cost of a picture a few percent smaller.
 
 Count the cells off a frame — **per scene**. The grid does not move, but which
 column a thing sits in does: the same green square is in different columns in

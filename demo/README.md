@@ -78,7 +78,9 @@ key optional and defaulting to what the promo uses:
 | Key | What it does |
 |-----|--------------|
 | `OUT_BASE` | output filename stem, so videos cannot overwrite each other |
-| `TTS_VOICE`, `TTS_SPEED` | the read; `cue-check.sh` uses the same ones, so timings match the render |
+| `PICTURE_FIT` | `scale` fills the frame; `pad` places the capture unresized, keeping the text as sharp as captured and the cell grid whole, which is what marker boxes are placed on |
+| `TERMINAL_BG` | the terminal's own background: what a bumper fades to and what `PICTURE_FIT=pad` borders with, so both meet the picture invisibly |
+| `TTS_VOICE`, `TTS_SPEED` | the read; `cue-check.sh` uses the same ones, so timings match the render. Both defer to the environment, so a voice can be auditioned without editing the file |
 | `VOICE_FILTER` | path to a filter script, or `none` to leave the voice as synthesized |
 | `BUMPER`, `BUMPER_HOLD`, `BUMPER_FADE`, `BUMPER_TO` | the opening ident, or `BUMPER=none` |
 | `LOGO_SPIN` | how long a scene's logo takes to spin in and land; `0` for one that simply appears, with no impact cue under it |
