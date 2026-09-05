@@ -113,26 +113,29 @@ familiar if you are coming from there.
 
 | Color / style    | Meaning                                                                                                                |
 |------------------|------------------------------------------------------------------------------------------------------------------------|
-| Green square     | This commit can be cleanly squashed with the related, earlier commit in this hunk group                                |
-| White square     | The earliest commit in a hunk group, or one that touches it but is not a clean squash                                  |
-| Light red square | The selected commit's own square where squashing into the related commit would conflict                                |
-| Green connector  | The two commits linked by the connector can be cleanly squashed                                                        |
-| Red connector    | The two commits touching this hunk group have **conflicting** changes, reordering or squashing risks a merge conflict  |
+| Green square     | This commit squashes cleanly into the earlier commit in this column: every column it touches leads back to that same commit, with nobody touching them in between |
+| Red square       | It does not. Either another commit touched this column in between, or the commit's other changes lead back to a different commit, so there is no single commit it can fold into |
+| Light red square | The same, on the selected commit's own row — the brighter shade says the commit you are looking at is the one that will not fold |
+| White square     | The earliest commit in a column — there is nothing before it to squash into                                            |
+| Green connector  | The same relationship as a green square, drawn across the commits sitting between the two                              |
+| Red connector    | The same as a red square, drawn across the commits in between                                                          |
 | Dimmed column    | A hunk group the selected commit does not touch, shown for context                                                     |
 
-Note that even though the colors indicate cleanly squashable, git may consider
-the squash causing conflict since git-tailor considers no extra lines of context
-while git does.
+Note that "squashes cleanly" is not quite a promise: git-tailor groups changes
+only where their lines overlap, while git also treats adjacent lines as one
+region. Changes with nothing between them can still conflict; one untouched line
+is enough for git to agree.
 
 ### Color legend — commit list (highlight theme)
 
-When you select a commit, the other commits are colored relative to it:
+When you select a commit, the other commits are colored relative to it — except
+for dim green, which says something about the commit itself:
 
 | Color     | Meaning                                                                                                                           |
 |-----------|-----------------------------------------------------------------------------------------------------------------------------------|
 | Green     | Squashable partner — the currently selected commit can be cleanly squashed into the green commit or vice versa depending on order |
 | Red       | Conflicting — the currently selected commit touches the same lines as the red commit; squashing or reordering may cause conflicts |
-| Dim green | Fully squashable — every hunk group this commit touches is squashable; a good candidate to merge into another commit             |
+| Dim green | Fully squashable — this commit can fold into some earlier commit, though not into the one you have selected; a good candidate to tidy away |
 | Normal    | No shared hunk groups with the currently selected commit                                                                          |
 
 With `--matrix-theme plain` these same relationships are shown in yellow (squashable),

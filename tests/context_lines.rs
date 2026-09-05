@@ -14,7 +14,7 @@
 
 //! Integration tests for the configurable diff context lines (T166): a larger
 //! context merges hunks whose context regions overlap, and a smaller one splits
-//! them apart — behaviour git computes for us when we re-diff with the new
+//! them apart — behavior git computes for us when we re-diff with the new
 //! context.
 
 #[allow(dead_code)]

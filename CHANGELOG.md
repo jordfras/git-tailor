@@ -127,7 +127,24 @@ The format is based on
   press, not by resize or focus events (which the terminal can emit, most
   notably on Windows, when the alternate screen is restored after an external
   tool).
-- The commit detail view no longer jumps to re-centre a search match that is
+- In the hunk group matrix, a square marking a commit that cannot be squashed
+  into the earlier commit in its column is now red on every commit rather than
+  only on the selected one. It used to be drawn white away from the selection,
+  which said the opposite of the red connector leaving it, and left white
+  meaning two different things: "nothing earlier to squash into" and "cannot be
+  squashed, but not into the commit you have selected". White now means only the
+  first. Columns the selected commit does not touch are still dimmed, and the
+  selected commit's own row keeps a brighter red. Affects the default
+  `highlight` theme; `plain` and `classic` are unchanged, since they exist to
+  match an older look.
+- The color legends in the README described a green or red square as a judgment
+  about two commits' changes in that one column. It is a judgment about the
+  whole commit: green means every column it touches leads back to the same
+  earlier commit, so the commit can be squashed into that one. They also said
+  every commit-list color is relative to the selected commit, which is not true
+  of dim green — that marks a commit that can fold somewhere, whatever you have
+  selected.
+- The commit detail view no longer jumps to re-center a search match that is
   already on screen. This showed up when the diff got shorter while a search was
   active — pressing `-` to reduce the context lines, or making the terminal
   taller — and moved the view even though the highlighted match had not gone
@@ -196,7 +213,7 @@ The format is based on
   cherry-pick conflicts opens — resolve with the merge tool (`m`) or editor
   (`e`) and continue, or press Esc to abort the whole operation and get your
   changes back unchanged. Disabled by default, matching git's own
-  `rebase.autoStash` behaviour.
+  `rebase.autoStash` behavior.
 - Scroll the commit list without moving the selection. `Ctrl-Up` / `Ctrl-Down`
   scroll the list one row at a time while keeping the selected commit
   highlighted, stopping before it would scroll off screen.
@@ -221,7 +238,7 @@ The format is based on
 - Moving a commit toward the end of the list (e.g. two or three positions
   "down") no longer crashes. Navigating the insertion cursor past the last
   commit left the selection pointing out of bounds; once the move was confirmed
-  or cancelled, the next commit-list render indexed the list out of bounds and
+  or canceled, the next commit-list render indexed the list out of bounds and
   panicked.
 
 
@@ -257,7 +274,7 @@ The format is based on
   position (wrapping to the first match overall if all matches lie above).
 - `Space` / `Ctrl-f` and `b` / `Ctrl-b` page-scroll keybindings (less/vi
   convention) now work in both the commit list and the commit detail view,
-  mapping to the same page-down / page-up behaviour as `PageDown` / `PageUp`.
+  mapping to the same page-down / page-up behavior as `PageDown` / `PageUp`.
 - `Ctrl-d` / `Ctrl-u` and `Ctrl-PageDown` / `Ctrl-PageUp` half-page-scroll
   keybindings (vim convention) work in both the commit list and the commit
   detail view; the scroll amount is half the current panel height.
@@ -343,7 +360,7 @@ The format is based on
 
 - Extensive internal refactoring of the TUI rendering layer: extracted shared
   layout helpers, decomposed large rendering functions into smaller focused
-  units, and consolidated duplicated style logic. No intentional behaviour
+  units, and consolidated duplicated style logic. No intentional behavior
   changes, but these structural changes touch most view modules and may
   introduce subtle regressions.
 
@@ -452,7 +469,7 @@ The format is based on
 - Interactive TUI commit browser showing all commits between HEAD and the
   merge-base with a configured base branch (e.g. `main`).
 - Hunk group matrix panel: a fragmap-style visualization showing which commits
-  touch the same lines of code, with white/grey squares and colored connectors
+  touch the same lines of code, with white/gray squares and colored connectors
   indicating conflicts and squashability.
 - Commit detail view (toggle with `Enter`/`i`) showing the full diff for the
   selected commit with syntax-highlighted output.
@@ -465,7 +482,7 @@ The format is based on
 - **Reword** (`r`) — edit the commit message of any commit in the range.
 - **Drop** (`d`) — delete the selected commit entirely.
 - Conflict and squashability highlighting in the commit list: selected commit's
-  partners are colored yellow (squashable), red (conflicting), or grey (fully
+  partners are colored yellow (squashable), red (conflicting), or gray (fully
   squashable).
 - Adjustable panel separator (`Ctrl ←`/`Ctrl →`) between the commit list and the
   hunk group matrix.

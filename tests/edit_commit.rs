@@ -129,7 +129,7 @@ fn edit_noop_cancels_and_restores_the_branch() {
         .unwrap();
     // Exit the shell without touching the commit.
     let outcome = git_repo.finish_edit(&Oid::from(f.edited)).unwrap();
-    assert!(matches!(outcome, EditOutcome::Cancelled));
+    assert!(matches!(outcome, EditOutcome::Canceled));
 
     assert_eq!(git_repo.head_oid().unwrap(), Oid::from(f.head));
     let commits = f.test.commits_from_head(f.base);

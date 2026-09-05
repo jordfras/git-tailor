@@ -586,7 +586,7 @@ fn test_search_keys_map_unconditionally() {
 /// stored offset afterwards. When the content shrinks (fewer context lines, a
 /// taller terminal), the search auto-scroll decided whether the current match
 /// was visible using the *pre-clamp* offset — a window past the end of the
-/// content that is never rendered — and so recentred a match that the clamped
+/// content that is never rendered — and so recenterd a match that the clamped
 /// view already showed.
 #[test]
 fn test_search_does_not_jump_when_the_match_is_already_visible() {

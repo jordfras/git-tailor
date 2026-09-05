@@ -1,7 +1,7 @@
 And that's not all!
 
 [0.6]
-Every commit, every group of hunks, colour-coded.
+Every commit, every group of hunks, color-coded.
 
 [0.35]
 Green squashes clean. Red doesn't.

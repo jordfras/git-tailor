@@ -69,7 +69,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 },
             }
         }
-        ListNav::Cancelled => {
+        ListNav::Canceled => {
             app.mode = AppMode::CommitList;
             AppAction::Handled
         }

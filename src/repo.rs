@@ -280,7 +280,7 @@ pub enum EditOutcome {
     Conflict(Box<ConflictState>),
     /// The user made no change (exited the shell with the commit untouched);
     /// the branch was restored and nothing was rewritten.
-    Cancelled,
+    Canceled,
 }
 
 /// Extra state carried through an in-progress autofixup batch's conflict so
@@ -655,7 +655,7 @@ pub trait RepoWrite {
     /// that was edited; the original branch tip and branch name are read from
     /// the in-progress journal.
     ///
-    /// Returns `Cancelled` when nothing changed, `Conflict` when replaying
+    /// Returns `Canceled` when nothing changed, `Conflict` when replaying
     /// descendants conflicts, or `Complete` on success. On an unexpected
     /// repository state (uncommitted leftovers, HEAD moved off the branch, a
     /// merge commit, or commits that don't build on the edited commit's parent)

@@ -1,0 +1,18 @@
+One thing to know before you trust the green.
+
+[0.7]
+git-tailor reads these groups from the changed lines alone. A change on one line
+and a change on the very next line overlap nothing, so they stay two separate
+groups.
+
+[0.8]
+Git is a shade stricter. When it merges, two changes with no untouched line
+between them count as one region, and collide.
+
+[0.8]
+One untouched line is enough for git to agree with the picture. So green means
+nothing overlaps; it does not quite promise git will agree.
+
+[0.9]
+And when it does not, the conflict is a small one, in code you have just been
+looking at, and usually obvious to resolve.

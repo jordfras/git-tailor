@@ -878,7 +878,7 @@ impl Git2Repo {
     /// libgit2 decides which tracked files are dirty from each index entry's
     /// cached stat — size and mtime — so a same-size edit whose mtime collides
     /// with that cache (an edit made within the filesystem's mtime tick of the
-    /// last index write) reads as unchanged. Anything that then serialises the
+    /// last index write) reads as unchanged. Anything that then serializes the
     /// working tree, whether into a stash or into a tree object, silently uses
     /// the stale blob and the edit is lost.
     pub(super) fn refresh_index_stat_cache(&self) -> Result<()> {

@@ -5,7 +5,7 @@ a local neural voice, scored, and composed into `demo/out/promo.mp4` by
 [`scripts/compose.sh`](scripts/compose.sh).
 
 Rendered with `demo/build.sh video` — see [`../README.md`](../README.md) for the
-toolchain and the other subcommands.
+toolchain, the other subcommands, and how to add a second video.
 
 ## Changing something
 
@@ -31,7 +31,7 @@ what the tape does — a scene that films an operation needs a branch shaped for
 it, and `make-repo.sh` verifies its own end state, so extending it means
 extending that check too.
 
-**Iterating on one scene.** `demo/build.sh video 04-pitch` renders and composes
+**Iterating on one scene.** `demo/build.sh video promo 04-pitch` renders and composes
 just that one, into `demo/out/promo-preview.mp4` — the full video keeps its own
 filename. `TTS_ENGINE=flite` swaps the neural voice for a robotic one that needs
 no model, which is the fast way to smoke-test a pipeline change (but useless for
@@ -113,8 +113,9 @@ everything that defines it:
 | `STAMP` | — | an emoji to pop in over the picture |
 | `STAMP_AT`, `STAMP_HOLD` | `1.0`, `2.5` | when, and for how long |
 | `STAMP_SIZE` | `260` | px on its longest side |
-| `STAMP_X`, `STAMP_Y` | right of centre | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
+| `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
+| `MARKERS` | — | boxes drawn around what the narration is naming, one per array element: `"AT HOLD COL ROW COLS ROWS [SHAPE]"` — seconds, then the marked cells in the terminal grid, then `rect` (default) / `arrow-up` / `arrow-down` |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
 the music sags with the story rather than merely receding — muffling alone reads
@@ -123,23 +124,63 @@ amounts are constants in [`scripts/compose.sh`](scripts/compose.sh):
 `MUSIC_DULL_PITCH` (0.8909, or 2^-2/12), `MUSIC_DULL_HZ`, `MUSIC_DULL_BASS` —
 which puts back the weight the lowpass removes — and `MUSIC_DULL_GAIN`.
 
+`MARKERS` exists because a tutorial names things the viewer then has to find:
+"each column is one group of hunks" only helps if you know which column. The
+cells are the thing being marked, and the box's stroke — `MARKER_STROKE` in
+[`scripts/compose.sh`](scripts/compose.sh) — is drawn immediately outside them,
+so a marker reads as *around* rather than *on*. No clearance beyond that: the
+matrix's columns are contiguous with no gutter, so every pixel a marker takes is
+one it takes off a neighboring column, and a gap around the marked cells reads
+as a marker that has missed. A box at the edge of the picture is capped to the
+picture rather than hanging half off frame.
+
+Coordinates are terminal cells, counted from the top-left of the terminal, and
+everything a marker can point at is on that grid: a matrix column is one cell
+wide, a commit one row tall, the header is row 0 and the first commit is row 1.
+`cell_box` in [`scripts/compose.sh`](scripts/compose.sh) is the only thing that
+converts them, and it is where the awkward step lives — vhs sizes the terminal
+to a whole number of cells, so a capture is not quite 1920×1080, and how the
+picture chain meets the frame decides whether a cell is a whole number of pixels.
+`CELL_W` and `CELL_H` there are the cell size in a capture at the `Set FontSize`
+every scene tape pins; change the font size and they change with it.
+
+That is what `PICTURE_FIT` chooses. `scale` (the promo's) fills the frame, which
+resamples every glyph and puts the grid on a fractional pitch: a stroke then
+rounds to one side of a boundary or the other, and where it rounds short, a line
+of background shows between the marker and the column it marks. `pad`
+(the tutorial's) places the capture unresized and borders it in the terminal's
+own background, so one capture pixel is one frame pixel, the grid stays whole and
+every box lands exactly — at the cost of a picture a few percent smaller.
+
+Count the cells off a frame — **per scene**. The grid does not move, but which
+column a thing sits in does: the same green square is in different columns in
+different scenes, which is exactly how a marker ends up one column out. Check
+each against its own scene's frame.
+
+Two things worth knowing before placing one. A marker fires on scene time, so
+subtract the scene's start from any timestamp read off the finished video. And
+it must wait for the tape to have drawn its subject — `gt` is typically not on
+screen for the first few seconds, and a marker before that rings an empty
+terminal.
+
 The video opens on a channel ident for the fake shopping network the
 infomercial belongs to, [`assets/hsn-bumper.svg`](assets/hsn-bumper.svg). It is
 prepended in [`scripts/compose.sh`](scripts/compose.sh) — `BUMPER`,
 `BUMPER_HOLD`, `BUMPER_FADE` — rather than being a scene, since it has no tape
 and nothing to capture. It fades to `BUMPER_TO`, the terminal's own background
-colour, so the join into the first scene is invisible: the card dissolves and
+color, so the join into the first scene is invisible: the card dissolves and
 the terminal is already there.
 
 The logo spins in from small through three rotations, overshoots, snaps back and
 lands with a smack — the cue is timed to `LOGO_AT + LOGO_SPIN`, so it follows
-automatically if the spin is retimed. `LOGO_SPIN` is a constant in
-[`scripts/compose.sh`](scripts/compose.sh) alongside the cross-fade length.
+automatically if the spin is retimed. `LOGO_SPIN` is a `video.conf` key: `0`
+gives a logo that simply appears, with no impact cue under it, which is what the
+tutorial uses.
 
-Stamps are rasterised by
+Stamps are rasterized by
 [`scripts/make-emoji.py`](scripts/make-emoji.py), because ffmpeg cannot draw
-them: colour emoji are bitmap glyphs and `drawtext` rejects the font outright.
-They are overlaid after any `GRAYSCALE`, so a stamp keeps its colour on a
+them: color emoji are bitmap glyphs and `drawtext` rejects the font outright.
+They are overlaid after any `GRAYSCALE`, so a stamp keeps its color on a
 deliberately drab scene — which is usually what you want from a joke.
 
 [`make-repo.sh`](make-repo.sh) builds the fixture: two branches from one set of
@@ -159,7 +200,7 @@ The pieces:
 - [`scripts/broadcast-filter.sh`](scripts/broadcast-filter.sh) — the compression
   and EQ that make the narration sound like an announcer rather than a text
   reader. Shared with the audition script, so a voice test predicts the mix.
-- [`scripts/make-audio-beds.sh`](scripts/make-audio-beds.sh) — synthesises the
+- [`scripts/make-audio-beds.sh`](scripts/make-audio-beds.sh) — synthesizes the
   music bed and the whoosh/ding/smack cues with ffmpeg, so nothing waits on
   licensed audio. Drop real files into `demo/promo/assets/` under the same base names
   (`music.*`, `whoosh.*`, `ding.*`, `smack.*`) and they win.
@@ -177,7 +218,7 @@ The pieces:
 ## Narration
 
 Narration files control their own pacing. Blank lines separate paragraphs, which
-are synthesised one at a time; `[1.2]` alone on a line sets an exact gap,
+are synthesized one at a time; `[1.2]` alone on a line sets an exact gap,
 `{speed=0.9}` changes the read speed from there on, and a `#` line is a comment.
 Comments matter here because a narration file is a script for the ear: some
 words are deliberately misspelt so they are said correctly, and without a note
@@ -244,12 +285,12 @@ spoken lines only (blank lines, `#` comments, `[0.9]` gaps and `{speed=…}` do
 not count).
 
 ```bash
-demo/build.sh cues            # every scene
-demo/build.sh cues 04-pitch   # one of them
+demo/build.sh cues              # every scene
+demo/build.sh cues promo 04-pitch   # one of them
 ```
 
 reports each cue's actual lead and its drift from the declared one, and exits
-non-zero past 0.15s. It only synthesises narration — no capture — so it is
+non-zero past 0.15s. It only synthesizes narration — no capture — so it is
 seconds, not minutes, and is the thing to run after any narration edit.
 
 The drift it prints is the correction: a uniform `-2.04` on every cue in a scene
@@ -264,13 +305,13 @@ cues is skipped for free.
 ## Capture
 
 The scene tapes pin the terminal to a navy theme (`Set Theme "Cobalt2"`). The
-grey scenes get their look from desaturation, and a black-and-white terminal
-desaturates to itself — the colour is there to be taken away. git-tailor paints
+gray scenes get their look from desaturation, and a black-and-white terminal
+desaturates to itself — the color is there to be taken away. git-tailor paints
 its own `dark+` palette regardless, so this only touches the shell stretches,
-which is where the grey scenes are.
+which is where the gray scenes are.
 
 Scenes are captured as **lossless PNG frame sequences**, not vhs MP4 or GIF, so
-there are no palette or chroma artefacts and the video is encoded exactly once.
+there are no palette or chroma artifacts and the video is encoded exactly once.
 The frames land on the cache volume rather than in `demo/out/` (a few hundred MB
 per render), so `demo/build.sh clean` clears them with the rest of the volume.
 
@@ -290,7 +331,7 @@ so repeat renders reuse crate builds and the host tree is left untouched.
 
 ## Pacing
 
-The grey "problem" stretch (02 + 03) earns the payoff, but every second of it
+The gray "problem" stretch (02 + 03) earns the payoff, but every second of it
 is a second before the viewer has seen the product. Keep it as short as the
 jokes allow.
 
@@ -299,7 +340,7 @@ past a certain point **the narration, not the tape, sets the length** — windin
 `SPEED` on further buys nothing, and leaving it short of that point strands the
 tail of the scene in silence. `SPEED` therefore has to be retuned whenever a
 script changes. It also means the only remaining lever is the script itself,
-which is why the grey scenes were tightened by trimming the gaps *between* lines
+which is why the gray scenes were tightened by trimming the gaps *between* lines
 rather than by speeding the capture alone.
 
 To shorten a scene, reach for the levers in this order — the figures are what
@@ -342,30 +383,3 @@ seconds of looking at the log instead of watching it appear.
   ancestor, whatever `duration=longest` claims. The voice bus is padded to full
   length before the split, which also stops `sidechaincompress` cutting the
   music off at the last spoken word.
-
-## Reusing this for another video
-
-The pipeline is parameterised per *scene* and hardcoded per *video*. A tutorial
-series would reuse `render.sh`, `tape-duration.sh`, `cue-check.sh`, `tts.sh` and
-`make-emoji.py` as they are; what is promo-specific are constants at the top of
-[`scripts/compose.sh`](scripts/compose.sh):
-
-- `SCENES_DIR` and the output name — where the beats come from, what they
-  produce.
-- `BUMPER`, `BUMPER_HOLD`, `BUMPER_FADE`, `BUMPER_TO` — the channel ident, and
-  the colour it dissolves into, which is the terminal theme's background.
-- `MUSIC`, `MUSIC_LOOP_*` and the cue set — a tutorial probably wants no bed at
-  all, in which case the ducking and the `MUSIC_DULL` handling are dead weight.
-- The read itself: `TTS_VOICE`/`TTS_SPEED` in `tts.sh`, and
-  [`scripts/broadcast-filter.sh`](scripts/broadcast-filter.sh), which is
-  deliberately an announcer. A teaching voice wants neither the compression nor
-  the hype.
-
-The honest options are to make those into environment overrides (several already
-are — `SCENE_FRAMES`, `MUSIC_LOOP_START`) or to copy `compose.sh`. Copying is
-not obviously wrong: the composition *is* the format, and an infomercial and a
-tutorial do not want the same one.
-
-What should not be copied is the fixture. `make-repo.sh` builds a repository
-whose history is arranged for one story; a tutorial wants its own, and the two
-tape sets would otherwise fight over the same row offsets.

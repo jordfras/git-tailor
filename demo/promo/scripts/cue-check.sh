@@ -27,9 +27,10 @@
 # inside the sentence that calls it. This tool is for keeping what was tuned,
 # not for flattening it.
 #
-# Usage (inside the container):  cue-check.sh [SCENE_NAME...]
-#     demo/build.sh cues                  # every scene
-#     demo/build.sh cues 04-pitch         # one of them
+# Usage (inside the container):  cue-check.sh VIDEO [SCENE_NAME...]
+#     demo/build.sh cues                        # the promo, every scene
+#     demo/build.sh cues promo 04-pitch         # one of them
+#     demo/build.sh cues tutorials/01-matrix    # another video
 #
 # Exits non-zero if any cue has drifted more than TOLERANCE seconds, so it can
 # gate a render.
@@ -38,8 +39,21 @@ set -euo pipefail
 REPO=/work
 cd "$REPO"
 
-SCENES_DIR=$REPO/demo/promo/scenes
+VIDEO=${1:?usage: cue-check.sh VIDEO [SCENE_NAME...]}
+shift
+VIDEO_DIR=$REPO/demo/$VIDEO
+SCENES_DIR=$VIDEO_DIR/scenes
 SCRIPT_DIR=$REPO/demo/promo/scripts
+[ -d "$SCENES_DIR" ] || {
+    echo "cue-check: no video at demo/$VIDEO" >&2
+    exit 1
+}
+
+# Timings must come from the voice the video is actually narrated with, so the
+# same per-video settings compose.sh reads apply here.
+# shellcheck disable=SC1090
+[ -f "$VIDEO_DIR/video.conf" ] && . "$VIDEO_DIR/video.conf"
+export TTS_VOICE TTS_SPEED
 TOLERANCE=${TOLERANCE:-0.15}
 
 scenes=("$@")

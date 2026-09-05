@@ -137,6 +137,14 @@ let repo = git2::Repository::open(".")?;
 let head_oid = repo.head()?.target()?;
 ```
 
+### Spelling Convention
+
+**American English everywhere** — not only in what a user reads. Documentation,
+commit messages, code comments, identifiers, and status-bar strings all use
+`color`, `behavior`, `canceled`, `gray`, `normalize`, `center`. British spelling
+in an identifier is worse than in prose, because it has to be matched exactly
+from then on.
+
 ### Code Quality
 
 After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and

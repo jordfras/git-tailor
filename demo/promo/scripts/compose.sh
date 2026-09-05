@@ -8,8 +8,14 @@
 # Runs INSIDE the toolchain image, after demo/render.sh has captured a PNG frame
 # sequence per scene onto the cache volume (see SCENE_FRAMES below).
 #
-# Usage (inside the container):  compose.sh [SCENE_NAME...]
-# With no arguments every demo/promo/scenes/*/ is composed, in name order.
+# Usage (inside the container):  compose.sh VIDEO [SCENE_NAME...]
+# VIDEO is a directory under demo/ holding scenes/ — "promo",
+# "tutorials/01-matrix". With no scene names every demo/VIDEO/scenes/*/ is
+# composed, in name order.
+#
+# What differs between videos lives in demo/VIDEO/video.conf (sourced shell, all
+# keys optional); what they share is the composition itself. A tutorial is the
+# same machinery with the ident, the bed and the announcer chain turned off.
 #
 # Composing a subset writes demo/out/promo-preview.mp4 rather than promo.mp4, so
 # checking one scene cannot quietly replace the finished video with a ten-second
@@ -24,14 +30,21 @@ set -euo pipefail
 REPO=/work
 cd "$REPO"
 
-SCENES_DIR=$REPO/demo/promo/scenes
+VIDEO=${1:?usage: compose.sh VIDEO [SCENE_NAME...]}
+shift
+VIDEO_DIR=$REPO/demo/$VIDEO
+[ -d "$VIDEO_DIR/scenes" ] || {
+    echo "compose: no video at demo/$VIDEO (wants demo/$VIDEO/scenes/)" >&2
+    exit 1
+}
+SCENES_DIR=$VIDEO_DIR/scenes
 OUT=$REPO/demo/out
 # Captured frames live on the cache volume rather than in the host tree; see
 # the scene branch of render.sh for why.
 SCENE_FRAMES=${SCENE_FRAMES:-/cache/scene-frames}
 WORK=$OUT/compose
 ASSETS_GEN=$OUT/assets
-ASSETS_REAL=$REPO/demo/promo/assets
+ASSETS_REAL=$VIDEO_DIR/assets
 
 # Composition constants.
 W=1920
@@ -39,16 +52,72 @@ H=1080
 FPS=30
 XFADE=0.5      # cross-fade length between scenes, seconds
 TAIL=0.6       # quiet time after the narration before a scene may transition
-LOGO_SPIN=0.55 # how long the logo takes to spin in and land
+# How long the logo takes to spin in and land. LOGO_SPIN=0 in a video.conf
+# means a logo that simply appears: no spin, no overshoot, and no impact cue
+# under it. A title card is not an entrance.
+LOGO_SPIN=0.55
+
+# One terminal cell in a captured frame, at the FontSize every scene tape pins.
+# cell_box is the only thing that reads them. To re-derive after a font change,
+# divide a capture's pixel size by the terminal size the tape produced -- both
+# divide exactly, since vhs sizes the terminal to whole cells.
+CELL_W=16
+CELL_H=35
+
+# A marker's stroke is drawn immediately outside the cells it marks, with no
+# clearance: the matrix's columns are contiguous with no gutter, so every pixel
+# a marker takes is one it takes off a neighboring column.
+MARKER_STROKE=4
+
+# Per-video settings. The defaults below are the promo's; video.conf overrides
+# them, and "none" switches a whole feature off rather than needing a flag.
+OUT_BASE=promo
+
+# How a capture meets the frame. vhs sizes the terminal to whole cells, so a
+# capture is a little under 1920x1080 either way.
+#
+#   scale  fill the frame, letterboxing what is left over
+#   pad    place it unresized and border it in the terminal's own background
+#
+# `pad` keeps one capture pixel one frame pixel: the text is as sharp as it was
+# captured, and a cell stays a whole number of pixels, which markers need --
+# scaled up, the pitch is fractional and a stroke rounds to one side of a
+# boundary or the other, leaving a line of background showing between a marker
+# and the thing it marks. The picture is a few percent smaller for it, which is
+# a look, so it is a video's own choice rather than the pipeline's.
+PICTURE_FIT=scale
+VOICE_FILTER=$REPO/demo/promo/scripts/broadcast-filter.sh
+
+# Cobalt2's background, the theme every scene tape pins. What a bumper fades to
+# and what `PICTURE_FIT=pad` borders with, so both meet the terminal invisibly.
+TERMINAL_BG=0x122636
 
 # The channel ident the video opens on. It fades to the terminal's own
 # background rather than to black, so the join into the first scene is
 # invisible — the card dissolves and the terminal is simply already there.
-# The colour is Cobalt2's background, the theme the scene tapes pin.
 BUMPER=demo/promo/assets/hsn-bumper.svg
 BUMPER_HOLD=2.8
 BUMPER_FADE=0.5
-BUMPER_TO=0x122636
+# Left empty rather than expanded here, so a video overriding TERMINAL_BG moves
+# the fade with the border instead of getting one of each. A video that wants to
+# fade somewhere else still just sets it.
+BUMPER_TO=
+# shellcheck disable=SC1090
+[ -f "$VIDEO_DIR/video.conf" ] && . "$VIDEO_DIR/video.conf"
+BUMPER_TO=${BUMPER_TO:-$TERMINAL_BG}
+
+case $PICTURE_FIT in
+scale | pad) ;;
+*)
+    echo "unknown PICTURE_FIT '$PICTURE_FIT' -- expected 'scale' or 'pad'" >&2
+    exit 1
+    ;;
+esac
+
+# tts.sh reads these from the environment, so a video picks its own voice.
+export TTS_VOICE TTS_SPEED
+
+[ "$BUMPER" = none ] && BUMPER="" BUMPER_HOLD=0 BUMPER_FADE=0
 BUMPER_LEN=$(awk "BEGIN{printf \"%.3f\", $BUMPER_HOLD + $BUMPER_FADE}")
 
 mkdir -p "$WORK" "$OUT/narration"
@@ -62,6 +131,52 @@ duration() {
     ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$1"
 }
 
+# Where a box given in terminal cells lands in the composed frame: echoes
+# "X Y W H" in pixels, grown by $5 on every side and capped to the picture.
+#
+# Markers are placed in cells because cells are what they point at -- a matrix
+# column is one cell wide, a commit one row tall -- and because reading pixels
+# off a frame is how a marker ends up a column out. What stands between a cell
+# and a pixel is whatever the picture chain did, so this mirrors it: vhs sizes
+# the terminal to whole cells, so a capture is not 1920x1080, and the chain
+# either scales it to fit or places it unresized.
+#
+# Under `PICTURE_FIT=pad` a cell is a whole number of pixels and a box lands
+# exactly. Scaled, the pitch is fractional, so the arithmetic is in floating
+# point and rounded once at the end -- and a boundary that rounds the wrong way
+# leaves a line of background showing between a marker and what it marks, which
+# is the cost of that fit rather than something this can round away.
+cell_box() {
+    local col=$1 row=$2 cols=$3 rows=$4 grow=$5 cap_w=$6 cap_h=$7
+    awk -v col="$col" -v row="$row" -v cols="$cols" -v rows="$rows" \
+        -v grow="$grow" -v cw="$CELL_W" -v ch="$CELL_H" -v fit="$PICTURE_FIT" \
+        -v capw="$cap_w" -v caph="$cap_h" -v fw="$W" -v fh="$H" 'BEGIN {
+        # The same fit-and-center the picture chain does, truncating where
+        # ffmpeg truncates.
+        s = 1
+        if (fit != "pad") {
+            s = (fw / capw < fh / caph) ? fw / capw : fh / caph
+        }
+        pw = int(capw * s); ph = int(caph * s)
+        px = int((fw - pw) / 2); py = int((fh - ph) / 2)
+
+        x0 = px + col * cw * s - grow
+        y0 = py + row * ch * s - grow
+        x1 = px + (col + cols) * cw * s + grow
+        y1 = py + (row + rows) * ch * s + grow
+        # A marker half off the frame reads as a rendering fault, so a box at
+        # the edge of the picture gives up its clearance rather than its shape.
+        if (x0 < px) x0 = px
+        if (y0 < py) y0 = py
+        if (x1 > px + pw) x1 = px + pw
+        if (y1 > py + ph) y1 = py + ph
+
+        x0 = int(x0 + 0.5); y0 = int(y0 + 0.5)
+        x1 = int(x1 + 0.5); y1 = int(y1 + 0.5)
+        printf "%d %d %d %d\n", x0, y0, x1 - x0, y1 - y0
+    }'
+}
+
 # Gain that brings a cue to `target` mean dBFS, without letting its peak exceed
 # CUE_CEILING.
 #
@@ -71,7 +186,7 @@ duration() {
 #
 # Matching on *mean* rather than peak is what makes that work. A one-shot effect
 # is nearly all transient: the Kenney bell peaks at -1dB but averages -22, a
-# crest factor of 21dB, where a synthesised tone of the same peak averages -16.
+# crest factor of 21dB, where a synthesized tone of the same peak averages -16.
 # Lining their peaks up therefore lines up nothing a listener notices — it put
 # the bell's actual energy at about -41dB, inaudible under the music. Mean
 # tracks perceived loudness; the ceiling then keeps the transient from clipping.
@@ -118,7 +233,7 @@ MUSIC_DULL_GAIN=0.92
 # without the bed sounding broken.
 MUSIC_DULL_PITCH=0.8909
 
-# Prefer real audio dropped into demo/promo/assets/ over the synthesised placeholders.
+# Prefer real audio dropped into demo/promo/assets/ over the synthesized placeholders.
 asset() {
     local name=$1 ext
     for ext in wav mp3 flac ogg m4a opus; do
@@ -131,8 +246,13 @@ asset() {
 }
 
 # Turns the flat TTS output into an announcer read; shared with the audition
-# script so a voice test predicts the finished mix.
-BROADCAST=$("$REPO/demo/promo/scripts/broadcast-filter.sh")
+# script so a voice test predicts the finished mix. A teaching video wants none
+# of it, so VOICE_FILTER=none leaves the voice as synthesized.
+if [ "$VOICE_FILTER" = none ]; then
+    BROADCAST=anull
+else
+    BROADCAST=$("$VOICE_FILTER")
+fi
 
 FONT=$(fc-match -f '%{file}' 'JetBrains Mono:style=Bold')
 [ -n "$FONT" ] || {
@@ -162,17 +282,22 @@ fi
 all_scenes=()
 for dir in "$SCENES_DIR"/*/; do all_scenes+=("$(basename "$dir")"); done
 if [ "${scenes[*]}" = "${all_scenes[*]}" ]; then
-    OUT_NAME=promo.mp4
+    OUT_NAME=$OUT_BASE.mp4
 else
-    OUT_NAME=promo-preview.mp4
+    OUT_NAME=$OUT_BASE-preview.mp4
 fi
 
 # ---------------------------------------------------------------------------
 # Placeholder music/SFX (skipped for any asset supplied for real)
 # ---------------------------------------------------------------------------
-echo ">> synthesising placeholder audio beds ..."
+echo ">> synthesizing placeholder audio beds ..."
 "$REPO/demo/promo/scripts/make-audio-beds.sh" "$ASSETS_GEN" >/dev/null
-MUSIC=$(asset music)
+if [ "${MUSIC:-}" = none ]; then
+    HAVE_MUSIC=0
+else
+    HAVE_MUSIC=1
+    MUSIC=$(asset music)
+fi
 
 # The music is looped to cover the video, so only a musically whole section of
 # it can be used. These bounds are 8 bars at 89.1bpm, measured off the track's own
@@ -187,7 +312,8 @@ MUSIC_LOOP_START=${MUSIC_LOOP_START:-5.410}
 MUSIC_LOOP_END=${MUSIC_LOOP_END:-26.959}
 MUSIC_XFADE=0.5
 
-if [ -n "$MUSIC_LOOP_END" ] && [ "$MUSIC" != "$ASSETS_GEN/music.wav" ]; then
+if [ "$HAVE_MUSIC" = 1 ] && [ -n "$MUSIC_LOOP_END" ] &&
+    [ "$MUSIC" != "$ASSETS_GEN/music.wav" ]; then
     loop=$WORK/music-loop.wav
     ffmpeg -hide_banner -loglevel error -y -i "$MUSIC" -filter_complex "\
 [0:a]asplit=2[a][b];\
@@ -200,7 +326,7 @@ afade=t=out:st=0:d=$MUSIC_XFADE:curve=tri[tail];\
     MUSIC=$loop
     echo ">> music loop: ${MUSIC_LOOP_START}s-${MUSIC_LOOP_END}s ($(duration "$loop")s)"
 fi
-echo ">> music bed: $MUSIC"
+[ "$HAVE_MUSIC" = 1 ] && echo ">> music bed: $MUSIC"
 
 # ---------------------------------------------------------------------------
 # Per-scene narration and timing
@@ -234,24 +360,38 @@ stamp_holds=()
 stamp_sizes=()
 stamp_xs=()
 stamp_ys=()
+markers=()
 
 cursor=$BUMPER_LEN
 for name in "${scenes[@]}"; do
     dir=$SCENES_DIR/$name
     # Captures are lossless PNG frame sequences. vhs writes two layers per
     # frame — the terminal contents and the cursor — which get composited below.
-    frames=$SCENE_FRAMES/$name
+    frames=$SCENE_FRAMES/$VIDEO/$name
     nframes=0
     [ -d "$frames" ] && nframes=$(find "$frames" -name 'frame-text-*.png' | wc -l)
     [ "$nframes" -gt 0 ] || {
         echo "compose: no captured frames for '$name' in $frames (run render.sh first)" >&2
         exit 1
     }
+    # vhs sizes the terminal to a whole number of cells, so a capture is very
+    # nearly 1920x1080 but never exactly -- and markers are placed against it,
+    # not against the composed frame. Measured rather than assumed, since it
+    # moves with the tape's FontSize and Padding.
+    read -r cap_w cap_h <<<"$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height -of csv=p=0 \
+        "$(find "$frames" -name 'frame-text-*.png' | sort | head -1)" | tr ',' ' ')"
 
     TITLE="" SUBTITLE="" NARRATION_DELAY=0.8 SFX=none SFX_AT=0 MUSIC_DULL=0
     TITLE_HOLD=3.3 TITLE_AT=0.4 GRAYSCALE=0 SPEED=1
     LOGO="" LOGO_AT=0.3 LOGO_HOLD=2.2
     STAMP="" STAMP_AT=1.0 STAMP_HOLD=2.5 STAMP_SIZE=260
+    # Boxes drawn around whatever the narration is naming, one per element:
+    #   "AT HOLD COL ROW COLS ROWS [SHAPE]"  -- seconds, then the marked cells
+    # in the terminal grid, then optionally rect (default) | arrow-up |
+    # arrow-down. Cells rather than pixels: everything a marker points at is on
+    # the grid, and cell_box does the conversion. See demo/promo/README.md.
+    MARKERS=()
     # In overlay expressions W/H are the frame and w/h are the stamp — mixing
     # them up silently parks the picture in the top-left corner.
     STAMP_X="W*0.78-w/2" STAMP_Y="H*0.40-h/2"
@@ -300,6 +440,20 @@ for name in "${scenes[@]}"; do
     stamp_sizes+=("$STAMP_SIZE")
     stamp_xs+=("$STAMP_X")
     stamp_ys+=("$STAMP_Y")
+    # Converted to pixels here, once, so nothing downstream needs the grid.
+    pixel_markers=()
+    for spec in ${MARKERS[@]+"${MARKERS[@]}"}; do
+        read -r _at _hold _col _row _cols _rows _shape <<<"$spec"
+        _shape=${_shape:-rect}
+        # An arrow is not drawn around anything, so it gets exactly the cells
+        # it asks for; a box has to sit outside what it marks.
+        _grow=0
+        [ "$_shape" = rect ] && _grow=$MARKER_STROKE
+        _box=$(cell_box "$_col" "$_row" "$_cols" "$_rows" "$_grow" "$cap_w" "$cap_h")
+        pixel_markers+=("$_at $_hold $_box $_shape")
+    done
+    # Flattened with a separator: bash has no nested arrays.
+    markers+=("$(printf '%s|' ${pixel_markers[@]+"${pixel_markers[@]}"})")
 
     printf '   %-10s tape %ss (%s frames @ %sfps), voice %ss -> scene %ss @ %ss\n' \
         "$name" "$vdur" "$nframes" "$rate" "$adur" "$sdur" "$cursor"
@@ -314,7 +468,7 @@ TOTAL=$(fcalc "$cursor + $XFADE")
 echo ">> $n scene(s), $TOTAL s total"
 
 # ---------------------------------------------------------------------------
-# Pass 1 — video: normalise, title card, pad, cross-fade
+# Pass 1 — video: normalize, title card, pad, cross-fade
 # ---------------------------------------------------------------------------
 echo ">> composing video ..."
 
@@ -336,7 +490,7 @@ fit_size() {
 # Outline width for a given font size. Cards are drawn as white glyphs with a
 # black outline rather than white-on-a-black-box: the box was a slab across the
 # picture, while an outline keeps the text readable over anything underneath —
-# terminal, diff colours, the logo — without hiding it. Scaled with the font so
+# terminal, diff colors, the logo — without hiding it. Scaled with the font so
 # a small card is not smothered and a large one is not left too thin.
 outline() {
     awk -v s="$1" 'BEGIN { b = int(s / 16); print (b < 2) ? 2 : b }'
@@ -376,7 +530,7 @@ for i in $(seq 0 $((n - 1))); do
     next_input=$((next_input + 1))
 done
 
-# Emoji stamps, rasterised out of the colour font — ffmpeg cannot draw those
+# Emoji stamps, rasterized out of the color font — ffmpeg cannot draw those
 # itself, see make-emoji.py.
 stamp_idx=()
 for i in $(seq 0 $((n - 1))); do
@@ -390,15 +544,49 @@ for i in $(seq 0 $((n - 1))); do
     next_input=$((next_input + 1))
 done
 
+# Annotation markers. One PNG per marker rather than one per distinct size: a
+# scene rarely has more than a handful, and the files are tiny.
+marker_idx=()
+declare -A marker_off=()
+for i in $(seq 0 $((n - 1))); do
+    marker_idx[$i]=""
+    IFS='|' read -r -a specs <<<"${markers[$i]}"
+    for j in "${!specs[@]}"; do
+        [ -n "${specs[$j]}" ] || continue
+        read -r _at _hold _x _y _w _h _shape <<<"${specs[$j]}"
+        png=$ASSETS_GEN/markers/${names[$i]}-$j.png
+        mkdir -p "$(dirname "$png")"
+        # The box is already where the ink goes; the shape reports the
+        # transparent margin it left itself for antialiasing, which the overlay
+        # below backs out again.
+        marker_off[$i,$j]=$("$KOKORO_HOME/venv/bin/python" \
+            "$REPO/demo/promo/scripts/make-marker.py" \
+            --out "$png" --width "$_w" --height "$_h" \
+            --stroke "$MARKER_STROKE" --shape "$_shape")
+        vargs+=(-loop 1 -framerate "$FPS" -t "${scene_durs[$i]}" -i "$png")
+        marker_idx[$i]="${marker_idx[$i]}$next_input "
+        next_input=$((next_input + 1))
+    done
+done
+
 for i in $(seq 0 $((n - 1))); do
     a=$((i * 2))
     b=$((i * 2 + 1))
 
-    chain="scale=$W:$H:force_original_aspect_ratio=decrease"
-    chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=$FPS"
+    if [ "$PICTURE_FIT" = pad ]; then
+        # The scale is only a guard for a capture bigger than the frame; at the
+        # size vhs produces it does nothing, which is the point. Bordered in the
+        # terminal's own background so it reads as a border, not a letterbox.
+        chain="scale=w='min(iw,$W)':h='min(ih,$H)':force_original_aspect_ratio=decrease"
+        chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=$TERMINAL_BG"
+    else
+        chain="scale=$W:$H:force_original_aspect_ratio=decrease"
+        chain="$chain,pad=$W:$H:(ow-iw)/2:(oh-ih)/2:color=black"
+    fi
+    chain="$chain,setsar=1,fps=$FPS"
 
     # The infomercial "problem" look. Applied before the title card so the card
-    # itself stays white rather than going grey with the footage.
+    # itself stays white rather than going gray with the footage.
     if [ "${grays[$i]}" != "0" ]; then
         chain="$chain,hue=s=0"
     fi
@@ -450,6 +638,28 @@ if(lt($st\\,0.34)\\,1.2-($st-0.22)/0.12*0.2\\,1))"
         src="[stamped$i]"
     fi
 
+    # Markers, after any GRAYSCALE so an annotation keeps its color on a scene
+    # that has deliberately lost its own.
+    IFS='|' read -r -a specs <<<"${markers[$i]}"
+    mj=0
+    for idx in ${marker_idx[$i]}; do
+        read -r _at _hold _x _y _w _h _shape <<<"${specs[$mj]}"
+        mout=$(fcalc "$_at + $_hold")
+        read -r offx offy <<<"${marker_off[$i,$mj]}"
+        ox=$((_x - offx))
+        oy=$((_y - offy))
+        # Separated indices: `mark${i}${mj}` reads the same for scene 1 marker
+        # 12 as for scene 11 marker 2, and ffmpeg rejects the duplicate label
+        # by failing the whole compose.
+        vfilter="$vfilter[$idx:v]format=rgba,"
+        vfilter="$vfilter""fade=t=in:st=$_at:d=0.25:alpha=1,"
+        vfilter="$vfilter""fade=t=out:st=$mout:d=0.35:alpha=1[mark${i}_$mj];"
+        vfilter="$vfilter$src[mark${i}_$mj]overlay=$ox:$oy"
+        vfilter="$vfilter:enable='between(t\,$_at\,$(fcalc "$mout + 0.35"))'[marked${i}_$mj];"
+        src="[marked${i}_$mj]"
+        mj=$((mj + 1))
+    done
+
     if [ -z "${logo_idx[$i]}" ]; then
         vfilter="$vfilter$src""format=yuv420p[v$i];"
         continue
@@ -480,8 +690,12 @@ if(lt($tt\\,$LOGO_SPIN+0.15)\\,1.15-($tt-$LOGO_SPIN)/0.15*0.15\\,1))"
     spin="if(lt($tt\\,$LOGO_SPIN)\\,6*PI*(1-$tt/$LOGO_SPIN)\\,0)"
 
     vfilter="$vfilter[${logo_idx[$i]}:v]format=rgba,scale=$((W * 47 / 100)):-1,"
-    vfilter="$vfilter""rotate=a=$spin:c=black@0:ow=hypot(iw\\,ih):oh=ow,"
-    vfilter="$vfilter""scale=w=iw*$zoom:h=ih*$zoom:eval=frame,"
+    if fgt "$LOGO_SPIN" 0; then
+        vfilter="$vfilter""rotate=a=$spin:c=black@0:ow=hypot(iw\\,ih):oh=ow,"
+        vfilter="$vfilter""scale=w=iw*$zoom:h=ih*$zoom:eval=frame,"
+    else
+        vfilter="$vfilter""fade=t=in:st=$lin:d=0.4:alpha=1,"
+    fi
     vfilter="$vfilter""fade=t=out:st=$lout:d=0.4:alpha=1[logo$i];"
     vfilter="$vfilter$src[logo$i]overlay=(W-w)/2:(H-h)/2-80"
     vfilter="$vfilter:enable='gte(t\\,$lin)',format=yuv420p[v$i];"
@@ -504,12 +718,18 @@ done
 if [ "$n" -eq 1 ]; then
     vfilter="$vfilter[v0]null[vout];"
 fi
-# The ident, held and then dissolved into the terminal's background colour.
-vargs+=(-loop 1 -framerate "$FPS" -t "$BUMPER_LEN" -i "$REPO/$BUMPER")
-vfilter="$vfilter[$next_input:v]scale=$W:$H,setsar=1,fps=$FPS,"
-vfilter="$vfilter""fade=t=out:st=$BUMPER_HOLD:d=$BUMPER_FADE:color=$BUMPER_TO,"
-vfilter="$vfilter""format=yuv420p[bumper];"
-vfilter="$vfilter[bumper][vout]concat=n=2:v=1:a=0[vfinal]"
+# The ident, held and then dissolved into the terminal's background color. A
+# video without one starts on its first scene; there is no empty input to feed
+# ffmpeg in that case, so the whole branch goes rather than being zero-length.
+if [ -n "$BUMPER" ]; then
+    vargs+=(-loop 1 -framerate "$FPS" -t "$BUMPER_LEN" -i "$REPO/$BUMPER")
+    vfilter="$vfilter[$next_input:v]scale=$W:$H,setsar=1,fps=$FPS,"
+    vfilter="$vfilter""fade=t=out:st=$BUMPER_HOLD:d=$BUMPER_FADE:color=$BUMPER_TO,"
+    vfilter="$vfilter""format=yuv420p[bumper];"
+    vfilter="$vfilter[bumper][vout]concat=n=2:v=1:a=0[vfinal]"
+else
+    vfilter="$vfilter[vout]null[vfinal]"
+fi
 
 ffmpeg -hide_banner -loglevel error -y "${vargs[@]}" \
     -filter_complex "$vfilter" \
@@ -539,8 +759,15 @@ afilter="$afilter$voice_labels""amix=inputs=$n:normalize=0:dropout_transition=0[
 # of cutting the music at the last spoken word) and the mixed bus (because amix
 # ends with its shortest input once two inputs share an asplit ancestor,
 # whatever duration= says).
-afilter="$afilter[voiceraw]volume=1.3,apad,atrim=0:$TOTAL,asetpts=N/SR/TB,"
-afilter="$afilter""asplit=2[voice][key];"
+afilter="$afilter[voiceraw]volume=1.3,apad,atrim=0:$TOTAL,asetpts=N/SR/TB"
+# The second branch exists only to key the music ducking. With no bed there is
+# nothing to duck, and an unconsumed pad is a filter-graph error rather than a
+# no-op, so the split is made only when it is used.
+if [ "$HAVE_MUSIC" = 1 ]; then
+    afilter="$afilter,asplit=2[voice][key];"
+else
+    afilter="$afilter[voice];"
+fi
 
 # One SFX cue per scene that asks for one, at the moment the scene arrives.
 sfx_labels=""
@@ -564,9 +791,11 @@ for i in $(seq 0 $((n - 1))); do
     idx=$((idx + 1))
 done
 
-# And a smack under each logo landing, timed to the end of its spin.
+# And a smack under each logo landing, timed to the end of its spin. A logo
+# that does not move has nothing to land, so it gets no cue.
 for i in $(seq 0 $((n - 1))); do
     [ -n "${logos[$i]}" ] || continue
+    fgt "$LOGO_SPIN" 0 || continue
     file=$(asset smack)
     [ -f "$file" ] || {
         echo "compose: missing sfx $file" >&2
@@ -588,6 +817,7 @@ for i in $(seq 0 $((n - 1))); do
     idx=$((idx + 1))
 done
 
+if [ "$HAVE_MUSIC" = 1 ]; then
 # The bed is rendered to a file first, in stretches, rather than treated inside
 # the main graph. Pitch is why: `enable` can gate a filter, but not a pitch
 # shift, so the only way to drop the key over part of the video is to cut the
@@ -619,7 +849,7 @@ for r in "${ranges[@]}"; do
 done
 bounds+=("$TOTAL")
 
-# The levelled source is written out once, and each stretch re-reads it: one
+# The leveled source is written out once, and each stretch re-reads it: one
 # filter output cannot be consumed by several branches without asplit, and
 # asplit here would need as many outputs as there are stretches.
 ffmpeg -hide_banner -loglevel error -y -stream_loop -1 -i "$MUSIC" -t "$TOTAL" \
@@ -662,9 +892,15 @@ afilter="$afilter[$music_idx:a]aresample=48000,aformat=channel_layouts=stereo,"
 afilter="$afilter""apad,atrim=0:$TOTAL,asetpts=N/SR/TB[musicraw];"
 
 afilter="$afilter[musicraw][key]sidechaincompress=threshold=0.02:ratio=12:attack=25:release=450[music];"
+fi
 
-mix="[voice][music]"
-inputs=2
+if [ "$HAVE_MUSIC" = 1 ]; then
+    mix="[voice][music]"
+    inputs=2
+else
+    mix="[voice]"
+    inputs=1
+fi
 if [ "$sfx_count" -gt 0 ]; then
     mix="$mix$sfx_labels"
     inputs=$((inputs + sfx_count))

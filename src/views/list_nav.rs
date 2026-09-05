@@ -22,8 +22,8 @@ pub enum ListNav {
     Moved,
     /// The user confirmed the current selection (Enter).
     Confirmed,
-    /// The user cancelled the dialog (Esc / q).
-    Cancelled,
+    /// The user canceled the dialog (Esc / q).
+    Canceled,
     /// The user requested the help overlay.
     Help,
     /// The key is not handled by list navigation.
@@ -69,7 +69,7 @@ pub fn handle_list_navigation(
             ListNav::Moved
         }
         KeyCommand::Confirm => ListNav::Confirmed,
-        KeyCommand::Quit => ListNav::Cancelled,
+        KeyCommand::Quit => ListNav::Canceled,
         KeyCommand::ShowHelp => ListNav::Help,
         _ => ListNav::Unhandled,
     }

@@ -59,7 +59,7 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 AppAction::Handled
             }
         }
-        ListNav::Cancelled => {
+        ListNav::Canceled => {
             app.cancel_autofixup_confirm();
             AppAction::Handled
         }

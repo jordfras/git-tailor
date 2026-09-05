@@ -1,0 +1,18 @@
+Dim means the same thing in both panes: context, not about the commit you have
+selected.
+
+[0.7]
+In the matrix, a dim column is code the selected commit never touched.
+
+[0.5]
+In the list, a dim green commit folds into an earlier commit, just not into the
+selected one. Bright green would mean it folds together with this one.
+
+[0.7]
+Dim never changes what a color means. It only tells you the commit you are on
+is not involved.
+
+[0.9]
+So before you reorder anything, or squash anything, you can see which commits
+are entangled and which are not. The matrix is not decoration: it is the answer
+to "is this safe", available before you try it.

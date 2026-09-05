@@ -455,13 +455,13 @@ fn test_move_select_fragmap_highlight_tracks_separator() {
     let insert_bg = ratatui::style::Color::Rgb(40, 40, 100);
     let selection_bg = ratatui::style::Color::Rgb(60, 60, 80);
 
-    // The separator row's fragmap cell must carry the insert indicator colour.
+    // The separator row's fragmap cell must carry the insert indicator color.
     assert_eq!(
         buffer.cell((fragmap_x, 1)).unwrap().bg,
         insert_bg,
-        "fragmap cell on the separator row (y=1) should have the insert indicator colour"
+        "fragmap cell on the separator row (y=1) should have the insert indicator color"
     );
-    // No commit row should be highlighted with the selection colour.
+    // No commit row should be highlighted with the selection color.
     assert_ne!(
         buffer.cell((fragmap_x, 2)).unwrap().bg,
         selection_bg,

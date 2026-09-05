@@ -1,9 +1,9 @@
 # demo/promo/assets/
 
 Audio for the promo video. `compose.sh` prefers anything here over the
-placeholders `make-audio-beds.sh` synthesises, matching on base name, so
+placeholders `make-audio-beds.sh` synthesizes, matching on base name, so
 replacing a sound means dropping a file in — no code change. Everything is now
-supplied here; the synthesised beds survive only as a fallback.
+supplied here; the synthesized beds survive only as a fallback.
 
 ## Provenance
 
@@ -14,7 +14,7 @@ supplied here; the synthesised beds survive only as a fallback.
 | `ding.wav` | [Sadiquecat — *Pop in sfx*](https://freesound.org/people/Sadiquecat/sounds/824189/) | `824189__sadiquecat__pop-in-sfx.wav` | CC0 1.0 |
 | `smack.ogg` | Kenney [*Impact Sounds*](https://kenney.nl/assets/impact-sounds) | `impactPunch_heavy_001.ogg` | CC0 1.0 |
 
-Files are exactly as the artists uploaded them — no trimming, no levelling. All
+Files are exactly as the artists uploaded them — no trimming, no leveling. All
 of that happens at compose time, so the originals stay replaceable. They are
 renamed on the way in, because `compose.sh` finds them by base name; the column
 above keeps the link back to the upload, which is otherwise lost.

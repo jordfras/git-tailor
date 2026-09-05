@@ -50,7 +50,7 @@ impl Git2Repo {
             return Ok(());
         }
 
-        // Without this, `stash_save2` would serialise the stale blob for a
+        // Without this, `stash_save2` would serialize the stale blob for a
         // same-size edit and lose it.
         self.refresh_index_stat_cache()?;
 

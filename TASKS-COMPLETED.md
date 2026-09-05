@@ -261,7 +261,7 @@
   files, invoke the tool and wait for it to exit (same contract as the commit
   message editor), then restore the TUI and re-read the index to refresh
   `conflicting_files`. If no merge tool is configured, leave the current
-  behaviour unchanged.
+  behavior unchanged.
 
 
 ## Interactivity — Move Commit
@@ -384,7 +384,7 @@
 - [X] T109 P2 feat - Add `--static` CLI flag to output the commit SHA/title list
   and fragmap matrix to stdout without launching the interactive TUI, mimicking
   the behavior of the original fragmap tool; format each row as: short SHA in
-  cyan, commit title truncated to 26 chars (grey if the commit is fully
+  cyan, commit title truncated to 26 chars (gray if the commit is fully
   squashable, normal otherwise), then one character per cluster column — `.` for
   empty, a white-background space (`\x1b[47m \x1b[0m`) for a direct hunk-group
   touch (regardless of squash status), a yellow-background space
@@ -513,7 +513,7 @@
   crossterm fires both a key-down and a key-release event for a single
   keystroke; error messages shown after an invalid operation (e.g. attempting a
   move or squash with unstaged changes) are dismissed immediately because the
-  key-release event is treated as the user acknowledgement key press, making the
+  key-release event is treated as the user acknowledgment key press, making the
   message unreadable; filter out `KeyEventKind::Release` (and
   `KeyEventKind::Repeat` if appropriate) events in the input handling layer so
   that only `KeyEventKind::Press` events are acted upon, matching the Linux
@@ -636,7 +636,7 @@
   commit in SquashSelect/MoveSelect) use heavy glyphs — `█` for touched squares
   and `┃` for connectors — while unrelated clusters use light glyphs — `▪` for
   touched squares and `┆` for connectors. Colors stay unchanged (white for
-  conflicting squares, grey for squashable squares, red/yellow for connectors).
+  conflicting squares, gray for squashable squares, red/yellow for connectors).
   This makes it immediately scannable which hunk groups the focus commit
   participates in without introducing new colors. "Related" means the cluster
   column contains a touch from the focus commit. Implement as a `FocusTheme`
@@ -753,7 +753,7 @@
 - [X] T158 P3 fix - Move the inline `#[cfg(test)] mod tests` block (~1600 lines)
   out of `src/fragmap.rs` (2387 lines) into a separate `src/fragmap/tests.rs`
   file gated by `#[cfg(test)] mod tests;` in `fragmap.rs`; production code drops
-  to ~700 lines and the file becomes navigable; no behavioural change
+  to ~700 lines and the file becomes navigable; no behavioral change
 - [X] T159 P2 fix - Extract `AppState::reload_preserving_selection(&impl
   GitRepo)` to replace the five-times-repeated pattern `let saved_index =
   app.selection_index; reload_commits(&git_repo, &mut app); app.selection_index
@@ -978,7 +978,7 @@
   `commit_file` → `write_stage_commit` (or a name the implementer prefers) so
   the name accurately describes the three-step operation; refactor its body to
   call `write_file` + `stage_file` + `commit`. Similarly refactor
-  `commit_files` to delegate to the new primitives. No test-behaviour changes —
+  `commit_files` to delegate to the new primitives. No test-behavior changes —
   purely mechanical cleanup.
 
 ## Interactivity — Basic UI
@@ -1010,7 +1010,7 @@
   (disable raw mode, leave alternate screen — the same cleanup already done for
   the external editor/mergetool), then calling `libc::raise(libc::SIGTSTP)` to
   suspend the process; when the user runs `fg` the process receives SIGCONT,
-  resumes after `raise` returns, and re-initialises raw mode and redraws; gate
+  resumes after `raise` returns, and re-initializes raw mode and redraws; gate
   the entire feature on `#[cfg(unix)]` — on Windows the key event is silently
   ignored; the teardown/restore logic should be extracted into a shared helper
   to avoid duplication with editor.rs and mergetool.rs
@@ -1031,7 +1031,7 @@
   ShowHelp). Extract a `handle_list_navigation(action, cursor: &mut usize, len:
   usize, page_size: usize) -> ListNav` helper (or trait) in a new
   `views/list_nav.rs` (or inside `views/dialog.rs`) that returns `Moved`,
-  `Confirmed`, `Cancelled`, `Help`, or `Unhandled`; each picker then becomes a
+  `Confirmed`, `Canceled`, `Help`, or `Unhandled`; each picker then becomes a
   small wrapper that maps `Confirmed` to its mode-specific `AppAction`. Should
   remove ~100 LOC of near-duplication and make adding new pickers trivial.
 - [X] T170 P1 feat - Reuse `build_conflict_state` across drop / move /
@@ -1042,7 +1042,7 @@
   `RebaseOutcome::Conflict(Box::new(ConflictState { ... }))` inline with
   duplicated field-population logic. Promote `build_conflict_state` to
   `src/repo/git2_impl.rs` (or a new `repo/git2_impl/conflict_builder.rs`),
-  generalise its parameters to cover all four call sites, and replace the inline
+  generalize its parameters to cover all four call sites, and replace the inline
   constructions. Centralises conflict-state assembly so future fields (e.g.
   operation label for the conflict dialog header) only need to be added once.
 - [X] T171 P1 feat - Consolidate `render_squash_footer` and `render_move_footer`
@@ -1062,7 +1062,7 @@
   `fn handle_<action>(...) -> Result<LoopAction>` helper so `dispatch_action`
   becomes a thin dispatcher (~80 LOC) where each branch is one function call.
   Use the existing `LoopAction` / `get_head_oid_or_continue!` infrastructure; do
-  not change behaviour. Greatly improves navigability of the event loop and
+  not change behavior. Greatly improves navigability of the event loop and
   makes individual actions easier to reason about and test.
 - [X] T173 P2 feat - Split `app.rs` into `app/state.rs` + `app/keymap.rs`:
   `src/app.rs` (876 lines) currently mixes three concerns — the `AppState`
@@ -1073,7 +1073,7 @@
   `AppState` and its inherent impls to `src/app/state.rs`, and move
   `KeyCommand`, `parse_key`, and `read_event` to `src/app/keymap.rs`. Re-export
   so external callers (`main.rs`, `views/*`) need no import changes. No
-  behaviour change.
+  behavior change.
 - [X] T174 P2 fix - Replace hand-rolled scrollbars in commit_detail and dialog
   with ratatui's built-in `Scrollbar` widget: `src/views/commit_detail.rs`
   contains two custom `Paragraph`-based implementations — `render_scrollbar`
@@ -1256,14 +1256,14 @@
   with a live counter dialog: added `commit_walker` to `GitRepo` returning a
   boxed iterator so `Git2Repo` yields one commit at a time from the underlying
   `git2::Revwalk`; added `AppMode::Loading { title, message, count }` rendered
-  by a new `views::loading` module as a centred dialog overlay; the loading loop
+  by a new `views::loading` module as a centerd dialog overlay; the loading loop
   in the new `src/loader.rs` module renders at ~60 fps and polls for Ctrl-C with
   `crossterm::event::poll(Duration::ZERO)` between commits — no background
   thread needed; split `load_with_progress` into three private helpers:
   `walk_commits` (iterator loop), `confirm_matrix_build` (Y/N dialog for large
   repos), `build_hunk_group_matrix` (fragmap computation with progress title);
   loading dialog shows `"Loading Commits"` title during the walk and
-  `"Hunk Group Matrix"` during matrix computation; dialog border colour changed
+  `"Hunk Group Matrix"` during matrix computation; dialog border color changed
   from `DarkGray` to `Cyan` to match other info dialogs; Y/N matrix confirm
   labels changed from `Compute`/`Skip` to `Yes`/`No`.
 - [x] T213 P2 fix - Replace `FragMapBuilder` step loop with a single-callback
@@ -1393,7 +1393,7 @@
 - [X] T209 P2 feat - Add `Space` / `b` (less convention) and `Ctrl-F` / `Ctrl-B`
   (vi convention) page-scroll keybindings in the commit detail view: `Space` and
   `Ctrl-F` scroll one page down, `b` and `Ctrl-B` scroll one page up; the scroll
-  amount should match the existing `PageDown`/`PageUp` behaviour (one
+  amount should match the existing `PageDown`/`PageUp` behavior (one
   visible-area height, keeping one line of overlap)
 
 ## Architecture & Robustness
@@ -1483,7 +1483,7 @@
     dirty-state guard in `apply_undo` / `apply_redo` should defer to the
     auto-stash path when enabled.
   * Plumb the flag from `cli.rs` into `AppState` / the repo layer and thread it
-    to every guarded operation; when disabled, behaviour is unchanged (still
+    to every guarded operation; when disabled, behavior is unchanged (still
     refuse with the current message).
   Add integration tests covering: staged-only, unstaged-only, and mixed dirty
   state restored exactly after move/squash; the conflict path (stash reapplied

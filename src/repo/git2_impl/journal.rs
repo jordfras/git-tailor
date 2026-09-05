@@ -93,7 +93,7 @@ const MAX_UNDO_DEPTH: usize = 50;
 
 /// One reversible operation.
 ///
-/// Tagged on `kind` so the flavours stay self-describing on disk.
+/// Tagged on `kind` so the flavors stay self-describing on disk.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 enum UndoRecord {
@@ -440,7 +440,7 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
 
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
-/// caller (pins are only a gc optimisation).
+/// caller (pins are only a gc optimization).
 fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     if let Ok(refs) = repo
         .inner

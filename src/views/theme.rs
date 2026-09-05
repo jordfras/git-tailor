@@ -85,8 +85,9 @@ pub trait FragmapTheme {
 
 /// Uniform heavy-glyph rendering — no focus distinction.
 ///
-/// This is the default theme, matching the original git-tailor rendering:
-/// all squares use `█`, all connectors use `│`, colored only by relation type.
+/// Matches the original git-tailor rendering: all squares use `█`, all
+/// connectors use `│`, and nothing is dimmed by what the selection touches.
+/// [`Theme::Highlight`] is the default; this is `--matrix-theme plain`.
 struct PlainTheme;
 
 impl FragmapTheme for PlainTheme {
@@ -138,13 +139,24 @@ impl FragmapTheme for HighlightTheme {
     fn square_style(&self, role: SquareRole, rel: SquareRelation) -> Style {
         let style = match rel {
             SquareRelation::Squashable => Style::new().fg(Color::Green),
+            // Red on every commit, matching the connector that leaves the
+            // square: both describe the same relation, so they are drawn alike.
+            //
+            // Brighter on the selected commit's own row, where the relation is
+            // about that commit -- "this will not fold" -- rather than about
+            // two commits further down. Red is what draws the eye, so that is
+            // the question worth answering in the color; green is read once
+            // you are already looking at a commit, and carries no such shade.
             SquareRelation::Conflict => Style::new().fg(if role == SquareRole::Current {
                 Color::LightRed
             } else {
-                Color::White
+                Color::Red
             }),
+            // Nothing earlier in this column to squash into.
             SquareRelation::Origin => Style::new().fg(Color::White),
         };
+        // Columns the selected commit does not touch stay on screen for
+        // context, dimmed so they do not compete with the ones that concern it.
         match role {
             SquareRole::Current => style,
             SquareRole::Related => style,

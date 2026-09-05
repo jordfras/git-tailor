@@ -99,7 +99,7 @@ impl KeyCommand {
 /// Read the next terminal event, skipping key-release events.
 ///
 /// On Windows, crossterm emits both a Press and a Release event for each
-/// keystroke. Skipping Release events here keeps behaviour consistent with
+/// keystroke. Skipping Release events here keeps behavior consistent with
 /// Linux (which only emits Press) and prevents spurious state changes such as
 /// error messages being cleared the instant they appear.
 pub fn read_event() -> Result<Event> {

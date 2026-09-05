@@ -18,7 +18,7 @@
 // original fragmap tool. Each row shows: short SHA, commit title, then one
 // character per cluster column.
 //
-// When `colors` is true the output uses ANSI escape codes (cyan SHA, grey
+// When `colors` is true the output uses ANSI escape codes (cyan SHA, gray
 // title for fully-squashable commits, white/yellow/red background cells).
 // When `colors` is false Unicode block characters are used instead, which
 // produces clean readable output suitable for snapshot tests or plain-text
@@ -35,8 +35,8 @@ struct Symbols {
     sha_start: &'static str,
     /// ANSI reset / empty string.
     reset: &'static str,
-    /// ANSI prefix for a fully-squashable commit's title (grey).
-    grey_start: &'static str,
+    /// ANSI prefix for a fully-squashable commit's title (gray).
+    gray_start: &'static str,
     /// String rendered when a commit directly touches a cluster.
     cell_touch: &'static str,
     /// String rendered for a squashable connector (between two touching commits with no conflict).
@@ -50,7 +50,7 @@ struct Symbols {
 const COLORED: Symbols = Symbols {
     sha_start: "\x1b[36m",
     reset: "\x1b[0m",
-    grey_start: "\x1b[90m",
+    gray_start: "\x1b[90m",
     cell_touch: "\x1b[47m \x1b[0m",
     cell_squashable: "\x1b[43m \x1b[0m",
     cell_conflicting: "\x1b[41m \x1b[0m",
@@ -60,7 +60,7 @@ const COLORED: Symbols = Symbols {
 const PLAIN: Symbols = Symbols {
     sha_start: "",
     reset: "",
-    grey_start: "",
+    gray_start: "",
     cell_touch: "#",
     cell_squashable: "^",
     cell_conflicting: "|",
@@ -155,7 +155,7 @@ pub fn render(
         out.push(' ');
 
         if fmap.is_fully_squashable(commit_idx) {
-            out.push_str(s.grey_start);
+            out.push_str(s.gray_start);
             out.push_str(&title_padded);
             out.push_str(s.reset);
         } else {

@@ -93,7 +93,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 context_lines,
             }
         }
-        ListNav::Cancelled => {
+        ListNav::Canceled => {
             app.cancel_split_hunks_select();
             AppAction::Handled
         }

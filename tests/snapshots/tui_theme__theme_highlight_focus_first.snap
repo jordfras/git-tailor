@@ -40,7 +40,7 @@ Buffer {
         x: 11, y: 3, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 37, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 3, fg: White, bg: Blue, underline: Reset, modifier: NONE,
-        x: 72, y: 3, fg: White, bg: Reset, underline: Reset, modifier: NONE,
+        x: 72, y: 3, fg: Red, bg: Reset, underline: Reset, modifier: NONE,
         x: 74, y: 3, fg: White, bg: Reset, underline: Reset, modifier: DIM,
         x: 75, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 71, y: 4, fg: White, bg: Blue, underline: Reset, modifier: NONE,

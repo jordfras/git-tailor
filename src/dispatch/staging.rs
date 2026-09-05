@@ -56,7 +56,7 @@ pub(crate) fn handle_commit_staged(
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
         Ok(message) if message.trim().is_empty() => {
-            app.set_success_message("Commit cancelled: message is empty");
+            app.set_success_message("Commit canceled: message is empty");
         }
         Ok(message) => match git_repo.commit_staged(&message) {
             Ok(CommitOutcome::Committed) => {

@@ -181,7 +181,7 @@ pub(super) fn split_commit_per_hunk_group(
     let target = load_split_commit(repo, commit_oid)?;
 
     // Build the fragmap over all branch commits so hunk grouping reflects how
-    // this commit interacts with its neighbours in the branch.  In --all mode
+    // this commit interacts with its neighbors in the branch.  In --all mode
     // the root commit IS the reference point, so the commit being split must
     // be kept even when it equals `reference_oid`.
     let assignment =

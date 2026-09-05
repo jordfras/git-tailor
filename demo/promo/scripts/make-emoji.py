@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Thomas Johannesson
 #
-# Rasterise one emoji to a transparent PNG, for compose.sh to overlay.
+# Rasterize one emoji to a transparent PNG, for compose.sh to overlay.
 #
-# ffmpeg cannot do this itself. Colour emoji are bitmap glyphs (CBDT/CBLC) and
+# ffmpeg cannot do this itself. Color emoji are bitmap glyphs (CBDT/CBLC) and
 # drawtext rejects the font outright — "Monocromatic (1bpp) fonts are not
 # supported" at the one size it will accept, and "invalid library handle" at
 # every other. Pillow reads the embedded bitmaps happily.
@@ -21,7 +21,7 @@ STRIKE = 109
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Rasterise an emoji to a PNG.")
+    ap = argparse.ArgumentParser(description="Rasterize an emoji to a PNG.")
     ap.add_argument("--emoji", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", type=int, default=300)

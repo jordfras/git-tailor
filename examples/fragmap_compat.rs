@@ -143,7 +143,7 @@ fn check_commit_ish(git_repo: &Git2Repo, commit_ish: &str) -> CheckResult {
     // Working-tree rows use different sentinel strings across the two tools:
     //   fragmap uses "00000000" (one row for all uncommitted changes)
     //   git-tailor uses "staged" / "unstaged" (separate rows)
-    // Both are normalised to the sentinel "<wt>" so they match regardless
+    // Both are normalized to the sentinel "<wt>" so they match regardless
     // of whether git-tailor splits staged/unstaged or fragmap merges them.
     let gt_profiles_indexed = gt_column_profiles(&fmap);
     let fm_profiles_indexed = text_column_profiles(&fm_rows);
@@ -236,7 +236,7 @@ fn strip_ansi(s: &str) -> String {
 /// We therefore scan from the right to find the `[#.^|v]+` matrix suffix
 /// rather than using `split_whitespace`.
 ///
-/// fragmap uses "00000000" for staged+unstaged changes; this is normalised to
+/// fragmap uses "00000000" for staged+unstaged changes; this is normalized to
 /// the sentinel `"<wt>"` so it compares equal to git-tailor's synthetic rows.
 fn parse_rows(output: &str) -> Vec<(String, String)> {
     let candidates: Vec<(String, String)> = output
@@ -291,7 +291,7 @@ fn parse_rows(output: &str) -> Vec<(String, String)> {
 
 type Profile = BTreeSet<String>;
 
-/// Normalise a sha-like identifier to a uniform sentinel when it refers to
+/// Normalize a sha-like identifier to a uniform sentinel when it refers to
 /// working-tree changes (staged or unstaged) rather than a real commit.
 ///
 /// - fragmap uses "00000000" for all uncommitted changes.

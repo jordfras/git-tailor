@@ -19,8 +19,8 @@ a fresh demo repo, and runs vhs — leaving the rendered GIF(s) in `demo/out/`
 (git-ignored, owned by you). Other subcommands:
 
 ```bash
-demo/build.sh video    # render the promo scenes and compose demo/out/promo.mp4
-demo/build.sh cues     # check the promo's keystrokes still follow its narration
+demo/build.sh video    # render a video's scenes and compose it into demo/out/
+demo/build.sh cues     # check a video's keystrokes still follow its narration
 demo/build.sh publish  # render the README demo and copy it to doc/demo.gif
 demo/build.sh image    # just (re)build the toolchain image
 demo/build.sh shell    # interactive shell inside the image
@@ -53,6 +53,44 @@ tape, since tapes rewrite history and would otherwise inherit each other's
 leftovers. They are separate because the GIF's fixture engineers a rebase
 conflict and its tape navigates by row offsets, so sharing one would mean
 recalibrating and republishing `doc/demo.gif` every time the video changed.
+
+## Adding another video
+
+A **video** is any directory under `demo/` holding `scenes/` and
+`make-repo.sh`. `promo/` is one; a tutorial series would be
+`tutorials/01-matrix/` and so on. Both subcommands take it first, defaulting to
+the promo:
+
+```bash
+demo/build.sh video tutorials/01-matrix          # all its scenes
+demo/build.sh video tutorials/01-matrix 02-foo   # one of them
+demo/build.sh cues  promo 04-pitch
+```
+
+Nothing needs teaching about the new name. `render.sh` derives the fixture from
+the tape's own path — a tape at `<video>/scenes/<name>/scene.tape` films on
+`<video>/make-repo.sh` — so each video brings its own repository, and a fixture
+stays shaped for the story told on it.
+
+What differs between videos goes in `<video>/video.conf`, sourced shell, every
+key optional and defaulting to what the promo uses:
+
+| Key | What it does |
+|-----|--------------|
+| `OUT_BASE` | output filename stem, so videos cannot overwrite each other |
+| `PICTURE_FIT` | `scale` fills the frame; `pad` places the capture unresized, keeping the text as sharp as captured and the cell grid whole, which is what marker boxes are placed on |
+| `TERMINAL_BG` | the terminal's own background: what a bumper fades to and what `PICTURE_FIT=pad` borders with, so both meet the picture invisibly |
+| `TTS_VOICE`, `TTS_SPEED` | the read; `cue-check.sh` uses the same ones, so timings match the render. Both defer to the environment, so a voice can be auditioned without editing the file |
+| `VOICE_FILTER` | path to a filter script, or `none` to leave the voice as synthesized |
+| `BUMPER`, `BUMPER_HOLD`, `BUMPER_FADE`, `BUMPER_TO` | the opening ident, or `BUMPER=none` |
+| `LOGO_SPIN` | how long a scene's logo takes to spin in and land; `0` for one that simply appears, with no impact cue under it |
+| `MUSIC`, `MUSIC_LOOP_START`, `MUSIC_LOOP_END` | the bed, or `MUSIC=none` — which also removes the ducking that exists to serve it |
+
+Everything else — frame compositing, matching a scene to its narration,
+cross-fades, cards, stamps, cues — is the same for any video and stays in
+[`promo/scripts/compose.sh`](promo/scripts/compose.sh). It lives under `promo/`
+because that is the video it was written for; if a second series makes that
+name misleading, moving it is a rename, not a rewrite.
 
 ## Toolchain image
 

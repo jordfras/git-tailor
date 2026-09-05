@@ -43,6 +43,7 @@ mod common;
 use common::{TuiTestHarness, create_fragmap, simple_cluster};
 
 use git_tailor::{app::AppState, fragmap::TouchKind, views, views::theme::Theme};
+use ratatui::style::Color;
 
 fn make_fragmap() -> git_tailor::fragmap::FragMap {
     create_fragmap(
@@ -162,6 +163,112 @@ fn test_theme_highlight_focus_last() {
     insta::assert_debug_snapshot!(
         harness.render(|frame| views::commit_list::render(&mut app, frame))
     );
+}
+
+/// Two commits that each conflict with their own predecessor, so both shades of
+/// red are on screen at once.
+///
+///   cluster0: A, C, D      cluster1: B, C, D      cluster2: A, D
+///
+/// C leads back to A in one column and B in the other, so it can fold into
+/// neither; D likewise leads back to C twice and A once. The shared fixture
+/// above cannot show this — it has only one commit that conflicts, so the only
+/// other red on screen is a connector.
+fn make_two_conflict_fragmap() -> git_tailor::fragmap::FragMap {
+    create_fragmap(
+        vec!["aaa1", "bbb2", "ccc3", "ddd4"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["aaa1", "ccc3", "ddd4"]),
+            simple_cluster("parser.rs", 1, 50, &["bbb2", "ccc3", "ddd4"]),
+            simple_cluster("unique.rs", 1, 5, &["aaa1", "ddd4"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::None, TouchKind::Added],
+            vec![TouchKind::None, TouchKind::Added, TouchKind::None],
+            vec![TouchKind::Modified, TouchKind::Modified, TouchKind::None],
+            vec![
+                TouchKind::Modified,
+                TouchKind::Modified,
+                TouchKind::Modified,
+            ],
+        ],
+    )
+}
+
+/// A conflict on the selected commit's own row is a brighter red than the same
+/// relation between two commits below it. Both shades have to appear in one
+/// render for the distinction to be worth anything, which is what this asserts
+/// -- a snapshot covers it only incidentally, and would go on passing if the
+/// two collapsed to one color.
+#[test]
+fn test_theme_highlight_conflict_square_brighter_on_selected_row() {
+    let mut harness = TuiTestHarness::short();
+    let mut app = AppState::new();
+    app.list.commits = vec![
+        common::create_test_commit("aaa1", "Add config and parser"),
+        common::create_test_commit("bbb2", "Refactor parser"),
+        common::create_test_commit("ccc3", "Fix config and parser"),
+        common::create_test_commit("ddd4", "Tidy up all three"),
+    ];
+    app.list.selection_index = 2;
+    app.fragmap = Some(make_two_conflict_fragmap());
+    app.theme = Theme::Highlight;
+    let buffer = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    let mut on_selected_row = Vec::new();
+    let mut on_other_rows = Vec::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let cell = buffer.cell((x, y)).unwrap();
+            // Squares only: connectors are red too, and are drawn with a
+            // different glyph.
+            if cell.symbol() != "\u{2588}" {
+                continue;
+            }
+            match cell.fg {
+                Color::LightRed => on_selected_row.push((x, y)),
+                Color::Red => on_other_rows.push((x, y)),
+                _ => {}
+            }
+        }
+    }
+
+    assert!(
+        !on_selected_row.is_empty(),
+        "expected a bright red square on the selected commit's row"
+    );
+    assert!(
+        !on_other_rows.is_empty(),
+        "expected a plain red square on another commit's row, so the two shades \
+         can be compared"
+    );
+
+    // Against the selected commit's own row, found by its SHA rather than
+    // assumed from the layout. Checking only that the two shades fall on
+    // different rows would pass just as well with the roles swapped, which is
+    // the one thing this test exists to rule out.
+    let selected_y = (0..buffer.area.height)
+        .find(|&y| row_text(&buffer, y).contains("ccc3"))
+        .expect("the selected commit is on screen");
+    for (_, y) in &on_selected_row {
+        assert_eq!(
+            *y, selected_y,
+            "the brighter red belongs to the selected commit's row"
+        );
+    }
+    for (_, y) in &on_other_rows {
+        assert_ne!(
+            *y, selected_y,
+            "a plain red square turned up on the selected row"
+        );
+    }
+}
+
+/// The text of one rendered row, for finding a commit by what it says.
+fn row_text(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer.cell((x, y)).unwrap().symbol())
+        .collect()
 }
 
 /// HighlightTheme: focus on commit B (idx 1).

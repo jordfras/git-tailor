@@ -10,7 +10,7 @@
 Output frames/
 
 Set Shell bash
-# A terminal with some colour in it, so the grey scenes have something to lose.
+# A terminal with some color in it, so the gray scenes have something to lose.
 # Black-on-white terminals desaturate to almost exactly themselves, which left
 # the "problem" scenes looking the same as the rest.
 Set Theme "Cobalt2"

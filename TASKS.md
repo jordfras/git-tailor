@@ -47,7 +47,7 @@ Guidelines:
     green, but it adds many crates — keep it behind the feature).
   * Parity tests: run the existing `tests/` integration suite against both
     backends (e.g. rstest `#[case]` per backend, or a feature-gated CI matrix) to
-    prove identical end-state behaviour.
+    prove identical end-state behavior.
   Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
   unaffected regardless of backend.
 - [X] T230 P2 refactor - Interface-segregate the `GitRepo` god trait (54 methods,
@@ -63,7 +63,7 @@ Guidelines:
   (`tests/common/fake.rs`, 49/54) and `MockRepo` (`src/dispatch/tests.rs`, 25/54)
   — `StubRepo` becomes a `RepoRead`-only stub. Orthogonal to T222 (which adds a
   *lower* `GitBackend` seam below `GitRepo`); this segregates the surface *above*
-  it. Pure refactor, behaviour-preserving.
+  it. Pure refactor, behavior-preserving.
 - [X] T231 P2 refactor - Factor repeated dispatch-handler scaffolding
   (`src/dispatch/*`). (a) The `autostash_save()`-guard block is copied verbatim 8×
   (commit_ops.rs, split.rs, edit.rs, autofixup.rs) → one helper. (b) The "suspend
@@ -210,7 +210,7 @@ Guidelines:
   the repo in an unexpected state (checked out elsewhere, a merge commit,
   etc.), in the spirit of the existing interrupted-operation journal/recovery
   system; a no-op (shell exited with no changes) should behave as a
-  cancelled operation, not a rewrite. Make the operation undo/redo-able like
+  canceled operation, not a rewrite. Make the operation undo/redo-able like
   every other history-rewriting operation. Cover with repository tests
   (multi-commit output, no-op case, unexpected-state abort) and TUI tests for
   the suspend/resume flow.

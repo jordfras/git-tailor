@@ -38,7 +38,7 @@ use std::path::Path;
 /// 3. Built-in patterns for well-known tools
 ///
 /// Returns `None` when no merge tool is configured or the named tool is not
-/// recognised and has no custom cmd.
+/// recognized and has no custom cmd.
 pub fn resolve_merge_tool_cmd(repo: &impl GitRepo) -> Result<Option<String>> {
     let Some(name) = repo.get_config_string("merge.tool")? else {
         return Ok(None);
