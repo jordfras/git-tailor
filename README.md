@@ -12,6 +12,26 @@ code, and whether combining them would be safe or risky.
 ![git-tailor demo](doc/demo.gif)
 
 
+## Videos
+
+A short promo and four narrated tutorials are collected in one playlist:
+
+**[git-tailor on YouTube](https://www.youtube.com/playlist?list=PLbaTpyhikKGE)**
+
+1. **Visualization of commit relations** — rows, columns, colors, and what they
+   tell you before you rewrite anything
+2. **Reshaping a branch** — split a commit by hunk group, then squash, fixup,
+   reword, move, drop and edit
+3. **Work in progress, and getting back** — the staged and unstaged rows,
+   autofixup, conflicts in a real merge tool, `--autostash`, undo, and recovery
+   from an interrupted run
+4. **Reading a commit** — the detail view: navigation, search, and diff context
+
+The playlist is the stable link. Individual videos are replaced rather than
+updated when the interface changes, so their addresses do not survive a
+re-recording.
+
+
 ## Installation
 
 ```sh
@@ -176,7 +196,9 @@ Operations also refuse to run on a dirty working tree unless you ask for
 `--autostash`. As with any history rewriting, having the branch pushed to a
 remote is still a good extra safety net. Should the recovery state ever get
 stuck, `gt --clean-journal` discards the journal and the refs git-tailor keeps,
-then exits without opening the TUI.
+then exits without opening the TUI. The third tutorial in the
+[playlist](https://www.youtube.com/playlist?list=PLbaTpyhikKGE) shows what an
+interrupted run looks like and how it is picked back up.
 
 The tool is developed through AI-assisted ("vibe coded") sessions, with a large
 automated test suite, and is used daily for real work. It comes with no warranty
