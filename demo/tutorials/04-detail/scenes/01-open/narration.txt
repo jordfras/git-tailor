@@ -1,0 +1,10 @@
+Enter opens the commit you have selected. The pane on the right fills with it:
+who wrote it and when at the top, then the whole diff below that.
+
+[0.9]
+Control with the left and right arrows moves the divider between the two. The
+diff is what you came to read, so give it the room.
+
+[0.9]
+The keys that moved the cursor now move the diff. Page Down and Page Up, a
+screen at a time. g and shift g, for the two ends. And q closes it again.
