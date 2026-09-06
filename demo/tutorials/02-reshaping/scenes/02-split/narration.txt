@@ -1,0 +1,18 @@
+Split divides one commit into several: by file, by hunk, by hunk group, or by
+picking out the files or hunks you want peeled into their own commit.
+
+[0.9]
+This one changed three things at once. The config, the logging, and the line
+that starts the server. Three squares, in three columns, and it folds into
+nothing: there is no single commit it belongs to.
+
+[0.9]
+Per hunk group uses the grouping the matrix draws. One commit per region.
+
+[1.0]
+Each piece now sits in a column of its own. Two are green: they fold into the
+commits they belong with, which the commit they came from could not do. The
+third is white, and has nowhere to go.
+
+[0.9]
+Which is three different answers, one per piece.

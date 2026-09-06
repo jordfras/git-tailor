@@ -1,0 +1,11 @@
+Move reorders. Pick the new position, and the commits in between are replayed
+around it.
+
+[0.9]
+The matrix already told you whether that is safe: two commits sharing a column
+are the ones that can collide, and this one shares nothing with anything above
+it.
+
+[0.9]
+Drop removes a commit entirely. It asks first, because this is the one operation
+that leaves nothing behind to look at.

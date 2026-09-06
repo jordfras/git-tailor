@@ -1,0 +1,10 @@
+Two things to know before you rely on it.
+
+[0.8]
+The grouping is not a property of the commit. It comes from the whole branch:
+which regions each commit touched. Start git-tailor from a different base and
+the same commit can split differently.
+
+[0.9]
+And when everything a commit changed belongs to one group, there is nothing to
+separate. git-tailor says so, rather than making a split that means nothing.
