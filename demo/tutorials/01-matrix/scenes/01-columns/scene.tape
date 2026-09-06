@@ -20,11 +20,11 @@ Type 'cd "${DEMO_REPO:-/tmp/demo-repo}"'
 Enter
 Type 'clear'
 Enter
-Show
-
+# gt starts off camera: a chapter should open on what it is about, not on the
+# program starting up again.
 Type "gt"
-Sleep 300ms
 Enter
+Show
 # Still while the list and the reading order are described — there is nothing
 # to point at yet, and a cursor wandering under an explanation is a distraction.
 Sleep 17.8s

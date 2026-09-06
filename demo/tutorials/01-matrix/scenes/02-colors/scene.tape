@@ -19,11 +19,13 @@ Type 'cd "${DEMO_REPO:-/tmp/demo-repo}"'
 Enter
 Type 'clear'
 Enter
-Show
 
+# gt starts off camera: a chapter should open on what it is about, not on the
+# program starting up again. The settle after it stays on camera, so every
+# marker and caption still lands where it was tuned to.
 Type "gt"
-Sleep 300ms
 Enter
+Show
 Sleep 2.5s
 
 # The pair with nothing in between: green, and on screen well before the line
