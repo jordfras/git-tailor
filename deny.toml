@@ -2,6 +2,20 @@
 # Use git CLI for fetching the advisory DB (respects proxy / auth config).
 git-fetch-with-cli = true
 
+ignore = [
+    # ttf-parser is unmaintained, not vulnerable: the author declared it done,
+    # and the advisory offers no upgrade. It reaches this tree only through
+    # fontdue, a dev-dependency that `examples/gen_screenshot.rs` uses to
+    # rasterize doc/tui_example.png -- `cargo tree -i ttf-parser -e normal`
+    # finds nothing, and examples are excluded from the published crate, so it
+    # ships to nobody and parses only the font vendored beside it.
+    #
+    # Revisit if fontdue moves off it; swash (skrifa + zeno) is the alternative
+    # that does not lead back to the same crate, at the cost of rewriting the
+    # rasterizing module.
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained, dev-only via fontdue, not in the published crate" },
+]
+
 [licenses]
 allow = [
     "Apache-2.0",
