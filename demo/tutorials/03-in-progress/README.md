@@ -14,7 +14,8 @@ see [`../../README.md`](../../README.md) for the pipeline and
 | 04 | conflict | the resolution dialog, resolved through a real merge tool |
 | 05 | guard | the refusal over a dirty tree, then `--autostash` |
 | 06 | undo | `u` back through the session, and across a restart |
-| 07 | close | one line, closing the series |
+| 07 | recover | killed mid-fold, then the prompt that picks it back up |
+| 08 | close | one line, closing the series |
 
 ## What the fixture has to keep producing
 
@@ -61,6 +62,22 @@ The caption on screen still reads `a stages, A unstages, c commits`, which is
 what the viewer needs to see. Only the spoken form is spelled for the reader.
 Test a candidate with `espeak-ng -x -q "<text>"` inside the toolchain image: it
 is the same phonemizer the voice uses, so what it prints is what you will hear.
+
+## The crash in scene 07 is a real SIGKILL
+
+Nothing can be typed into the shell while gt owns the terminal, so the kill is
+armed before gt starts and waits for the conflict to exist rather than for a
+wall clock:
+
+    ( while [ -z "$(git ls-files -u)" ]; do sleep 0.2; done; sleep 10.5; pkill -9 -x gt; ... ) &
+
+Unmerged index entries are what a stopped fold leaves behind, so the watcher
+cannot fire before there is anything to recover, and the tape's sleeps only have
+to be long enough to contain it. Ctrl+C would not do: it aborts the rebase on
+the way out and leaves nothing behind, which is the opposite of the chapter's
+subject. The escape sequences after the kill put the terminal back on the normal
+screen with a cursor, which is what the shell inherits when the program it was
+running dies.
 
 ## Check claims against frames, not against `--static`
 
