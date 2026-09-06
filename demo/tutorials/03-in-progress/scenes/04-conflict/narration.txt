@@ -1,0 +1,21 @@
+This refactor belongs with the commit that introduced the warning. Folding it
+back has to reach past a commit that touched the same line, and those two
+disagree.
+
+[0.8]
+That is what red in the matrix was warning about. git-tailor stops and shows you
+which files.
+
+[0.9]
+Resolve them in your editor, or in the merge tool you already have configured.
+This repository uses vimdiff: ours on the left, theirs on the right, and the
+file being written in the middle. Take a side, or edit the result by hand. It is
+your editor, with the whole file around the conflict.
+
+[0.9]
+Then continue. A replay can stop more than once, and each time it does, the
+choices are the same three.
+
+[0.9]
+Or abort, and the branch goes back exactly as it was. Nothing is half rewritten
+while you decide.

@@ -1,0 +1,14 @@
+Below the commits are two rows that are not commits: what you have staged, and
+what you have not. They sit at the bottom because that is where they belong in
+the order: newer than anything committed.
+
+[0.9]
+They sit in the matrix like everything else, so a column tells you which commit
+your uncommitted work belongs with, before you decide what to do with it.
+
+[0.9]
+eigh stages every tracked change. Shift eigh unstages. c commits what is staged.
+
+[0.8]
+Neither row shows a file git is not tracking yet. A new file stays invisible
+here until you add it.

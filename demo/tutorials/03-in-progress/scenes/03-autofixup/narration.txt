@@ -1,0 +1,13 @@
+While you work, it is easier to write a fixup commit than to stop and fold it
+in. Squash exclamation mark commits too, when the message is worth keeping.
+
+[0.8]
+Autofixup finds every one of them on the branch, matches each to the commit its
+message names, and folds them all in one pass.
+
+[0.9]
+It shows you what it will do first. And on any target in that list, r opens the
+message it will end up with, so the wording can be fixed while you are here.
+
+[0.9]
+The whole batch is a single step to undo.

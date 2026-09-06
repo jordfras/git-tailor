@@ -1,0 +1,15 @@
+Every operation is undoable. Not just the last one: back through the whole
+session, one step at a time.
+
+[0.9]
+Redo walks the other way, the same distance.
+
+[0.8]
+And the history outlives the program. Quit, reopen git-tailor tomorrow, and the
+undo stack is still there. It is kept in a journal file under dot git, so
+nothing depends on git-tailor still running.
+
+[0.9]
+It holds while the branch is where git-tailor left it. Move it yourself — in
+another shell, even with git-tailor still open — and the stack is dropped rather
+than replayed onto something it no longer fits.
