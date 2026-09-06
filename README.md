@@ -12,6 +12,26 @@ code, and whether combining them would be safe or risky.
 ![git-tailor demo](doc/demo.gif)
 
 
+## Videos
+
+A short promo and four narrated tutorials are collected in one playlist:
+
+**[git-tailor on YouTube](https://www.youtube.com/playlist?list=PLbaTpyhikKGE)**
+
+1. **Visualization of commit relations** — rows, columns, colors, and what they
+   tell you before you rewrite anything
+2. **Reshaping a branch** — split a commit by hunk group, then squash, fixup,
+   reword, move, drop and edit
+3. **Work in progress, and getting back** — the staged and unstaged rows,
+   autofixup, conflicts in a real merge tool, `--autostash`, undo, and recovery
+   from an interrupted run
+4. **Reading a commit** — the detail view: navigation, search, and diff context
+
+The playlist is the stable link. Individual videos are replaced rather than
+updated when the interface changes, so their addresses do not survive a
+re-recording.
+
+
 ## Installation
 
 ```sh
@@ -66,7 +86,8 @@ selected you can:
   on exit the following commits are replayed onto your result
 - **Autofixup** — not tied to the selected commit: squashes every
   `fixup!`/`squash!` commit on the branch into the commit its message names, in
-  one pass, after a confirmation showing what will happen
+  one pass, after a confirmation showing what will happen. Each target's final
+  message can be edited before the batch runs
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`
 
@@ -75,10 +96,16 @@ rows, so a work-in-progress change can go straight into the commit it belongs to
 without a throwaway commit first. Whatever is on the other row stays where it
 was, and the whole fold is a single undo step.
 
+Both rows cover tracked files only. A file git does not know about yet belongs
+to neither row, is not shown, and is left alone by stage-all (`a`) and by the
+operations above — `git add` it first if you want it included.
+
 Pressing `Enter` (or `i`) opens the **commit detail view** with the full diff
-and incremental regex search. If an operation hits a merge conflict, git-tailor
-opens a resolution dialog where you can fix it up in your editor or merge tool
-and then continue or abort.
+and incremental regex search. `+` and `-` change how many unchanged lines are
+shown around each change (default 3): more context merges neighboring changes
+into one section, less separates them again. If an operation hits a merge
+conflict, git-tailor opens a resolution dialog where you can fix it up in your
+editor or merge tool and then continue or abort.
 
 By default, history-rewriting operations refuse to run when the working tree has
 uncommitted changes, so your work is never discarded. Pass `--autostash` (or set
@@ -167,6 +194,29 @@ and tag names in the repository you are standing in.
 
 ## Notes
 
+### Editor and merge tool
+
+Editing a commit message — reword, squash, commit staged changes, or adjusting a
+target's message before autofixup — opens your editor. git-tailor looks at
+`GIT_EDITOR`, `core.editor`, `VISUAL` and `EDITOR`, in that order. Unlike git
+there is no `vi` fallback: with none of them set you get a clear error rather
+than a failure to launch a program that may not exist (notably on Windows).
+
+```sh
+git config --global core.editor "nano"
+```
+
+Resolving a merge conflict with the **Mergetool** option in the conflict dialog
+uses git's own merge-tool configuration — `merge.tool` for the name, and
+`mergetool.<name>.cmd` if it needs a custom command line. `vimdiff` (and the
+`nvimdiff` variants), `meld`, `kdiff3` and `opendiff` work with the name alone.
+Without `merge.tool` set, that option is unavailable and you can still resolve
+the conflict in your editor.
+
+```sh
+git config --global merge.tool vimdiff
+```
+
 ### Rewriting history safely
 
 git-tailor rewrites branch history, so the usual rewrite caveats apply. To keep
@@ -176,7 +226,9 @@ Operations also refuse to run on a dirty working tree unless you ask for
 `--autostash`. As with any history rewriting, having the branch pushed to a
 remote is still a good extra safety net. Should the recovery state ever get
 stuck, `gt --clean-journal` discards the journal and the refs git-tailor keeps,
-then exits without opening the TUI.
+then exits without opening the TUI. The third tutorial in the
+[playlist](https://www.youtube.com/playlist?list=PLbaTpyhikKGE) shows what an
+interrupted run looks like and how it is picked back up.
 
 The tool is developed through AI-assisted ("vibe coded") sessions, with a large
 automated test suite, and is used daily for real work. It comes with no warranty

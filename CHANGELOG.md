@@ -6,7 +6,7 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [Unreleased]
+## [3.0.0] - 2026-09-06
 
 ### Added
 
@@ -51,7 +51,8 @@ The format is based on
   them into their targets in one pass — so a stack of small fixup commits
   written while preparing a branch can be cleaned up with one keypress instead
   of squashing them in one at a time. Shows a confirmation dialog listing what
-  will happen before running, and the whole batch is a single undoable
+  will happen before running, and each target's final message can be edited
+  there before the batch starts. The whole batch is a single undoable
   operation.
 - "Split out hunk(s)" split strategy: pick one or more hunks — possibly across
   several files — from a commit and peel them into their own commit, leaving
