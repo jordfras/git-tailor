@@ -64,6 +64,28 @@ LOGO_SPIN=0.55
 CELL_W=16
 CELL_H=35
 
+# Captions: the literal thing the narration just named -- a key, a flag, an
+# environment variable -- put on screen as it is typed, because a key is easier
+# to keep if it is seen and not only heard.
+#
+# Drawn the way a title card is -- glyphs with a black outline, no box -- for
+# the reason `outline` gives: a slab is a lid across the picture, and these sit
+# over a terminal whose content the viewer is still reading. What separates a
+# caption from a card is where it sits and what color it is, not a background.
+#
+# That holds where the captions land on empty terminal. Where they land on text
+# -- the detail-view tutorial fills the width of the frame with diff -- outlined
+# glyphs over glyphs are hard to read, and CAPTION_BOX puts a wash behind them:
+# an opacity from 0 (the default, no box) to 1. Dark enough to separate the two
+# layers, light enough that the diff stays visible through it, so it reads as a
+# caption over the terminal rather than a hole cut in it. The box fades with the
+# text, since drawtext's alpha scales boxcolor along with fontcolor.
+CAPTION_SIZE=46
+CAPTION_FG=0xffd166
+CAPTION_Y=h-150
+CAPTION_BOX=0
+CAPTION_BOX_PAD=16
+
 # A marker's stroke is drawn immediately outside the cells it marks, with no
 # clearance: the matrix's columns are contiguous with no gutter, so every pixel
 # a marker takes is one it takes off a neighboring column.
@@ -361,6 +383,7 @@ stamp_sizes=()
 stamp_xs=()
 stamp_ys=()
 markers=()
+captions=()
 
 cursor=$BUMPER_LEN
 for name in "${scenes[@]}"; do
@@ -392,6 +415,12 @@ for name in "${scenes[@]}"; do
     # arrow-down. Cells rather than pixels: everything a marker points at is on
     # the grid, and cell_box does the conversion. See demo/promo/README.md.
     MARKERS=()
+    # Text put on screen as the narration names it, one per element:
+    #   "AT HOLD COLOR TEXT..."  -- seconds, then a color, then the words
+    # COLOR is `-` for the default keycap look (what you type), or a color
+    # drawtext understands for a caption that is *about* a color, where the word
+    # is drawn in the color it names. See demo/promo/README.md.
+    CAPTIONS=()
     # In overlay expressions W/H are the frame and w/h are the stamp — mixing
     # them up silently parks the picture in the top-left corner.
     STAMP_X="W*0.78-w/2" STAMP_Y="H*0.40-h/2"
@@ -454,6 +483,7 @@ for name in "${scenes[@]}"; do
     done
     # Flattened with a separator: bash has no nested arrays.
     markers+=("$(printf '%s|' ${pixel_markers[@]+"${pixel_markers[@]}"})")
+    captions+=("$(printf '%s|' ${CAPTIONS[@]+"${CAPTIONS[@]}"})")
 
     printf '   %-10s tape %ss (%s frames @ %sfps), voice %ss -> scene %ss @ %ss\n' \
         "$name" "$vdur" "$nframes" "$rate" "$adur" "$sdur" "$cursor"
@@ -616,6 +646,29 @@ for i in $(seq 0 $((n - 1))); do
         chain="$chain:borderw=$(outline "$size"):bordercolor=black"
         chain="$chain:x=(w-text_w)/2:y=h-180:alpha='$ALPHA'"
     fi
+
+    # Captions, each with its own fade window. Passed as files for the same
+    # reason the title is: a flag with a comma or a colon in it would otherwise
+    # end the filter argument early.
+    IFS='|' read -r -a cap_specs <<<"${captions[$i]}"
+    for cj in "${!cap_specs[@]}"; do
+        [ -n "${cap_specs[$cj]}" ] || continue
+        read -r _cat _chold _ccolor _ctext <<<"${cap_specs[$cj]}"
+        [ "$_ccolor" = "-" ] && _ccolor=$CAPTION_FG
+        printf '%s' "$_ctext" >"$WORK/cap-$i-$cj.txt"
+        # Through the same fitter the titles use: a caption says what a key does
+        # as well as naming it, so it is a sentence and can run off the frame.
+        _csize=$(fit_size "$_ctext" "$CAPTION_SIZE")
+        chain="$chain,drawtext=fontfile=$FONT:textfile=$WORK/cap-$i-$cj.txt"
+        chain="$chain:fontsize=$_csize:fontcolor=$_ccolor"
+        chain="$chain:borderw=$(outline "$_csize"):bordercolor=black"
+        if [ "$CAPTION_BOX" != "0" ]; then
+            chain="$chain:box=1:boxcolor=black@$CAPTION_BOX"
+            chain="$chain:boxborderw=$CAPTION_BOX_PAD"
+        fi
+        chain="$chain:x=(w-text_w)/2:y=$CAPTION_Y"
+        chain="$chain:alpha='$(title_alpha "$_chold" "$_cat")'"
+    done
 
     # The picture, then whatever decorations this scene asks for.
     vfilter="$vfilter[$a:v][$b:v]overlay=0:0,$chain[pic$i];"
