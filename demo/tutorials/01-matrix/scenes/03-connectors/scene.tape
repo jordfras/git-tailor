@@ -19,12 +19,14 @@ Type 'cd "${DEMO_REPO:-/tmp/demo-repo}"'
 Enter
 Type 'clear'
 Enter
-Show
 
+# gt starts off camera: a chapter should open on what it is about, not on the
+# program starting up again. The settle after it stays on camera, so every
+# marker and caption still lands where it was tuned to.
 Type "gt"
-Sleep 300ms
 Enter
-Sleep 1.2s
+Show
+Sleep 2.5s
 
 # "add an error level" shares the logging region with a commit two rows above
 # it, so its connectors have to span them.

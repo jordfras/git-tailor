@@ -1,0 +1,5 @@
+Slash searches the diff, as a regular expression, matching as you type.
+
+[0.9]
+n steps to the next match and shift n to the previous, across every file in the
+commit. Escape dismisses the search and leaves you where you were reading.

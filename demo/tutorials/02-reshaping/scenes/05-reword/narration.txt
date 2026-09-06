@@ -1,0 +1,11 @@
+Two of the three are gone now, folded into the commits they belonged with. The
+one left is white: nothing earlier in that column means nothing to fold it into.
+This is new work, not a correction to something.
+
+[0.9]
+So it keeps its own commit, and what it needs is a message that says what it
+does. Reword opens that message in your editor.
+
+[0.9]
+Three regions, one commit, three answers — and the matrix said which was which
+before any of it ran.

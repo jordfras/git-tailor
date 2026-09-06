@@ -116,6 +116,9 @@ everything that defines it:
 | `STAMP_X`, `STAMP_Y` | right of center | overlay expressions. `W`/`H` are the frame and `w`/`h` are the stamp — mixing them up parks the picture in the corner |
 | `MUSIC_DULL` | `0` | muffle and pitch the music down over this scene |
 | `MARKERS` | — | boxes drawn around what the narration is naming, one per array element: `"AT HOLD COL ROW COLS ROWS [SHAPE]"` — seconds, then the marked cells in the terminal grid, then `rect` (default) / `arrow-up` / `arrow-down` |
+| `NARRATION_DELAY` | 0.8 | silence before a scene's first word. Scenes cross-fade with no gap between them, so this is what separates one chapter from the next: at 0.6 a chapter whose voice runs to its end butts straight into the following one and sounds like a continuation of it. The tutorials use 1.5 |
+| `CAPTION_BOX` | `0` | opacity of a dark wash behind the captions, `0` for none. For a video whose captions land on text rather than on empty terminal — tutorial 4's diff fills the frame — where outlined glyphs over glyphs are hard to read. Set per video, not per scene |
+| `CAPTIONS` | — | text put on screen as the narration names it, one per array element: `"AT HOLD COLOR TEXT…"` — seconds, then `-` for the default keycap look or a color drawtext understands |
 
 Where `MUSIC_DULL` is set, the bed is filtered *and* dropped two semitones, so
 the music sags with the story rather than merely receding — muffling alone reads
@@ -123,6 +126,18 @@ as distant, not sad. Adjacent dulled scenes are merged into one stretch. The
 amounts are constants in [`scripts/compose.sh`](scripts/compose.sh):
 `MUSIC_DULL_PITCH` (0.8909, or 2^-2/12), `MUSIC_DULL_HZ`, `MUSIC_DULL_BASS` —
 which puts back the weight the lowpass removes — and `MUSIC_DULL_GAIN`.
+
+`CAPTIONS` exists for the other half of that problem: a key, a flag or an
+environment variable is easier to keep if it is seen and not only heard. They
+are drawn like a title card — outlined glyphs, no box, for the reason `outline`
+gives — but lower on the frame and in the marker's amber, so a scene can carry
+both at once without them reading as the same thing. A caption says what the key
+does as well as naming it, so it goes through the same fitter as a title.
+
+Passing a color instead of `-` draws the words in it, which is what tutorial 1
+uses to say **green** and **red** in the colors it is describing. Those values
+are sampled from a rendered frame rather than chosen: `#0dbb77` and `#f14b48`
+are what the matrix actually draws, so the caption and the square agree.
 
 `MARKERS` exists because a tutorial names things the viewer then has to find:
 "each column is one group of hunks" only helps if you know which column. The

@@ -1,0 +1,14 @@
+Most operations work on the commit you have selected.
+
+[0.6]
+Press space, and git-tailor lists what this row can do, each with the key that
+runs it. The last three are not about one row at all: autofixup, undo and redo
+work on the branch.
+
+[0.8]
+h lists all the keys instead, not only the operations this row can run. The
+keys for the view you are in: the detail view has a list of its own.
+
+[0.8]
+The keys are worth learning, and the rest of this video uses them. These two are
+there for when you have not.

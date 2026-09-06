@@ -1,0 +1,11 @@
+This unstaged edit belongs to the commit that set the port. Ordinarily that means
+committing it, and then squashing the throwaway commit away.
+
+[0.9]
+Squash and fixup work on these rows directly. Select the row, pick the commit it
+belongs to, and the change goes in.
+
+[1.0]
+Whatever is on the other row stays exactly where it was: the staged change is
+still staged. No stash, no throwaway commit, and the whole fold is one step to
+undo.

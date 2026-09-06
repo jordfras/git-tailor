@@ -1,0 +1,3 @@
+The operations themselves are ordinary. What makes them worth running on a real
+branch is seeing what will collide before you start, and being able to take any
+of it back afterwards.

@@ -1,0 +1,6 @@
+Edit checks the commit out and hands you a shell. Change whatever you like,
+exit, and the commits after it are replayed onto your result.
+
+[0.9]
+It is the escape hatch. Anything the other operations do not cover, you can do
+by hand, without leaving the branch half rewritten.

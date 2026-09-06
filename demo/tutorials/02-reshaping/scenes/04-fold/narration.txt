@@ -1,0 +1,17 @@
+Two of those pieces are green now. Each one belongs to a commit already on the
+branch.
+
+[0.9]
+The config piece changes the host, so it belongs with the commit that set the
+host — the nearest one above it in that column, not the first. Squash folds it
+in and opens the two messages joined, to edit into one.
+
+[0.9]
+What opens is both messages, one after the other. Worth writing properly here:
+the piece opens the server to every interface, so the commit it joins no longer
+does what its own message says.
+
+[1.0]
+The logging piece belongs with the commit that sent warnings to S T D err. It has
+nothing to say for itself, so fixup: the same fold, keeping the target's message
+untouched.

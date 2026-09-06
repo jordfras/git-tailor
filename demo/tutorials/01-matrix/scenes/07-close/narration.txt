@@ -1,0 +1,17 @@
+One thing before you run this on a branch of your own.
+
+[0.8]
+What you are looking at is your branch, back to the point where it left the
+default branch. git-tailor works that out on its own.
+
+[0.9]
+But if you cut this branch from another one, and that is where it goes back to,
+name that branch instead. The list becomes what you added on top of it, without
+the commits you inherited.
+
+[0.9]
+Or dash dash all, for the whole history, down to the first commit.
+
+[0.8]
+The next tutorial does the operations: splitting a commit, folding one into
+another, moving them around.

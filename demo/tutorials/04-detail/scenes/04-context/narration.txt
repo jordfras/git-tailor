@@ -1,0 +1,8 @@
+Plus and minus change how many unchanged lines are shown around each change.
+
+[0.9]
+This file has two changes with a gap between them. Add context and the gap
+closes: two sections become one. Take it away and they separate again.
+
+[0.8]
+The count is in the header, and the diff is rebuilt as you go.

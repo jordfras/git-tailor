@@ -145,6 +145,18 @@ commit "fix: use port 3000 by default"
 config_rs 3000 "127.0.0.1" | write src/config.rs
 commit "fix: bind to loopback, not every interface"
 
+# The branch this one was cut from, for the chapter that shows `gt <base>`. It
+# is a ref on an ancestor of `work`, which is exactly the shape of the case it
+# stands for: you branched off a colleague's feature branch, your work goes back
+# to that branch rather than to main, and the default view -- everything since
+# main -- includes their commits as well as yours. The two commits it holds are
+# the config work; everything after it is this branch's own.
+#
+# A ref rather than history: nothing about the default view changes, so every
+# other chapter's matrix is untouched. It has to sit far enough back that the
+# shorter list is visibly shorter on screen.
+git -C "$OUT" branch feature/config
+
 # --- 3. log's warn region. Its own first toucher, another column. -----------
 log_rs "eprintln!" | write src/log.rs
 commit "fix: send warnings to stderr"

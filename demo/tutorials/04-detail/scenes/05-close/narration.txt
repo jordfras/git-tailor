@@ -1,0 +1,13 @@
+One thing to know. While the detail view is open, the operation keys do nothing
+at all: it is a place for reading.
+
+[0.9]
+h says as much. The same key that listed every operation in the commit list
+lists none of them here: searching, context, and ways to move around.
+
+[0.9]
+Close the view with q, and that same key does what it always did.
+
+[0.9]
+Which is the whole of the detail view: open it on anything you are about to
+rewrite, and close it before you rewrite it.

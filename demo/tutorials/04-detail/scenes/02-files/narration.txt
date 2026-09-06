@@ -1,0 +1,10 @@
+A commit that touches four files is a long diff, and paging through it to find
+one of them is tedious.
+
+[0.9]
+f jumps to the next file, shift f to the previous one. In a four file commit
+that is four keystrokes to reach any of them.
+
+[0.9]
+The same two keys mean fixup and autofixup in the list. Here there is no commit
+to fold, so they mean what a diff needs instead.

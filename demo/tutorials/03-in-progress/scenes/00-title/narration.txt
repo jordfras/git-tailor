@@ -1,0 +1,4 @@
+git-tailor.
+
+[0.5]
+Work in progress, and getting back.

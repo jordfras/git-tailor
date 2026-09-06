@@ -14,6 +14,7 @@ see [`../../README.md`](../../README.md) for the pipeline and
 | 04 | context | overlap groups here; git also joins changes that merely touch |
 | 05 | list | the two list colors that follow the selection, symmetric in either direction |
 | 06 | dim | dim as one idea across both panes, then the payoff |
+| 07 | close | `gt <base>` and `--all`: what the list is made of |
 
 ## What the fixture has to keep producing
 
@@ -36,6 +37,18 @@ The green and the red both hinge on the same rule, which is worth knowing before
 editing the history: a commit is green when *every* region it touches leads back
 to the same earlier commit. A commit that changes two unrelated things at once is
 red however clean each change looks on its own.
+
+## The `feature/config` branch is load-bearing
+
+The close chapter runs `gt feature/config` for the case worth showing: this
+branch was cut from another one and goes back to it, so the default view --
+everything since `main` -- carries commits it inherited rather than wrote. The
+ref sits on an ancestor of `work`, which is what makes it a base at all, and it
+has to sit far enough back that the shorter list is visibly shorter: seven
+commits by default, five from the branch, eight with `--all`.
+
+It is a ref and nothing else, so no other chapter's matrix moves. Move it and
+the chapter demonstrates nothing; delete it and the launch fails on camera.
 
 ## Check claims against frames, not against `--static`
 

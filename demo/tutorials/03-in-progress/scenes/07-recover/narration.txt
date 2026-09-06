@@ -1,0 +1,19 @@
+Nothing here depends on git-tailor staying alive.
+
+[0.8]
+This fold has stopped on a conflict, and now the terminal is gone: the machine
+goes down, or the process is killed outright, in the middle of a rewrite.
+
+[0.9]
+Start it again and it says so. An interrupted fixup, and the files it stopped
+on. A journal on disk knew where it was, so nothing has to be pieced back
+together by hand.
+
+[0.9]
+Enter picks the operation up where it stopped, in the same dialog with the same
+three choices. Escape ends it instead, and the branch goes back to where it was
+before the fold started.
+
+[0.8]
+And if that state ever gets stuck, dash dash clean journal removes it and leaves
+the repository alone.
