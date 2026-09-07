@@ -20,6 +20,11 @@
 //! result on the next keypress with [`UpdatePoller::poll`], so the network I/O
 //! never blocks rendering or input.
 
+// Stubbed ahead of the commit that replaces update-informer with a direct
+// crates.io check; nothing calls it yet.
+#[allow(dead_code)]
+mod cache;
+
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
