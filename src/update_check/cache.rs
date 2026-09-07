@@ -17,7 +17,13 @@
 //! The cache is a single file holding nothing but a version string; its age is
 //! the file's mtime, so no timestamp is ever serialised.
 
+use std::fs;
+use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
+
+use anyhow::{Result, anyhow};
+use etcetera::BaseStrategy;
 
 /// How long a cached version is reused before crates.io is consulted again.
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
@@ -30,8 +36,56 @@ pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
 /// full interval instead (what `update-informer` did) makes the check
 /// impossible to exercise by deleting the cache, which hides real failures.
 pub fn is_fresh(age: Option<Duration>, interval: Duration) -> bool {
-    let _ = (age, interval);
-    todo!("implemented in the follow-up commit")
+    match age {
+        Some(age) => age < interval,
+        None => false,
+    }
+}
+
+/// The cache file for one crate.
+pub struct VersionCache {
+    path: PathBuf,
+}
+
+impl VersionCache {
+    /// Place the cache in the platform's conventional cache directory:
+    /// `~/.cache` (XDG), `~/Library/Caches`, or `%LOCALAPPDATA%`.
+    pub fn new(crate_name: &str) -> Result<Self> {
+        let base = etcetera::choose_base_strategy()
+            .map_err(|e| anyhow!("cannot locate a cache directory: {e}"))?;
+        let dir = base.cache_dir().join("git-tailor");
+        fs::create_dir_all(&dir)?;
+        Ok(Self {
+            path: dir.join(format!("{crate_name}-latest-version")),
+        })
+    }
+
+    #[cfg(test)]
+    fn at(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    /// Age of the entry, or `None` when it is missing. An mtime in the future
+    /// (clock skew) also reads as `None`, so the next run re-checks and heals it.
+    fn age(&self) -> Option<Duration> {
+        let metadata = fs::metadata(&self.path).ok()?;
+        metadata.modified().ok()?.elapsed().ok()
+    }
+
+    /// The cached version, if an entry exists and is younger than `interval`.
+    pub fn read_fresh(&self, interval: Duration) -> Option<String> {
+        if !is_fresh(self.age(), interval) {
+            return None;
+        }
+        let version = fs::read_to_string(&self.path).ok()?;
+        let version = version.trim().to_string();
+        (!version.is_empty()).then_some(version)
+    }
+
+    /// Store `version`, the write itself becoming the entry's timestamp.
+    pub fn write(&self, version: &str) -> io::Result<()> {
+        fs::write(&self.path, version)
+    }
 }
 
 #[cfg(test)]
@@ -63,5 +117,34 @@ mod tests {
     #[test]
     fn a_zero_interval_always_reaches_the_network() {
         assert!(!is_fresh(Some(Duration::ZERO), Duration::ZERO));
+    }
+
+    #[test]
+    fn round_trips_a_version_through_the_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let cache = VersionCache::at(dir.path().join("latest"));
+
+        assert_eq!(cache.read_fresh(DAY), None, "nothing cached yet");
+        cache.write("3.0.0").expect("write cache");
+        assert_eq!(cache.read_fresh(DAY), Some("3.0.0".to_string()));
+    }
+
+    #[test]
+    fn a_stale_entry_reads_as_absent() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let cache = VersionCache::at(dir.path().join("latest"));
+        cache.write("3.0.0").expect("write cache");
+
+        // Just-written, so any non-zero age is already past a zero interval.
+        assert_eq!(cache.read_fresh(Duration::ZERO), None);
+    }
+
+    #[test]
+    fn an_empty_entry_reads_as_absent() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let cache = VersionCache::at(dir.path().join("latest"));
+        cache.write("   ").expect("write cache");
+
+        assert_eq!(cache.read_fresh(DAY), None);
     }
 }

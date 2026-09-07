@@ -67,6 +67,12 @@ fn main() -> Result<()> {
         return completions::run(*shell, *install);
     }
 
+    // Also works outside a git repository, and unlike the background check it
+    // reports why a check failed.
+    if cli.check_update {
+        return update_check::run_once();
+    }
+
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
     git_repo.set_autostash(cli.autostash);
 
