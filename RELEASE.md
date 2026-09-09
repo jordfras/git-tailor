@@ -18,8 +18,8 @@ Steps to follow when cutting a new release of git-tailor.
 - Update `README.md` if any new CLI flags, key bindings, or significant features
   were added.
 - Regenerate the TUI screenshot so it reflects the current rendering:
-  `cargo run --example gen_screenshot` (writes `doc/tui_example.png`). Commit the
-  result if it changed.
+  `cargo run --example gen_screenshots` (writes `doc/tui_example.png`). Commit
+  the result if it changed.
 - Regenerate the demo GIF so it reflects the current UI and key bindings:
   `demo/build.sh publish` (renders the tape in Docker and writes `doc/demo.gif`).
   Commit the result if it changed. Requires Docker.

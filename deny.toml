@@ -5,7 +5,7 @@ git-fetch-with-cli = true
 ignore = [
     # ttf-parser is unmaintained, not vulnerable: the author declared it done,
     # and the advisory offers no upgrade. It reaches this tree only through
-    # fontdue, a dev-dependency that `examples/gen_screenshot.rs` uses to
+    # fontdue, a dev-dependency that `examples/gen_screenshots.rs` uses to
     # rasterize doc/tui_example.png -- `cargo tree -i ttf-parser -e normal`
     # finds nothing, and examples are excluded from the published crate, so it
     # ships to nobody and parses only the font vendored beside it.
