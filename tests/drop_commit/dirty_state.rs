@@ -245,6 +245,10 @@ fn a_colliding_untracked_file_survives_when_autostash_fires() {
     let restored = git_repo.autostash_restore();
 
     let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert!(
+        dropped.is_err(),
+        "the collision must be refused, not deferred into the reapply"
+    );
     let on_disk = std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default();
     assert!(
         !on_disk.contains("<<<<<<<"),
