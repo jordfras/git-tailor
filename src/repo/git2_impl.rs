@@ -344,6 +344,31 @@ impl RepoRead for Git2Repo {
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
         reads::commit_walker(self, from_oid, to_oid)
     }
+
+    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
+        split_op::count_split_per_file(self, commit_oid)
+    }
+
+    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize> {
+        split_op::count_split_per_hunk(self, commit_oid)
+    }
+
+    fn count_split_per_hunk_group(
+        &self,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+    ) -> Result<usize> {
+        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+    }
+
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_undo_skips_autostash(self)
+    }
+
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+        journal::pending_redo_skips_autostash(self)
+    }
 }
 
 impl RepoWrite for Git2Repo {
@@ -388,23 +413,6 @@ impl RepoWrite for Git2Repo {
         let outcome =
             split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines);
         self.record_unit_undo("Split", head_oid, outcome)
-    }
-
-    fn count_split_per_file(&mut self, commit_oid: &Oid) -> Result<usize> {
-        split_op::count_split_per_file(self, commit_oid)
-    }
-
-    fn count_split_per_hunk(&mut self, commit_oid: &Oid) -> Result<usize> {
-        split_op::count_split_per_hunk(self, commit_oid)
-    }
-
-    fn count_split_per_hunk_group(
-        &mut self,
-        commit_oid: &Oid,
-        head_oid: &Oid,
-        reference_oid: &Oid,
-    ) -> Result<usize> {
-        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
     fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
@@ -491,14 +499,6 @@ impl RepoWrite for Git2Repo {
 
     fn redo(&mut self) -> Result<super::UndoOutcome> {
         journal::apply_redo(self)
-    }
-
-    fn pending_undo_skips_autostash(&mut self) -> Result<bool> {
-        journal::pending_undo_skips_autostash(self)
-    }
-
-    fn pending_redo_skips_autostash(&mut self) -> Result<bool> {
-        journal::pending_redo_skips_autostash(self)
     }
 
     fn stage_all(&mut self) -> Result<super::StageOutcome> {

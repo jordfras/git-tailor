@@ -481,6 +481,32 @@ pub trait RepoRead {
         from_oid: &Oid,
         to_oid: &Oid,
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
+
+    /// Count how many commits `split_commit_per_file` would produce for this commit.
+    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
+
+    /// Count how many commits `split_commit_per_hunk` would produce for this commit.
+    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize>;
+
+    /// Count how many fragmap groups `split_commit_per_hunk_group` would produce
+    /// for this commit, given the full branch context up to `head_oid` from
+    /// `reference_oid`.
+    fn count_split_per_hunk_group(
+        &self,
+        commit_oid: &Oid,
+        head_oid: &Oid,
+        reference_oid: &Oid,
+    ) -> Result<usize>;
+
+    /// Whether the next [`undo`](RepoWrite::undo) leaves the working tree untouched (a
+    /// stage/unstage-all op or a commit's soft reset). The caller uses this to
+    /// skip the auto-stash dance, which would otherwise stash away and reapply
+    /// the very state being restored.
+    fn pending_undo_skips_autostash(&self) -> Result<bool>;
+
+    /// Whether the next [`redo`](RepoWrite::redo) leaves the working tree untouched.
+    /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
+    fn pending_redo_skips_autostash(&self) -> Result<bool>;
 }
 
 /// Every history-mutating and journal/undo/staging operation on a repository —
@@ -584,22 +610,6 @@ pub trait RepoWrite {
         head_oid: &Oid,
         context_lines: u32,
     ) -> Result<()>;
-
-    /// Count how many commits `split_commit_per_file` would produce for this commit.
-    fn count_split_per_file(&mut self, commit_oid: &Oid) -> Result<usize>;
-
-    /// Count how many commits `split_commit_per_hunk` would produce for this commit.
-    fn count_split_per_hunk(&mut self, commit_oid: &Oid) -> Result<usize>;
-
-    /// Count how many fragmap groups `split_commit_per_hunk_group` would produce
-    /// for this commit, given the full branch context up to `head_oid` from
-    /// `reference_oid`.
-    fn count_split_per_hunk_group(
-        &mut self,
-        commit_oid: &Oid,
-        head_oid: &Oid,
-        reference_oid: &Oid,
-    ) -> Result<usize>;
 
     /// Reword the message of an existing commit.
     ///
@@ -727,16 +737,6 @@ pub trait RepoWrite {
     /// Redo the most recently undone operation, restoring its post-operation
     /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
     fn redo(&mut self) -> Result<UndoOutcome>;
-
-    /// Whether the next [`undo`](Self::undo) leaves the working tree untouched (a
-    /// stage/unstage-all op or a commit's soft reset). The caller uses this to
-    /// skip the auto-stash dance, which would otherwise stash away and reapply
-    /// the very state being restored.
-    fn pending_undo_skips_autostash(&mut self) -> Result<bool>;
-
-    /// Whether the next [`redo`](Self::redo) leaves the working tree untouched.
-    /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
-    fn pending_redo_skips_autostash(&mut self) -> Result<bool>;
 
     /// Stage all changes to tracked files (modifications and deletions), like
     /// `git add -u`. Untracked files are left alone, matching what the unstaged

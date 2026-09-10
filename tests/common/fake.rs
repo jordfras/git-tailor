@@ -158,4 +158,19 @@ impl RepoRead for StubRepo {
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
+    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+        unimplemented!()
+    }
 }

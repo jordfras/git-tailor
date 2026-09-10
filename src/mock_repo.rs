@@ -232,6 +232,30 @@ impl RepoRead for MockRepo {
     ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
+
+    fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
+        if self.count_ok {
+            Ok(self.count_per_file)
+        } else {
+            Err(anyhow::anyhow!("count failed"))
+        }
+    }
+
+    fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
+        unimplemented!()
+    }
+
+    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
+        unimplemented!()
+    }
+
+    fn pending_undo_skips_autostash(&self) -> anyhow::Result<bool> {
+        Ok(self.undo_skips_autostash)
+    }
+
+    fn pending_redo_skips_autostash(&self) -> anyhow::Result<bool> {
+        Ok(self.redo_skips_autostash)
+    }
 }
 
 impl RepoWrite for MockRepo {
@@ -307,12 +331,6 @@ impl RepoWrite for MockRepo {
             Ok(git_tailor::repo::UndoOutcome::Empty)
         }
     }
-    fn pending_undo_skips_autostash(&mut self) -> anyhow::Result<bool> {
-        Ok(self.undo_skips_autostash)
-    }
-    fn pending_redo_skips_autostash(&mut self) -> anyhow::Result<bool> {
-        Ok(self.redo_skips_autostash)
-    }
     fn stage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
@@ -379,13 +397,6 @@ impl RepoWrite for MockRepo {
     fn autostash_conflict_abort(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn count_split_per_file(&mut self, _: &Oid) -> anyhow::Result<usize> {
-        if self.count_ok {
-            Ok(self.count_per_file)
-        } else {
-            Err(anyhow::anyhow!("count failed"))
-        }
-    }
     fn split_commit_per_file(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -405,12 +416,6 @@ impl RepoWrite for MockRepo {
         _: &Oid,
         _: u32,
     ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk(&mut self, _: &Oid) -> anyhow::Result<usize> {
-        unimplemented!()
-    }
-    fn count_split_per_hunk_group(&mut self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
         unimplemented!()
     }
     fn reword_commit(&mut self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
