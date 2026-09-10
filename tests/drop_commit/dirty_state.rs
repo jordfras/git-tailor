@@ -153,3 +153,64 @@ fn rebase_abort_leaves_clean_working_tree() {
         "no untracked files should remain after abort: {untracked:?}"
     );
 }
+
+/// An untracked file must not be silently overwritten when the operation
+/// reintroduces a path at the same name.
+///
+/// The dirty guard only counts staged and unstaged diffs, so a working tree
+/// holding nothing but an untracked file reads as clean and the operation
+/// proceeds. Dropping the commit that deleted `notes.txt` brings the tracked
+/// version back, and the force checkout that ends the rebase writes it straight
+/// over the user's own file.
+#[test]
+fn drop_commit_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    // Untracked: HEAD no longer tracks this path, so nothing is staged or
+    // unstaged and the working tree reads as clean.
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    let on_disk = std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default();
+    assert_eq!(
+        on_disk, "my local scratch\n",
+        "the untracked file's contents must survive the drop (result: {result:?})"
+    );
+    let _ = base;
+}
+
+/// `--autostash` does not rescue the colliding untracked file either, because
+/// the stash is only taken when the tree is *dirty* — and untracked files do
+/// not count towards that. The flag is no answer to this.
+#[test]
+fn autostash_does_not_rescue_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+    let _ = git_repo.autostash_restore();
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    let on_disk = std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default();
+    assert_eq!(
+        on_disk, "my local scratch\n",
+        "the untracked file's contents must survive with --autostash too (result: {result:?})"
+    );
+}
