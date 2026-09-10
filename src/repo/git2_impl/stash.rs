@@ -61,23 +61,19 @@ impl Git2Repo {
         if journal::autostash(self)?.is_some() {
             return Ok(());
         }
-        self.set_work_aside("git-tailor: autostash")?;
-        Ok(())
+        self.set_work_aside("git-tailor: autostash")
     }
 
     /// Put whatever is uncommitted into a stash and record it, whatever asked
-    /// for it. Returns `false` when there was nothing to set aside.
+    /// for it. A no-op when there is nothing to set aside.
     ///
-    /// The primitive under both callers: [`Self::save_autostash`], which only
-    /// reaches it when the user passed `--autostash`, and the working-tree fold,
-    /// which always does. The fold arranges beforehand that the only thing left
-    /// uncommitted is the row the user did *not* target, expressed purely as
-    /// index-versus-HEAD (see `lift_op`), so what lands in the stash is exactly
-    /// that row and `reinstantiate_index` puts it back on the side of the
-    /// staged/unstaged line it came from.
-    pub(super) fn set_work_aside(&mut self, message: &str) -> Result<bool> {
+    /// Separate from [`Self::save_autostash`] so that "did the user ask for a
+    /// stash" and "take one" are two questions. Only auto-stash asks today; the
+    /// working-tree fold keeps its own tree objects (see `lift_op`), and
+    /// unifying the two onto this is what a later change would do.
+    pub(super) fn set_work_aside(&mut self, message: &str) -> Result<()> {
         if !self.is_worktree_dirty()? {
-            return Ok(false);
+            return Ok(());
         }
 
         // Without this, `stash_save2` would serialize the stale blob for a
@@ -106,7 +102,7 @@ impl Git2Repo {
                 applied_with_conflict: false,
             }),
         )?;
-        Ok(true)
+        Ok(())
     }
 
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
@@ -148,6 +144,11 @@ impl Git2Repo {
         // in the stash, with no dialog to resolve it — so fall back to a plain
         // apply, which does write markers. The split is what gives way, and it
         // is the lesser loss: the contents are on disk and resolvable.
+        //
+        // Retrying assumes the refused attempt applied nothing. libgit2 checks
+        // for conflicts against the index before it writes, so it gives up
+        // before touching the working tree — but it is its assumption to keep,
+        // and a partial apply followed by this retry would apply twice.
         let mut opts = StashApplyOptions::new();
         opts.reinstantiate_index();
         if let Err(e) = self.inner.stash_apply(index, Some(&mut opts)) {

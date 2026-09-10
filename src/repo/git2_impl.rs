@@ -892,6 +892,12 @@ impl Git2Repo {
     ///
     /// Called *before* the branch ref moves, so a refusal leaves the repository
     /// exactly as it was rather than half-rewritten.
+    ///
+    /// One known gap, on a case-insensitive filesystem: the index is consulted
+    /// case-sensitively and the disk is not, so an untracked `NOTES.txt` where
+    /// `notes.txt` returns reads as a collision on macOS and Windows and not on
+    /// Linux. The refusal is the conservative half of that difference, so the
+    /// gap costs a puzzling message rather than a file.
     pub(super) fn refuse_untracked_collisions(
         &self,
         from_tree: git2::Oid,
