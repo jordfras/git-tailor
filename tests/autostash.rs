@@ -545,3 +545,55 @@ fn autostash_preserves_same_size_unstaged_edit() {
         );
     }
 }
+
+/// The staged content itself clashes when the stash is put back.
+///
+/// The existing conflict test stages a *different* file from the one the drop
+/// rewrites, so the reapply is clean and only the rebase conflicts. Here the
+/// staged change is to the very file the resolution rewrote, so putting it back
+/// is itself a conflict — and it is staged, which is the combination git cannot
+/// represent: a file cannot be both "staged" and "conflicted" at once.
+#[test]
+fn autostash_reapply_conflicts_on_the_staged_file_itself() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "0\n", "base");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    // Staged edit to the same file, on the same lines the resolution will touch.
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    // Resolve the rebase conflict to something that clashes with the staged edit.
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    // Reportable, not a hard error: the rewrite is already done, so refusing
+    // here would strand the user with their work only in the stash and no way
+    // to resolve it.
+    match git_repo.autostash_restore() {
+        Ok(AutostashRestore::Conflict { files }) => assert_eq!(files, vec!["a.txt"]),
+        other => panic!("expected a reportable conflict, got {other:?}"),
+    }
+
+    // Both sides are on disk to choose between, the staged edit included.
+    let on_disk = read_workdir(&test, "a.txt");
+    assert!(on_disk.contains("RESOLVED"), "{on_disk:?}");
+    assert!(on_disk.contains("STAGED"), "{on_disk:?}");
+    let _ = base;
+}
