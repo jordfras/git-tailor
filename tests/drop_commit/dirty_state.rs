@@ -319,3 +319,90 @@ fn rebase_abort_keeps_the_users_own_untracked_files() {
         "an abort must not delete the user's own untracked files"
     );
 }
+
+/// Every colliding path is named, not just the first one the diff happens to
+/// reach — the user needs the whole list to clear it in one go.
+#[test]
+fn a_collision_names_every_untracked_file_it_would_overwrite() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_files(
+        &[("notes.txt", "from history\n"), ("todo.txt", "also\n")],
+        "add notes and todo",
+    );
+    // One commit removing both, so dropping it brings both back together.
+    let deletion = test.delete_files(&["notes.txt", "todo.txt"], "delete both");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    test.write_file("notes.txt", "my notes\n");
+    test.write_file("todo.txt", "my todo\n");
+
+    let mut git_repo = test.git_repo();
+    let err = git_repo
+        .drop_commit(&Oid::from(deletion), &Oid::from(head))
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("notes.txt"), "should name notes.txt: {err}");
+    assert!(err.contains("todo.txt"), "should name todo.txt: {err}");
+}
+
+/// A symlink counts as a file: git tracked the path as one, and following the
+/// link would judge it by whatever it points at instead.
+#[test]
+fn an_untracked_symlink_at_a_reintroduced_path_is_refused() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    test.write_file("target.txt", "pointed at\n");
+    std::os::unix::fs::symlink("target.txt", workdir.join("notes.txt")).unwrap();
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    assert!(result.is_err(), "a symlink in the way must be refused");
+    assert!(
+        workdir
+            .join("notes.txt")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the symlink itself must be left alone"
+    );
+}
+
+/// The content check hashes the file as it sits on disk, without checkout
+/// filters. With `core.autocrlf` a file that *would* match after filtering
+/// hashes differently and is reported as a collision.
+///
+/// That is the conservative direction and the one to keep: the user is asked
+/// about a file rather than quietly relieved of it. Pinned here so the
+/// behaviour is a decision rather than a surprise.
+#[test]
+fn a_crlf_file_matching_only_after_filtering_is_still_refused() {
+    let test = common::TestRepo::new();
+    test.set_config("core.autocrlf", "true");
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "line one\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::write(workdir.join("notes.txt"), "line one\r\n").unwrap();
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    assert!(
+        result.is_err(),
+        "hashing without filters must err towards refusing"
+    );
+}

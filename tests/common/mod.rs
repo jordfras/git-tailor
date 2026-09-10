@@ -153,13 +153,19 @@ impl TestRepo {
     }
 
     pub fn delete_file(&self, path: &str, message: &str) -> git2::Oid {
-        let repo_path = self.repo.workdir().unwrap();
-        let file_path = repo_path.join(path);
+        self.delete_files(&[path], message)
+    }
 
-        fs::remove_file(&file_path).unwrap();
+    /// Delete several paths in a *single* commit, so dropping that commit
+    /// brings them all back at once.
+    pub fn delete_files(&self, paths: &[&str], message: &str) -> git2::Oid {
+        let repo_path = self.repo.workdir().unwrap();
 
         let mut index = self.repo.index().unwrap();
-        index.remove_path(std::path::Path::new(path)).unwrap();
+        for path in paths {
+            fs::remove_file(repo_path.join(path)).unwrap();
+            index.remove_path(std::path::Path::new(path)).unwrap();
+        }
         index.write().unwrap();
 
         let tree_oid = index.write_tree().unwrap();
