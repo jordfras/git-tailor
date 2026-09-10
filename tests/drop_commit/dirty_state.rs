@@ -286,3 +286,36 @@ fn a_staged_file_at_a_reintroduced_path_is_refused_by_the_dirty_guard() {
         "my local scratch\n"
     );
 }
+
+/// Aborting must clean up after the conflict, not after the user.
+///
+/// The abort checkout passes `remove_untracked`, which libgit2 does not scope
+/// to the files the conflict wrote — it takes every untracked file in the
+/// checkout's path scope. A scratch file that has nothing to do with the
+/// conflict is deleted outright, and nothing says so.
+#[test]
+fn rebase_abort_keeps_the_users_own_untracked_files() {
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+
+    // Written while the operation is paused, unrelated to the conflict.
+    test.write_file("my-notes.txt", "important\n");
+
+    git_repo.rebase_abort(&state).unwrap();
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("my-notes.txt")).unwrap_or_default(),
+        "important\n",
+        "an abort must not delete the user's own untracked files"
+    );
+}
