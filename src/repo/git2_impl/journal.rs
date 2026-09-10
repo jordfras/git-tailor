@@ -292,7 +292,7 @@ fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
 }
 
 /// Atomically write the document (temp file + rename).
-fn write_doc(repo: &Git2Repo, doc: &JournalDoc) -> Result<()> {
+fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
     let dir = journal_dir(repo);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create journal dir {}", dir.display()))?;
@@ -308,7 +308,7 @@ fn write_doc(repo: &Git2Repo, doc: &JournalDoc) -> Result<()> {
 
 /// Persist the document — removing the file when nothing is left to store — and
 /// reconcile the undo pin refs with the stacks.
-fn save(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
+fn save(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
     if is_empty(doc) {
         let path = journal_path(repo);
@@ -340,7 +340,7 @@ pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
 
 /// Record (or clear, with `None`) the working-tree-source snapshot for the
 /// in-flight operation.
-pub(super) fn set_worktree_source(repo: &Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
+pub(super) fn set_worktree_source(repo: &mut Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.worktree_source = snapshot;
     save(repo, &mut doc)
@@ -352,7 +352,7 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 }
 
 /// Record (or clear, with `None`) the auto-stash for the in-flight operation.
-pub(super) fn set_autostash(repo: &Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
+pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.autostash = record;
     save(repo, &mut doc)
@@ -366,7 +366,7 @@ pub(super) fn set_autostash(repo: &Git2Repo, record: Option<AutostashRecord>) ->
 /// `discarded_tip`; undo/redo records (which move between stacks) do not match
 /// and are left to the staleness check.
 pub(super) fn drop_reverted_undo_record(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     pre_op_tip: &Oid,
     discarded_tip: &Oid,
 ) -> Result<()> {
@@ -397,7 +397,7 @@ pub(super) fn drop_reverted_undo_record(
 ///   stacks — even while paused, since they are independent of the in-progress
 ///   operation — dropping any orphans. The `orig` pin belongs to a paused
 ///   operation, so it is dropped whenever there is none.
-pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
+pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
 
     // A fold in flight is an operation in progress too, even before it reaches a
@@ -441,7 +441,7 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
 /// caller (pins are only a gc optimization).
-fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
+fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
     if let Ok(refs) = repo
         .inner
         .references_glob(&format!("{REF_NAMESPACE}{UNDO_REF_LEAF}*"))
@@ -482,7 +482,7 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
 }
 
 /// Record `record` as the in-progress operation and pin the original branch tip.
-pub(super) fn set_in_progress(repo: &Git2Repo, record: &InProgress) -> Result<()> {
+pub(super) fn set_in_progress(repo: &mut Git2Repo, record: &InProgress) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = Some(record.clone());
     save(repo, &mut doc)?;
@@ -500,7 +500,7 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 
 /// Clear the in-progress record after a clean completion or abort, keeping any
 /// undo/redo stack intact, and drop the in-progress pin ref.
-pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
+pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
     save(repo, &mut doc)?;
@@ -514,7 +514,7 @@ pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
 /// working tree is accounted for. Distinct from
 /// [`clear_in_progress`], which only ends one phase of an operation that is
 /// still running.
-pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
+pub(super) fn discard_in_flight(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
     doc.worktree_source = None;
@@ -523,7 +523,7 @@ pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
     Ok(())
 }
 
-fn delete_orig_ref(repo: &Git2Repo) {
+fn delete_orig_ref(repo: &mut Git2Repo) {
     if let Ok(mut r) = repo.inner.find_reference(&orig_ref()) {
         let _ = r.delete();
     }
@@ -535,7 +535,7 @@ fn delete_orig_ref(repo: &Git2Repo) {
 /// Refs are discovered by namespace rather than from the journal, so stray refs
 /// are removed even when the journal is missing, corrupt, or out of sync — this
 /// is the manual escape hatch behind `--clean-journal`.
-pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
+pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     let mut refs = repo
         .inner
         .references()
@@ -576,7 +576,7 @@ pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
 
 /// Push a completed history-rewriting operation onto the undo stack.
 pub(super) fn record_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     tip_before: &Oid,
     tip_after: &Oid,
@@ -593,7 +593,7 @@ pub(super) fn record_undo(
 
 /// Push a completed index-only operation (stage/unstage all) onto the undo stack.
 pub(super) fn record_index_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     head: &Oid,
     index_tree_before: &Oid,
@@ -612,7 +612,7 @@ pub(super) fn record_index_undo(
 
 /// Push a completed commit-staged operation onto the undo stack.
 pub(super) fn record_commit_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     tip_before: &Oid,
     tip_after: &Oid,
@@ -640,7 +640,11 @@ pub(super) struct MixedUndo<'a> {
 }
 
 /// Push a completed working-tree-sourced squash onto the undo stack.
-pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'_>) -> Result<()> {
+pub(super) fn record_mixed_undo(
+    repo: &mut Git2Repo,
+    label: &str,
+    moved: MixedUndo<'_>,
+) -> Result<()> {
     push_undo(
         repo,
         UndoRecord::MixedReset {
@@ -655,7 +659,7 @@ pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'
 
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
-fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
+fn push_undo(repo: &mut Git2Repo, record: UndoRecord) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.undo.push(record);
     doc.redo.clear();
@@ -687,7 +691,7 @@ pub(super) fn pending_redo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
 /// Undo the most recent operation, moving its record to the redo stack. A
 /// history-rewriting op restores its pre-operation tip; an index-only op restores
 /// its pre-operation index tree; a commit soft-resets to its parent.
-pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
+pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.undo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
@@ -756,7 +760,7 @@ pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
 
 /// Redo the most recently undone operation, moving its record back to the undo
 /// stack: restore its post-operation tip, or its post-operation index tree.
-pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
+pub(super) fn apply_redo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.redo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
@@ -827,7 +831,7 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
 /// `false` (after clearing the now-stale stacks) when HEAD has drifted from
 /// `expected` — history was changed outside git-tailor.
 fn revert_ref(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     expected: &Oid,
     target: &Oid,
@@ -848,7 +852,7 @@ fn revert_ref(
 /// ref has drifted from `head` or the index no longer matches `expected` — the
 /// user staged something else outside this undo history.
 fn revert_index(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     head: &Oid,
     expected: &Oid,
@@ -866,7 +870,7 @@ fn revert_index(
 /// as staged on undo. Returns `false` (after clearing the now-stale stacks) when
 /// HEAD has drifted from `expected`.
 fn revert_soft(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     expected: &Oid,
     target: &Oid,
@@ -898,7 +902,7 @@ struct MixedRevert<'a> {
 /// means the user changed things outside this history, and forcing the recorded
 /// state over it would discard their work.
 fn revert_mixed(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     revert: MixedRevert<'_>,
     verb: &str,
@@ -918,14 +922,14 @@ fn revert_mixed(
     Ok(true)
 }
 
-fn clear_stacks(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
+fn clear_stacks(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.undo.clear();
     doc.redo.clear();
     save(repo, doc)
 }
 
 /// Point the current branch at `target` and check it out.
-fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
+fn restore_tip(repo: &mut Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
     // The working tree currently reflects the tip we're moving away from, so
     // capture it before advancing — checkout_head needs it to remove files the
     // restored tip no longer contains.
@@ -952,13 +956,13 @@ pub(super) fn current_index_tree(repo: &Git2Repo) -> Result<Oid> {
 /// Reset the index to `target` tree, leaving the branch ref and working tree
 /// untouched. Always returns `Ok(true)` so callers can treat it as the
 /// non-stale arm of `revert_index`.
-fn restore_index(repo: &Git2Repo, target: &Oid) -> Result<bool> {
+fn restore_index(repo: &mut Git2Repo, target: &Oid) -> Result<bool> {
     repo.set_index_tree(git2::Oid::from(target))?;
     Ok(true)
 }
 
 /// Read the journal and classify it for the startup recovery flow.
-pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
+pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     let path = journal_path(repo);
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,

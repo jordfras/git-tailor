@@ -26,7 +26,7 @@ use crate::Oid;
 use crate::app::SquashMode;
 
 pub(super) fn squash_commits(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
     message: &str,
@@ -41,38 +41,44 @@ pub(super) fn squash_commits(
         .find_renames(true)
         .rename_threshold(10)
         .target_limit(1000);
-    let mut cherry_index = repo.inner.cherrypick_commit(
-        &inputs.source_commit,
-        &inputs.target_commit,
-        0,
-        Some(&merge_opts),
-    )?;
+    let mut cherry_index = {
+        let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
+        let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+        repo.inner
+            .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?
+    };
     if cherry_index.has_conflicts() {
         // If rename detection in the 3-way merge didn't resolve the conflict,
         // try an explicit rename-aware tree merge as a fallback.
-        if let Some(tree_oid) =
-            rename_aware_squash_tree(&repo.inner, &inputs.source_commit, &inputs.target_commit)?
-        {
-            let combined_tree = repo.inner.find_tree(tree_oid)?;
-            let base_commit = inputs
-                .base_oid
-                .map(|oid| repo.inner.find_commit(oid))
-                .transpose()?;
-            let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-            let squash_oid = repo.inner.commit(
-                None,
-                &inputs.target_commit.author(),
-                &inputs.target_commit.committer(),
-                message,
-                &combined_tree,
-                &parents,
-            )?;
+        let renamed_tree_oid = {
+            let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
+            let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+            rename_aware_squash_tree(&repo.inner, &source_commit, &target_commit)?
+        };
+        if let Some(tree_oid) = renamed_tree_oid {
+            let squash_oid = {
+                let combined_tree = repo.inner.find_tree(tree_oid)?;
+                let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+                let base_commit = inputs
+                    .base_oid
+                    .map(|oid| repo.inner.find_commit(oid))
+                    .transpose()?;
+                let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
+                repo.inner.commit(
+                    None,
+                    &target_commit.author(),
+                    &target_commit.committer(),
+                    message,
+                    &combined_tree,
+                    &parents,
+                )?
+            };
 
             let all_descendants =
-                repo.collect_descendants(inputs.target_commit.id(), inputs.head_git_oid)?;
+                repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
             let descendants: Vec<git2::Oid> = all_descendants
                 .into_iter()
-                .filter(|&oid| oid != inputs.source_commit.id())
+                .filter(|&oid| oid != inputs.source_git_oid)
                 .collect();
 
             return replay_and_advance(
@@ -94,27 +100,28 @@ pub(super) fn squash_commits(
     }
 
     let combined_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
-    let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
+    let squash_oid = {
+        let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
+        let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+        let base_commit = inputs
+            .base_oid
+            .map(|oid| repo.inner.find_commit(oid))
+            .transpose()?;
+        let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
+        repo.inner.commit(
+            None,
+            &target_commit.author(),
+            &target_commit.committer(),
+            message,
+            &combined_tree,
+            &parents,
+        )?
+    };
 
-    let base_commit = inputs
-        .base_oid
-        .map(|oid| repo.inner.find_commit(oid))
-        .transpose()?;
-    let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-    let squash_oid = repo.inner.commit(
-        None,
-        &inputs.target_commit.author(),
-        &inputs.target_commit.committer(),
-        message,
-        &combined_tree,
-        &parents,
-    )?;
-
-    let all_descendants =
-        repo.collect_descendants(inputs.target_commit.id(), inputs.head_git_oid)?;
+    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
     let descendants: Vec<git2::Oid> = all_descendants
         .into_iter()
-        .filter(|&oid| oid != inputs.source_commit.id())
+        .filter(|&oid| oid != inputs.source_git_oid)
         .collect();
 
     replay_and_advance(
@@ -128,7 +135,7 @@ pub(super) fn squash_commits(
 }
 
 pub(super) fn squash_try_combine(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
     combined_message: &str,
@@ -144,21 +151,24 @@ pub(super) fn squash_try_combine(
         .find_renames(true)
         .rename_threshold(10)
         .target_limit(1000);
-    let cherry_index = repo.inner.cherrypick_commit(
-        &inputs.source_commit,
-        &inputs.target_commit,
-        0,
-        Some(&merge_opts),
-    )?;
+    let cherry_index = {
+        let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
+        let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+        repo.inner
+            .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?
+    };
     if !cherry_index.has_conflicts() {
         return Ok(None);
     }
 
     // If rename detection in the 3-way merge didn't resolve the conflict,
     // try explicit rename-aware tree merge as a fallback.
-    if rename_aware_squash_tree(&repo.inner, &inputs.source_commit, &inputs.target_commit)?
-        .is_some()
-    {
+    let renamed = {
+        let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
+        let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+        rename_aware_squash_tree(&repo.inner, &source_commit, &target_commit)?
+    };
+    if renamed.is_some() {
         return Ok(None);
     }
 
@@ -172,7 +182,7 @@ pub(super) fn squash_try_combine(
 }
 
 pub(super) fn squash_finalize(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     ctx: &SquashContext,
     message: &str,
     original_branch_oid: &Oid,
@@ -183,26 +193,29 @@ pub(super) fn squash_finalize(
         anyhow::bail!("Cannot finalize squash: index still has unresolved conflicts");
     }
 
-    let target_git_oid = git2::Oid::from(&ctx.target_oid);
-    let target_commit = repo.inner.find_commit(target_git_oid)?;
-
     let combined_tree_oid = index.write_tree()?;
-    let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
+    drop(index);
 
-    let base_commit = ctx
-        .base_oid
-        .as_ref()
-        .map(|oid| repo.inner.find_commit(git2::Oid::from(oid)))
-        .transpose()?;
-    let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-    let squash_oid = repo.inner.commit(
-        None,
-        &target_commit.author(),
-        &target_commit.committer(),
-        message,
-        &combined_tree,
-        &parents,
-    )?;
+    // Scoped: these handles borrow the repository, which the replay below needs
+    // mutably.
+    let squash_oid = {
+        let target_commit = repo.inner.find_commit(git2::Oid::from(&ctx.target_oid))?;
+        let combined_tree = repo.inner.find_tree(combined_tree_oid)?;
+        let base_commit = ctx
+            .base_oid
+            .as_ref()
+            .map(|oid| repo.inner.find_commit(git2::Oid::from(oid)))
+            .transpose()?;
+        let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
+        repo.inner.commit(
+            None,
+            &target_commit.author(),
+            &target_commit.committer(),
+            message,
+            &combined_tree,
+            &parents,
+        )?
+    };
 
     let descendants: Vec<git2::Oid> = ctx.descendant_oids.iter().map(git2::Oid::from).collect();
 
@@ -221,15 +234,15 @@ struct SquashInputs<'a> {
     source_oid: &'a Oid,
     target_oid: &'a Oid,
     head_oid: &'a Oid,
-    source_commit: git2::Commit<'a>,
-    target_commit: git2::Commit<'a>,
+    source_git_oid: git2::Oid,
+    target_git_oid: git2::Oid,
     /// Parent of the target commit. `None` when target is root.
     base_oid: Option<git2::Oid>,
     head_git_oid: git2::Oid,
 }
 
 fn parse_squash_inputs<'a>(
-    repo: &'a Git2Repo,
+    repo: &Git2Repo,
     source_oid: &'a Oid,
     target_oid: &'a Oid,
     head_oid: &'a Oid,
@@ -238,24 +251,25 @@ fn parse_squash_inputs<'a>(
     let target_git_oid = git2::Oid::from(target_oid);
     let head_git_oid = git2::Oid::from(head_oid);
 
-    let source_commit = repo.inner.find_commit(source_git_oid)?;
-    let target_commit = repo.inner.find_commit(target_git_oid)?;
-
-    if target_commit.parent_count() > 1 {
-        anyhow::bail!("Cannot squash into a merge commit");
-    }
-    let base_oid = if target_commit.parent_count() == 0 {
-        None
-    } else {
-        Some(target_commit.parent_id(0)?)
+    // Only the oids are carried out: a `Commit` handle borrows the repository,
+    // and every caller goes on to rewrite history through it.
+    let base_oid = {
+        let target_commit = repo.inner.find_commit(target_git_oid)?;
+        if target_commit.parent_count() > 1 {
+            anyhow::bail!("Cannot squash into a merge commit");
+        }
+        match target_commit.parent_count() {
+            0 => None,
+            _ => Some(target_commit.parent_id(0)?),
+        }
     };
 
     Ok(SquashInputs {
         source_oid,
         target_oid,
         head_oid,
-        source_commit,
-        target_commit,
+        source_git_oid,
+        target_git_oid,
         base_oid,
         head_git_oid,
     })
@@ -264,17 +278,16 @@ fn parse_squash_inputs<'a>(
 /// Persist a conflicted cherry-pick to the working tree and build the
 /// `ConflictState` describing it for the user-facing resolution flow.
 fn build_conflict_state(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     cherry_index: &git2::Index,
     inputs: &SquashInputs<'_>,
     combined_message: &str,
     squash_mode: SquashMode,
 ) -> Result<ConflictState> {
-    let all_descendants =
-        repo.collect_descendants(inputs.target_commit.id(), inputs.head_git_oid)?;
+    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
     let descendant_oids: Vec<Oid> = all_descendants
         .into_iter()
-        .filter(|&oid| oid != inputs.source_commit.id())
+        .filter(|&oid| oid != inputs.source_git_oid)
         .map(Oid::from)
         .collect();
 
@@ -290,20 +303,20 @@ fn build_conflict_state(
         ..base_conflict_state(ConflictBase {
             label: squash_mode.label(),
             original_branch_oid: inputs.head_oid.clone(),
-            new_tip: inputs.target_commit.id(),
-            conflicting_commit: inputs.source_commit.id(),
+            new_tip: inputs.target_git_oid,
+            conflicting_commit: inputs.source_git_oid,
             index: cherry_index,
         })
     };
     // Journals write-ahead, then mutates the ref/index/workdir.
-    conflict::write_conflicts_to_workdir(repo, cherry_index, &inputs.target_commit, &state)?;
+    conflict::write_conflicts_to_workdir(repo, cherry_index, inputs.target_git_oid, &state)?;
     Ok(state)
 }
 
 /// Cherry-pick descendants onto the new squash commit and either advance
 /// the branch ref (success) or report the next conflict.
 fn replay_and_advance(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     squash_oid: git2::Oid,
     descendants: &[git2::Oid],
     original_branch_oid: Oid,

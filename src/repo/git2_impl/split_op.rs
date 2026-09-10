@@ -27,7 +27,7 @@ use super::hunks;
 use super::reads;
 
 pub(super) fn split_commit_per_file(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<()> {
@@ -99,9 +99,15 @@ pub(super) fn split_commit_per_file(
         current_tree_oid = new_tree_oid;
     }
 
+    // `target`'s handles and the diff borrow the repository, and all of them
+    // have destructors, so those borrows last until they are dropped — which
+    // has to happen before `finalize_split` takes the repository mutably.
+    let split_commit_oid = target.commit_oid;
+    drop((target, full_diff));
+
     finalize_split(
         repo,
-        target.commit_oid,
+        split_commit_oid,
         head_oid,
         current_base.expect("loop produced at least two commits"),
         "git-tailor: split per-file",
@@ -109,7 +115,7 @@ pub(super) fn split_commit_per_file(
 }
 
 pub(super) fn split_commit_per_hunk(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<()> {
@@ -163,9 +169,15 @@ pub(super) fn split_commit_per_hunk(
         current_tree_oid = next_tree_oid;
     }
 
+    // `target`'s handles and the diff borrow the repository, and all of them
+    // have destructors, so those borrows last until they are dropped — which
+    // has to happen before `finalize_split` takes the repository mutably.
+    let split_commit_oid = target.commit_oid;
+    drop((target, full_diff));
+
     finalize_split(
         repo,
-        target.commit_oid,
+        split_commit_oid,
         head_oid,
         current_base.expect("loop produced at least two commits"),
         "git-tailor: split per-hunk",
@@ -173,7 +185,7 @@ pub(super) fn split_commit_per_hunk(
 }
 
 pub(super) fn split_commit_per_hunk_group(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     head_oid: &Oid,
     reference_oid: &Oid,
@@ -286,9 +298,15 @@ pub(super) fn split_commit_per_hunk_group(
         )?);
     }
 
+    // `target`'s handles and the diff borrow the repository, and all of them
+    // have destructors, so those borrows last until they are dropped — which
+    // has to happen before `finalize_split` takes the repository mutably.
+    let split_commit_oid = target.commit_oid;
+    drop((target, full_diff));
+
     finalize_split(
         repo,
-        target.commit_oid,
+        split_commit_oid,
         head_oid,
         current_base.expect("loop produced at least two commits"),
         "git-tailor: split per-hunk-group",
@@ -330,7 +348,7 @@ pub(super) fn count_split_per_hunk_group(
 /// surgery, looping a `TreeUpdateBuilder` over every selected path to revert
 /// it to its parent state (or remove it if newly added) in the "rest" tree.
 pub(super) fn split_commit_out_files(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     file_paths: &[String],
     head_oid: &Oid,
@@ -397,9 +415,15 @@ pub(super) fn split_commit_out_files(
         &peeled_message,
     )?;
 
+    // `target`'s handles and the diff borrow the repository, and all of them
+    // have destructors, so those borrows last until they are dropped — which
+    // has to happen before `finalize_split` takes the repository mutably.
+    let split_commit_oid = target.commit_oid;
+    drop((target, full_diff));
+
     finalize_split(
         repo,
-        target.commit_oid,
+        split_commit_oid,
         head_oid,
         second,
         "git-tailor: split out files",
@@ -407,7 +431,7 @@ pub(super) fn split_commit_out_files(
 }
 
 pub(super) fn split_commit_out_hunks(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     hunks: &[(usize, usize)],
     head_oid: &Oid,
@@ -490,9 +514,15 @@ pub(super) fn split_commit_out_hunks(
         &peeled_message,
     )?;
 
+    // `target`'s handles and the diff borrow the repository, and all of them
+    // have destructors, so those borrows last until they are dropped — which
+    // has to happen before `finalize_split` takes the repository mutably.
+    let split_commit_oid = target.commit_oid;
+    drop((target, full_diff));
+
     finalize_split(
         repo,
-        target.commit_oid,
+        split_commit_oid,
         head_oid,
         second,
         "git-tailor: split out hunks",
@@ -738,7 +768,7 @@ fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<String> {
 /// Replay descendants of the split commit onto the last split piece and
 /// fast-forward the branch ref.
 fn finalize_split(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     original_commit_oid: git2::Oid,
     head_oid: &Oid,
     final_tip: git2::Oid,

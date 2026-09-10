@@ -20,32 +20,34 @@ use super::Git2Repo;
 use crate::Oid;
 
 pub(super) fn reword_commit(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     new_message: &str,
     head_oid: &Oid,
 ) -> Result<()> {
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
-    let commit = repo.inner.find_commit(commit_git_oid)?;
-
     if repo.range_has_merge(Some(commit_git_oid), head_git_oid)? {
         anyhow::bail!("Cannot reword: a merge commit lies between this commit and HEAD");
     }
 
-    let parents: Vec<git2::Commit> = (0..commit.parent_count())
-        .map(|i| commit.parent(i))
-        .collect::<std::result::Result<_, _>>()?;
-    let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-
-    let new_oid = repo.inner.commit(
-        None,
-        &commit.author(),
-        &commit.committer(),
-        new_message,
-        &commit.tree()?,
-        &parent_refs,
-    )?;
+    // Scoped: the commit and its parents borrow the repository, which moving
+    // the branch below needs mutably.
+    let new_oid = {
+        let commit = repo.inner.find_commit(commit_git_oid)?;
+        let parents: Vec<git2::Commit> = (0..commit.parent_count())
+            .map(|i| commit.parent(i))
+            .collect::<std::result::Result<_, _>>()?;
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+        repo.inner.commit(
+            None,
+            &commit.author(),
+            &commit.committer(),
+            new_message,
+            &commit.tree()?,
+            &parent_refs,
+        )?
+    };
 
     let tip = repo.replay_descendants_conflict_free(commit_git_oid, head_git_oid, new_oid)?;
     repo.advance_branch_ref(tip, "reword: update branch ref")?;

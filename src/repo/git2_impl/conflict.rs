@@ -22,11 +22,9 @@ use super::super::{ConflictState, InProgress, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, advance_and_finish};
 
-pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
+pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
     let conflicting_oid = git2::Oid::from(&state.conflicting_commit_oid);
-    let conflicting_commit = repo.inner.find_commit(conflicting_oid)?;
-    let onto_commit = repo.inner.find_commit(tip_oid)?;
 
     // Re-read index from disk — the user (or another process) resolved
     // conflicts by editing the on-disk index.
@@ -45,7 +43,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     }
 
     let new_tree_oid = index.write_tree()?;
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
+    drop(index);
 
     // Squash-tree conflicts resume via squash_finalize, never here; a Squash
     // resume reaching this point is a routing bug, so fail loudly rather than
@@ -63,24 +61,25 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let orphan_root = *orphan_root;
     let moved_commit_oid = moved_commit_oid.as_ref();
 
-    let new_tip = if orphan_root {
-        // The conflicting commit becomes an orphan root (no parents).
+    // Scoped: these handles borrow the repository, and replaying the rest of the
+    // chain below needs it mutably.
+    let new_tip = {
+        let conflicting_commit = repo.inner.find_commit(conflicting_oid)?;
+        let new_tree = repo.inner.find_tree(new_tree_oid)?;
+        // An orphan root has no parents; every other commit keeps the tip it
+        // conflicted onto.
+        let parents: Vec<git2::Commit<'_>> = if orphan_root {
+            Vec::new()
+        } else {
+            vec![repo.inner.find_commit(tip_oid)?]
+        };
         repo.inner.commit(
             None,
             &conflicting_commit.author(),
             &conflicting_commit.committer(),
             conflicting_commit.message().unwrap_or(""),
             &new_tree,
-            &[],
-        )?
-    } else {
-        repo.inner.commit(
-            None,
-            &conflicting_commit.author(),
-            &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
-            &new_tree,
-            &[&onto_commit],
+            &parents.iter().collect::<Vec<_>>(),
         )?
     };
 
@@ -102,7 +101,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     )
 }
 
-pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
+pub(super) fn rebase_abort(repo: &mut Git2Repo, state: &ConflictState) -> Result<()> {
     let original_oid = git2::Oid::from(&state.original_branch_oid);
     let label = state.operation_label.to_lowercase();
 
@@ -117,15 +116,14 @@ pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()>
     // clears the index and repopulates it from the cherry-pick result (rooted in
     // the target commit's tree), so checkout_head alone cannot restore files that
     // exist in HEAD but were absent from that tree.
-    let head_commit = repo.inner.find_commit(original_oid)?;
-    let head_tree = head_commit.tree()?;
-    repo.set_index_tree(head_tree.id())?;
+    let head_tree_oid = repo.inner.find_commit(original_oid)?.tree()?.id();
+    repo.set_index_tree(head_tree_oid)?;
 
     let mut checkout = git2::build::CheckoutBuilder::new();
     checkout.force();
     repo.inner.checkout_head(Some(&mut checkout))?;
 
-    remove_conflict_debris(repo, &written, &head_tree)
+    remove_conflict_debris(repo, &written, head_tree_oid)
 }
 
 /// Delete what the conflict left in the working tree that checking out HEAD
@@ -137,15 +135,16 @@ pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()>
 /// the checkout, the ones the user wrote while the operation sat paused
 /// included. Aborting must undo the operation, not clean the working tree.
 fn remove_conflict_debris(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     written: &[String],
-    head_tree: &git2::Tree,
+    head_tree_oid: git2::Oid,
 ) -> Result<()> {
     let workdir = repo
         .inner
         .workdir()
         .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?
         .to_path_buf();
+    let head_tree = repo.inner.find_tree(head_tree_oid)?;
 
     for path in written {
         // Tracked by HEAD: the checkout above already restored the right content.
@@ -193,11 +192,12 @@ pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<String> {
     collect_conflict_files(&repo.inner)
 }
 
-pub(super) fn auto_stage_resolved_conflicts(repo: &Git2Repo, files: &[String]) -> Result<()> {
+pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[String]) -> Result<()> {
     let workdir = repo
         .inner
         .workdir()
-        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?
+        .to_path_buf();
 
     for path in files {
         let full_path = workdir.join(path);
@@ -250,9 +250,9 @@ pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<Stri
 /// ref, writing the index, checking out) still leaves a recoverable journal
 /// entry rather than a partially-rebased branch with no record of it.
 pub(super) fn write_conflicts_to_workdir(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     cherry_index: &git2::Index,
-    onto_commit: &git2::Commit,
+    onto_oid: git2::Oid,
     state: &ConflictState,
 ) -> Result<()> {
     // Write-ahead: record the in-progress operation before mutating anything.
@@ -261,7 +261,7 @@ pub(super) fn write_conflicts_to_workdir(
     // Point the branch at the onto commit so HEAD matches the partially
     // rebased chain.
     let label = state.operation_label.to_lowercase();
-    repo.advance_branch_ref(onto_commit.id(), &format!("git-tailor: {label} (conflict)"))?;
+    repo.advance_branch_ref(onto_oid, &format!("git-tailor: {label} (conflict)"))?;
 
     // Write the conflicted index entries (including conflict markers) into
     // the repo's index so `git status` and the user's editor see them.

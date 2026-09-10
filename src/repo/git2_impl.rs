@@ -101,7 +101,7 @@ impl Git2Repo {
     /// entry from `tip_before` to the resulting tip. Errors are passed through
     /// untouched.
     fn journaled(
-        &self,
+        &mut self,
         label: &str,
         tip_before: &Oid,
         outcome: Result<super::RebaseOutcome>,
@@ -151,7 +151,7 @@ impl Git2Repo {
     /// either way; only the working tree is still in the air, and the record
     /// stays in the journal until it settles.
     fn finish_worktree_source(
-        &self,
+        &mut self,
         label: &str,
         snapshot: &super::LiftedRow,
     ) -> Result<Option<super::ConflictState>> {
@@ -197,14 +197,19 @@ impl Git2Repo {
 
     /// Wrap a `Result<()>` operation (reword, split): on success, record an
     /// undo entry from `tip_before` to the resulting tip.
-    fn record_unit_undo(&self, label: &str, tip_before: &Oid, result: Result<()>) -> Result<()> {
+    fn record_unit_undo(
+        &mut self,
+        label: &str,
+        tip_before: &Oid,
+        result: Result<()>,
+    ) -> Result<()> {
         result?;
         self.record_undo_if_changed(label, tip_before)
     }
 
     /// Push an undo entry from `tip_before` to the current HEAD, unless the
     /// branch did not actually move.
-    fn record_undo_if_changed(&self, label: &str, tip_before: &Oid) -> Result<()> {
+    fn record_undo_if_changed(&mut self, label: &str, tip_before: &Oid) -> Result<()> {
         if let Ok(after) = reads::head_oid(self)
             && &after != tip_before
         {
@@ -217,9 +222,9 @@ impl Git2Repo {
     /// from the before-tree to the after-tree. Reports `NoOp` when the index tree
     /// is unchanged, so nothing is journalled.
     fn journaled_index_op(
-        &self,
+        &mut self,
         label: &str,
-        op: impl FnOnce(&Self) -> Result<()>,
+        op: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<super::StageOutcome> {
         let head = reads::head_oid(self)?;
         let before = journal::current_index_tree(self)?;
@@ -232,7 +237,7 @@ impl Git2Repo {
         Ok(super::StageOutcome::Changed)
     }
 
-    pub(super) fn stage_file(&self, path: &str) -> Result<()> {
+    pub(super) fn stage_file(&mut self, path: &str) -> Result<()> {
         let mut index = self.inner.index().context("failed to read index")?;
         index
             .read(true)
@@ -343,19 +348,13 @@ impl RepoRead for Git2Repo {
 
 impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        self.record_unit_undo(
-            "Split",
-            head_oid,
-            split_op::split_commit_per_file(self, commit_oid, head_oid),
-        )
+        let outcome = split_op::split_commit_per_file(self, commit_oid, head_oid);
+        self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        self.record_unit_undo(
-            "Split",
-            head_oid,
-            split_op::split_commit_per_hunk(self, commit_oid, head_oid),
-        )
+        let outcome = split_op::split_commit_per_hunk(self, commit_oid, head_oid);
+        self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_per_hunk_group(
@@ -364,11 +363,9 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
         reference_oid: &Oid,
     ) -> Result<()> {
-        self.record_unit_undo(
-            "Split",
-            head_oid,
-            split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid),
-        )
+        let outcome =
+            split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid);
+        self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_out_files(
@@ -377,11 +374,8 @@ impl RepoWrite for Git2Repo {
         file_paths: &[String],
         head_oid: &Oid,
     ) -> Result<()> {
-        self.record_unit_undo(
-            "Split",
-            head_oid,
-            split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid),
-        )
+        let outcome = split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid);
+        self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_out_hunks(
@@ -391,11 +385,9 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
         context_lines: u32,
     ) -> Result<()> {
-        self.record_unit_undo(
-            "Split",
-            head_oid,
-            split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines),
-        )
+        let outcome =
+            split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines);
+        self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn count_split_per_file(&mut self, commit_oid: &Oid) -> Result<usize> {
@@ -416,19 +408,13 @@ impl RepoWrite for Git2Repo {
     }
 
     fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
-        self.record_unit_undo(
-            "Reword",
-            head_oid,
-            reword_op::reword_commit(self, commit_oid, new_message, head_oid),
-        )
+        let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
+        self.record_unit_undo("Reword", head_oid, outcome)
     }
 
     fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
-        self.journaled(
-            "Drop",
-            head_oid,
-            drop_op::drop_commit(self, commit_oid, head_oid),
-        )
+        let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
+        self.journaled("Drop", head_oid, outcome)
     }
 
     fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
@@ -460,17 +446,11 @@ impl RepoWrite for Git2Repo {
             return lift_op::continue_carry(self, lifted, state);
         }
         if state.autofixup_context.is_some() {
-            return self.journaled(
-                "Autofixup",
-                &state.original_branch_oid,
-                autofixup_op::continue_autofixup(self, state),
-            );
+            let outcome = autofixup_op::continue_autofixup(self, state);
+            return self.journaled("Autofixup", &state.original_branch_oid, outcome);
         }
-        self.journaled(
-            &state.operation_label,
-            &state.original_branch_oid,
-            conflict::rebase_continue(self, state),
-        )
+        let outcome = conflict::rebase_continue(self, state);
+        self.journaled(&state.operation_label, &state.original_branch_oid, outcome)
     }
 
     fn rebase_abort(&mut self, state: &super::ConflictState) -> Result<()> {
@@ -577,11 +557,8 @@ impl RepoWrite for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(
-            "Move",
-            head_oid,
-            move_op::move_commit(self, commit_oid, insert_after_oid, head_oid),
-        )
+        let outcome = move_op::move_commit(self, commit_oid, insert_after_oid, head_oid);
+        self.journaled("Move", head_oid, outcome)
     }
 
     fn squash_commits(
@@ -591,11 +568,8 @@ impl RepoWrite for Git2Repo {
         message: &str,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(
-            "Squash",
-            head_oid,
-            squash_op::squash_commits(self, source_oid, target_oid, message, head_oid),
-        )
+        let outcome = squash_op::squash_commits(self, source_oid, target_oid, message, head_oid);
+        self.journaled("Squash", head_oid, outcome)
     }
 
     fn stage_file(&mut self, path: &str) -> Result<()> {
@@ -641,26 +615,20 @@ impl RepoWrite for Git2Repo {
         autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {
         if let Some(autofixup_ctx) = autofixup_context {
-            return self.journaled(
-                "Autofixup",
+            let outcome = autofixup_op::continue_autofixup_after_squash_finalize(
+                self,
+                ctx,
+                message,
                 original_branch_oid,
-                autofixup_op::continue_autofixup_after_squash_finalize(
-                    self,
-                    ctx,
-                    message,
-                    original_branch_oid,
-                    autofixup_ctx,
-                ),
+                autofixup_ctx,
             );
+            return self.journaled("Autofixup", original_branch_oid, outcome);
         }
         // The mode's own word, not "Squash" for both: the dialog that sent the
         // user here was built from `ctx.squash_mode`, and a working-tree fold
         // can raise a second dialog from this very call.
-        self.journaled(
-            ctx.squash_mode.label(),
-            original_branch_oid,
-            squash_op::squash_finalize(self, ctx, message, original_branch_oid),
-        )
+        let outcome = squash_op::squash_finalize(self, ctx, message, original_branch_oid);
+        self.journaled(ctx.squash_mode.label(), original_branch_oid, outcome)
     }
 
     fn autofixup(
@@ -669,11 +637,8 @@ impl RepoWrite for Git2Repo {
         reference_oid: &Oid,
         message_overrides: &std::collections::HashMap<String, String>,
     ) -> Result<super::RebaseOutcome> {
-        self.journaled(
-            "Autofixup",
-            head_oid,
-            autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides),
-        )
+        let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
+        self.journaled("Autofixup", head_oid, outcome)
     }
 }
 
@@ -704,7 +669,7 @@ impl Git2Repo {
     /// Called before operations that end with `checkout_head(force)`, which
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
-    fn check_no_dirty_state(&self) -> Result<()> {
+    fn check_no_dirty_state(&mut self) -> Result<()> {
         // A working-tree-sourced squash deliberately leaves the *other* row's
         // changes in place. They are recorded in the snapshot and restored when
         // the operation finishes, so they are not the unexpected dirt this guard
@@ -797,7 +762,7 @@ impl Git2Repo {
     }
 
     /// Fast-forward the branch ref that HEAD currently points to.
-    fn advance_branch_ref(&self, new_tip: git2::Oid, log_msg: &str) -> Result<()> {
+    fn advance_branch_ref(&mut self, new_tip: git2::Oid, log_msg: &str) -> Result<()> {
         let repo = &self.inner;
         let head_ref = repo.head()?;
         let branch_refname = head_ref
@@ -826,16 +791,8 @@ impl Git2Repo {
     /// not describe the result yet, and libgit2 compares against whatever is on
     /// disk — leaving every file as a staged deletion with the real files
     /// untracked.
-    pub(super) fn reset_worktree(&self, reset: WorktreeReset) -> Result<()> {
-        let from = self
-            .inner
-            .find_tree(reset.from_tree)
-            .context("failed to find the current tree")?;
-        let to = self
-            .inner
-            .find_tree(reset.worktree_tree)
-            .context("failed to find the target working tree")?;
-        self.remove_dropped_files(&from, &to)?;
+    pub(super) fn reset_worktree(&mut self, reset: WorktreeReset) -> Result<()> {
+        self.remove_dropped_files(reset.from_tree, reset.worktree_tree)?;
 
         self.set_index_tree(reset.worktree_tree)?;
         let mut checkout = git2::build::CheckoutBuilder::new();
@@ -850,13 +807,21 @@ impl Git2Repo {
     }
 
     /// Delete working-tree files present in `from` but absent from `to`.
-    fn remove_dropped_files(&self, from: &git2::Tree, to: &git2::Tree) -> Result<()> {
+    fn remove_dropped_files(&mut self, from: git2::Oid, to: git2::Oid) -> Result<()> {
         let Some(workdir) = self.inner.workdir() else {
             return Ok(());
         };
+        let from = self
+            .inner
+            .find_tree(from)
+            .context("failed to find the current tree")?;
+        let to = self
+            .inner
+            .find_tree(to)
+            .context("failed to find the target working tree")?;
         let diff = self
             .inner
-            .diff_tree_to_tree(Some(from), Some(to), None)
+            .diff_tree_to_tree(Some(&from), Some(&to), None)
             .context("failed to diff for dropped files")?;
         for delta in diff.deltas() {
             if delta.status() == git2::Delta::Deleted
@@ -889,7 +854,7 @@ impl Git2Repo {
     /// `prev_tip` is the tip the working tree currently reflects;
     /// [`Self::checkout_head`] needs it to delete the files the new tip drops.
     pub(super) fn advance_and_checkout(
-        &self,
+        &mut self,
         new_tip: git2::Oid,
         prev_tip: &Oid,
         log_msg: &str,
@@ -1011,7 +976,7 @@ impl Git2Repo {
     /// last index write) reads as unchanged. Anything that then serializes the
     /// working tree, whether into a stash or into a tree object, silently uses
     /// the stale blob and the edit is lost.
-    pub(super) fn refresh_index_stat_cache(&self) -> Result<()> {
+    pub(super) fn refresh_index_stat_cache(&mut self) -> Result<()> {
         let mut opts = git2::StatusOptions::new();
         opts.include_untracked(true).update_index(true);
         self.inner
@@ -1021,7 +986,7 @@ impl Git2Repo {
     }
 
     /// Point the on-disk index at `tree`, clearing any conflict stages.
-    pub(super) fn set_index_tree(&self, tree: git2::Oid) -> Result<()> {
+    pub(super) fn set_index_tree(&mut self, tree: git2::Oid) -> Result<()> {
         let tree = self
             .inner
             .find_tree(tree)
@@ -1037,7 +1002,7 @@ impl Git2Repo {
     ///
     /// `prev_tip` is the branch tip the working tree currently reflects, before
     /// this operation advanced the ref.
-    fn checkout_head(&self, prev_tip: &Oid) -> Result<()> {
+    fn checkout_head(&mut self, prev_tip: &Oid) -> Result<()> {
         let new_tree = self.inner.head()?.peel_to_commit()?.tree()?.id();
         let prev_tree = self
             .inner

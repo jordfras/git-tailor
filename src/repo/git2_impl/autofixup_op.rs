@@ -33,7 +33,7 @@ use crate::app::SquashMode;
 use crate::autofixup::{self, AutofixupPair};
 
 pub(super) fn autofixup(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
     message_overrides: &HashMap<String, String>,
@@ -52,18 +52,17 @@ pub(super) fn autofixup(
 /// already created, and cherry-picking one of its descendants conflicted).
 /// Finishes that step via the ordinary conflict-continuation logic, unaware
 /// of autofixup, then keeps going through any remaining fixup/target pairs.
-pub(super) fn continue_autofixup(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
+pub(super) fn continue_autofixup(
+    repo: &mut Git2Repo,
+    state: &ConflictState,
+) -> Result<RebaseOutcome> {
     let ctx = state
         .autofixup_context
         .clone()
         .expect("continue_autofixup only called for an autofixup batch");
     let batch_original_oid = state.original_branch_oid.clone();
-    continue_after_step(
-        repo,
-        conflict::rebase_continue(repo, state),
-        &batch_original_oid,
-        &ctx,
-    )
+    let step = conflict::rebase_continue(repo, state);
+    continue_after_step(repo, step, &batch_original_oid, &ctx)
 }
 
 /// Resume an in-progress autofixup batch through a *squash-time* conflict
@@ -71,18 +70,14 @@ pub(super) fn continue_autofixup(repo: &Git2Repo, state: &ConflictState) -> Resu
 /// conflicted). Finalizes that step via `squash_finalize`, then keeps going
 /// through any remaining fixup/target pairs.
 pub(super) fn continue_autofixup_after_squash_finalize(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     squash_ctx: &super::super::SquashContext,
     message: &str,
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    continue_after_step(
-        repo,
-        squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid),
-        batch_original_oid,
-        autofixup_ctx,
-    )
+    let step = squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid);
+    continue_after_step(repo, step, batch_original_oid, autofixup_ctx)
 }
 
 /// Shared continuation: if the just-finished step completed, keep going
@@ -90,7 +85,7 @@ pub(super) fn continue_autofixup_after_squash_finalize(
 /// the batch's true original tip and context so it can be resumed the
 /// same way.
 fn continue_after_step(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     step_outcome: Result<RebaseOutcome>,
     batch_original_oid: &Oid,
     ctx: &AutofixupContext,
@@ -117,7 +112,7 @@ fn continue_after_step(
 }
 
 fn run_batch(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     mut current_tip: Oid,
     batch_original_oid: &Oid,
     reference_oid: &Oid,

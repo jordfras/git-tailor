@@ -22,7 +22,7 @@ use super::cherry_pick::{ChainCtx, advance_and_finish, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn drop_commit(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
@@ -30,19 +30,24 @@ pub(super) fn drop_commit(
 
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
-    let commit = repo.inner.find_commit(commit_git_oid)?;
-
-    if commit.parent_count() > 1 {
-        anyhow::bail!("Cannot drop a merge commit");
-    }
+    // Scoped: the commit handle borrows the repository, which the rewrite below
+    // needs mutably. `None` means a root commit, with no parent to replay onto.
+    let parent_oid = {
+        let commit = repo.inner.find_commit(commit_git_oid)?;
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot drop a merge commit");
+        }
+        match commit.parent_count() {
+            0 => None,
+            _ => Some(commit.parent_id(0)?),
+        }
+    };
 
     let original_branch_oid = head_oid.clone();
 
-    if commit.parent_count() == 0 {
+    let Some(parent_oid) = parent_oid else {
         return drop_root_commit(repo, commit_git_oid, head_git_oid, original_branch_oid);
-    }
-
-    let parent_oid = commit.parent_id(0)?;
+    };
 
     // Collect descendants: commits strictly between commit_oid and head_oid.
     let descendants = repo.collect_descendants(commit_git_oid, head_git_oid)?;
@@ -66,7 +71,7 @@ pub(super) fn drop_commit(
 /// Drop the root commit (parent_count == 0) by three-way merging the first
 /// descendant onto the empty tree, then cherry-picking remaining descendants.
 fn drop_root_commit(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_git_oid: git2::Oid,
     head_git_oid: git2::Oid,
     original_branch_oid: Oid,
@@ -81,13 +86,12 @@ fn drop_root_commit(
         anyhow::bail!("Cannot drop the only commit on the branch");
     }
 
-    let root_tree = repo.inner.find_commit(commit_git_oid)?.tree()?;
-    let first = repo.inner.find_commit(descendants[0])?;
+    let root_tree_oid = repo.inner.find_commit(commit_git_oid)?.tree()?.id();
 
     replace_root_and_replay(
         repo,
-        &root_tree,
-        &first,
+        root_tree_oid,
+        descendants[0],
         &descendants[1..],
         "Drop",
         original_branch_oid,

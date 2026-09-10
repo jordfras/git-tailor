@@ -24,14 +24,17 @@ use crate::Oid;
 /// Commit whatever is staged in the index with `message`, using the current HEAD
 /// as the sole parent. Returns the new commit OID, or `None` when nothing is
 /// staged (the index tree equals HEAD's tree).
-pub(super) fn commit_staged(repo: &Git2Repo, message: &str) -> Result<Option<Oid>> {
-    let parent = repo
-        .inner
-        .head()
-        .context("failed to resolve HEAD")?
-        .peel_to_commit()
-        .context("failed to read HEAD commit")?;
-    let head_tree = parent.tree().context("failed to read HEAD tree")?;
+pub(super) fn commit_staged(repo: &mut Git2Repo, message: &str) -> Result<Option<Oid>> {
+    let (parent_oid, head_tree_oid) = {
+        let parent = repo
+            .inner
+            .head()
+            .context("failed to resolve HEAD")?
+            .peel_to_commit()
+            .context("failed to read HEAD commit")?;
+        let head_tree_oid = parent.tree().context("failed to read HEAD tree")?.id();
+        (parent.id(), head_tree_oid)
+    };
 
     let mut index = repo.inner.index().context("failed to open index")?;
     index.read(true).context("failed to refresh index")?;
@@ -40,22 +43,29 @@ pub(super) fn commit_staged(repo: &Git2Repo, message: &str) -> Result<Option<Oid
     }
 
     let tree_oid = index.write_tree().context("failed to write index tree")?;
-    if tree_oid == head_tree.id() {
+    drop(index);
+    if tree_oid == head_tree_oid {
         return Ok(None);
     }
-    let tree = repo
-        .inner
-        .find_tree(tree_oid)
-        .context("failed to find staged tree")?;
-
-    let sig = repo
-        .inner
-        .signature()
-        .context("failed to build commit signature (set user.name / user.email)")?;
-    let new_oid = repo
-        .inner
-        .commit(None, &sig, &sig, message, &tree, &[&parent])
-        .context("failed to create commit")?;
+    // Scoped: the tree and parent handles borrow the repository, which moving
+    // the branch below needs mutably.
+    let new_oid = {
+        let tree = repo
+            .inner
+            .find_tree(tree_oid)
+            .context("failed to find staged tree")?;
+        let sig = repo
+            .inner
+            .signature()
+            .context("failed to build commit signature (set user.name / user.email)")?;
+        let parent = repo
+            .inner
+            .find_commit(parent_oid)
+            .context("failed to read HEAD commit")?;
+        repo.inner
+            .commit(None, &sig, &sig, message, &tree, &[&parent])
+            .context("failed to create commit")?
+    };
     repo.advance_branch_ref(new_oid, "git-tailor: commit staged changes")?;
     Ok(Some(new_oid.into()))
 }

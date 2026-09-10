@@ -31,12 +31,11 @@ use crate::Oid;
 
 /// Rewind the current branch to `commit_oid` and check it out, after recording
 /// a write-ahead journal entry so a crash mid-edit is recoverable.
-pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);
-    let commit = repo.inner.find_commit(commit_git)?;
-    if commit.parent_count() > 1 {
+    if repo.inner.find_commit(commit_git)?.parent_count() > 1 {
         anyhow::bail!("Cannot edit a merge commit");
     }
 
@@ -63,7 +62,7 @@ pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> R
 
 /// Splice the user-authored chain (now on the branch) in place of the edited
 /// commit and replay the original descendants onto it.
-pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutcome> {
+pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditOutcome> {
     let edit = match journal::in_progress(repo)? {
         Some(InProgress::Edit(edit)) => edit,
         _ => anyhow::bail!("no edit in progress"),
@@ -72,12 +71,15 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     let original = edit.original_branch_oid.clone();
 
     let commit_git = git2::Oid::from(commit_oid);
-    let commit = repo.inner.find_commit(commit_git)?;
     // `None` when editing the root commit — there is no parent to build on.
-    let parent = if commit.parent_count() > 0 {
-        Some(commit.parent_id(0)?)
-    } else {
-        None
+    // Scoped: the commit handle borrows the repository, which the replay below
+    // needs mutably.
+    let parent = {
+        let commit = repo.inner.find_commit(commit_git)?;
+        match commit.parent_count() {
+            0 => None,
+            _ => Some(commit.parent_id(0)?),
+        }
     };
 
     let branch_tip = repo
@@ -107,20 +109,26 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
 
     // Validate the state the user left. On anything unexpected, restore the
     // branch to its original tip and error out rather than rewrite blindly.
-    let abort = |reason: &str| -> Result<EditOutcome> {
-        restore_original(repo, &branch_refname, &original)?;
-        journal::clear_in_progress(repo)?;
-        anyhow::bail!("Edit aborted: {reason}. Restored the branch to its previous state.")
-    };
-
+    // `abort_edit_with` is a function rather than a closure capturing `repo`:
+    // the checks between the calls need the repository too.
     if !head_on_branch(repo, &branch_refname) {
-        return abort("HEAD is no longer on the edited branch");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "HEAD is no longer on the edited branch",
+        );
     }
     // The new tip must not still contain the edited commit (or its old
     // descendants) — replaying descendants onto such a tip would duplicate
     // them. This also rejects a reset back onto the old history.
     if repo.inner.graph_descendant_of(branch_tip, commit_git)? {
-        return abort("the new commits still include the edited commit");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "the new commits still include the edited commit",
+        );
     }
     // For a non-root commit, the new tip must build on the edited commit's
     // parent (== parent means the content was fully discarded — like a drop).
@@ -129,11 +137,21 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
         let built_on_parent =
             branch_tip == parent || repo.inner.graph_descendant_of(branch_tip, parent)?;
         if !built_on_parent {
-            return abort("the new commits do not build on the edited commit's parent");
+            return abort_edit_with(
+                repo,
+                &branch_refname,
+                &original,
+                "the new commits do not build on the edited commit's parent",
+            );
         }
     }
     if repo.range_has_merge(parent, branch_tip)? {
-        return abort("a merge commit was created");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "a merge commit was created",
+        );
     }
 
     // Replay the original descendants onto the user's chain. A conflict here
@@ -157,9 +175,22 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     }
 }
 
+/// Restore the branch and give up on the edit, naming what was wrong with the
+/// state the user left behind.
+fn abort_edit_with(
+    repo: &mut Git2Repo,
+    branch_refname: &str,
+    original: &Oid,
+    reason: &str,
+) -> Result<EditOutcome> {
+    restore_original(repo, branch_refname, original)?;
+    journal::clear_in_progress(repo)?;
+    anyhow::bail!("Edit aborted: {reason}. Restored the branch to its previous state.")
+}
+
 /// Restore the branch to its original tip (abort / crash-recovery), using the
 /// branch name + original tip recorded in the in-progress journal.
-pub(super) fn abort_edit(repo: &Git2Repo) -> Result<()> {
+pub(super) fn abort_edit(repo: &mut Git2Repo) -> Result<()> {
     let Some(InProgress::Edit(edit)) = journal::in_progress(repo)? else {
         return Ok(());
     };
@@ -171,7 +202,7 @@ pub(super) fn abort_edit(repo: &Git2Repo) -> Result<()> {
 /// Force the named branch back to `original`, reattach HEAD to it (in case the
 /// user detached HEAD or checked out elsewhere in the shell), and hard-reset
 /// the index + working tree to match.
-fn restore_original(repo: &Git2Repo, branch_refname: &str, original: &Oid) -> Result<()> {
+fn restore_original(repo: &mut Git2Repo, branch_refname: &str, original: &Oid) -> Result<()> {
     let original_git = git2::Oid::from(original);
     repo.inner.reference(
         branch_refname,
