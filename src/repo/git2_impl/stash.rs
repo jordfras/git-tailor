@@ -61,8 +61,23 @@ impl Git2Repo {
         if journal::autostash(self)?.is_some() {
             return Ok(());
         }
+        self.set_work_aside("git-tailor: autostash")?;
+        Ok(())
+    }
+
+    /// Put whatever is uncommitted into a stash and record it, whatever asked
+    /// for it. Returns `false` when there was nothing to set aside.
+    ///
+    /// The primitive under both callers: [`Self::save_autostash`], which only
+    /// reaches it when the user passed `--autostash`, and the working-tree fold,
+    /// which always does. The fold arranges beforehand that the only thing left
+    /// uncommitted is the row the user did *not* target, expressed purely as
+    /// index-versus-HEAD (see `lift_op`), so what lands in the stash is exactly
+    /// that row and `reinstantiate_index` puts it back on the side of the
+    /// staged/unstaged line it came from.
+    pub(super) fn set_work_aside(&mut self, message: &str) -> Result<bool> {
         if !self.is_worktree_dirty()? {
-            return Ok(());
+            return Ok(false);
         }
 
         // Without this, `stash_save2` would serialize the stale blob for a
@@ -78,9 +93,7 @@ impl Git2Repo {
             .inner
             .signature()
             .or_else(|_| Signature::now("git-tailor", "git-tailor@localhost"))?;
-        let oid = self
-            .inner
-            .stash_save2(&sig, Some("git-tailor: autostash"), None)?;
+        let oid = self.inner.stash_save2(&sig, Some(message), None)?;
 
         // The stash reset the working tree and index; refresh the cached index
         // so subsequent reads on this handle see the clean state.
@@ -92,7 +105,8 @@ impl Git2Repo {
                 pre_op_tip,
                 applied_with_conflict: false,
             }),
-        )
+        )?;
+        Ok(true)
     }
 
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
