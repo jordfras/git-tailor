@@ -26,6 +26,10 @@ The format is based on
 
 ### Fixed
 
+- `--autostash` no longer gives up when the changes it reapplies clash with the
+  operation's result. It used to fail outright, leaving the rewrite done and
+  your work only in `git stash list` with no way to resolve it; the clash is now
+  raised as a normal conflict, with both sides on disk to choose between
 - The new-version notification now works behind a TLS-inspecting corporate
   proxy, and checks on the first run after an install instead of staying
   quiet for a day

@@ -140,12 +140,30 @@ impl Git2Repo {
             )
         })?;
 
+        // `reinstantiate_index` asks libgit2 to restore the staged/unstaged
+        // split as well as the contents. It cannot do both when the reapply
+        // conflicts: a path cannot be staged and unmerged at once, so libgit2
+        // refuses with `Conflict` rather than writing markers. Refusing would
+        // strand the user — the rewrite is already done and their work is only
+        // in the stash, with no dialog to resolve it — so fall back to a plain
+        // apply, which does write markers. The split is what gives way, and it
+        // is the lesser loss: the contents are on disk and resolvable.
         let mut opts = StashApplyOptions::new();
         opts.reinstantiate_index();
-        self.inner.stash_apply(index, Some(&mut opts)).context(
-            "could not reapply auto-stashed changes — they may conflict with the \
-             result; your changes remain in `git stash list`",
-        )?;
+        if let Err(e) = self.inner.stash_apply(index, Some(&mut opts)) {
+            if e.code() != git2::ErrorCode::Conflict {
+                return Err(e).context(
+                    "could not reapply auto-stashed changes — they may conflict \
+                     with the result; your changes remain in `git stash list`",
+                );
+            }
+            self.inner
+                .stash_apply(index, Some(&mut StashApplyOptions::new()))
+                .context(
+                    "could not reapply auto-stashed changes — they may conflict \
+                     with the result; your changes remain in `git stash list`",
+                )?;
+        }
 
         let files = self.autostash_conflicting_files()?;
         if !files.is_empty() {
