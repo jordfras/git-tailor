@@ -214,3 +214,71 @@ fn autostash_does_not_rescue_a_colliding_untracked_file() {
         "the untracked file's contents must survive with --autostash too (result: {result:?})"
     );
 }
+
+/// The collision must be caught when auto-stash fires too.
+///
+/// Sweeping the untracked file into the stash only defers the clash: the drop
+/// reintroduces the path, the reapply merges the stashed copy onto it, and the
+/// user is left with conflict markers. Worse, the markers arrive with no
+/// unmerged index entry, so the stage-based conflict check does not see them
+/// and the restore reports success — the user is told it worked.
+///
+/// Whichever way the stash behaves, the file must be left as the user wrote it
+/// and never quietly rewritten into a merge.
+#[test]
+fn a_colliding_untracked_file_survives_when_autostash_fires() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    // Other dirt, so the stash is actually taken.
+    test.write_file("a.txt", "v1\nedited\n");
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    let dropped = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+    let restored = git_repo.autostash_restore();
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    let on_disk = std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default();
+    assert!(
+        !on_disk.contains("<<<<<<<"),
+        "the file must not be silently rewritten into a merge \
+         (drop: {dropped:?}, restore: {restored:?}): {on_disk:?}"
+    );
+    assert_eq!(
+        on_disk, "my local scratch\n",
+        "the user's content must survive (drop: {dropped:?}, restore: {restored:?})"
+    );
+}
+
+/// Staging the colliding file is already safe: it is then a real index entry,
+/// so the dirty guard sees it and refuses before anything is rewritten. Pinned
+/// so the untracked check above is never widened into taking this path over.
+#[test]
+fn a_staged_file_at_a_reintroduced_path_is_refused_by_the_dirty_guard() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let deletion = test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    test.write_file("notes.txt", "my local scratch\n");
+    test.stage_file("notes.txt");
+
+    let git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    assert!(result.is_err(), "a staged collision must be refused");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap(),
+        "my local scratch\n"
+    );
+}
