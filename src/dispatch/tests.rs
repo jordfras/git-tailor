@@ -252,13 +252,13 @@ fn three_hunk_commit_diff() -> CommitDiff {
 /// exact pair the backend expects back when the split is confirmed.
 #[test]
 fn prepare_split_out_hunks_flattens_diff_into_picker_entries() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(three_hunk_commit_diff()),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
@@ -285,13 +285,13 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let mut diff = three_hunk_commit_diff();
     diff.files.truncate(1);
     diff.files[0].hunks.truncate(1);
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(diff),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -302,10 +302,10 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
 /// the picker with stale or empty data.
 #[test]
 fn prepare_split_out_hunks_error_sets_error_message() {
-    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut repo = MockRepo::default(); // commit_diff left unconfigured -> Err
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -361,13 +361,13 @@ fn three_file_commit_diff() -> CommitDiff {
 /// `old_path` since it has no `new_path`.
 #[test]
 fn prepare_split_out_files_loads_diff_into_picker_files() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(three_file_commit_diff()),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
@@ -388,13 +388,13 @@ fn prepare_split_out_files_loads_diff_into_picker_files() {
 fn prepare_split_out_files_refuses_fewer_than_two_files() {
     let mut diff = three_file_commit_diff();
     diff.files.truncate(1);
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(diff),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -405,10 +405,10 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
 /// the picker with stale or empty data.
 #[test]
 fn prepare_split_out_files_error_sets_error_message() {
-    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut repo = MockRepo::default(); // commit_diff left unconfigured -> Err
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -417,7 +417,7 @@ fn prepare_split_out_files_error_sets_error_message() {
 
 #[test]
 fn stage_all_changed_reloads_and_reports_success() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = report_stage_outcome(
         &mut app,
@@ -432,7 +432,7 @@ fn stage_all_changed_reloads_and_reports_success() {
 
 #[test]
 fn stage_all_noop_reports_without_reload() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_changed: false,
         ..MockRepo::default()
     };
@@ -450,7 +450,7 @@ fn stage_all_noop_reports_without_reload() {
 
 #[test]
 fn stage_all_error_sets_error_message() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_ok: false,
         ..MockRepo::default()
     };
@@ -470,7 +470,7 @@ fn stage_all_error_message_keeps_the_underlying_cause() {
     // `format!("{e}")` on an `anyhow::Error` prints only the outermost context
     // and drops the source chain, which hid libgit2's "invalid path: 'nul'"
     // behind a bare "failed to stage working-tree changes".
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_ok: false,
         ..MockRepo::default()
     };
@@ -571,13 +571,13 @@ fn only_key_events_dismiss_transient_status() {
 fn conflict_tool_finished_refreshes_rebase_dialog() {
     // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
     // with the still-conflicting files and a success banner naming the tool.
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         conflicting_files: vec!["a.txt".to_string()],
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Merge tool",
@@ -603,10 +603,10 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
 
 #[test]
 fn conflict_tool_no_merge_tool_sets_error() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Merge tool",
@@ -625,10 +625,10 @@ fn conflict_tool_no_merge_tool_sets_error() {
 
 #[test]
 fn conflict_tool_failure_reports_the_tool_name() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Editor",
@@ -643,7 +643,7 @@ fn conflict_tool_failure_reports_the_tool_name() {
 
 #[test]
 fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         conflicting_files: vec!["b.txt".to_string()],
         ..MockRepo::default()
     };
@@ -656,7 +656,7 @@ fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
         })),
         ..Default::default()
     };
-    let action = handle_run_stash_tool(&repo, &mut app, "Editor", Ok(ToolRun::Finished));
+    let action = handle_run_stash_tool(&mut repo, &mut app, "Editor", Ok(ToolRun::Finished));
     assert!(matches!(action, LoopAction::Proceed));
     match &app.mode {
         AppMode::StashConflict(state) => {
@@ -1184,7 +1184,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
 /// A probe that fails carries its cause up, the same as a failed lift.
 #[test]
 fn a_failed_conflict_probe_reports_the_underlying_cause() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         squash_probe: SquashProbe::Error,
         ..Default::default()
     };

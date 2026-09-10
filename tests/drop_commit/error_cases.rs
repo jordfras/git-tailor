@@ -33,7 +33,7 @@ fn drop_abort_after_second_conflict_restores_branch() {
     let child1 = test.commit_file("a.txt", "v3\n", "change a again");
     let child2 = test.commit_file("a.txt", "v4\n", "change a a third time");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid_before = git_repo.head_oid().unwrap();
     assert_eq!(head_oid_before, Oid::from(child2));
 
@@ -78,7 +78,7 @@ fn drop_only_commit_on_branch_fails() {
 
     let root = test.commit_file("a.txt", "v1\n", "root");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(root), &Oid::from(root));
 
     assert!(result.is_err(), "dropping the only commit should fail");
@@ -124,7 +124,7 @@ fn drop_merge_commit_fails() {
         )
         .unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(merge_oid), &Oid::from(merge_oid));
 
     assert!(result.is_err(), "dropping a merge commit should fail");
@@ -142,7 +142,7 @@ fn drop_commit_with_no_descendants() {
     let base = test.commit_file("a.txt", "v1\n", "base");
     let to_drop = test.commit_file("b.txt", "added\n", "add b");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();

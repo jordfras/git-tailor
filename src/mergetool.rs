@@ -81,7 +81,7 @@ fn builtin_cmd(name: &str) -> Option<String> {
 ///
 /// Returns `true` when the tool was invoked for at least one file, or `false`
 /// when no merge tool is configured (so the caller can show a hint).
-pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Result<bool> {
+pub fn run_mergetool(repo: &mut impl GitRepo, conflicting_files: &[String]) -> Result<bool> {
     let Some(cmd) = resolve_merge_tool_cmd(repo)? else {
         return Ok(false);
     };
@@ -106,7 +106,7 @@ pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Resul
 pub fn run_for_all_files(
     cmd: &str,
     workdir: &Path,
-    repo: &impl GitRepo,
+    repo: &mut impl GitRepo,
     files: &[String],
 ) -> Result<()> {
     for file_path in files {
@@ -119,7 +119,7 @@ pub fn run_for_all_files(
 fn run_tool_for_file(
     cmd: &str,
     workdir: &Path,
-    repo: &impl GitRepo,
+    repo: &mut impl GitRepo,
     file_path: &str,
 ) -> Result<()> {
     let base_content = repo

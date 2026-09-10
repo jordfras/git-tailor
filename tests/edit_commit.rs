@@ -65,7 +65,7 @@ fn file_at(test: &TestRepo, commit: git2::Oid, path: &str) -> Option<String> {
 #[test]
 fn edit_amend_replaces_commit_and_replays_descendants() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
     let head = Oid::from(f.head);
 
     git_repo.begin_edit(&Oid::from(f.edited), &head).unwrap();
@@ -93,7 +93,7 @@ fn edit_amend_replaces_commit_and_replays_descendants() {
 #[test]
 fn edit_can_split_into_several_commits() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -122,7 +122,7 @@ fn edit_can_split_into_several_commits() {
 #[test]
 fn edit_noop_cancels_and_restores_the_branch() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -139,7 +139,7 @@ fn edit_noop_cancels_and_restores_the_branch() {
 #[test]
 fn edit_discarding_content_drops_the_commit() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -160,7 +160,7 @@ fn edit_discarding_content_drops_the_commit() {
 #[test]
 fn edit_undo_restores_the_original_branch() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -179,7 +179,7 @@ fn edit_undo_restores_the_original_branch() {
 #[test]
 fn edit_aborts_and_restores_on_a_merge_commit() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -215,7 +215,7 @@ fn edit_aborts_and_restores_on_a_merge_commit() {
 #[test]
 fn edit_aborts_and_restores_when_off_parent() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -246,7 +246,7 @@ fn edit_descendant_conflict_returns_conflict() {
     );
     let _ = base;
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .begin_edit(&Oid::from(edited), &Oid::from(head))
         .unwrap();
@@ -269,13 +269,13 @@ fn edit_descendant_conflict_returns_conflict() {
 fn edit_crash_recovery_is_an_abortable_edit_state() {
     use git_tailor::repo::{InProgress, JournalStatus};
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
         .unwrap();
 
     // Simulate a crash mid-edit: a fresh handle sees the in-progress record.
-    let recovered = f.test.git_repo();
+    let mut recovered = f.test.git_repo();
     match recovered.read_journal().unwrap() {
         JournalStatus::Recovered(record) => {
             assert!(
@@ -302,7 +302,7 @@ fn edit_crash_recovery_is_an_abortable_edit_state() {
 #[test]
 fn edit_with_uncommitted_changes_is_not_applied_and_preserves_the_work() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -330,7 +330,7 @@ fn edit_with_uncommitted_changes_is_not_applied_and_preserves_the_work() {
 #[test]
 fn edit_refuses_a_dirty_working_tree() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     f.test.write_file("a.txt", "dirty\n");
     f.test.stage_file("a.txt");
@@ -345,7 +345,7 @@ fn edit_refuses_a_dirty_working_tree() {
 #[test]
 fn edit_the_root_commit_amends_and_replays_descendants() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     // Edit the root commit (only reachable under --all).
     git_repo

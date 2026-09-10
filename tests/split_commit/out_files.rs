@@ -22,7 +22,7 @@ fn split_out_files_single_file_two_files() {
     let base = test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -58,7 +58,7 @@ fn split_out_files_multiple_files_combined_into_one_commit() {
         "change all three",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // Select a.txt and c.txt; b.txt must stay behind in the rest commit.
@@ -97,7 +97,7 @@ fn split_out_files_rebases_descendants() {
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
     test.commit_file("c.txt", "gamma\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -120,7 +120,7 @@ fn split_out_files_handles_added_file() {
     let base = test.commit_file("a.txt", "a\n", "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b\n")], "change and add");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -142,7 +142,7 @@ fn split_out_files_refuses_empty_selection() {
     test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_files(&Oid::from(to_split), &[], &head_oid);
@@ -155,7 +155,7 @@ fn split_out_files_refuses_when_every_file_is_selected() {
     test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_files(
@@ -175,7 +175,7 @@ fn split_out_files_refuses_unknown_file() {
     test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_files(
@@ -200,7 +200,7 @@ fn split_out_files_refuses_dirty_overlap() {
     test.write_file("a.txt", "DIRTY\n");
     test.stage_file("a.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result =
@@ -216,7 +216,7 @@ fn split_out_files_last_piece_has_original_tree() {
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid)

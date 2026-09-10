@@ -78,7 +78,7 @@ fn main() -> Result<()> {
 
     // Maintenance path: wipe recovery state and exit without any TUI.
     if cli.clean_journal {
-        return run_clean_journal(&git_repo);
+        return run_clean_journal(&mut git_repo);
     }
 
     // Static output path: no TUI involved, load commits synchronously.
@@ -311,7 +311,7 @@ fn main() -> Result<()> {
 
 /// Wipe all git-tailor recovery state (`--clean-journal`) and report what was
 /// removed on stdout. No TUI is started.
-fn run_clean_journal(git_repo: &impl GitRepo) -> Result<()> {
+fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
     let summary = git_repo.clean_journal()?;
     let journal_note = if summary.journal_removed {
         " and the journal file"

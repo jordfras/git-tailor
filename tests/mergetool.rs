@@ -176,7 +176,7 @@ fn read_index_stage_returns_content_after_conflict() {
 fn stage_file_clears_conflict_entries_in_index() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Sanity: there is a conflict.
     assert!(!state.conflicting_files.is_empty());
@@ -215,7 +215,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -230,7 +230,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
 
     // Use 'cp $LOCAL $MERGED' as the "merge tool" — takes the ours-side content.
     let cmd = "cp $LOCAL $MERGED";
-    mergetool::run_for_all_files(cmd, &workdir, &git_repo, &state.conflicting_files)
+    mergetool::run_for_all_files(cmd, &workdir, &mut git_repo, &state.conflicting_files)
         .expect("run_for_all_files should succeed");
 
     // Conflict must be cleared in the index.
@@ -280,7 +280,7 @@ fn read_index_stage_returns_exact_content_for_each_stage() {
     let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -362,7 +362,7 @@ fn read_conflicting_files_returns_multiple_paths() {
         "add head lines",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -393,7 +393,7 @@ fn read_conflicting_files_is_sorted() {
         "add head",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     if let RebaseOutcome::Conflict(_) = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
@@ -409,7 +409,7 @@ fn read_conflicting_files_is_sorted() {
 fn stage_file_and_check_content_matches_written_file() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let path = &state.conflicting_files[0];
     test.write_file(path, "fully resolved content\n");
 
@@ -461,7 +461,7 @@ fn stage_file_clears_conflict_for_deleted_file() {
     let _intermediate = test.commit_file("a.txt", "intermediate\n", "intermediate modifies a");
     let _source = test.delete_file("a.txt", "source deletes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     // squash_try_combine should detect a conflict.

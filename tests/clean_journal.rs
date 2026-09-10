@@ -41,7 +41,7 @@ fn clean_removes_journal_file_and_all_refs_including_stray() {
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     test.commit_file("c.txt", "c\n", "add c");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // A real op seeds journal.json + undo pins.
     git_repo
@@ -72,7 +72,7 @@ fn clean_removes_journal_file_and_all_refs_including_stray() {
 fn clean_on_a_pristine_repo_is_a_noop() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let summary = git_repo.clean_journal().unwrap();
 
@@ -87,7 +87,7 @@ fn clean_removes_refs_even_with_no_journal_file() {
     // written).
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "a\n", "base");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     test.repo
         .reference("refs/git-tailor/undo/0", base, true, "stray")
         .unwrap();

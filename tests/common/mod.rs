@@ -326,7 +326,7 @@ impl TestRepo {
         let _base = self.commit_file("a.txt", "base\n", "base");
         let to_drop = self.commit_file("a.txt", "base\ndropped\n", "add dropped line");
         let head = self.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
-        let git_repo = self.git_repo();
+        let mut git_repo = self.git_repo();
         crate::expect_rebase_conflict!(
             git_repo
                 .drop_commit(&Oid::from(to_drop), &Oid::from(head))

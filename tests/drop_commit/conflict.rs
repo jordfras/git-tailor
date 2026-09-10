@@ -25,7 +25,7 @@ fn drop_returns_conflict_when_descendant_depends_on_dropped_commit() {
     // to_drop will conflict when rebasing this descendant.
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -53,7 +53,7 @@ fn drop_conflict_state_has_correct_remaining_oids() {
     let child1 = test.commit_file("a.txt", "v3\n", "change a again");
     let child2 = test.commit_file("b.txt", "b1\n", "add b");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &head_oid)

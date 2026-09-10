@@ -75,7 +75,7 @@ pub(crate) fn autofixup_target_selection_index(
 /// `target_summary`. Does not execute anything; the batch only runs once the
 /// user confirms.
 pub(crate) fn handle_prepare_autofixup_edit_message(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     target_summary: String,
     template: String,

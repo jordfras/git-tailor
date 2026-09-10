@@ -95,7 +95,7 @@ fn dirty_repo() -> common::TestRepo {
 #[test]
 fn stage_all_stages_modifications_and_deletions_but_not_untracked_files() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::Changed);
 
@@ -111,7 +111,7 @@ fn stage_all_stages_modifications_and_deletions_but_not_untracked_files() {
 #[test]
 fn unstage_all_resets_index_to_head() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
 
     assert_eq!(git_repo.unstage_all().unwrap(), StageOutcome::Changed);
@@ -127,7 +127,7 @@ fn unstage_all_resets_index_to_head() {
 fn stage_all_is_noop_on_clean_tree() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::NoOp);
     assert!(
@@ -139,7 +139,7 @@ fn stage_all_is_noop_on_clean_tree() {
 #[test]
 fn stage_all_is_noop_when_already_staged() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::Changed);
 
     assert_eq!(git_repo.stage_all().unwrap(), StageOutcome::NoOp);
@@ -150,7 +150,7 @@ fn unstage_all_is_noop_when_nothing_staged() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
     test.write_file("a.txt", "a changed\n"); // unstaged only
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_eq!(git_repo.unstage_all().unwrap(), StageOutcome::NoOp);
 }
@@ -158,7 +158,7 @@ fn unstage_all_is_noop_when_nothing_staged() {
 #[test]
 fn undo_stage_all_moves_changes_back_to_unstaged_without_touching_worktree() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
     let tip = head_oid(&test);
 
@@ -180,7 +180,7 @@ fn undo_stage_all_moves_changes_back_to_unstaged_without_touching_worktree() {
 #[test]
 fn undo_unstage_all_restages() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
     git_repo.unstage_all().unwrap();
 
@@ -194,7 +194,7 @@ fn undo_unstage_all_restages() {
 #[test]
 fn stage_all_pins_the_index_tree_against_gc() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
 
     let pins = undo_pins(&test);
@@ -219,7 +219,7 @@ fn index_and_ref_ops_undo_in_lifo_order() {
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     test.commit_file("c.txt", "c\n", "add c");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Ref-moving op first: drop the independent middle commit.
     assert_rebase_complete!(
@@ -251,7 +251,7 @@ fn index_and_ref_ops_undo_in_lifo_order() {
 #[test]
 fn undo_is_stale_when_index_changed_externally() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
 
     // Stage an additional change outside this undo history.
@@ -268,7 +268,7 @@ fn undo_is_stale_when_index_changed_externally() {
 #[test]
 fn redo_is_stale_when_index_changed_externally() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
     git_repo.undo().unwrap(); // now the op sits on the redo stack
 
@@ -285,13 +285,13 @@ fn redo_is_stale_when_index_changed_externally() {
 fn stage_all_undo_persists_across_reopen() {
     let test = dirty_repo();
     {
-        let git_repo = test.git_repo();
+        let mut git_repo = test.git_repo();
         git_repo.stage_all().unwrap();
     }
 
     // A brand-new handle (simulating a restart) reads the journal and can still
     // undo the index-only operation.
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Stage all");
     let (staged, unstaged) = staged_and_unstaged(test.repo.path());
     assert!(staged.is_empty());
@@ -301,7 +301,7 @@ fn stage_all_undo_persists_across_reopen() {
 #[test]
 fn prune_keeps_index_only_undo_across_reopen() {
     let test = dirty_repo();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.stage_all().unwrap();
     let pins_before = undo_pins(&test).len();
     assert!(pins_before >= 1);
@@ -317,7 +317,7 @@ fn prune_keeps_index_only_undo_across_reopen() {
 fn stage_all_errors_on_conflicted_index() {
     let test = common::TestRepo::new();
     let _state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert!(
         git_repo.stage_all().is_err(),

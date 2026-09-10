@@ -23,7 +23,7 @@ fn drop_continue_after_resolving_conflict() {
     let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -57,7 +57,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     // editing or abort.
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Do NOT resolve the conflict — just call continue immediately.
     let result = git_repo.rebase_continue(&state).unwrap();
@@ -104,7 +104,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
 fn drop_abort_restores_original_branch() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     git_repo.rebase_abort(&state).unwrap();
 

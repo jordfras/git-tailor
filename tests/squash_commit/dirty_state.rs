@@ -27,7 +27,7 @@ fn squash_commits_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
@@ -57,7 +57,7 @@ fn squash_commits_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
@@ -88,7 +88,7 @@ fn squash_try_combine_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
@@ -119,7 +119,7 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
@@ -150,7 +150,7 @@ fn squash_commits_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
@@ -174,7 +174,7 @@ fn squash_try_combine_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // Returns Ok(None) when there is no merge conflict — both files differ.
     let result = git_repo
         .squash_try_combine(
@@ -224,7 +224,7 @@ fn squash_abort_leaves_clean_working_tree() {
         "source modifies a and adds b",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Pass _base as head_oid so rebase_abort restores the branch there.
     // _base has only a.txt; b.txt is absent from it.

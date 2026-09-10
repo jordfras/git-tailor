@@ -34,7 +34,7 @@ fn split_per_hunk_single_file_two_hunks() {
         "two independent changes",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -94,7 +94,7 @@ fn split_per_hunk_two_files_one_hunk_each() {
         "change both",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -120,7 +120,7 @@ fn split_per_hunk_refuses_single_hunk_commit() {
     test.commit_file("a.txt", "alpha\n", "base");
     let only_one = test.commit_file("a.txt", "alpha2\n", "single hunk");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_per_hunk(&Oid::from(only_one), &head_oid);
@@ -149,7 +149,7 @@ fn split_per_hunk_last_piece_has_original_tree() {
     );
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)

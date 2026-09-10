@@ -62,7 +62,7 @@ fn mixed_state() -> (common::TestRepo, git2::Oid, git2::Oid) {
 /// Fold the whole row into `target`, as the fixup key does — keeping the
 /// target's own message.
 fn fixup_row(
-    git_repo: &Git2Repo,
+    git_repo: &mut Git2Repo,
     source: WorktreeSource,
     target: git2::Oid,
 ) -> git_tailor::repo::RebaseOutcome {
@@ -102,13 +102,13 @@ fn each_combination_of_rows_folds_and_undoes() {
     for (source, staged, unstaged) in cases {
         let case = format!("{source:?} row, staged={staged} unstaged={unstaged}");
         let (test, base, target) = repo_with(staged, unstaged);
-        let git_repo = test.git_repo();
+        let mut git_repo = test.git_repo();
         let head_before = git_repo.head_oid().unwrap();
 
         // What is on disk, which no part of this may change.
         let on_disk = (workdir(&test, "a.txt"), workdir(&test, "b.txt"));
 
-        assert_rebase_complete!(fixup_row(&git_repo, source, target));
+        assert_rebase_complete!(fixup_row(&mut git_repo, source, target));
 
         assert_history!(&test, base, &["target commit", "later commit"]);
         let (folded, folded_content, kept) = match source {
@@ -187,10 +187,10 @@ fn each_combination_of_rows_folds_and_undoes() {
 #[test]
 fn the_fold_is_a_single_undo_entry() {
     let (test, _base, target) = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
     git_repo.undo().unwrap();
     assert_eq!(git_repo.head_oid().unwrap(), head_before);
 
@@ -205,10 +205,10 @@ fn the_fold_is_a_single_undo_entry() {
 #[test]
 fn a_completed_fold_clears_the_journal() {
     let (test, _base, target) = mixed_state();
-    let git_repo = test.git_repo();
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
 
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     assert!(matches!(
         reopened.read_journal().unwrap(),
         git_tailor::repo::JournalStatus::None
@@ -227,7 +227,7 @@ fn aborting_a_conflicted_fold_restores_everything() {
     test.write_file("a.txt", "one\nWIP\n");
     test.write_file("b.txt", "b1\n");
     test.stage_file("b.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
     let started = git_repo
@@ -253,7 +253,7 @@ fn aborting_a_conflicted_fold_restores_everything() {
     assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["b.txt"]);
     assert_eq!(row_paths(git_repo.unstaged_diff(3).unwrap()), ["a.txt"]);
 
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     assert!(matches!(
         reopened.read_journal().unwrap(),
         git_tailor::repo::JournalStatus::None
@@ -271,7 +271,7 @@ fn resolving_a_conflicted_fold_completes_it() {
     test.write_file("a.txt", "one\nWIP\n");
     test.write_file("b.txt", "b1\n");
     test.stage_file("b.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -319,7 +319,7 @@ fn resolving_a_conflicted_fold_completes_it() {
     assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["b.txt"]);
     assert_eq!(workdir(&test, "b.txt"), "b1\n");
 
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     assert!(matches!(
         reopened.read_journal().unwrap(),
         git_tailor::repo::JournalStatus::None
@@ -341,9 +341,9 @@ fn one_file_edited_on_both_sides_separates_cleanly() {
     test.write_file("f.txt", "STAGED\n2\n3\n4\n5\n6\n7\n8\n9\n");
     test.stage_file("f.txt");
     test.write_file("f.txt", "STAGED\n2\n3\n4\n5\n6\n7\n8\nUNSTAGED\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Unstaged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Unstaged, target));
 
     assert_history!(&test, base, &["target commit"]);
     // Only the unstaged line went in; the staged one is still waiting.
@@ -370,9 +370,13 @@ fn folding_into_head_amends_it() {
     test.stage_file("a.txt");
     test.write_file("b.txt", "b1\n");
     test.stage_file("b.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, head_commit));
+    assert_rebase_complete!(fixup_row(
+        &mut git_repo,
+        WorktreeSource::Staged,
+        head_commit
+    ));
 
     assert_history!(&test, base, &["head commit"]);
     assert_file_contents_at_head!(&test.repo, "a.txt", "a2\n");
@@ -394,9 +398,9 @@ fn folding_into_the_root_commit() {
     let test = common::TestRepo::new();
     let root = test.commit_file("a.txt", "a1\n", "root");
     test.write_file("a.txt", "a2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Unstaged, root));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Unstaged, root));
 
     let mut walk = test.repo.revwalk().unwrap();
     walk.push_head().unwrap();
@@ -425,8 +429,8 @@ fn a_row_can_delete_add_and_rename_files() {
 
     // An unstaged deletion, folded in.
     std::fs::remove_file(test.repo.workdir().unwrap().join("gone.txt")).unwrap();
-    let git_repo = test.git_repo();
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Unstaged, target));
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Unstaged, target));
     assert!(!test.repo.workdir().unwrap().join("gone.txt").exists());
     assert!(git_repo.unstaged_diff(3).unwrap().is_none());
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
@@ -445,7 +449,7 @@ fn a_row_can_delete_add_and_rename_files() {
     test.write_file("added.txt", "added\n");
     test.stage_file("added.txt");
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
     assert!(!workdir_path.join("old.txt").exists());
     assert_eq!(workdir(&test, "new.txt"), "content\n");
     assert_eq!(workdir(&test, "added.txt"), "added\n");
@@ -464,9 +468,9 @@ fn a_row_can_delete_add_and_rename_files() {
 fn untracked_files_survive_a_fold() {
     let (test, _base, target) = mixed_state();
     test.write_file("untracked.txt", "u\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
     assert_eq!(workdir(&test, "untracked.txt"), "u\n");
     assert!(
         test.repo
@@ -488,11 +492,11 @@ fn untracked_files_survive_a_fold() {
 #[test]
 fn consecutive_folds_undo_one_at_a_time() {
     let (test, base, target) = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
     let target = test.commits_from_head(base)[0];
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Unstaged, target));
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Unstaged, target));
     assert!(git_repo.staged_diff(3).unwrap().is_none());
     assert!(git_repo.unstaged_diff(3).unwrap().is_none());
 
@@ -515,8 +519,8 @@ fn consecutive_folds_undo_one_at_a_time() {
 #[test]
 fn undo_refuses_once_the_index_has_moved_on() {
     let (test, base, target) = mixed_state();
-    let git_repo = test.git_repo();
-    assert_rebase_complete!(fixup_row(&git_repo, WorktreeSource::Staged, target));
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(fixup_row(&mut git_repo, WorktreeSource::Staged, target));
     let head_after = git_repo.head_oid().unwrap();
 
     test.write_file("new.txt", "n\n");
@@ -533,7 +537,7 @@ fn undo_refuses_once_the_index_has_moved_on() {
 #[test]
 fn the_conflict_probe_accepts_a_row_source() {
     let (test, base, target) = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
         .unwrap()
@@ -570,7 +574,7 @@ fn the_conflict_probe_accepts_a_row_source() {
 #[test]
 fn a_squash_folds_a_row_under_a_new_message() {
     let (test, base, target) = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -622,7 +626,7 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
     test.stage_file("a.txt");
     // The other row: a tracked file edited but not staged.
     test.write_file("b.txt", "b2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -734,7 +738,7 @@ fn clashing_repo(source: WorktreeSource) -> (common::TestRepo, git2::Oid, git2::
 /// of that other row stopped at.
 fn fold_until_the_carry_clashes(
     test: &common::TestRepo,
-    git_repo: &Git2Repo,
+    git_repo: &mut Git2Repo,
     target: git2::Oid,
     source: WorktreeSource,
 ) -> git_tailor::repo::ConflictState {
@@ -790,9 +794,9 @@ fn fold_until_the_carry_clashes(
 #[test]
 fn a_clashing_carry_is_a_conflict_like_any_other() {
     let (test, base, target) = clashing_repo(WorktreeSource::Staged);
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
 
     assert_eq!(state.conflicting_files, ["a.txt"]);
     let on_disk = workdir(&test, "a.txt");
@@ -807,7 +811,7 @@ fn a_clashing_carry_is_a_conflict_like_any_other() {
 
     // And it survives a crash: a reopened repository finds the paused conflict
     // rather than a working tree full of markers and no record of why.
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
     else {
         panic!("the paused carry must be journaled");
@@ -820,8 +824,8 @@ fn a_clashing_carry_is_a_conflict_like_any_other() {
 #[test]
 fn resolving_a_clashing_carry_finishes_the_fold() {
     let (test, base, target) = clashing_repo(WorktreeSource::Staged);
-    let git_repo = test.git_repo();
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    let mut git_repo = test.git_repo();
+    let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
 
     let resolved = by_row(WorktreeSource::Staged, "LATER", "BOTH");
     test.write_file("a.txt", &resolved);
@@ -855,8 +859,9 @@ fn resolving_a_clashing_carry_finishes_the_fold() {
 #[test]
 fn resolving_a_clashing_carry_from_the_unstaged_row_keeps_the_staged_changes() {
     let (test, base, target) = clashing_repo(WorktreeSource::Unstaged);
-    let git_repo = test.git_repo();
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Unstaged);
+    let mut git_repo = test.git_repo();
+    let state =
+        fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Unstaged);
 
     let resolved = by_row(WorktreeSource::Unstaged, "LATER", "BOTH");
     test.write_file("a.txt", &resolved);
@@ -898,10 +903,10 @@ fn a_deletion_survives_a_clashing_carry() {
     let b_path = test.repo.workdir().unwrap().join("b.txt");
     std::fs::remove_file(&b_path).unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // Not vacuous: the fold's own conflict checks the new tip out, which puts
     // `b.txt` back on disk. Writing the clash out is what takes it away again.
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
 
     let resolved = by_row(WorktreeSource::Staged, "LATER", "BOTH");
     test.write_file("a.txt", &resolved);
@@ -928,8 +933,8 @@ fn a_deletion_survives_a_clashing_carry() {
 #[test]
 fn a_clash_continued_unresolved_says_so_in_the_journal() {
     let (test, _base, target) = clashing_repo(WorktreeSource::Staged);
-    let git_repo = test.git_repo();
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    let mut git_repo = test.git_repo();
+    let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
     assert!(!state.still_unresolved);
 
     // Continue without touching the markers.
@@ -938,7 +943,7 @@ fn a_clash_continued_unresolved_says_so_in_the_journal() {
     assert!(again.still_unresolved);
     assert!(matches!(again.resume, Resume::CarryRow(_)));
 
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
     else {
         panic!("the clash must still be journaled");
@@ -964,7 +969,7 @@ fn a_clash_continued_unresolved_says_so_in_the_journal() {
 #[test]
 fn a_fixups_clash_is_labelled_a_fixup() {
     let (test, _base, target) = clashing_repo(WorktreeSource::Staged);
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -1013,11 +1018,11 @@ fn a_fixups_clash_is_labelled_a_fixup() {
 fn a_clashing_carry_survives_a_restart() {
     let (test, base, target) = clashing_repo(WorktreeSource::Staged);
     let state = {
-        let git_repo = test.git_repo();
-        fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged)
+        let mut git_repo = test.git_repo();
+        fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged)
     };
 
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     let git_tailor::repo::JournalStatus::Recovered(record) = reopened.read_journal().unwrap()
     else {
         panic!("the paused carry must be recoverable");
@@ -1050,9 +1055,9 @@ fn a_clashing_carry_survives_a_restart() {
 #[test]
 fn aborting_a_clashing_carry_puts_the_fold_back() {
     let (test, base, target) = clashing_repo(WorktreeSource::Staged);
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
-    let state = fold_until_the_carry_clashes(&test, &git_repo, target, WorktreeSource::Staged);
+    let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
 
     git_repo.rebase_abort(&state).unwrap();
 

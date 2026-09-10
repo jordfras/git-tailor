@@ -28,7 +28,7 @@ fn reword_head_commit_changes_message() {
     let _base = test.commit_file("a.txt", "v1\n", "base");
     let to_reword = test.commit_file("a.txt", "v2\n", "old message");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
@@ -46,7 +46,7 @@ fn reword_middle_commit_propagates_to_descendants() {
     let to_reword = test.commit_file("a.txt", "v2\n", "old message");
     let _descendant = test.commit_file("b.txt", "hello\n", "descendant");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .reword_commit(&Oid::from(to_reword), "new message", &head_oid)
@@ -77,7 +77,7 @@ fn reword_preserves_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
@@ -108,7 +108,7 @@ fn reword_preserves_unstaged_changes() {
     let workdir = test.repo.workdir().unwrap();
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .reword_commit(&Oid::from(to_reword), "new message", &Oid::from(to_reword))
         .unwrap();
@@ -135,7 +135,7 @@ fn reword_preserves_descendant_trees() {
     let d1_tree = test.tree_id(d1);
     let d2_tree = test.tree_id(d2);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .reword_commit(&Oid::from(to_reword), "new message", &head_oid)
@@ -175,7 +175,7 @@ fn reword_rejects_a_merge_commit_in_the_replay_range() {
         )
         .unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let head_before = head_oid.clone();
 

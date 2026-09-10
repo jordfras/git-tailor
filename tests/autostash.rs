@@ -406,7 +406,7 @@ fn split_refuses_overlapping_dirty_without_autostash() {
     let to_split = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "big change");
     test.write_file("a.txt", "a1-dirty\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let err = git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)

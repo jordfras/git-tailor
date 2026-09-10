@@ -27,7 +27,7 @@ fn split_per_hunk_group_two_groups_shared_context() {
     test.commit_file("a.txt", "A2\n", "commit A");
     let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -89,7 +89,7 @@ fn split_per_hunk_group_three_commits_two_groups() {
     let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
     test.commit_file("b.txt", "B3\n", "commit B");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -157,7 +157,7 @@ fn split_per_hunk_group_one_hunk_spanning_two_columns() {
     test.commit_file("a.txt", "A2\nB2\n", "commit B");
     let to_split = test.commit_file("a.txt", "A3\nB3\n", "commit K");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -204,7 +204,7 @@ fn split_per_hunk_group_keeps_a_mixed_relation_hunk_whole() {
     test.commit_file("a.txt", "A2\nB2\n", "commit B");
     let to_split = test.commit_files(&[("a.txt", "A3\nB3\n"), ("b.txt", "X2\n")], "commit K");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -253,7 +253,7 @@ fn split_per_hunk_group_one_hunk_partially_consumed_across_a_gap_commit() {
     test.commit_file("b.txt", "X2\n", "commit T");
     test.commit_file("a.txt", "A2\nB3\n", "commit C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -307,7 +307,7 @@ fn split_per_hunk_group_cross_related_lines_yield_fewer_commits_than_columns() {
     let to_split = test.commit_file("a.txt", "A3\nB3\n", "commit K");
     test.commit_file("a.txt", "A3\nB4\n", "commit C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -359,7 +359,7 @@ fn split_per_hunk_group_sandwiched_relation_is_still_splittable() {
     test.commit_file("a.txt", "1A\n2\n3A\n", "commit A");
     let to_split = test.commit_file("a.txt", "1K\n2K\n3K\n", "commit K");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -412,7 +412,7 @@ fn split_per_hunk_group_refuses_single_group() {
         "two changes no context",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_per_hunk_group(
@@ -451,7 +451,7 @@ fn split_per_hunk_pure_insertions() {
         "two insertions",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -496,7 +496,7 @@ fn split_per_hunk_group_preserves_commit_message_body() {
         "commit K\n\nThis body should survive the split.",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
@@ -525,7 +525,7 @@ fn split_per_hunk_group_last_piece_has_original_tree() {
     let to_split = test.commit_files(&[("a.txt", "A3\n"), ("b.txt", "B2\n")], "commit K");
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
@@ -557,7 +557,7 @@ fn split_per_hunk_group_insertions_into_two_files() {
         "insert into both",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // The confirmation dialog previews this count, so it has to agree.
@@ -611,7 +611,7 @@ fn split_per_hunk_group_refuses_insertions_sharing_one_column() {
         "insert into both",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result =

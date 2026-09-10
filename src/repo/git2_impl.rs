@@ -342,7 +342,7 @@ impl RepoRead for Git2Repo {
 }
 
 impl RepoWrite for Git2Repo {
-    fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+    fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Split",
             head_oid,
@@ -350,7 +350,7 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+    fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Split",
             head_oid,
@@ -359,7 +359,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn split_commit_per_hunk_group(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
@@ -372,7 +372,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn split_commit_out_files(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         file_paths: &[String],
         head_oid: &Oid,
@@ -385,7 +385,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn split_commit_out_hunks(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         hunks: &[(usize, usize)],
         head_oid: &Oid,
@@ -398,16 +398,16 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize> {
+    fn count_split_per_file(&mut self, commit_oid: &Oid) -> Result<usize> {
         split_op::count_split_per_file(self, commit_oid)
     }
 
-    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize> {
+    fn count_split_per_hunk(&mut self, commit_oid: &Oid) -> Result<usize> {
         split_op::count_split_per_hunk(self, commit_oid)
     }
 
     fn count_split_per_hunk_group(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
@@ -415,7 +415,7 @@ impl RepoWrite for Git2Repo {
         split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
     }
 
-    fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
+    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
         self.record_unit_undo(
             "Reword",
             head_oid,
@@ -423,7 +423,7 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
+    fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
         self.journaled(
             "Drop",
             head_oid,
@@ -431,11 +431,11 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn begin_edit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+    fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         edit_op::begin_edit(self, commit_oid, head_oid)
     }
 
-    fn finish_edit(&self, commit_oid: &Oid) -> Result<super::EditOutcome> {
+    fn finish_edit(&mut self, commit_oid: &Oid) -> Result<super::EditOutcome> {
         // Capture the undo base (the original branch tip) before `finish_edit`
         // clears the in-progress record on completion.
         let original = journal::in_progress(self)?.map(|s| s.original_branch_oid().clone());
@@ -448,11 +448,11 @@ impl RepoWrite for Git2Repo {
         Ok(outcome)
     }
 
-    fn abort_edit(&self) -> Result<()> {
+    fn abort_edit(&mut self) -> Result<()> {
         edit_op::abort_edit(self)
     }
 
-    fn rebase_continue(&self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+    fn rebase_continue(&mut self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
         // A carry conflict is not a rebase step: the history it belongs to is
         // already written, and what is left settles the working tree and records
         // the fold's undo entry itself, so it does not go through `journaled`.
@@ -473,7 +473,7 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn rebase_abort(&self, state: &super::ConflictState) -> Result<()> {
+    fn rebase_abort(&mut self, state: &super::ConflictState) -> Result<()> {
         // A squash sourced from a working-tree row has a temporary commit below
         // the conflict, holding changes the generic reset knows nothing about.
         // The snapshot rewinds past both, exactly — but only when the operation
@@ -489,47 +489,47 @@ impl RepoWrite for Git2Repo {
         journal::clear_in_progress(self)
     }
 
-    fn read_journal(&self) -> Result<super::JournalStatus> {
+    fn read_journal(&mut self) -> Result<super::JournalStatus> {
         Ok(journal::read(self))
     }
 
-    fn clear_journal(&self) -> Result<()> {
+    fn clear_journal(&mut self) -> Result<()> {
         journal::discard_in_flight(self)
     }
 
-    fn prune_stale_journal(&self) -> Result<()> {
+    fn prune_stale_journal(&mut self) -> Result<()> {
         journal::prune_stale(self)
     }
 
-    fn clean_journal(&self) -> Result<super::JournalCleanSummary> {
+    fn clean_journal(&mut self) -> Result<super::JournalCleanSummary> {
         journal::clean(self)
     }
 
-    fn undo(&self) -> Result<super::UndoOutcome> {
+    fn undo(&mut self) -> Result<super::UndoOutcome> {
         journal::apply_undo(self)
     }
 
-    fn redo(&self) -> Result<super::UndoOutcome> {
+    fn redo(&mut self) -> Result<super::UndoOutcome> {
         journal::apply_redo(self)
     }
 
-    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+    fn pending_undo_skips_autostash(&mut self) -> Result<bool> {
         journal::pending_undo_skips_autostash(self)
     }
 
-    fn pending_redo_skips_autostash(&self) -> Result<bool> {
+    fn pending_redo_skips_autostash(&mut self) -> Result<bool> {
         journal::pending_redo_skips_autostash(self)
     }
 
-    fn stage_all(&self) -> Result<super::StageOutcome> {
+    fn stage_all(&mut self) -> Result<super::StageOutcome> {
         self.journaled_index_op("Stage all", stage_op::stage_all)
     }
 
-    fn unstage_all(&self) -> Result<super::StageOutcome> {
+    fn unstage_all(&mut self) -> Result<super::StageOutcome> {
         self.journaled_index_op("Unstage all", stage_op::unstage_all)
     }
 
-    fn commit_staged(&self, message: &str) -> Result<super::CommitOutcome> {
+    fn commit_staged(&mut self, message: &str) -> Result<super::CommitOutcome> {
         let before = reads::head_oid(self)?;
         match commit_staged_op::commit_staged(self, message)? {
             None => Ok(super::CommitOutcome::NothingStaged),
@@ -540,15 +540,18 @@ impl RepoWrite for Git2Repo {
         }
     }
 
-    fn lift_worktree_row(&self, source: super::WorktreeSource) -> Result<Option<super::LiftedRow>> {
+    fn lift_worktree_row(
+        &mut self,
+        source: super::WorktreeSource,
+    ) -> Result<Option<super::LiftedRow>> {
         lift_op::lift(self, source)
     }
 
-    fn restore_lifted_row(&self, lifted: &super::LiftedRow) -> Result<()> {
+    fn restore_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<()> {
         lift_op::restore(self, lifted)
     }
 
-    fn rescue_lifted_row(&self, lifted: &super::LiftedRow) -> Result<Option<String>> {
+    fn rescue_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<Option<String>> {
         lift_op::rescue(self, lifted)
     }
 
@@ -569,7 +572,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn move_commit(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
@@ -582,7 +585,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn squash_commits(
-        &self,
+        &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
         message: &str,
@@ -595,16 +598,19 @@ impl RepoWrite for Git2Repo {
         )
     }
 
-    fn stage_file(&self, path: &str) -> Result<()> {
-        self.stage_file(path)
+    fn stage_file(&mut self, path: &str) -> Result<()> {
+        // Qualified: with a `&mut self` receiver the trait method now matches
+        // method resolution before the inherent one, so `self.stage_file(..)`
+        // would call straight back into here.
+        Git2Repo::stage_file(self, path)
     }
 
-    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()> {
+    fn auto_stage_resolved_conflicts(&mut self, files: &[String]) -> Result<()> {
         conflict::auto_stage_resolved_conflicts(self, files)
     }
 
     fn squash_try_combine(
-        &self,
+        &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
         combined_message: &str,
@@ -628,7 +634,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn squash_finalize(
-        &self,
+        &mut self,
         ctx: &super::SquashContext,
         message: &str,
         original_branch_oid: &Oid,
@@ -658,7 +664,7 @@ impl RepoWrite for Git2Repo {
     }
 
     fn autofixup(
-        &self,
+        &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
         message_overrides: &std::collections::HashMap<String, String>,

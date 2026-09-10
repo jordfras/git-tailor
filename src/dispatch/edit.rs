@@ -110,7 +110,7 @@ fn handle_edit_outcome(
 /// uncommitted changes; the banner then explains they must commit or discard
 /// them (nothing is applied while the tree is dirty, so nothing is lost).
 fn run_edit_shell(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     short_oid: &str,
     summary: &str,
     dirty: bool,

@@ -56,7 +56,7 @@ fn repo_with_staged_and_unstaged() -> common::TestRepo {
 #[test]
 fn commit_staged_creates_a_commit_from_the_index() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let parent = head_commit(&test).id();
     let staged_tree = {
         let mut index = test.repo.index().unwrap();
@@ -85,7 +85,7 @@ fn commit_staged_with_nothing_staged_is_a_noop() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
     test.write_file("a.txt", "a changed\n"); // unstaged only
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = head_commit(&test).id();
 
     assert_eq!(
@@ -99,7 +99,7 @@ fn commit_staged_with_nothing_staged_is_a_noop() {
 #[test]
 fn undo_commit_is_a_soft_reset_and_redo_recommits() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let parent = head_commit(&test).id();
     git_repo.commit_staged("add a change\n").unwrap();
     let committed = head_commit(&test).id();
@@ -125,7 +125,7 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
 #[test]
 fn undo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.commit_staged("add a change\n").unwrap();
 
     // Another commit lands outside git-tailor.
@@ -138,7 +138,7 @@ fn undo_commit_is_stale_when_head_moved_externally() {
 #[test]
 fn redo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo.commit_staged("add a change\n").unwrap();
     git_repo.undo().unwrap(); // commit now sits on the redo stack, HEAD at parent
 
@@ -153,7 +153,7 @@ fn redo_commit_is_stale_when_head_moved_externally() {
 fn commit_staged_errors_on_conflicted_index() {
     let test = common::TestRepo::new();
     let _state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert!(
         git_repo.commit_staged("x\n").is_err(),

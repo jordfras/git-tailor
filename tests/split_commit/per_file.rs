@@ -25,7 +25,7 @@ fn split_per_file_creates_two_commits() {
     // Commit that touches both files — this is the one we'll split
     let to_split = test.commit_files(&[("a.txt", "alpha2\n"), ("b.txt", "beta2\n")], "big change");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -105,7 +105,7 @@ fn split_per_file_rebases_descendants() {
     // A descendant commit that only touches a third file — should rebase cleanly
     test.commit_file("c.txt", "gamma\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -134,7 +134,7 @@ fn split_per_file_refuses_single_file_commit() {
     test.commit_file("a.txt", "alpha\n", "base");
     let only_one = test.commit_file("a.txt", "alpha2\n", "single file");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_per_file(&Oid::from(only_one), &head_oid);
@@ -154,7 +154,7 @@ fn split_per_file_refuses_dirty_overlap() {
     test.write_file("a.txt", "DIRTY\n");
     test.stage_file("a.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_per_file(&Oid::from(to_split), &head_oid);
@@ -212,7 +212,7 @@ fn split_per_file_handles_submodule_delta() {
     // Update the workdir file so diff_index_to_workdir has nothing to report.
     test.write_file("a.txt", "alpha2\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -255,7 +255,7 @@ fn split_per_file_preserves_commit_message_body() {
         "big change\n\nThis is the body.\nIt has multiple lines.",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -329,7 +329,7 @@ fn split_per_file_handles_submodule_delta_not_last() {
     test.repo.reset(&obj, git2::ResetType::Mixed, None).unwrap();
     test.write_file("z.txt", "zulu2\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -398,7 +398,7 @@ fn split_per_file_last_piece_has_original_tree() {
     );
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -432,7 +432,7 @@ fn split_per_file_rename_last_piece_has_original_tree() {
     );
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -460,7 +460,7 @@ fn split_per_file_replay_preserves_descendant_trees() {
     let d1_tree = test.tree_id(d1);
     let d2_tree = test.tree_id(d2);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -500,7 +500,7 @@ fn split_per_file_rejects_a_merge_commit_in_the_replay_range() {
         )
         .unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let head_before = head_oid.clone();
 

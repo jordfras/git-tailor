@@ -30,7 +30,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
     let source = test.commit_file("a.txt", "source\n", "source changes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     let state = git_repo
@@ -108,7 +108,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     let source = test.commit_file("a.txt", "source version\n", "source");
     let _desc = test.commit_file("b.txt", "new file\n", "desc adds b.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     // Step 1: squash_try_combine detects the conflict
@@ -175,7 +175,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
     let source = test.commit_file("a.txt", "source version\n", "source");
     let _extra = test.commit_file("b.txt", "extra file\n", "extra adds b.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let original_head = head.clone();
 

@@ -64,7 +64,7 @@ pub(crate) fn handle_prepare_split(
 /// Load the commit's diff so the picker can show each changed file's full
 /// diff in the preview pane, not just its path.
 pub(crate) fn handle_prepare_split_out_files(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
 ) -> Result<LoopAction> {
@@ -84,7 +84,7 @@ pub(crate) fn handle_prepare_split_out_files(
 /// rebuilt at the same context level. Also used to refresh the picker when
 /// the user adjusts context with `+`/`-` while it's open.
 pub(crate) fn handle_prepare_split_out_hunks(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
     context_lines: u32,

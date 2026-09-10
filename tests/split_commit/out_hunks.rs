@@ -25,7 +25,7 @@ fn split_out_hunks_single_hunk_two_files() {
         "change both",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // a.txt sorts before b.txt, so it's delta 0.
@@ -64,7 +64,7 @@ fn split_out_hunks_multiple_hunks_same_file() {
         "two independent changes",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // Select only the first hunk (the LINE1 change).
@@ -106,7 +106,7 @@ fn split_out_hunks_across_multiple_files_go_into_one_commit() {
         "change all three",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // a.txt=0, b.txt=1, c.txt=2 (alphabetical). Select a.txt and c.txt's
@@ -144,7 +144,7 @@ fn split_out_hunks_leaves_untouched_files_fully_applied_in_rest_commit() {
     let base = test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // Only select a.txt's hunk; b.txt has none selected at all.
@@ -167,7 +167,7 @@ fn split_out_hunks_rebases_descendants() {
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
     test.commit_file("c.txt", "gamma\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -189,7 +189,7 @@ fn split_out_hunks_refuses_empty_selection() {
     test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_hunks(&Oid::from(to_split), &[], &head_oid, 0);
@@ -202,7 +202,7 @@ fn split_out_hunks_refuses_when_every_hunk_is_selected() {
     test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
     let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result =
@@ -219,7 +219,7 @@ fn split_out_hunks_refuses_invalid_hunk_index() {
     test.commit_file("a.txt", "a\n", "base");
     let to_split = test.commit_file("a.txt", "a2\n", "change a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_hunks(&Oid::from(to_split), &[(0, 5)], &head_oid, 0);
@@ -255,7 +255,7 @@ fn split_out_hunks_at_nonzero_context_merges_and_splits_nearby_changes_together(
     let changed_content = format!("{}\n", changed.join("\n"));
     let to_split = test.commit_file("f.txt", &changed_content, "three small changes");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     // Confirm the fixture actually merges as intended before relying on it.
@@ -307,7 +307,7 @@ fn split_out_hunks_refuses_dirty_overlap() {
     test.write_file("a.txt", "DIRTY\n");
     test.stage_file("a.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let result = git_repo.split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &head_oid, 0);
@@ -325,7 +325,7 @@ fn split_out_hunks_last_piece_has_original_tree() {
     );
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &head_oid, 0)

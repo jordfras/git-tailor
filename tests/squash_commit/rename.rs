@@ -64,7 +64,7 @@ fn squash_across_rename_completes_without_conflict() {
     let test = common::TestRepo::new();
     let (target, source) = setup_rename_history(&test);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
@@ -82,7 +82,7 @@ fn squash_try_combine_across_rename_returns_none() {
     let test = common::TestRepo::new();
     let (target, source) = setup_rename_history(&test);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_try_combine(
             &Oid::from(source),
@@ -103,7 +103,7 @@ fn squash_across_rename_with_descendant() {
     let (target, source) = setup_rename_history(&test);
     let descendant = test.commit_file("other.txt", "extra\n", "descendant");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
@@ -126,7 +126,7 @@ fn squash_across_rename_real_repo() {
         return;
     }
 
-    let git_repo = Git2Repo::open(repo_path).unwrap();
+    let mut git_repo = Git2Repo::open(repo_path).unwrap();
 
     // History: a61ba7c (target) … 9765260 (rename) … 38df584 (middle) … 835b1cc (source/HEAD)
     let source = Oid::from("835b1cc70ae351b2007356da6dc6ff8e0d717ae8");

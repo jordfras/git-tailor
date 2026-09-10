@@ -36,7 +36,7 @@ fn move_commit_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));
 
     assert!(
@@ -62,7 +62,7 @@ fn move_commit_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b));
 
     assert!(
@@ -92,7 +92,7 @@ fn move_commit_to_root_position() {
     let _b = test.commit_file("y.txt", "y\n", "B");
     let c = test.commit_file("z.txt", "z\n", "C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // "" is the sentinel for "make this commit the new root"
     let result = git_repo
         .move_commit(&Oid::from(c), None, &Oid::from(c))
@@ -151,7 +151,7 @@ fn move_root_commit_to_later_position() {
     let _a = test.commit_file("a.txt", "a\n", "A");
     let b = test.commit_file("b.txt", "b\n", "B");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let root_oid = git_repo.root_commit_oid().unwrap();
 
     let result = git_repo
@@ -215,7 +215,7 @@ fn move_commit_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
@@ -235,7 +235,7 @@ fn move_root_to_later_descendant_modifies_root_file_conflicts() {
     let _a = test.commit_file("shared.txt", "modified by A\n", "A");
     let b = test.commit_file("b.txt", "b\n", "B");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let root_oid = git_repo.root_commit_oid().unwrap();
 
     let result = git_repo

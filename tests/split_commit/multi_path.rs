@@ -51,7 +51,7 @@ fn split_per_hunk_group_multi_path_two_groups() {
         "commit K",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -134,7 +134,7 @@ fn split_per_hunk_group_multi_path_three_groups() {
     );
     test.commit_file("b.txt", "BB1\n", "commit B");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -184,7 +184,7 @@ fn split_per_hunk_group_four_way_single_hunk() {
     test.commit_file("f.txt", "K1\nC2\nK3\nK4\n", "commit C");
     test.commit_file("f.txt", "K1\nC2\nD3\nK4\n", "commit D");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -248,7 +248,7 @@ fn split_multi_path_last_piece_has_original_tree() {
 
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))

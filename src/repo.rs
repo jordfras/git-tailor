@@ -497,7 +497,7 @@ pub trait RepoWrite {
     /// - the commit has fewer than 2 changed files (nothing to split)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_per_file(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
+    fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
 
     /// Split a commit into one commit per hunk.
     ///
@@ -509,7 +509,7 @@ pub trait RepoWrite {
     /// - the commit has fewer than 2 hunks (nothing to split)
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
-    fn split_commit_per_hunk(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
+    fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
 
     /// Split a commit into one commit per hunk group.
     ///
@@ -528,7 +528,7 @@ pub trait RepoWrite {
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_per_hunk_group(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
@@ -550,7 +550,7 @@ pub trait RepoWrite {
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_out_files(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         file_paths: &[String],
         head_oid: &Oid,
@@ -578,7 +578,7 @@ pub trait RepoWrite {
     /// - staged or unstaged changes share file paths with the commit being split
     /// - a rebase conflict occurs while rebuilding descendants
     fn split_commit_out_hunks(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         hunks: &[(usize, usize)],
         head_oid: &Oid,
@@ -586,16 +586,16 @@ pub trait RepoWrite {
     ) -> Result<()>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.
-    fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
+    fn count_split_per_file(&mut self, commit_oid: &Oid) -> Result<usize>;
 
     /// Count how many commits `split_commit_per_hunk` would produce for this commit.
-    fn count_split_per_hunk(&self, commit_oid: &Oid) -> Result<usize>;
+    fn count_split_per_hunk(&mut self, commit_oid: &Oid) -> Result<usize>;
 
     /// Count how many fragmap groups `split_commit_per_hunk_group` would produce
     /// for this commit, given the full branch context up to `head_oid` from
     /// `reference_oid`.
     fn count_split_per_hunk_group(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
@@ -610,7 +610,7 @@ pub trait RepoWrite {
     ///
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
-    fn reword_commit(&self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()>;
+    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
     /// its parent.
@@ -619,7 +619,7 @@ pub trait RepoWrite {
     /// successfully rebased, or `RebaseOutcome::Conflict` when a cherry-pick
     /// step produces merge conflicts. In the conflict case the working tree
     /// and index contain the partially merged state for the user to resolve.
-    fn drop_commit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<RebaseOutcome>;
+    fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<RebaseOutcome>;
 
     /// Move a commit to a different position on the branch.
     ///
@@ -633,7 +633,7 @@ pub trait RepoWrite {
     /// Returns `RebaseOutcome::Complete` on success or
     /// `RebaseOutcome::Conflict` when a cherry-pick step conflicts.
     fn move_commit(
-        &self,
+        &mut self,
         commit_oid: &Oid,
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
@@ -647,7 +647,7 @@ pub trait RepoWrite {
     ///
     /// Fails (leaving the branch untouched) if the working tree is dirty, or the
     /// commit is a merge or the root commit.
-    fn begin_edit(&self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
+    fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()>;
 
     /// Finish an edit begun with [`Self::begin_edit`]: take the user-authored
     /// commit chain now on the branch, validate it, replay the original
@@ -660,12 +660,12 @@ pub trait RepoWrite {
     /// repository state (uncommitted leftovers, HEAD moved off the branch, a
     /// merge commit, or commits that don't build on the edited commit's parent)
     /// it restores the branch to its original tip and returns an error.
-    fn finish_edit(&self, commit_oid: &Oid) -> Result<EditOutcome>;
+    fn finish_edit(&mut self, commit_oid: &Oid) -> Result<EditOutcome>;
 
     /// Abort (or crash-recover) an in-progress edit: restore the branch to its
     /// original tip and check it out, using the branch name and original tip
     /// recorded in the in-progress journal. A no-op when no edit is in progress.
-    fn abort_edit(&self) -> Result<()>;
+    fn abort_edit(&mut self) -> Result<()>;
 
     /// Resume a conflicted rebase after the user has resolved conflicts.
     ///
@@ -673,13 +673,13 @@ pub trait RepoWrite {
     /// for the conflicting cherry-pick, then continues cherry-picking the
     /// remaining descendants. Returns a new `RebaseOutcome` — the next
     /// cherry-pick may also conflict.
-    fn rebase_continue(&self, state: &ConflictState) -> Result<RebaseOutcome>;
+    fn rebase_continue(&mut self, state: &ConflictState) -> Result<RebaseOutcome>;
 
     /// Abort a conflicted rebase and restore the branch to its original state.
     ///
     /// Resets the branch ref to `state.original_branch_oid`, cleans up the
     /// working tree and index.
-    fn rebase_abort(&self, state: &ConflictState) -> Result<()>;
+    fn rebase_abort(&mut self, state: &ConflictState) -> Result<()>;
 
     /// Read the crash-safety journal to detect an operation interrupted by a
     /// previous run (process killed or crashed mid-conflict).
@@ -687,7 +687,7 @@ pub trait RepoWrite {
     /// Returns [`JournalStatus::Recovered`] with the persisted [`ConflictState`]
     /// when an interrupted operation is found, so the caller can resume it
     /// (via the normal conflict flow) or abort it.
-    fn read_journal(&self) -> Result<JournalStatus>;
+    fn read_journal(&mut self) -> Result<JournalStatus>;
 
     /// Discard whatever the journal says is in flight — the paused record *and*
     /// any working-tree snapshot — without otherwise touching the repository.
@@ -695,20 +695,20 @@ pub trait RepoWrite {
     /// was journaled), so resuming or aborting would be unsafe. The snapshot has
     /// to go too: left behind, it keeps telling later operations that a dirty
     /// working tree is accounted for.
-    fn clear_journal(&self) -> Result<()>;
+    fn clear_journal(&mut self) -> Result<()>;
 
     /// Drop undo/redo history (and its `refs/git-tailor/*` gc-pins) that no
     /// longer matches the branch, and reconcile the remaining pins. Run at
     /// startup so stale refs don't linger in tools like `gitk`; a still-valid
     /// stack is preserved so undo/redo survives across restarts.
-    fn prune_stale_journal(&self) -> Result<()>;
+    fn prune_stale_journal(&mut self) -> Result<()>;
 
     /// Remove **all** git-tailor recovery state: every ref under
     /// `refs/git-tailor/` and the on-disk journal file. Refs are found by
     /// namespace rather than from the journal, so stray refs are removed even if
     /// the journal is missing or out of sync. A manual escape hatch (the
     /// `--clean-journal` CLI flag); returns a summary of what was removed.
-    fn clean_journal(&self) -> Result<JournalCleanSummary>;
+    fn clean_journal(&mut self) -> Result<JournalCleanSummary>;
 
     /// Undo the most recent history-rewriting operation by restoring the branch
     /// to the tip recorded before it ran (and moving the record to the redo
@@ -722,39 +722,39 @@ pub trait RepoWrite {
     /// that went through a conflict also changed the files, to whatever the user
     /// resolved to, and that stands: what they replaced is gone the moment they
     /// resolve, so there is nothing left to put back.
-    fn undo(&self) -> Result<UndoOutcome>;
+    fn undo(&mut self) -> Result<UndoOutcome>;
 
     /// Redo the most recently undone operation, restoring its post-operation
     /// tip. Same dirty-tree and staleness rules as [`undo`](Self::undo).
-    fn redo(&self) -> Result<UndoOutcome>;
+    fn redo(&mut self) -> Result<UndoOutcome>;
 
     /// Whether the next [`undo`](Self::undo) leaves the working tree untouched (a
     /// stage/unstage-all op or a commit's soft reset). The caller uses this to
     /// skip the auto-stash dance, which would otherwise stash away and reapply
     /// the very state being restored.
-    fn pending_undo_skips_autostash(&self) -> Result<bool>;
+    fn pending_undo_skips_autostash(&mut self) -> Result<bool>;
 
     /// Whether the next [`redo`](Self::redo) leaves the working tree untouched.
     /// See [`pending_undo_skips_autostash`](Self::pending_undo_skips_autostash).
-    fn pending_redo_skips_autostash(&self) -> Result<bool>;
+    fn pending_redo_skips_autostash(&mut self) -> Result<bool>;
 
     /// Stage all changes to tracked files (modifications and deletions), like
     /// `git add -u`. Untracked files are left alone, matching what the unstaged
     /// row's diff shows. Recorded as an undoable index-only operation. Returns
     /// [`StageOutcome::NoOp`] when there was nothing to stage.
-    fn stage_all(&self) -> Result<StageOutcome>;
+    fn stage_all(&mut self) -> Result<StageOutcome>;
 
     /// Unstage all staged changes by resetting the index to HEAD. Recorded as an
     /// undoable index-only operation. Returns [`StageOutcome::NoOp`] when there
     /// was nothing staged.
-    fn unstage_all(&self) -> Result<StageOutcome>;
+    fn unstage_all(&mut self) -> Result<StageOutcome>;
 
     /// Create a commit from the currently staged changes with `message`, using
     /// HEAD as the parent and advancing the branch ref. Recorded as an undoable
     /// operation whose undo is a soft reset (the committed changes reappear as
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
-    fn commit_staged(&self, message: &str) -> Result<CommitOutcome>;
+    fn commit_staged(&mut self, message: &str) -> Result<CommitOutcome>;
 
     /// Lift the staged or unstaged working-tree changes into a temporary commit
     /// on top of HEAD, so the squash machinery can take them as its source.
@@ -771,12 +771,12 @@ pub trait RepoWrite {
     ///
     /// Fails when the unstaged row cannot be separated from the staged one —
     /// edits to the same lines have no meaningful split.
-    fn lift_worktree_row(&self, source: WorktreeSource) -> Result<Option<LiftedRow>>;
+    fn lift_worktree_row(&mut self, source: WorktreeSource) -> Result<Option<LiftedRow>>;
 
     /// Unwind [`lift_worktree_row`](Self::lift_worktree_row): put the branch,
     /// the index and the working tree back exactly as `lifted` recorded them,
     /// and clear the journal record. Untracked files are left alone.
-    fn restore_lifted_row(&self, lifted: &LiftedRow) -> Result<()>;
+    fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
 
     /// Keep the working tree `lifted` recorded reachable under a ref, for a
     /// record that is about to be discarded because the branch has moved past
@@ -785,7 +785,7 @@ pub trait RepoWrite {
     /// Returns the ref's name, or `None` when the recorded tree is what HEAD
     /// already holds and there is nothing to lose. The ref lives under the
     /// git-tailor namespace, so `--clean-journal` sweeps it along with the rest.
-    fn rescue_lifted_row(&self, lifted: &LiftedRow) -> Result<Option<String>>;
+    fn rescue_lifted_row(&mut self, lifted: &LiftedRow) -> Result<Option<String>>;
 
     /// When auto-stash is enabled and the working tree is dirty, stash the
     /// staged/unstaged/untracked changes (recording them in the journal) so a
@@ -827,7 +827,7 @@ pub trait RepoWrite {
     /// the returned `ConflictState` carries a `squash_context` so the TUI
     /// can let the user resolve, then call `squash_finalize`.
     fn squash_commits(
-        &self,
+        &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
         message: &str,
@@ -845,7 +845,7 @@ pub trait RepoWrite {
     /// (for squash) open the editor and call `squash_finalize`, or (for fixup)
     /// call `squash_finalize` directly without opening the editor.
     fn squash_try_combine(
-        &self,
+        &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
         combined_message: &str,
@@ -865,7 +865,7 @@ pub trait RepoWrite {
     /// batch keeps going through a squash-time conflict the same way it does
     /// through a descendant one.
     fn squash_finalize(
-        &self,
+        &mut self,
         ctx: &SquashContext,
         message: &str,
         original_branch_oid: &Oid,
@@ -892,7 +892,7 @@ pub trait RepoWrite {
     /// [`rebase_continue`](Self::rebase_continue) continues the remaining
     /// pairs in the same batch.
     fn autofixup(
-        &self,
+        &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
         message_overrides: &std::collections::HashMap<String, String>,
@@ -904,7 +904,7 @@ pub trait RepoWrite {
     /// adds it to the index at stage 0 (which removes stages 1/2/3), and writes
     /// the updated index to disk. Must be called after a merge tool resolves a
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
-    fn stage_file(&self, path: &str) -> Result<()>;
+    fn stage_file(&mut self, path: &str) -> Result<()>;
 
     /// Auto-stage conflicting files whose working-tree content no longer
     /// contains conflict markers.
@@ -914,7 +914,7 @@ pub trait RepoWrite {
     /// This method reads each file from disk and stages it if the standard
     /// `<<<<<<<` marker is absent, so that `index.has_conflicts()` reflects
     /// the actual resolution state.
-    fn auto_stage_resolved_conflicts(&self, files: &[String]) -> Result<()>;
+    fn auto_stage_resolved_conflicts(&mut self, files: &[String]) -> Result<()>;
 }
 
 /// A full repository handle: everything a caller can do, read and write. This is

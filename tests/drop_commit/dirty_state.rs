@@ -26,7 +26,7 @@ fn drop_commit_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(to_drop));
 
     assert!(
@@ -50,7 +50,7 @@ fn drop_commit_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(to_drop));
 
     assert!(
@@ -74,7 +74,7 @@ fn drop_commit_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
@@ -96,7 +96,7 @@ fn rebase_abort_leaves_clean_working_tree() {
     let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -175,7 +175,7 @@ fn drop_commit_does_not_clobber_a_colliding_untracked_file() {
     // unstaged and the working tree reads as clean.
     test.write_file("notes.txt", "my local scratch\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
 
     let workdir = test.repo.workdir().unwrap().to_path_buf();
@@ -276,7 +276,7 @@ fn a_staged_file_at_a_reintroduced_path_is_refused_by_the_dirty_guard() {
     test.write_file("notes.txt", "my local scratch\n");
     test.stage_file("notes.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
 
     assert!(result.is_err(), "a staged collision must be refused");

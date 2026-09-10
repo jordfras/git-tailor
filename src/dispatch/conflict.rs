@@ -151,7 +151,7 @@ pub(crate) enum ToolRun {
 /// suspending/restoring the TUI, or the merge tool itself — comes back as `Err`
 /// for the caller to show; neither is fatal.
 pub(crate) fn run_mergetool_suspended(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     files: &[String],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
@@ -170,7 +170,7 @@ pub(crate) fn run_mergetool_suspended(
 /// suspending/restoring the TUI, or the editor itself — comes back as `Err` for
 /// the caller to show; neither is fatal.
 pub(crate) fn run_editor_suspended(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     files: &[String],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
@@ -193,7 +193,7 @@ pub(crate) fn run_editor_suspended(
 /// auto-stash-conflict paths, which differ only in the mode they rebuild. Takes
 /// the tool's already-computed outcome, so it does no TUI work of its own.
 fn finish_conflict_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     tool_name: &str,
     outcome: Result<ToolRun>,
@@ -220,7 +220,7 @@ fn finish_conflict_tool(
 /// Refresh the rebase-conflict dialog after `tool_name` ran (its `outcome` passed
 /// in), with the remaining conflicts.
 pub(crate) fn handle_run_conflict_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     conflict_state: ConflictState,
     tool_name: &str,
@@ -238,7 +238,7 @@ pub(crate) fn handle_run_conflict_tool(
 /// Refresh the auto-stash-conflict dialog after `tool_name` ran (its `outcome`
 /// passed in), with the remaining conflicts.
 pub(crate) fn handle_run_stash_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     tool_name: &str,
     outcome: Result<ToolRun>,

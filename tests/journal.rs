@@ -35,7 +35,7 @@ fn conflict_records_journal_and_recovers_after_reopen() {
     );
 
     // Simulate a restart: a brand-new handle reads the on-disk journal.
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::Recovered(recovered) => {
             let InProgress::Conflict(recovered) = *recovered else {
@@ -65,7 +65,7 @@ fn resume_to_completion_clears_journal() {
     let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -102,7 +102,7 @@ fn resume_to_completion_clears_journal() {
 fn abort_clears_journal_and_restores_branch() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     git_repo.rebase_abort(&state).unwrap();
 
@@ -125,7 +125,7 @@ fn newer_version_is_rejected() {
     let test = common::TestRepo::new();
     write_raw_journal(&test, r#"{"version": 9999, "in_progress": null}"#);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::NewerVersion(v) => assert_eq!(v, 9999),
         other => panic!("expected NewerVersion, got {other:?}"),
@@ -142,7 +142,7 @@ fn malformed_journal_is_corrupt() {
     let test = common::TestRepo::new();
     write_raw_journal(&test, "{ this is not valid json");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
         JournalStatus::Corrupt(_)
@@ -155,7 +155,7 @@ fn absent_journal_is_none() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "x\n", "c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
         JournalStatus::None
@@ -208,7 +208,7 @@ fn v1_journal_without_interrupted_op_migrates_and_keeps_undo() {
     write_raw_journal(&test, v1);
 
     // Nothing paused, so nothing recovers — but the migration must run.
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
         JournalStatus::None
@@ -248,7 +248,7 @@ fn v1_journal_with_interrupted_op_is_flagged_and_file_left_untouched() {
     write_raw_journal(&test, v1);
     let before = std::fs::read_to_string(journal_path(&test)).unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::UpgradeInterrupted { op } => assert_eq!(op, "Squash"),
         other => panic!("expected UpgradeInterrupted, got {other:?}"),
@@ -291,7 +291,7 @@ fn a_journal_in_the_current_format_recovers_a_paused_operation() {
     }"#;
     write_raw_journal(&test, current);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::Recovered(recovered) => match *recovered {
             InProgress::Conflict(state) => assert_eq!(state.operation_label, "Squash"),
@@ -341,7 +341,7 @@ fn a_journal_pins_the_working_tree_fold_shapes() {
     }"#;
     write_raw_journal(&test, current);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     match git_repo.read_journal().unwrap() {
         JournalStatus::Recovered(recovered) => match *recovered {
             InProgress::WorktreeSquash(snapshot) => {

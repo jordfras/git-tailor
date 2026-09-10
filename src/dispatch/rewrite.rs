@@ -60,7 +60,7 @@ pub(crate) fn handle_execute_move(
 }
 
 pub(crate) fn handle_prepare_reword(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
     current_message: String,

@@ -27,7 +27,7 @@ fn split_per_file_preserves_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -68,7 +68,7 @@ fn split_per_file_preserves_unstaged_changes() {
     let workdir = test.repo.workdir().unwrap();
     test.write_file("c.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -94,7 +94,7 @@ fn split_per_hunk_preserves_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
@@ -127,7 +127,7 @@ fn split_per_hunk_preserves_unstaged_changes() {
     let workdir = test.repo.workdir().unwrap();
     test.write_file("other.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)
@@ -155,7 +155,7 @@ fn split_per_hunk_preserves_commit_message_body() {
         "two changes\n\nThis body should be kept.",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk(&Oid::from(to_split), &head_oid)

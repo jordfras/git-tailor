@@ -23,7 +23,7 @@ fn drop_head_commit_removes_it() {
     let _middle = test.commit_file("a.txt", "v2\n", "middle");
     let to_drop = test.commit_file("a.txt", "v3\n", "to drop");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(to_drop))
         .unwrap();
@@ -44,7 +44,7 @@ fn drop_middle_commit_rebases_descendants() {
     let to_drop = test.commit_file("b.txt", "added\n", "add b.txt");
     let child = test.commit_file("a.txt", "changed\n", "modify a.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(child))
         .unwrap();
@@ -79,7 +79,7 @@ fn drop_removes_added_file_from_working_tree() {
     let to_drop = test.commit_file("b.txt", "added\n", "add b.txt");
     let child = test.commit_file("a.txt", "changed\n", "modify a.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_rebase_complete!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(child))
@@ -109,7 +109,7 @@ fn drop_removes_added_symlink_to_a_directory() {
     let to_drop = test.commit_path("link", "add a symlink");
     let child = test.commit_file("a.txt", "a\n", "later commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_rebase_complete!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(child))
@@ -132,7 +132,7 @@ fn drop_with_multiple_descendants() {
     let _child1 = test.commit_file("c.txt", "c1\n", "add c.txt");
     let head = test.commit_file("d.txt", "d1\n", "add d.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -162,7 +162,7 @@ fn drop_preserves_commit_messages() {
     // Multi-line message: drop must preserve the full body, not just the summary.
     let _child = test.commit_file("c.txt", "c1\n", "important change\n\nDetailed body text.");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .drop_commit(&Oid::from(to_drop), &head_oid)
@@ -200,7 +200,7 @@ fn drop_a_commit_that_added_a_submodule() {
     std::fs::create_dir_all(&sub_dir).unwrap();
     std::fs::write(sub_dir.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .drop_commit(&Oid::from(to_drop), &head_oid)

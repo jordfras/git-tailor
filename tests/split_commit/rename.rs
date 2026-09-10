@@ -55,7 +55,7 @@ fn split_per_hunk_group_rename_and_edit_in_the_same_commit() {
     );
     let to_split = test.repo.head().unwrap().target().unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -138,7 +138,7 @@ fn split_per_hunk_group_survives_a_two_hop_rename_chain() {
     );
     let to_split = test.repo.head().unwrap().target().unwrap();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     assert_eq!(
@@ -201,7 +201,7 @@ fn split_rename_last_piece_has_original_tree() {
 
     let original_tree = test.tree_id(to_split);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))

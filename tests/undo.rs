@@ -55,7 +55,7 @@ fn undo_restores_history_and_redo_reapplies() {
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     test.commit_file("c.txt", "c\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Drop the middle commit (independent file — no conflict).
     assert_rebase_complete!(
@@ -86,7 +86,7 @@ fn multi_level_undo_redo() {
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     let c2 = test.commit_file("c.txt", "c\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     git_repo
         .reword_commit(&Oid::from(c2), "c reworded", &Oid::from(head_oid(&test)))
@@ -121,7 +121,7 @@ fn new_operation_clears_redo() {
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     let c2 = test.commit_file("c.txt", "c\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     git_repo
         .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
@@ -146,7 +146,7 @@ fn external_history_change_invalidates_stack() {
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     test.commit_file("c.txt", "c\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
         .unwrap();
@@ -172,14 +172,14 @@ fn undo_persists_across_reopen() {
     test.commit_file("c.txt", "c\n", "add c");
 
     {
-        let git_repo = test.git_repo();
+        let mut git_repo = test.git_repo();
         git_repo
             .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
             .unwrap();
     }
 
     // A brand-new handle (simulating a restart) can still undo.
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_eq!(expect_done(git_repo.undo().unwrap()), "Drop");
     assert_eq!(test.commits_from_head(base).len(), 2);
 }
@@ -191,7 +191,7 @@ fn undo_refuses_when_working_tree_dirty() {
     let c1 = test.commit_file("b.txt", "b\n", "add b");
     test.commit_file("c.txt", "c\n", "add c");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
         .unwrap();
@@ -209,7 +209,7 @@ fn undo_and_redo_empty_with_no_history() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
     assert!(matches!(git_repo.redo().unwrap(), UndoOutcome::Empty));
 }
@@ -219,7 +219,7 @@ fn prune_clears_stale_undo_history_and_pins() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_rebase_complete!(
         git_repo
@@ -245,7 +245,7 @@ fn prune_keeps_valid_undo_history_and_pins() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_rebase_complete!(
         git_repo
@@ -268,7 +268,7 @@ fn prune_drops_orphaned_orig_and_stray_pins_keeping_valid_history() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     assert_rebase_complete!(
         git_repo
             .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))

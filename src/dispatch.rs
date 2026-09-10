@@ -398,7 +398,7 @@ pub(crate) fn settle_autostash(
 /// process itself — comes back as `Err` for the caller to show; neither is
 /// fatal.
 pub(crate) fn edit_message_suspended(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
     seed: &str,
