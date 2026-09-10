@@ -947,24 +947,69 @@ impl Git2Repo {
                 continue;
             }
             let full = workdir.join(path);
-            // Anything but a directory: a submodule checkout is not this
-            // operation's to judge, and a symlink is a file as git tracked it.
-            if !full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
-                continue;
+            match full.symlink_metadata() {
+                // A directory where a file returns: the checkout replaces the
+                // whole thing. An empty one is nothing to lose; anything inside
+                // is the user's. A real submodule never reaches this — its
+                // gitlink is in the index, and the check above took it.
+                Ok(meta) if meta.is_dir() => {
+                    if std::fs::read_dir(&full).is_ok_and(|mut d| d.next().is_some()) {
+                        collisions.push(path.display().to_string());
+                    }
+                }
+                // A file or a symlink. A symlink counts deliberately: git
+                // tracked the path as a file, and following the link would
+                // judge it by whatever it points at.
+                //
+                // Identical content is not a collision — the checkout is a
+                // no-op. Hashed without filters, so a checkout-filtered file
+                // can read as different and be reported. Erring that way is the
+                // safe one: the user is asked about a file, not silently
+                // relieved of it.
+                Ok(_) => {
+                    if !git2::Oid::hash_file(git2::ObjectType::Blob, &full)
+                        .is_ok_and(|oid| oid == delta.new_file().id())
+                    {
+                        collisions.push(path.display().to_string());
+                    }
+                }
+                // Nothing there — the ordinary case, unless a *parent* of the
+                // path is occupied by a file, which is why nothing can be there.
+                // The checkout has to remove that file to make the directory.
+                Err(_) => {
+                    if let Some(blocked) = Self::blocking_ancestor(&index, workdir, path) {
+                        collisions.push(blocked);
+                    }
+                }
             }
-            // Identical content is not a collision — the checkout is a no-op.
-            // Hashed without filters, so a checkout-filtered file can read as
-            // different and be reported. Erring that way is the safe one: the
-            // user is asked about a file, not silently relieved of it.
-            if git2::Oid::hash_file(git2::ObjectType::Blob, &full)
-                .is_ok_and(|oid| oid == delta.new_file().id())
-            {
-                continue;
-            }
-            collisions.push(path.display().to_string());
         }
         collisions.sort();
+        collisions.dedup();
         Ok(collisions)
+    }
+
+    /// The untracked file standing where `path` needs a directory, if any.
+    ///
+    /// Reported instead of `path` itself: that is the file the user has to move
+    /// out of the way, and the path git wants means nothing to them.
+    fn blocking_ancestor(
+        index: &git2::Index,
+        workdir: &std::path::Path,
+        path: &std::path::Path,
+    ) -> Option<String> {
+        let mut ancestor = path.parent()?;
+        while !ancestor.as_os_str().is_empty() {
+            if index.get_path(ancestor, 0).is_none()
+                && workdir
+                    .join(ancestor)
+                    .symlink_metadata()
+                    .is_ok_and(|meta| !meta.is_dir())
+            {
+                return Some(ancestor.display().to_string());
+            }
+            ancestor = ancestor.parent()?;
+        }
+        None
     }
 
     /// Re-examine the working tree so the index's cached stats describe what is
