@@ -386,3 +386,27 @@ fn edit_the_root_commit_amends_and_replays_descendants() {
     assert_eq!(file_at(&f.test, tip, "b.txt").as_deref(), Some("b\n"));
     assert_eq!(file_at(&f.test, tip, "c.txt").as_deref(), Some("c\n"));
 }
+
+/// Beginning an edit rewinds the branch to the edited commit, bringing back
+/// files that later commits deleted — the same collision the drop had.
+#[test]
+fn begin_edit_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let edited = test.commit_file("notes.txt", "from history\n", "add notes");
+    test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later");
+
+    // Untracked at the path the edited commit still has.
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.begin_edit(&Oid::from(edited), &Oid::from(head));
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "begin_edit must not overwrite an untracked file (result: {result:?})"
+    );
+}

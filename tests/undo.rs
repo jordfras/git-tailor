@@ -297,3 +297,31 @@ fn prune_drops_orphaned_orig_and_stray_pins_keeping_valid_history() {
     assert!(undo_pin_count(&test) >= 1);
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
 }
+
+/// Undo reintroduces the files a dropped commit added, so it can land on an
+/// untracked file of the same name just as the drop itself could.
+#[test]
+fn undo_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let added = test.commit_file("notes.txt", "from history\n", "add notes");
+    let head = test.commit_file("c.txt", "v1\n", "later");
+
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(added), &Oid::from(head))
+            .unwrap()
+    );
+
+    // The user creates their own file at the path the drop freed up.
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let outcome = git_repo.undo();
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "undo must not overwrite an untracked file (outcome: {outcome:?})"
+    );
+}
