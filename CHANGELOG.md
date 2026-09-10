@@ -37,6 +37,10 @@ The format is based on
   reintroduces a file at the same path (for example, dropping the commit that
   deleted it). git-tailor now refuses before touching anything and names the
   files, so content that was never in git cannot be lost
+- Aborting a conflicted operation no longer deletes untracked files. The
+  cleanup that removes what the conflict wrote took every untracked file with
+  it, including notes you wrote while the operation sat paused; it now removes
+  only the files the operation itself introduced
 
 
 ## [3.0.0] - 2026-09-06

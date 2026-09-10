@@ -105,6 +105,12 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
 pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
     let original_oid = git2::Oid::from(&state.original_branch_oid);
     let label = state.operation_label.to_lowercase();
+
+    // The conflict checkout wrote exactly the index `write_conflicts_to_workdir`
+    // populated, and that index is still in place — so read the list of paths it
+    // may have created off it now, before the reset below replaces it.
+    let written = index_paths(repo)?;
+
     repo.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
 
     // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
@@ -112,15 +118,75 @@ pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()>
     // the target commit's tree), so checkout_head alone cannot restore files that
     // exist in HEAD but were absent from that tree.
     let head_commit = repo.inner.find_commit(original_oid)?;
-    repo.set_index_tree(head_commit.tree()?.id())?;
+    let head_tree = head_commit.tree()?;
+    repo.set_index_tree(head_tree.id())?;
 
-    // Force-checkout HEAD and remove files that were written to the workdir
-    // by the conflict checkout but are not tracked by the original HEAD.
     let mut checkout = git2::build::CheckoutBuilder::new();
     checkout.force();
-    checkout.remove_untracked(true);
     repo.inner.checkout_head(Some(&mut checkout))?;
+
+    remove_conflict_debris(repo, &written, &head_tree)
+}
+
+/// Delete what the conflict left in the working tree that checking out HEAD
+/// does not take back: paths the operation introduced which HEAD does not
+/// track, and which the checkout therefore has no opinion about.
+///
+/// `CheckoutBuilder::remove_untracked` would do this in one line, but libgit2
+/// does not scope it to our own debris — it removes every untracked file under
+/// the checkout, the ones the user wrote while the operation sat paused
+/// included. Aborting must undo the operation, not clean the working tree.
+fn remove_conflict_debris(
+    repo: &Git2Repo,
+    written: &[String],
+    head_tree: &git2::Tree,
+) -> Result<()> {
+    let workdir = repo
+        .inner
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?
+        .to_path_buf();
+
+    for path in written {
+        // Tracked by HEAD: the checkout above already restored the right content.
+        if head_tree.get_path(std::path::Path::new(path)).is_ok() {
+            continue;
+        }
+        let full = workdir.join(path);
+        if full.symlink_metadata().is_err() {
+            continue;
+        }
+        std::fs::remove_file(&full)
+            .with_context(|| format!("failed to remove leftover conflict file `{path}`"))?;
+        remove_empty_parents(&workdir, full.parent());
+    }
     Ok(())
+}
+
+/// A directory the operation created only to hold a file it introduced would
+/// otherwise stay behind, empty, once that file is gone.
+fn remove_empty_parents(workdir: &std::path::Path, mut dir: Option<&std::path::Path>) {
+    while let Some(d) = dir {
+        if d == workdir || std::fs::remove_dir(d).is_err() {
+            return;
+        }
+        dir = d.parent();
+    }
+}
+
+/// Every path the index mentions, one entry per path regardless of how many
+/// conflict stages it is recorded under.
+fn index_paths(repo: &Git2Repo) -> Result<Vec<String>> {
+    let mut index = repo.inner.index()?;
+    // The user may have staged resolutions since we wrote it.
+    index.read(false)?;
+    let mut paths: Vec<String> = index
+        .iter()
+        .filter_map(|entry| String::from_utf8(entry.path).ok())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<String> {
