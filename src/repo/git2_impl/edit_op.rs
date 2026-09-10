@@ -57,8 +57,7 @@ pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> R
     )?;
 
     // Rewind the branch to the edited commit and sync the working tree to it.
-    repo.advance_branch_ref(commit_git, "git-tailor: edit (begin)")?;
-    repo.checkout_head(head_oid)?;
+    repo.advance_and_checkout(commit_git, head_oid, "git-tailor: edit (begin)")?;
     Ok(())
 }
 
@@ -149,9 +148,8 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     };
     match repo.cherry_pick_chain(branch_tip, &descendants, &ctx)? {
         CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: edit")?;
             // The working tree currently reflects the user's chain tip.
-            repo.checkout_head(&Oid::from(branch_tip))?;
+            repo.advance_and_checkout(tip, &Oid::from(branch_tip), "git-tailor: edit")?;
             journal::clear_in_progress(repo)?;
             Ok(EditOutcome::Complete)
         }

@@ -931,8 +931,11 @@ fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result
     // restored tip no longer contains.
     let prev_tip = reads::head_oid(repo)?;
     let oid = git2::Oid::from(target);
-    repo.advance_branch_ref(oid, &format!("git-tailor: {verb} {}", label.to_lowercase()))?;
-    repo.checkout_head(&prev_tip)
+    repo.advance_and_checkout(
+        oid,
+        &prev_tip,
+        &format!("git-tailor: {verb} {}", label.to_lowercase()),
+    )
 }
 
 /// Tree OID of the on-disk index, without mutating it. Used to snapshot the

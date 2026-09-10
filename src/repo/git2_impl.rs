@@ -878,6 +878,39 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Move the branch to `new_tip` and bring the working tree with it.
+    ///
+    /// The only way to do both together, so a new caller cannot forget
+    /// [`Self::refuse_untracked_collisions`]. That check runs before the ref
+    /// moves, so a refusal leaves the branch, the index and the working tree
+    /// exactly as they were rather than half-rewritten with the checkout still
+    /// owed.
+    ///
+    /// `prev_tip` is the tip the working tree currently reflects;
+    /// [`Self::checkout_head`] needs it to delete the files the new tip drops.
+    pub(super) fn advance_and_checkout(
+        &self,
+        new_tip: git2::Oid,
+        prev_tip: &Oid,
+        log_msg: &str,
+    ) -> Result<()> {
+        let from_tree = self.commit_tree_id(git2::Oid::from(prev_tip))?;
+        let to_tree = self.commit_tree_id(new_tip)?;
+        self.refuse_untracked_collisions(from_tree, to_tree)?;
+
+        self.advance_branch_ref(new_tip, log_msg)?;
+        self.checkout_head(prev_tip)
+    }
+
+    /// Tree of `commit`.
+    fn commit_tree_id(&self, commit: git2::Oid) -> Result<git2::Oid> {
+        Ok(self
+            .inner
+            .find_commit(commit)
+            .with_context(|| format!("failed to read commit {commit}"))?
+            .tree_id())
+    }
+
     /// Refuse the operation when checking out `to_tree` would overwrite an
     /// untracked file.
     ///
