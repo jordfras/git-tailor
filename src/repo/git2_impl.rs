@@ -872,6 +872,97 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Refuse the operation when checking out `to_tree` would overwrite an
+    /// untracked file.
+    ///
+    /// A force checkout writes the target tree over whatever is on disk, so a
+    /// path the operation *reintroduces* — dropping the commit that deleted it,
+    /// say — lands on top of an untracked file of the same name and takes its
+    /// contents with it. Those contents were never in git, so nothing can get
+    /// them back: not undo, not the reflog, not `git stash list`.
+    ///
+    /// [`Self::check_no_dirty_state`] cannot catch this. It asks
+    /// [`Self::is_worktree_dirty`], which diffs HEAD against the index and the
+    /// index against the working tree — neither of which sees an untracked file.
+    /// A working tree holding nothing else reads as perfectly clean.
+    ///
+    /// Called *before* the branch ref moves, so a refusal leaves the repository
+    /// exactly as it was rather than half-rewritten.
+    pub(super) fn refuse_untracked_collisions(
+        &self,
+        from_tree: git2::Oid,
+        to_tree: git2::Oid,
+    ) -> Result<()> {
+        let files = self.untracked_collisions(from_tree, to_tree)?;
+        if !files.is_empty() {
+            anyhow::bail!(
+                "This would overwrite untracked files: {}. \
+                 Move, delete, or commit them first.",
+                files.join(", ")
+            );
+        }
+        Ok(())
+    }
+
+    /// Untracked working-tree files that checking out `to_tree` would overwrite.
+    ///
+    /// Only paths the target *adds* can collide — anything already tracked is
+    /// the dirty guard's business, not this one's. A file whose contents already
+    /// match the incoming blob is left out: overwriting it changes nothing.
+    fn untracked_collisions(
+        &self,
+        from_tree: git2::Oid,
+        to_tree: git2::Oid,
+    ) -> Result<Vec<String>> {
+        let Some(workdir) = self.inner.workdir() else {
+            return Ok(Vec::new());
+        };
+        let from = self
+            .inner
+            .find_tree(from_tree)
+            .context("failed to find the current tree")?;
+        let to = self
+            .inner
+            .find_tree(to_tree)
+            .context("failed to find the target tree")?;
+        let diff = self
+            .inner
+            .diff_tree_to_tree(Some(&from), Some(&to), None)
+            .context("failed to diff for untracked collisions")?;
+
+        let index = self.inner.index().context("failed to open index")?;
+        let mut collisions = Vec::new();
+        for delta in diff.deltas() {
+            if delta.status() != git2::Delta::Added {
+                continue;
+            }
+            let Some(path) = delta.new_file().path() else {
+                continue;
+            };
+            if index.get_path(path, 0).is_some() {
+                continue;
+            }
+            let full = workdir.join(path);
+            // Anything but a directory: a submodule checkout is not this
+            // operation's to judge, and a symlink is a file as git tracked it.
+            if !full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
+                continue;
+            }
+            // Identical content is not a collision — the checkout is a no-op.
+            // Hashed without filters, so a checkout-filtered file can read as
+            // different and be reported. Erring that way is the safe one: the
+            // user is asked about a file, not silently relieved of it.
+            if git2::Oid::hash_file(git2::ObjectType::Blob, &full)
+                .is_ok_and(|oid| oid == delta.new_file().id())
+            {
+                continue;
+            }
+            collisions.push(path.display().to_string());
+        }
+        collisions.sort();
+        Ok(collisions)
+    }
+
     /// Re-examine the working tree so the index's cached stats describe what is
     /// actually on disk.
     ///

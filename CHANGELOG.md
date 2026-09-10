@@ -20,6 +20,10 @@ The format is based on
 - The new-version notification now works behind a TLS-inspecting corporate
   proxy, and checks on the first run after an install instead of staying
   quiet for a day
+- An untracked file is no longer silently overwritten when an operation
+  reintroduces a file at the same path (for example, dropping the commit that
+  deleted it). git-tailor now refuses before touching anything and names the
+  files, so content that was never in git cannot be lost
 
 
 ## [3.0.0] - 2026-09-06

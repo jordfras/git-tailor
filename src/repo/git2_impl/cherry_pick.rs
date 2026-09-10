@@ -16,7 +16,7 @@
 //! drop, move, squash, edit and conflict-resume, which pause on conflict, and
 //! split and reword, which replay onto an identical tree and so cannot.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::super::{ConflictState, RebaseOutcome, Resume};
 use super::Git2Repo;
@@ -225,6 +225,21 @@ pub(super) fn advance_and_finish(
 ) -> Result<RebaseOutcome> {
     match result {
         CherryPickResult::Complete(tip) => {
+            // Before the ref moves: a refusal here leaves the branch, the index
+            // and the working tree exactly as they were, rather than
+            // half-rewritten with the checkout still owed.
+            let from_tree = repo
+                .inner
+                .find_commit(git2::Oid::from(checkout_target))
+                .context("failed to read the pre-operation tip")?
+                .tree_id();
+            let to_tree = repo
+                .inner
+                .find_commit(tip)
+                .context("failed to read the new tip")?
+                .tree_id();
+            repo.refuse_untracked_collisions(from_tree, to_tree)?;
+
             repo.advance_branch_ref(tip, reflog_msg)?;
             repo.checkout_head(checkout_target)?;
             Ok(RebaseOutcome::Complete)
