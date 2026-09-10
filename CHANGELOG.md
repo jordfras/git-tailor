@@ -15,6 +15,15 @@ The format is based on
   stays silent, so this is how to tell "up to date" apart from "could not
   reach crates.io".
 
+### Changed
+
+- `--autostash` no longer stashes untracked files, only staged and unstaged
+  changes. Sweeping them up was meant to stop a checkout landing on top of one,
+  but it never fired in the case that mattered, and when it did fire it merely
+  deferred the clash into the reapply — which merged the two and left conflict
+  markers while reporting success. That collision is refused outright now, so
+  untracked files stay where you put them
+
 ### Fixed
 
 - The new-version notification now works behind a TLS-inspecting corporate

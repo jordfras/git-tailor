@@ -21,7 +21,7 @@
 //! aborted all the way back to the pre-operation state.
 
 use anyhow::{Context, Result};
-use git2::{Signature, StashApplyOptions, StashFlags};
+use git2::{Signature, StashApplyOptions};
 
 use super::super::{AutostashContinue, AutostashRestore};
 use super::Git2Repo;
@@ -32,9 +32,24 @@ use super::reads;
 use crate::Oid;
 
 impl Git2Repo {
-    /// Stash dirty working-tree state (staged + unstaged + untracked) when
-    /// auto-stash is enabled and the tree is dirty, recording the stash and the
-    /// current branch tip in the journal.
+    /// Stash dirty working-tree state (staged + unstaged) when auto-stash is
+    /// enabled and the tree is dirty, recording the stash and the current
+    /// branch tip in the journal.
+    ///
+    /// Tracked changes only. Untracked files used to be swept in as well, to
+    /// stop a checkout landing on top of one, but that never worked: the stash
+    /// is only taken when [`Self::is_worktree_dirty`] says so, and that ignores
+    /// untracked files — so the one case it was meant to cover, a working tree
+    /// holding nothing else, never triggered it. When it *did* fire it merely
+    /// deferred the clash into the reapply, which merged the stashed copy onto
+    /// the reintroduced file and left conflict markers behind without an
+    /// unmerged index entry for [`Self::restore_autostash`] to notice.
+    ///
+    /// That case is now refused up front by
+    /// [`Git2Repo::refuse_untracked_collisions`], which needs the file left
+    /// where it is to see it. Leaving untracked files alone also matches what
+    /// the working-tree fold has always done, so the two agree on what they
+    /// touch.
     ///
     /// Idempotent: if a stash is already recorded for the in-flight operation
     /// (e.g. a multi-step squash), this is a no-op so the dirty state is stashed
@@ -63,11 +78,9 @@ impl Git2Repo {
             .inner
             .signature()
             .or_else(|_| Signature::now("git-tailor", "git-tailor@localhost"))?;
-        let oid = self.inner.stash_save2(
-            &sig,
-            Some("git-tailor: autostash"),
-            Some(StashFlags::INCLUDE_UNTRACKED),
-        )?;
+        let oid = self
+            .inner
+            .stash_save2(&sig, Some("git-tailor: autostash"), None)?;
 
         // The stash reset the working tree and index; refresh the cached index
         // so subsequent reads on this handle see the clean state.

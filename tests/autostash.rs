@@ -131,7 +131,7 @@ fn autostash_restores_mixed_state_after_drop() {
 }
 
 #[test]
-fn autostash_preserves_untracked_files() {
+fn autostash_leaves_untracked_files_alone() {
     let test = common::TestRepo::new();
     let (_base, c1, c2) = setup_dirty_repo(&test);
     test.write_file("untracked.txt", "keep me\n");
@@ -141,9 +141,10 @@ fn autostash_preserves_untracked_files() {
     git_repo.set_autostash(true);
 
     git_repo.autostash_save().unwrap();
-    assert!(
-        !test.repo.workdir().unwrap().join("untracked.txt").exists(),
-        "untracked file should be stashed away"
+    assert_eq!(
+        read_workdir(&test, "untracked.txt"),
+        "keep me\n",
+        "an untracked file stays where the user put it"
     );
 
     assert_rebase_complete!(
