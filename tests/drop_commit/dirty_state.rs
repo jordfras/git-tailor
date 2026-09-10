@@ -406,3 +406,61 @@ fn a_crlf_file_matching_only_after_filtering_is_still_refused() {
         "hashing without filters must err towards refusing"
     );
 }
+
+/// An untracked *directory* where a file returns.
+///
+/// The guard looks the path up and skips anything that is a directory, so the
+/// checkout replaces the whole directory with the file — and whatever the user
+/// had inside goes with it.
+#[test]
+fn drop_commit_does_not_clobber_an_untracked_directory_at_a_reintroduced_path() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes", "from history\n", "add notes as a file");
+    let deletion = test.delete_file("notes", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    // The user has since made `notes` a directory of their own.
+    test.write_file("notes/mine.txt", "my scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes/mine.txt")).unwrap_or_default(),
+        "my scratch\n",
+        "the untracked directory's contents must survive (result: {result:?})"
+    );
+}
+
+/// An untracked *file* standing where a directory returns.
+///
+/// Nothing exists at the reintroduced path itself — `notes/inner.txt` cannot,
+/// because `notes` is a file — so the lookup finds nothing and the guard waves
+/// it through. The checkout then removes the file to make room for the
+/// directory.
+#[test]
+fn drop_commit_does_not_clobber_an_untracked_file_blocking_a_reintroduced_directory() {
+    let test = common::TestRepo::new();
+
+    test.commit_file("a.txt", "v1\n", "base");
+    test.commit_file("notes/inner.txt", "from history\n", "add notes dir");
+    let deletion = test.delete_file("notes/inner.txt", "delete notes dir");
+    let head = test.commit_file("c.txt", "v1\n", "later work");
+
+    // git leaves the emptied directory behind; clear it so the path is free.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_dir_all(workdir.join("notes")).unwrap();
+    test.write_file("notes", "my scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(deletion), &Oid::from(head));
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes")).unwrap_or_default(),
+        "my scratch\n",
+        "the untracked file must survive (result: {result:?})"
+    );
+}
