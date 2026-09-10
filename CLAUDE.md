@@ -201,6 +201,19 @@ TouchKind    ∈ { Added, Modified, Deleted, None }
 All git operations — both reads and mutations — use the `git2` crate (libgit2
 bindings). The tool does **not** shell out to the `git` CLI.
 
+**One repository handle.** `Git2Repo` owns a single `git2::Repository` and
+everything goes through it. Never open a second handle onto the same repository
+— not for convenience, and above all not to obtain a `&mut` where the
+surrounding code only has `&self`. Two handles carry two index caches, so a
+write through one leaves the other stale, and the bugs that follow are silent
+and timing-dependent.
+
+If an operation mutates, it takes `&mut self` and the signature says so. Some
+libgit2 calls (`stash_save2`, `stash_apply`) require `&mut` — that is the API
+being honest about what they do, and the fix is to propagate the `&mut`, never
+to conjure a second handle around it. A wide but mechanical diff is the right
+price for a signature that does not lie.
+
 For mutations (reorder, squash, split), the rebase engine builds new commit
 chains using `Repository::cherrypick_commit` (the in-memory variant) rather than
 the `git2::Rebase` API. This cherry-pick chain approach was chosen because
