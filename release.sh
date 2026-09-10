@@ -41,9 +41,9 @@ fi
 echo ">> CHANGELOG.md: $changelog_status"
 
 # ── 3. README screenshot — deterministic, so it changes only if the UI did ──
-echo ">> regenerating doc/tui_example.png (cargo run --example gen_screenshot) ..."
+echo ">> regenerating doc/tui_example.png (cargo run --example gen_screenshots) ..."
 png_before=$(hash_of doc/tui_example.png)
-if cargo run --quiet --example gen_screenshot; then
+if cargo run --quiet --example gen_screenshots; then
     [[ "$(hash_of doc/tui_example.png)" != "$png_before" ]] &&
         png_status="updated" || png_status="unchanged"
 else

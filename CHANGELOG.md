@@ -6,6 +6,22 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Added
+
+- `gt --check-update` asks crates.io for the newest release and prints the
+  result, including why a check failed. The background check the TUI runs
+  stays silent, so this is how to tell "up to date" apart from "could not
+  reach crates.io".
+
+### Fixed
+
+- The new-version notification now works behind a TLS-inspecting corporate
+  proxy, and checks on the first run after an install instead of staying
+  quiet for a day
+
+
 ## [3.0.0] - 2026-09-06
 
 ### Added

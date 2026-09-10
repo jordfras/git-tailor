@@ -136,6 +136,14 @@ pub struct Cli {
     /// state gets stuck.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+
+    /// Check crates.io for a newer release and exit, without launching the TUI.
+    ///
+    /// Reports the outcome, including why a check failed — the background check
+    /// the TUI runs stays silent so an offline or firewalled machine is never
+    /// nagged. Ignores the cached result and always asks crates.io.
+    #[arg(long = "check-update", conflicts_with_all = ["base", "all", "static_output", "clean_journal"])]
+    pub check_update: bool,
 }
 
 impl Cli {
