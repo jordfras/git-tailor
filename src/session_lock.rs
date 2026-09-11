@@ -110,9 +110,13 @@ mod tests {
         SessionLock::acquire(dir.path()).expect("the lock must be free once released");
     }
 
-    /// A directory that cannot hold a lock file must not stop git-tailor: a
+    /// A place that cannot hold a lock file must not stop git-tailor: a
     /// read-only `.git`, or a filesystem without locking, degrades to the
     /// behaviour from before the lock existed rather than to no tool at all.
+    ///
+    /// This one stops at the directory; the next reaches the lock file itself.
+    /// Mutation testing showed why both are needed — with only this one, every
+    /// misclassification past `create_dir_all` went undetected.
     #[test]
     fn an_unavailable_lock_is_reported_as_such_not_as_busy() {
         let missing = std::path::Path::new("/proc/self/no/such/place");
@@ -120,6 +124,25 @@ mod tests {
             Err(LockRefusal::Unavailable(_)) => {}
             Err(LockRefusal::Busy) => {
                 panic!("a directory we cannot write is not another git-tailor")
+            }
+            Ok(_) => panic!("expected the attempt to fail"),
+        }
+    }
+
+    /// The directory is fine but the lock file itself cannot be opened. This is
+    /// the shape the real cases take — a read-only `.git`, a filesystem that
+    /// will not lock — and it reaches further into `acquire` than the case
+    /// above, which stops at the directory.
+    #[test]
+    fn a_lock_file_that_cannot_be_opened_is_unavailable_not_busy() {
+        let dir = tempfile::tempdir().unwrap();
+        // Something already occupies the lock path that is not a file.
+        std::fs::create_dir_all(dir.path().join("git-tailor").join("session.lock")).unwrap();
+
+        match SessionLock::acquire(dir.path()) {
+            Err(LockRefusal::Unavailable(_)) => {}
+            Err(LockRefusal::Busy) => {
+                panic!("a lock file we cannot open is not another git-tailor")
             }
             Ok(_) => panic!("expected the attempt to fail"),
         }
