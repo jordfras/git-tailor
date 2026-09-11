@@ -141,3 +141,33 @@ fn such_a_history_can_be_listed_and_read() {
         .commit_diff(&Oid::from(head), 3)
         .expect("and its diff must still open");
 }
+
+/// Splitting does not copy a message, it *derives* one — "summary (1/3)". That
+/// has to go through a `&str`, and the only `&str` available is the lossy one,
+/// which would bake replacement characters into the new commits.
+///
+/// Replaying is safe because the bytes pass through untouched; deriving is not,
+/// so it refuses and says why. Reword is the way out: give the commit a message
+/// git-tailor can read, then split it.
+#[test]
+fn splitting_a_commit_whose_message_is_not_utf8_is_refused() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+    let to_split = commit_with_raw_message(&test, parent, LATIN1_MESSAGE);
+
+    let mut git_repo = test.git_repo();
+    let before = git_repo.head_oid().unwrap();
+    let result = git_repo.split_commit_per_file(&Oid::from(to_split), &Oid::from(to_split));
+
+    let error = format!("{:#}", result.expect_err("splitting must refuse"));
+    assert!(
+        error.contains("message"),
+        "the refusal must name the reason: {error}"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        before,
+        "and nothing may have moved"
+    );
+}

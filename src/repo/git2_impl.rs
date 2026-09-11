@@ -937,12 +937,11 @@ impl Git2Repo {
         raw.extend_from_slice(b"\n");
         raw.extend_from_slice(message);
 
-        Ok(self
-            .inner
+        self.inner
             .odb()
             .context("failed to open the object database")?
             .write(git2::ObjectType::Commit, &raw)
-            .context("failed to write the commit object")?)
+            .context("failed to write the commit object")
     }
 
     /// Tree of `commit`.

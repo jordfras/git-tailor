@@ -570,6 +570,18 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
     if commit.parent_count() > 1 {
         anyhow::bail!("Cannot split a merge commit");
     }
+    // A split does not copy the message, it derives one — "summary (1/3)". That
+    // has to go through a `&str`, and the only one available for bytes we cannot
+    // read is the lossy rendering, which would bake replacement characters into
+    // every piece. Replaying is safe because the bytes pass through untouched
+    // (see `Git2Repo::commit_preserving_message`); deriving is not.
+    if commit.message().is_err() {
+        anyhow::bail!(
+            "Cannot split {}: its commit message is not valid UTF-8, and the \
+             pieces' messages are built from it. Reword it first.",
+            commit_oid.short()
+        );
+    }
     let parent_tree = if commit.parent_count() == 0 {
         repo.empty_tree()?
     } else {
