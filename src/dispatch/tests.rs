@@ -1204,3 +1204,60 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
         "failed to combine the two commits: tree is unmergeable"
     );
 }
+
+/// A failed operation restores the auto-stash, and if *that* fails too the user
+/// has to be told: their tracked work is sitting in the stash, and the
+/// operation's own error says nothing about where it went.
+#[test]
+fn execute_drop_error_reports_a_failed_autostash_restore() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let _ = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Drop failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the restore failure must be reported too: {message}"
+    );
+    assert!(
+        message.contains("git stash list"),
+        "and the user must be told where their work is: {message}"
+    );
+}
+
+/// When the restore clashes instead of failing, the markers are on disk and the
+/// resolution dialog is the urgent thing — but the message still has to say
+/// what went wrong on the way in.
+#[test]
+fn execute_drop_error_opens_the_stash_dialog_when_the_restore_clashes() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        autostash_restore_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let _ = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+
+    match &app.mode {
+        AppMode::StashConflict(state) => assert_eq!(state.operation_label, "Drop"),
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Drop failed"), "{message}");
+}

@@ -32,6 +32,10 @@ pub(crate) struct MockRepo {
     pub(crate) autofixup_conflicts: bool,
     pub(crate) abort_ok: bool,
     pub(crate) autostash_restore_ok: bool,
+    /// Makes `autostash_restore` fail outright rather than report a conflict —
+    /// the case where the user's work stays in the stash with nothing on disk
+    /// to show for it.
+    pub(crate) autostash_restore_errs: bool,
     pub(crate) count_per_file: usize,
     pub(crate) count_ok: bool,
     pub(crate) stage_ok: bool,
@@ -130,6 +134,7 @@ impl Default for MockRepo {
             autofixup_conflicts: false,
             abort_ok: true,
             autostash_restore_ok: true,
+            autostash_restore_errs: false,
             count_per_file: 0,
             count_ok: true,
             stage_ok: true,
@@ -381,6 +386,9 @@ impl RepoWrite for MockRepo {
         Ok(())
     }
     fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {
+        if self.autostash_restore_errs {
+            anyhow::bail!("stash apply failed");
+        }
         if self.autostash_restore_ok {
             Ok(git_tailor::repo::AutostashRestore::Done)
         } else {

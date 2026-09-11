@@ -37,9 +37,13 @@ pub(crate) fn handle_execute_edit(
     // `begin_edit`'s clean-tree check refuses a dirty working tree.
     autostash_save_or_bail!(git_repo, app);
     if let Err(e) = git_repo.begin_edit(&commit_oid, &head_oid) {
-        let _ = git_repo.autostash_restore();
-        app.set_error_message(format!("Edit failed: {e:#}"));
-        return Ok(LoopAction::Proceed);
+        return Ok(crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Edit",
+            format!("Edit failed: {e:#}"),
+            LoopAction::Proceed,
+        ));
     }
 
     // Suspend the TUI and drop the user into a shell to rewrite the commit.
@@ -92,22 +96,26 @@ fn handle_edit_outcome(
             "Commit edited",
             LoopAction::ReloadPreserving,
         ),
-        Ok(EditOutcome::Canceled) => {
-            let _ = git_repo.autostash_restore();
-            app.set_success_message("Edit canceled — no changes");
-            LoopAction::Reload
-        }
+        Ok(EditOutcome::Canceled) => settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Edit",
+            "Edit canceled — no changes",
+            LoopAction::Reload,
+        ),
         Ok(EditOutcome::Conflict(state)) => {
             // Replaying descendants conflicted — defer the auto-stash restore
             // until the conflict is resolved/aborted, like every other rebase.
             app.enter_rebase_conflict(*state);
             LoopAction::Continue
         }
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e:#}"));
-            LoopAction::Reload
-        }
+        Err(e) => crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Edit",
+            format!("Edit failed: {e:#}"),
+            LoopAction::Reload,
+        ),
     }
 }
 

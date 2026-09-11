@@ -393,6 +393,51 @@ pub(crate) fn settle_autostash(
     }
 }
 
+/// Restore the auto-stash after an operation that did **not** complete, folding
+/// the result into what the user is told.
+///
+/// `let _ = autostash_restore()` is never right here. The user's tracked
+/// changes are sitting in the stash, and if putting them back fails or clashes,
+/// reporting only that the operation failed leaves them with no idea where
+/// their work went — which is how work got stranded in the stash before.
+///
+/// This path also stopped being rare: refusing rather than overwriting an
+/// untracked file is now an ordinary outcome, and a refusal arrives here.
+pub(crate) fn settle_autostash_after_failure(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    op_label: &str,
+    headline: String,
+    done: LoopAction,
+) -> LoopAction {
+    match git_repo.autostash_restore() {
+        Ok(AutostashRestore::Done) => {
+            app.set_error_message(headline);
+            done
+        }
+        Ok(AutostashRestore::Conflict { files }) => {
+            // Conflict markers are on disk, so resolving them is the urgent
+            // thing and the dialog wins — but say what failed on the way in.
+            app.set_error_message(format!(
+                "{headline} — and your auto-stashed changes clashed coming back"
+            ));
+            app.enter_stash_conflict(StashConflictState {
+                operation_label: op_label.to_string(),
+                conflicting_files: files,
+                still_unresolved: false,
+            });
+            LoopAction::Continue
+        }
+        Err(restore_err) => {
+            app.set_error_message(format!(
+                "{headline} — and your auto-stashed changes could not be restored: \
+                 {restore_err:#}. They are still in `git stash list`"
+            ));
+            done
+        }
+    }
+}
+
 /// Suspend the TUI and run the user's `$EDITOR` seeded with `seed`, returning the
 /// edited message. Either failure — suspending/restoring the TUI, or the editor
 /// process itself — comes back as `Err` for the caller to show; neither is
@@ -440,9 +485,13 @@ pub(crate) fn handle_rebase_outcome(
         }
         Err(e) => {
             // The operation did not complete — restore the working tree.
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("{op_label} failed: {e:#}"));
-            LoopAction::Proceed
+            settle_autostash_after_failure(
+                git_repo,
+                app,
+                op_label,
+                format!("{op_label} failed: {e:#}"),
+                LoopAction::Proceed,
+            )
         }
     }
 }

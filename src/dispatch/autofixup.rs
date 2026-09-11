@@ -132,11 +132,13 @@ pub(crate) fn handle_execute_autofixup(
             app.enter_rebase_conflict(*state);
             Ok(LoopAction::Continue)
         }
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Autofixup failed: {e:#}"));
-            Ok(LoopAction::Proceed)
-        }
+        Err(e) => Ok(crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Autofixup",
+            format!("Autofixup failed: {e:#}"),
+            LoopAction::Proceed,
+        )),
     }
 }
 
