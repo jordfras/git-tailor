@@ -55,6 +55,10 @@ The format is based on
   keeps refs that stop `git gc` collecting what undo — and an interrupted
   fold's uncommitted changes — still need, and a run in one working tree
   cleared the refs belonging to every other one
+- Commit messages that are not valid UTF-8 — Latin-1 history, anything with an
+  `encoding` header — survive a rewrite byte for byte instead of being
+  replaced with an empty message, and no longer stop git-tailor opening the
+  repository at all
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

@@ -48,11 +48,13 @@ impl Git2Repo {
 
         let new_tree_oid = cherry_index.write_tree_to(repo)?;
         let new_tree = repo.find_tree(new_tree_oid)?;
-        let picked = repo.commit(
-            None,
+        // Byte for byte: a replayed commit's message is not ours to edit, and
+        // one we cannot read is still not empty.
+        let picked = self.commit_preserving_message(
             &desc.author(),
             &desc.committer(),
-            desc.message().unwrap_or(""),
+            desc.message_bytes(),
+            desc.message_encoding().ok().flatten(),
             &new_tree,
             &[onto],
         )?;
@@ -353,11 +355,11 @@ pub(super) fn replace_root_and_replay(
         let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
         let new_tree = repo.inner.find_tree(new_tree_oid)?;
         let first_commit = repo.inner.find_commit(first_commit_oid)?;
-        repo.inner.commit(
-            None,
+        repo.commit_preserving_message(
             &first_commit.author(),
             &first_commit.committer(),
-            first_commit.message().unwrap_or(""),
+            first_commit.message_bytes(),
+            first_commit.message_encoding().ok().flatten(),
             &new_tree,
             &[],
         )?

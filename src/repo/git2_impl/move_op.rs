@@ -119,11 +119,11 @@ fn plan_move_to_root(
     let new_tree_oid = new_idx.write_tree_to(&repo.inner)?;
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
-    let new_root_oid = repo.inner.commit(
-        None,
+    let new_root_oid = repo.commit_preserving_message(
         &commit.author(),
         &commit.committer(),
-        commit.message().unwrap_or(""),
+        commit.message_bytes(),
+        commit.message_encoding().ok().flatten(),
         &new_tree,
         &[], // no parents — this becomes the new root
     )?;

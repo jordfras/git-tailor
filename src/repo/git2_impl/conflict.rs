@@ -75,11 +75,11 @@ pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Res
         } else {
             vec![repo.inner.find_commit(tip_oid)?]
         };
-        repo.inner.commit(
-            None,
+        repo.commit_preserving_message(
             &conflicting_commit.author(),
             &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
+            conflicting_commit.message_bytes(),
+            conflicting_commit.message_encoding().ok().flatten(),
             &new_tree,
             &parents.iter().collect::<Vec<_>>(),
         )?

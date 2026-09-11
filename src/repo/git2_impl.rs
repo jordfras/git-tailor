@@ -891,6 +891,60 @@ impl Git2Repo {
         self.checkout_head(prev_tip)
     }
 
+    /// Create a commit whose message is written **byte for byte**.
+    ///
+    /// git2 cannot: `Repository::commit` and `commit_create_buffer` both take
+    /// `&str`, and `Commit::message` hands back an error rather than bytes when
+    /// a message is not UTF-8. Reaching for `unwrap_or("")` at the call site
+    /// turns "I cannot read this" into "it says nothing", and a rewrite then
+    /// writes that back as the truth.
+    ///
+    /// So: let libgit2 build the object with an empty message — it knows how to
+    /// format signatures, order parents and canonicalise the rest — then put the
+    /// real bytes where the empty message was. The header block ends at the
+    /// first blank line, which is also where `encoding` belongs if the original
+    /// carried one. Nothing else is hand-serialized.
+    ///
+    /// Extra headers of the original, a `gpgsig` above all, are deliberately not
+    /// carried over: the content is changing, so a signature over the old
+    /// content would be a lie. `git rebase` drops them the same way.
+    pub(super) fn commit_preserving_message(
+        &self,
+        author: &git2::Signature<'_>,
+        committer: &git2::Signature<'_>,
+        message: &[u8],
+        encoding: Option<&str>,
+        tree: &git2::Tree<'_>,
+        parents: &[&git2::Commit<'_>],
+    ) -> Result<git2::Oid> {
+        let buffer = self
+            .inner
+            .commit_create_buffer(author, committer, "", tree, parents)
+            .context("failed to build the commit object")?;
+
+        // The header block runs up to the first blank line.
+        let split = buffer
+            .windows(2)
+            .position(|pair| pair == b"\n\n")
+            .map(|i| i + 1)
+            .ok_or_else(|| anyhow::anyhow!("commit object has no header terminator"))?;
+
+        let mut raw = Vec::with_capacity(buffer.len() + message.len() + 32);
+        raw.extend_from_slice(&buffer[..split]);
+        if let Some(encoding) = encoding {
+            raw.extend_from_slice(format!("encoding {encoding}\n").as_bytes());
+        }
+        raw.extend_from_slice(b"\n");
+        raw.extend_from_slice(message);
+
+        Ok(self
+            .inner
+            .odb()
+            .context("failed to open the object database")?
+            .write(git2::ObjectType::Commit, &raw)
+            .context("failed to write the commit object")?)
+    }
+
     /// Tree of `commit`.
     fn commit_tree_id(&self, commit: git2::Oid) -> Result<git2::Oid> {
         Ok(self
