@@ -41,6 +41,10 @@ The format is based on
   there: an untracked directory where a file returns, and an untracked file
   standing where a directory returns. Both used to be replaced outright,
   reported as success
+- Ending an edit without applying it no longer deletes your untracked files.
+  Cancelling, aborting, or recovering an interrupted edit cleared every
+  untracked file in the repository, not just what the edit itself had put
+  there
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

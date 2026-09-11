@@ -25,6 +25,7 @@ use anyhow::{Context, Result};
 
 use super::super::{EditInProgress, EditOutcome, InProgress};
 use super::Git2Repo;
+use super::WorktreeReset;
 use super::cherry_pick::{ChainCtx, CherryPickResult};
 use super::journal;
 use crate::Oid;
@@ -200,10 +201,39 @@ pub(super) fn abort_edit(repo: &mut Git2Repo) -> Result<()> {
 }
 
 /// Force the named branch back to `original`, reattach HEAD to it (in case the
-/// user detached HEAD or checked out elsewhere in the shell), and hard-reset
-/// the index + working tree to match.
+/// user detached HEAD or checked out elsewhere in the shell), and reset the
+/// index + working tree to match.
+///
+/// The reset goes tree-to-tree rather than through `remove_untracked`. That
+/// flag used to stand in for "clear what the edit left behind", but libgit2 does
+/// not scope it that way — it removes every untracked file under the checkout,
+/// the user's scratch files included. What is actually owed is narrower: a file
+/// an in-shell commit added is tracked while the edit runs and untracked the
+/// moment the branch rewinds past it, and `reset_worktree` already removes
+/// exactly the paths the old tree has and the new one does not.
 fn restore_original(repo: &mut Git2Repo, branch_refname: &str, original: &Oid) -> Result<()> {
     let original_git = git2::Oid::from(original);
+    // Wherever the user left the branch — detached HEAD included — is what the
+    // working tree reflects right now.
+    let current_tree = repo
+        .inner
+        .head()
+        .context("failed to resolve HEAD")?
+        .peel_to_tree()
+        .context("failed to read the current tree")?
+        .id();
+    let original_tree = repo
+        .inner
+        .find_commit(original_git)
+        .context("failed to read the original branch tip")?
+        .tree()
+        .context("failed to read the original tree")?
+        .id();
+
+    // Before the ref moves, so a refusal leaves the edit in progress and
+    // re-openable rather than half-unwound.
+    repo.refuse_untracked_collisions(current_tree, original_tree)?;
+
     repo.inner.reference(
         branch_refname,
         original_git,
@@ -212,16 +242,11 @@ fn restore_original(repo: &mut Git2Repo, branch_refname: &str, original: &Oid) -
     )?;
     repo.inner.set_head(branch_refname)?;
 
-    let commit = repo.inner.find_commit(original_git)?;
-    let mut index = repo.inner.index()?;
-    index.read_tree(&commit.tree()?)?;
-    index.write()?;
-
-    let mut checkout = git2::build::CheckoutBuilder::new();
-    checkout.force();
-    checkout.remove_untracked(true);
-    repo.inner.checkout_head(Some(&mut checkout))?;
-    Ok(())
+    repo.reset_worktree(WorktreeReset {
+        from_tree: current_tree,
+        worktree_tree: original_tree,
+        index_tree: original_tree,
+    })
 }
 
 /// Full ref name of the branch HEAD points at. Errors if HEAD is detached.
