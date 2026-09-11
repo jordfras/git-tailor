@@ -569,3 +569,50 @@ fn rebase_abort_does_not_clobber_a_colliding_untracked_file() {
         "the abort must refuse rather than overwrite (result: {result:?})"
     );
 }
+
+/// A filename that is not valid UTF-8.
+///
+/// On Linux a path is arbitrary bytes. The tree-diff form of the check gets
+/// these right because git2 hands it a `Path`; the index form decoded entries
+/// as UTF-8 and dropped what failed, so the conflict write — the one route that
+/// uses it — went straight over them.
+#[test]
+fn a_non_utf8_untracked_file_is_guarded_on_the_conflict_path() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let test = common::TestRepo::new();
+    let odd = std::path::PathBuf::from(OsStr::from_bytes(b"notes\xff.txt"));
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+
+    test.commit_file("a.txt", "base\n", "base");
+    std::fs::write(workdir.join(&odd), b"from history\n").unwrap();
+    let mut index = test.repo.index().unwrap();
+    index.add_path(&odd).unwrap();
+    index.write().unwrap();
+    test.commit("add the odd name");
+
+    // Deleted alongside an edit whose descendant conflicts, so the drop stops
+    // to ask and takes the conflict write.
+    std::fs::remove_file(workdir.join(&odd)).unwrap();
+    std::fs::write(workdir.join("a.txt"), "base\ndropped\n").unwrap();
+    let to_drop = {
+        let mut index = test.repo.index().unwrap();
+        index.remove_path(&odd).unwrap();
+        index.add_path(std::path::Path::new("a.txt")).unwrap();
+        index.write().unwrap();
+        test.commit("delete the odd name, touch a")
+    };
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "touch a again");
+
+    std::fs::write(workdir.join(&odd), b"my local scratch\n").unwrap();
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(head));
+
+    assert_eq!(
+        std::fs::read(workdir.join(&odd)).unwrap_or_default(),
+        b"my local scratch\n",
+        "a path that is not UTF-8 must be checked like any other (result: {result:?})"
+    );
+}
