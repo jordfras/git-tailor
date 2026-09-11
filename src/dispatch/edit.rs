@@ -55,9 +55,18 @@ pub(crate) fn handle_execute_edit(
             })?;
         if let Err(e) = shell_result {
             // The shell could not even be launched — abort so the branch is restored.
-            let _ = git_repo.abort_edit();
+            let restored = git_repo.abort_edit();
             let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e:#}"));
+            app.set_error_message(match restored {
+                Ok(()) => format!("Edit failed: {e:#}"),
+                // The restore can legitimately refuse — an untracked file
+                // standing where the original tip has a tracked one. Reporting
+                // only the shell failure would leave the user parked on the
+                // edited commit with nothing explaining why.
+                Err(restore_err) => format!(
+                    "Edit failed: {e:#} — and the branch could not be restored: {restore_err:#}"
+                ),
+            });
             return Ok(LoopAction::Reload);
         }
         dirty = git_repo.is_worktree_dirty().unwrap_or(false);

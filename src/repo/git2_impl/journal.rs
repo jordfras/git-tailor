@@ -441,6 +441,12 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
 /// caller (pins are only a gc optimization).
+///
+/// The pins are dropped before they are rewritten, so for that moment the
+/// objects they name are unreferenced and a `git gc --prune=now` running right
+/// then could take them. Rebuilding the set in place is not worth the
+/// complication: the window is microseconds, git's default prune expiry is two
+/// weeks, and the journal still names the oids either way.
 fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
     if let Ok(refs) = repo
         .inner

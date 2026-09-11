@@ -214,6 +214,20 @@ being honest about what they do, and the fix is to propagate the `&mut`, never
 to conjure a second handle around it. A wide but mechanical diff is the right
 price for a signature that does not lie.
 
+**Nothing reaches the working tree unchecked.** A working-tree write — checking
+out a tree, checking out an index, or hard-resetting — can land on top of a file
+git has no record of, and that content exists nowhere else: not in undo, not in
+the reflog, not in the stash. Every such write goes through `reset_worktree`,
+`refuse_index_collisions` or `refuse_tree_collisions`, which refuse first and
+name the files. Do not call `checkout_head`, `checkout_index` or `reset` on the
+inner repository from anywhere else, and check before moving the ref where the
+caller can still back out cheaply — that is what makes a refusal free.
+
+Never reach for `CheckoutBuilder::remove_untracked` to clean up after an
+operation. libgit2 does not scope it to what the operation wrote; it removes
+every untracked file under the checkout, the user's own included. Work out which
+paths the operation put there and remove exactly those.
+
 For mutations (reorder, squash, split), the rebase engine builds new commit
 chains using `Repository::cherrypick_commit` (the in-memory variant) rather than
 the `git2::Rebase` API. This cherry-pick chain approach was chosen because
