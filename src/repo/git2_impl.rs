@@ -16,6 +16,24 @@ use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// A git index entry's path, which is raw bytes and need not be UTF-8.
+///
+/// Decoding with `String::from_utf8` and dropping the failures would quietly
+/// exempt those paths from [`Git2Repo::refuse_index_collisions`], which is the
+/// one place a missed path costs a file.
+#[cfg(unix)]
+fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// Windows paths are UTF-8 in the index by construction, so the lossy decode
+/// round-trips; it is here only so the guard still compiles and runs.
+#[cfg(not(unix))]
+fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
 use super::{RepoRead, RepoWrite};
@@ -973,11 +991,7 @@ impl Git2Repo {
     pub(super) fn refuse_index_collisions(&self, incoming: &git2::Index) -> Result<()> {
         let candidates: Vec<(PathBuf, git2::Oid)> = incoming
             .iter()
-            .filter_map(|entry| {
-                String::from_utf8(entry.path)
-                    .ok()
-                    .map(|path| (PathBuf::from(path), entry.id))
-            })
+            .map(|entry| (bytes_to_path(&entry.path), entry.id))
             .collect();
         Self::refuse(self.collisions_among(candidates)?)
     }

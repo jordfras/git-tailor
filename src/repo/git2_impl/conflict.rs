@@ -18,6 +18,8 @@
 
 use anyhow::{Context, Result};
 
+use std::path::{Path, PathBuf};
+
 use super::super::{ConflictState, InProgress, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, advance_and_finish};
@@ -147,7 +149,7 @@ pub(super) fn rebase_abort(repo: &mut Git2Repo, state: &ConflictState) -> Result
 /// included. Aborting must undo the operation, not clean the working tree.
 fn remove_conflict_debris(
     repo: &mut Git2Repo,
-    written: &[String],
+    written: &[PathBuf],
     head_tree_oid: git2::Oid,
 ) -> Result<()> {
     let workdir = repo
@@ -159,15 +161,19 @@ fn remove_conflict_debris(
 
     for path in written {
         // Tracked by HEAD: the checkout above already restored the right content.
-        if head_tree.get_path(std::path::Path::new(path)).is_ok() {
+        if head_tree.get_path(path).is_ok() {
             continue;
         }
         let full = workdir.join(path);
         if full.symlink_metadata().is_err() {
             continue;
         }
-        std::fs::remove_file(&full)
-            .with_context(|| format!("failed to remove leftover conflict file `{path}`"))?;
+        std::fs::remove_file(&full).with_context(|| {
+            format!(
+                "failed to remove leftover conflict file `{}`",
+                path.display()
+            )
+        })?;
         remove_empty_parents(&workdir, full.parent());
     }
     Ok(())
@@ -175,7 +181,7 @@ fn remove_conflict_debris(
 
 /// A directory the operation created only to hold a file it introduced would
 /// otherwise stay behind, empty, once that file is gone.
-fn remove_empty_parents(workdir: &std::path::Path, mut dir: Option<&std::path::Path>) {
+fn remove_empty_parents(workdir: &Path, mut dir: Option<&Path>) {
     while let Some(d) = dir {
         if d == workdir || std::fs::remove_dir(d).is_err() {
             return;
@@ -186,13 +192,15 @@ fn remove_empty_parents(workdir: &std::path::Path, mut dir: Option<&std::path::P
 
 /// Every path the index mentions, one entry per path regardless of how many
 /// conflict stages it is recorded under.
-fn index_paths(repo: &Git2Repo) -> Result<Vec<String>> {
+fn index_paths(repo: &Git2Repo) -> Result<Vec<PathBuf>> {
     let mut index = repo.inner.index()?;
     // The user may have staged resolutions since we wrote it.
     index.read(false)?;
-    let mut paths: Vec<String> = index
+    // Not `String::from_utf8`: a path that is not UTF-8 would drop out of the
+    // list and its debris file would be left behind after an abort.
+    let mut paths: Vec<PathBuf> = index
         .iter()
-        .filter_map(|entry| String::from_utf8(entry.path).ok())
+        .map(|entry| super::bytes_to_path(&entry.path))
         .collect();
     paths.sort();
     paths.dedup();
