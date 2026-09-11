@@ -25,6 +25,7 @@ pub(super) fn reword_commit(
     new_message: &[u8],
     head_oid: &Oid,
 ) -> Result<()> {
+    repo.refuse_if_branch_moved(head_oid)?;
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
     if repo.range_has_merge(Some(commit_git_oid), head_git_oid)? {

@@ -173,6 +173,18 @@ pub struct ConflictState {
     /// Human-readable label for the operation that triggered this conflict
     /// (e.g. "Drop", "Squash"). Used in dialog titles and messages.
     pub operation_label: String,
+    /// Full name of the branch the operation is rewriting, as HEAD resolved it
+    /// when the conflict was written.
+    ///
+    /// Resuming or aborting writes to a branch, and it has to be *this* one.
+    /// Comparing tips is not enough: another branch sitting on the same commit
+    /// passes that test and is then rewritten to a history it never had.
+    ///
+    /// `serde(default)` so a journal written before this field existed still
+    /// loads; an empty name simply skips the check, which is the behaviour that
+    /// journal was written under.
+    #[serde(default)]
+    pub branch_refname: String,
     /// The branch tip OID before the operation started, used to restore on
     /// abort.
     pub original_branch_oid: Oid,

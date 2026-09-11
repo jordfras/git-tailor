@@ -272,8 +272,12 @@ pub(super) fn write_conflicts_to_workdir(
     repo: &mut Git2Repo,
     cherry_index: &git2::Index,
     onto_oid: git2::Oid,
-    state: &ConflictState,
+    state: &mut ConflictState,
 ) -> Result<()> {
+    // Recorded here because this is where the branch is chosen: whatever HEAD
+    // resolves to now is what the ref moves below, and resuming or aborting has
+    // to come back to the same one.
+    state.branch_refname = repo.current_branch_refname().unwrap_or_default();
     // Before the write-ahead record and the ref move: a conflict is still a
     // checkout over the working tree, and refusing here leaves the branch, the
     // index and the files exactly as they were. The merge is recomputed on the

@@ -228,6 +228,15 @@ operation. libgit2 does not scope it to what the operation wrote; it removes
 every untracked file under the checkout, the user's own included. Work out which
 paths the operation put there and remove exactly those.
 
+**A rewrite may only act on the repository it was shown.** Every operation is
+chosen against a commit list read at some earlier moment and is handed the tip
+that list was built from; `refuse_if_branch_moved` checks the branch still holds
+it, at every entry point and again when a paused conflict resumes. A paused
+conflict also records the branch it belongs to, because comparing tips cannot
+tell two branches apart when they sit on the same commit — and `advance_branch_ref`
+writes to whatever HEAD resolves to *now*. The session lock does not cover this:
+it keeps another git-tailor out, not `git commit` in another terminal.
+
 **One session per working tree.** The journal records an operation as in
 progress, and nothing in that record says whether the process that wrote it is
 still alive — so a second git-tailor reads a *live* operation as a crashed one.

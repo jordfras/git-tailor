@@ -70,6 +70,11 @@ The format is based on
   of silently cutting the branch off from the history behind the graft. That
   commit reports no parents locally but has plenty upstream, and every
   "is this the root?" test believed it
+- An operation is refused when the repository moved after the commit list was
+  read — something else committed, or HEAD was switched to another branch.
+  A rewrite used to force-write the branch anyway, discarding a commit made
+  elsewhere, and resuming or aborting a paused conflict could rewrite a
+  branch it had nothing to do with
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

@@ -179,8 +179,9 @@ impl Git2Repo {
             match step {
                 PickStep::Picked(new_tip) => tip = new_tip,
                 PickStep::Conflicted(cherry_index) => {
-                    let state = build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
-                    conflict::write_conflicts_to_workdir(self, &cherry_index, tip, &state)?;
+                    let mut state =
+                        build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
+                    conflict::write_conflicts_to_workdir(self, &cherry_index, tip, &mut state)?;
                     return Ok(CherryPickResult::Conflict(Box::new(state)));
                 }
             }
@@ -332,7 +333,7 @@ pub(super) fn replace_root_and_replay(
         };
 
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
-        let state = ConflictState {
+        let mut state = ConflictState {
             resume: Resume::Chain {
                 remaining_oids,
                 orphan_root: true,
@@ -347,7 +348,7 @@ pub(super) fn replace_root_and_replay(
             })
         };
         // Journals write-ahead, then mutates the ref/index/workdir.
-        conflict::write_conflicts_to_workdir(repo, &cherry_index, anchor_oid, &state)?;
+        conflict::write_conflicts_to_workdir(repo, &cherry_index, anchor_oid, &mut state)?;
         return Ok(RebaseOutcome::Conflict(Box::new(state)));
     }
 

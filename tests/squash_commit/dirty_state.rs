@@ -224,10 +224,19 @@ fn squash_abort_leaves_clean_working_tree() {
         "source modifies a and adds b",
     );
 
+    // Put the branch back on _base for real, rather than telling git-tailor it
+    // is there: an operation is refused when the tip it was handed is not the
+    // tip the branch has, and rightly so. target and source stay reachable as
+    // objects, which is all the squash needs of them.
+    let base_obj = test.repo.find_object(_base, None).unwrap();
+    test.repo
+        .reset(&base_obj, git2::ResetType::Hard, None)
+        .unwrap();
+
     let mut git_repo = test.git_repo();
 
-    // Pass _base as head_oid so rebase_abort restores the branch there.
-    // _base has only a.txt; b.txt is absent from it.
+    // _base has only a.txt; b.txt is absent from it, so aborting back to it
+    // must take b.txt off disk again.
     let state = git_repo
         .squash_try_combine(
             &Oid::from(source),

@@ -33,6 +33,7 @@ use crate::Oid;
 /// Rewind the current branch to `commit_oid` and check it out, after recording
 /// a write-ahead journal entry so a crash mid-edit is recoverable.
 pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+    repo.refuse_if_branch_moved(head_oid)?;
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);
@@ -251,14 +252,7 @@ fn restore_original(repo: &mut Git2Repo, branch_refname: &str, original: &Oid) -
 
 /// Full ref name of the branch HEAD points at. Errors if HEAD is detached.
 fn current_branch_refname(repo: &Git2Repo) -> Result<String> {
-    let head = repo.inner.head()?;
-    let name = head
-        .resolve()
-        .context("HEAD is not on a branch")?
-        .name()
-        .context("branch ref has no name")?
-        .to_string();
-    Ok(name)
+    repo.current_branch_refname()
 }
 
 /// Whether HEAD is currently a symbolic ref pointing at `branch_refname`.

@@ -190,6 +190,7 @@ impl Git2Repo {
                     still_unresolved: false,
                     resume: super::Resume::CarryRow(snapshot.clone()),
                     autofixup_context: None,
+                    branch_refname: self.current_branch_refname().unwrap_or_default(),
                 };
                 // Write-ahead: the markers are about to go on disk, and a crash
                 // between the two would leave them there unexplained.
@@ -481,6 +482,11 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_continue(&mut self, state: &super::ConflictState) -> Result<super::RebaseOutcome> {
+        // A paused conflict left a particular branch on a particular tip.
+        // Either having changed means resuming would rewrite something nobody
+        // asked it to.
+        self.refuse_if_branch_switched(&state.branch_refname)?;
+        self.refuse_if_branch_moved(&state.new_tip_oid)?;
         // A carry conflict is not a rebase step: the history it belongs to is
         // already written, and what is left settles the working tree and records
         // the fold's undo entry itself, so it does not go through `journaled`.
@@ -496,6 +502,10 @@ impl RepoWrite for Git2Repo {
     }
 
     fn rebase_abort(&mut self, state: &super::ConflictState) -> Result<()> {
+        // Same as resuming: an abort writes the rewind to a branch, and it must
+        // be the branch the conflict is on, still where it was left.
+        self.refuse_if_branch_switched(&state.branch_refname)?;
+        self.refuse_if_branch_moved(&state.new_tip_oid)?;
         // A squash sourced from a working-tree row has a temporary commit below
         // the conflict, holding changes the generic reset knows nothing about.
         // The snapshot rewinds past both, exactly — but only when the operation
@@ -904,6 +914,78 @@ impl Git2Repo {
 
         self.advance_branch_ref(new_tip, log_msg)?;
         self.checkout_head(prev_tip)
+    }
+
+    /// Full name of the branch HEAD is on. Errors when HEAD is detached.
+    pub(super) fn current_branch_refname(&self) -> Result<String> {
+        Ok(self
+            .inner
+            .head()?
+            .resolve()
+            .context("HEAD is not on a branch")?
+            .name()
+            .context("branch ref has no name")?
+            .to_string())
+    }
+
+    /// Refuse when HEAD is no longer on the branch a paused operation belongs to.
+    ///
+    /// Resuming or aborting writes the result to a branch, and it has to be the
+    /// one the conflict is on. The tip check alone cannot see this: a different
+    /// branch sitting on the same commit passes it and is then rewritten to a
+    /// history it never had.
+    ///
+    /// An empty `expected` means the state predates this being recorded, so
+    /// there is nothing to compare and the check stands aside.
+    pub(super) fn refuse_if_branch_switched(&self, expected: &str) -> Result<()> {
+        if expected.is_empty() {
+            return Ok(());
+        }
+        let actual = self.current_branch_refname().unwrap_or_default();
+        if actual == expected {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "This operation belongs to {expected}, but HEAD is on {} now. \
+             Switch back before continuing or aborting it.",
+            if actual.is_empty() {
+                "a detached HEAD"
+            } else {
+                &actual
+            }
+        )
+    }
+
+    /// Refuse when the branch no longer holds what the caller was told it did.
+    ///
+    /// Every operation is chosen against a commit list read at some earlier
+    /// moment, and is handed the tip that list was built from. The session lock
+    /// keeps a second git-tailor out; it does nothing about `git commit` in
+    /// another terminal, an IDE's git integration, or a script. Without this the
+    /// rewrite is computed from a view that is gone and then force-written over
+    /// the real one, and a commit made elsewhere simply disappears.
+    ///
+    /// Comparing the tip also catches HEAD having moved to a *different branch*:
+    /// what git-tailor would write to is no longer what it started on. A branch
+    /// that happens to sit on the same commit is the one case this lets through,
+    /// and writing the same history to it is what the user asked for anyway.
+    ///
+    /// A gap remains between this check and the write, which a compare-and-swap
+    /// on the ref would close. It is not worth the plumbing: the window here is
+    /// microseconds, where the one this closes is however long the commit list
+    /// has been on screen.
+    pub(super) fn refuse_if_branch_moved(&self, expected: &Oid) -> Result<()> {
+        let actual = reads::head_oid(self)?;
+        if &actual == expected {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "The branch moved since this was loaded — it is at {} now, not {}. \
+             Something else wrote to the repository, or HEAD was switched to \
+             another branch. Reload and try again.",
+            actual.short(),
+            expected.short()
+        )
     }
 
     /// Refuse to treat `commit` as a root when it is only one by accident of a

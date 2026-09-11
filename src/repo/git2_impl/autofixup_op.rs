@@ -38,6 +38,7 @@ pub(super) fn autofixup(
     reference_oid: &Oid,
     message_overrides: &HashMap<String, String>,
 ) -> Result<RebaseOutcome> {
+    repo.refuse_if_branch_moved(head_oid)?;
     run_batch(
         repo,
         head_oid.clone(),
