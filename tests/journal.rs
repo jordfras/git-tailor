@@ -30,8 +30,10 @@ fn conflict_records_journal_and_recovers_after_reopen() {
 
     // The pin ref must exist so gc cannot prune the in-flight commits.
     assert!(
-        test.repo.find_reference("refs/git-tailor/orig").is_ok(),
-        "refs/git-tailor/orig should pin the original tip"
+        test.repo
+            .find_reference("refs/git-tailor/wt/main/orig")
+            .is_ok(),
+        "the working tree's orig ref should pin the original tip"
     );
 
     // Simulate a restart: a brand-new handle reads the on-disk journal.
@@ -92,7 +94,9 @@ fn resume_to_completion_clears_journal() {
         JournalStatus::None
     ));
     assert!(
-        test.repo.find_reference("refs/git-tailor/orig").is_err(),
+        test.repo
+            .find_reference("refs/git-tailor/wt/main/orig")
+            .is_err(),
         "in-progress pin ref should be gone after completion"
     );
 }
@@ -113,7 +117,9 @@ fn abort_clears_journal_and_restores_branch() {
         JournalStatus::None
     ));
     assert!(
-        test.repo.find_reference("refs/git-tailor/orig").is_err(),
+        test.repo
+            .find_reference("refs/git-tailor/wt/main/orig")
+            .is_err(),
         "pin ref should be gone after abort"
     );
 }

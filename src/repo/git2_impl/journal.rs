@@ -62,14 +62,34 @@ const JOURNAL_VERSION: u32 = 2;
 /// concatenate `&str` consts, so the full names are composed at use sites.)
 const REF_NAMESPACE: &str = "refs/git-tailor/";
 
-/// Leaf (under [`REF_NAMESPACE`]) of the ref pinning the pre-operation branch
-/// tip of an *interrupted* operation so `git gc` cannot prune the commits it
-/// still needs while it is paused.
+/// Leaf (under [`REF_NAMESPACE`]) under which each working tree keeps its own
+/// pins, as `wt/<id>/…`.
+///
+/// The journal is per-working-tree — `repo.path()` is `<gitdir>/worktrees/<name>/`
+/// for a linked one — while refs are shared across all of them. Flat pin names
+/// meant [`sync_undo_pins`], which clears the lot before rewriting what its own
+/// journal names, unpinned every *other* working tree's objects. For an
+/// interrupted fold that is the user's uncommitted work: the recorded working
+/// tree is a tree object no commit and no reflog names, so the pin is the only
+/// thing holding it.
+///
+/// Not git's own `refs/worktree/` namespace, which would isolate them properly
+/// and is the obvious answer — `git gc` prunes straight through it. See
+/// `tests/gc_pins.rs`.
+const WORKTREE_REF_LEAF: &str = "wt/";
+
+/// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
+/// ref pinning the pre-operation branch tip of an *interrupted* operation so
+/// `git gc` cannot prune the commits it still needs while it is paused.
 const ORIG_REF_LEAF: &str = "orig";
 
-/// Leaf (under [`REF_NAMESPACE`]) of the subdirectory pinning every tip
-/// referenced by the undo/redo stacks.
+/// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
+/// subdirectory pinning every tip referenced by the undo/redo stacks.
 const UNDO_REF_LEAF: &str = "undo/";
+
+/// Pin names written by versions before pins were scoped per working tree.
+/// Cleared alongside our own so an upgrade does not strand them.
+const LEGACY_PIN_PREFIXES: [&str; 2] = ["refs/git-tailor/undo/", "refs/git-tailor/orig"];
 
 /// Leaf (under [`REF_NAMESPACE`]) of the subdirectory keeping the working tree
 /// a discarded lift record still named, so the uncommitted work in it stays
@@ -82,9 +102,39 @@ pub(super) fn rescue_ref(tree: &Oid) -> String {
     format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{}", tree.short())
 }
 
-/// Full name of the in-progress `orig` pin.
-fn orig_ref() -> String {
-    format!("{REF_NAMESPACE}{ORIG_REF_LEAF}")
+/// Prefix of every pin belonging to this working tree.
+///
+/// `repo.path()` is `<gitdir>/` for the main working tree and
+/// `<gitdir>/worktrees/<name>/` for a linked one, so the name is the last
+/// component when the one before it is `worktrees`. It is hashed rather than
+/// used as-is because a working tree's name only has to be a valid directory
+/// name, while this has to be a valid ref name. Hashing the name and not the
+/// full path keeps the pins matching after the repository is moved.
+fn worktree_prefix(repo: &Git2Repo) -> String {
+    let path = repo.inner.path();
+    let name = path
+        .parent()
+        .filter(|parent| parent.file_name() == Some(std::ffi::OsStr::new("worktrees")))
+        .and_then(|_| path.file_name());
+    let id = match name {
+        Some(name) => {
+            let digest =
+                git2::Oid::hash_object(git2::ObjectType::Blob, name.to_string_lossy().as_bytes());
+            match digest {
+                Ok(oid) => oid.to_string()[..12].to_string(),
+                // Only if libgit2 cannot hash at all; sharing one bucket is
+                // still better than failing an operation over a pin name.
+                Err(_) => "unknown".to_string(),
+            }
+        }
+        None => "main".to_string(),
+    };
+    format!("{REF_NAMESPACE}{WORKTREE_REF_LEAF}{id}/")
+}
+
+/// Full name of the in-progress `orig` pin for this working tree.
+fn orig_ref(repo: &Git2Repo) -> String {
+    format!("{}{ORIG_REF_LEAF}", worktree_prefix(repo))
 }
 
 /// Maximum number of undo records kept. Bounds how many old tips stay pinned
@@ -448,13 +498,21 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
 /// complication: the window is microseconds, git's default prune expiry is two
 /// weeks, and the journal still names the oids either way.
 fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
-    if let Ok(refs) = repo
-        .inner
-        .references_glob(&format!("{REF_NAMESPACE}{UNDO_REF_LEAF}*"))
-    {
+    let prefix = worktree_prefix(repo);
+    // Only this working tree's pins, plus anything an older version left under
+    // the flat names. Another working tree's belong to its journal, not ours.
+    let mine = format!("{prefix}{UNDO_REF_LEAF}");
+    if let Ok(mut refs) = repo.inner.references() {
         let names: Vec<String> = refs
-            .filter_map(|r| r.ok())
-            .filter_map(|r| r.name().ok().map(String::from))
+            .names()
+            .filter_map(|n| n.ok())
+            .filter(|name| {
+                name.starts_with(&mine)
+                    || LEGACY_PIN_PREFIXES
+                        .iter()
+                        .any(|legacy| name.starts_with(legacy))
+            })
+            .map(String::from)
             .collect();
         for name in names {
             if let Ok(mut r) = repo.inner.find_reference(&name) {
@@ -479,7 +537,7 @@ fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
     }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
-            &format!("{REF_NAMESPACE}{UNDO_REF_LEAF}{i}"),
+            &format!("{prefix}{UNDO_REF_LEAF}{i}"),
             git2::Oid::from(oid),
             true,
             "git-tailor: undo pin",
@@ -494,8 +552,12 @@ pub(super) fn set_in_progress(repo: &mut Git2Repo, record: &InProgress) -> Resul
     save(repo, &mut doc)?;
 
     let orig = git2::Oid::from(record.original_branch_oid());
-    repo.inner
-        .reference(&orig_ref(), orig, true, "git-tailor: journal in-progress")?;
+    repo.inner.reference(
+        &orig_ref(repo),
+        orig,
+        true,
+        "git-tailor: journal in-progress",
+    )?;
     Ok(())
 }
 
@@ -530,7 +592,7 @@ pub(super) fn discard_in_flight(repo: &mut Git2Repo) -> Result<()> {
 }
 
 fn delete_orig_ref(repo: &mut Git2Repo) {
-    if let Ok(mut r) = repo.inner.find_reference(&orig_ref()) {
+    if let Ok(mut r) = repo.inner.find_reference(&orig_ref(repo)) {
         let _ = r.delete();
     }
 }

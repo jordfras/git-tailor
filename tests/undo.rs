@@ -43,7 +43,7 @@ fn summaries(test: &common::TestRepo, base: git2::Oid) -> Vec<String> {
 
 fn undo_pin_count(test: &common::TestRepo) -> usize {
     test.repo
-        .references_glob("refs/git-tailor/undo/*")
+        .references_glob("refs/git-tailor/wt/main/undo/*")
         .unwrap()
         .count()
 }

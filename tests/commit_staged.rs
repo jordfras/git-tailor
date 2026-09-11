@@ -28,7 +28,7 @@ fn head_commit(test: &common::TestRepo) -> git2::Commit<'_> {
 
 fn undo_pins(test: &common::TestRepo) -> Vec<git2::Oid> {
     test.repo
-        .references_glob("refs/git-tailor/undo/*")
+        .references_glob("refs/git-tailor/wt/main/undo/*")
         .unwrap()
         .filter_map(|r| r.ok())
         .filter_map(|r| r.target())

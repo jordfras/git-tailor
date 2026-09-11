@@ -51,6 +51,10 @@ The format is based on
 - Aborting — a conflicted operation or a clashing auto-stash reapply — is held
   to it too. Putting the earlier state back reintroduces every path the
   operation removed, and a file you had written at one of them was replaced
+- A second working tree no longer costs the first its safety net. git-tailor
+  keeps refs that stop `git gc` collecting what undo — and an interrupted
+  fold's uncommitted changes — still need, and a run in one working tree
+  cleared the refs belonging to every other one
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes
