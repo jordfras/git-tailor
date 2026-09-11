@@ -464,3 +464,70 @@ fn drop_commit_does_not_clobber_an_untracked_file_blocking_a_reintroduced_direct
         "the untracked file must survive (result: {result:?})"
     );
 }
+
+/// The conflict path writes the half-finished merge into the working tree so
+/// the user can resolve it — and that write happens inside the cherry-pick
+/// chain, before `advance_and_finish`, which is where the collision guard sits.
+#[test]
+fn a_conflicted_drop_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+
+    // One commit that both deletes notes.txt and edits a.txt...
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("notes.txt")).unwrap();
+    test.write_file("a.txt", "base\ndropped\n");
+    let to_drop = {
+        let mut index = test.repo.index().unwrap();
+        index
+            .remove_path(std::path::Path::new("notes.txt"))
+            .unwrap();
+        index.add_path(std::path::Path::new("a.txt")).unwrap();
+        index.write().unwrap();
+        test.commit("delete notes and touch a")
+    };
+    // ...and a descendant on the same lines, so replaying it conflicts.
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "touch a again");
+
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(to_drop), &Oid::from(head));
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "the conflict write must refuse rather than overwrite (result: {result:?})"
+    );
+    assert!(
+        result.is_err(),
+        "and it must say so rather than report a conflict: {result:?}"
+    );
+}
+
+/// The orphan-root route into the same write: dropping the root three-way
+/// merges the first descendant onto an empty tree, and checks the result out.
+#[test]
+fn a_conflicted_root_drop_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    let root = test.commit_file("a.txt", "one\ntwo\n", "root");
+    // The first descendant adds notes.txt and touches the root's lines.
+    test.commit_files(
+        &[("a.txt", "one\nDESC\n"), ("notes.txt", "from history\n")],
+        "descendant",
+    );
+    let head = test.delete_file("notes.txt", "delete notes");
+
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.drop_commit(&Oid::from(root), &Oid::from(head));
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "the orphan-root conflict write must refuse too (result: {result:?})"
+    );
+}
