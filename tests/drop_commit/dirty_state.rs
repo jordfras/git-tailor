@@ -531,3 +531,41 @@ fn a_conflicted_root_drop_does_not_clobber_a_colliding_untracked_file() {
         "the orphan-root conflict write must refuse too (result: {result:?})"
     );
 }
+
+/// Aborting restores the original tip over the working tree. That is a
+/// checkout like any other, and it can reintroduce a path the operation had
+/// removed — where the user has since put a file of their own.
+#[test]
+fn rebase_abort_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "base\n", "base");
+    // Tracked at the original tip, and the user replaces it while paused.
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("notes.txt")).unwrap();
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index
+        .remove_path(std::path::Path::new("notes.txt"))
+        .unwrap();
+    index.write().unwrap();
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let result = git_repo.rebase_abort(&state);
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "the abort must refuse rather than overwrite (result: {result:?})"
+    );
+}

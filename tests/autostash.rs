@@ -597,3 +597,58 @@ fn autostash_reapply_conflicts_on_the_staged_file_itself() {
     assert!(on_disk.contains("STAGED"), "{on_disk:?}");
     let _ = base;
 }
+
+/// Aborting a clashing reapply hard-resets the working tree back to the
+/// pre-operation tip, which reintroduces every path the operation removed.
+#[test]
+fn autostash_abort_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "0\n", "base");
+    // Present at the pre-operation tip; the user replaces it while paused.
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    match git_repo.autostash_restore() {
+        Ok(AutostashRestore::Conflict { .. }) => {}
+        other => panic!("expected a reportable conflict, got {other:?}"),
+    }
+
+    // On the stash-conflict dialog, the user drops the tracked notes.txt and
+    // writes their own at that path.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("notes.txt")).unwrap();
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.remove_path(Path::new("notes.txt")).unwrap();
+    index.write().unwrap();
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let result = git_repo.autostash_conflict_abort();
+
+    assert_eq!(
+        read_workdir(&test, "notes.txt"),
+        "my local scratch\n",
+        "the abort's hard reset must refuse rather than overwrite (result: {result:?})"
+    );
+}
