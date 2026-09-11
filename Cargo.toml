@@ -2,6 +2,8 @@
 name = "git-tailor"
 version = "3.0.0"
 edition = "2024"
+# 1.89 for `File::try_lock`, used by `session_lock`.
+rust-version = "1.89"
 license = "Apache-2.0"
 authors = ["Thomas Johannesson"]
 description = """

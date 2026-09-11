@@ -109,8 +109,9 @@ impl Git2Repo {
         reads::list_ref_names(self)
     }
 
-    /// Path to the repository's git directory (the `.git` dir for a normal repo).
-    fn git_dir(&self) -> &std::path::Path {
+    /// Path to the repository's git directory (the `.git` dir for a normal repo,
+    /// `.git/worktrees/<name>` for a linked working tree).
+    pub fn git_dir(&self) -> &std::path::Path {
         self.inner.path()
     }
 

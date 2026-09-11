@@ -22,6 +22,7 @@ mod loader;
 #[cfg(test)]
 mod mock_repo;
 mod recovery;
+mod session_lock;
 mod terminal_guard;
 mod update_check;
 
@@ -40,6 +41,7 @@ use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 use crate::external_tool::with_tui_suspended;
 use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
 use crate::recovery::check_journal_recovery;
+use crate::session_lock::{LockRefusal, SessionLock};
 use crate::terminal_guard::setup_terminal;
 
 /// A transient footer status is dismissed only by a real key press. Non-key
@@ -76,8 +78,11 @@ fn main() -> Result<()> {
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
     git_repo.set_autostash(cli.autostash);
 
-    // Maintenance path: wipe recovery state and exit without any TUI.
+    // Maintenance path: wipe recovery state and exit without any TUI. Takes the
+    // session lock — discarding recovery state while another instance is
+    // relying on it is exactly what the lock is for.
     if cli.clean_journal {
+        let _session = acquire_session_lock(&git_repo)?;
         return run_clean_journal(&mut git_repo);
     }
 
@@ -90,6 +95,11 @@ fn main() -> Result<()> {
         };
         return run_static_output(&git_repo, &commits, &cli);
     }
+
+    // Everything past here can rewrite history, so it runs alone. Deliberately
+    // after the static-output path above: printing a fragmap changes nothing and
+    // should not be refused because a TUI happens to be open.
+    let _session = acquire_session_lock(&git_repo)?;
 
     // An operation interrupted under an older git-tailor cannot be resumed by
     // this version. Refuse to start the TUI — which would drop the user into a
@@ -384,5 +394,36 @@ fn render_mode(mode: &AppMode, app: &mut AppState, frame: &mut ratatui::Frame) {
         AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
         AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
         AppMode::Help(prev) => views::help::render(prev, app, frame),
+    }
+}
+
+/// Take the session lock, or explain why git-tailor is not going to run.
+///
+/// A refusal is not an error in the repository — it is another git-tailor doing
+/// its job — so it exits cleanly with a message rather than a backtrace.
+fn acquire_session_lock(git_repo: &Git2Repo) -> Result<SessionLock> {
+    match SessionLock::acquire(git_repo.git_dir()) {
+        Ok(lock) => Ok(lock),
+        Err(LockRefusal::Busy) => {
+            eprintln!(
+                "Another git-tailor is already running in this working tree.\n\
+                 Finish or quit that one first: two at once would each rewrite\n\
+                 history the other is in the middle of, and one would mistake\n\
+                 the other's paused operation for a crash to recover from."
+            );
+            std::process::exit(1);
+        }
+        // Not fatal: a read-only `.git`, or a filesystem without locking, would
+        // otherwise make git-tailor refuse to run at all — trading "no
+        // protection" for "no tool". Say so once and carry on as it did before
+        // the lock existed.
+        Err(LockRefusal::Unavailable(e)) => {
+            eprintln!(
+                "Warning: could not take the git-tailor session lock ({e:#}).\n\
+                 Continuing without it — take care not to run a second\n\
+                 git-tailor in this working tree."
+            );
+            Ok(SessionLock::unlocked())
+        }
     }
 }

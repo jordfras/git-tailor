@@ -228,6 +228,15 @@ operation. libgit2 does not scope it to what the operation wrote; it removes
 every untracked file under the checkout, the user's own included. Work out which
 paths the operation put there and remove exactly those.
 
+**One session per working tree.** The journal records an operation as in
+progress, and nothing in that record says whether the process that wrote it is
+still alive — so a second git-tailor reads a *live* operation as a crashed one.
+`session_lock` supplies the missing fact with `File::try_lock` held for the
+session; the operating system releases it however the process dies, so a crash
+cannot strand it. Anything that can rewrite history takes it; read-only paths
+such as `--static` deliberately do not. This is what sets the crate's
+`rust-version`.
+
 For mutations (reorder, squash, split), the rebase engine builds new commit
 chains using `Repository::cherrypick_commit` (the in-memory variant) rather than
 the `git2::Rebase` API. This cherry-pick chain approach was chosen because
