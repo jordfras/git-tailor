@@ -793,6 +793,11 @@ impl Git2Repo {
     /// disk — leaving every file as a staged deletion with the real files
     /// untracked.
     pub(super) fn reset_worktree(&mut self, reset: WorktreeReset) -> Result<()> {
+        // Every route to a working-tree checkout that goes through here is
+        // checked, whether or not its caller remembered to. Callers that can
+        // still back out cheaply check earlier as well, before moving the ref —
+        // by then this one is a formality that passes.
+        self.refuse_untracked_collisions(reset.from_tree, reset.worktree_tree)?;
         self.remove_dropped_files(reset.from_tree, reset.worktree_tree)?;
 
         self.set_index_tree(reset.worktree_tree)?;
@@ -977,17 +982,44 @@ impl Git2Repo {
         Self::refuse(self.collisions_among(candidates)?)
     }
 
+    /// Refuse if checking `tree` out over the working tree would overwrite
+    /// untracked work.
+    ///
+    /// The abort form. There is no "before" tree to diff against: an abort puts
+    /// a whole tree back over a working tree holding a half-finished merge,
+    /// which is not a tree at all. So every path the target names is a
+    /// candidate, and the current index sorts them out.
+    pub(super) fn refuse_tree_collisions(&self, tree: git2::Oid) -> Result<()> {
+        let tree = self
+            .inner
+            .find_tree(tree)
+            .context("failed to find the target tree")?;
+        let mut incoming = git2::Index::new().context("failed to build a scratch index")?;
+        incoming
+            .read_tree(&tree)
+            .context("failed to read the target tree")?;
+        self.refuse_index_collisions(&incoming)
+    }
+
     /// The shared body: of the paths a checkout is about to write, which ones
     /// have untracked work of the user's sitting at them.
     fn collisions_among(&self, incoming: Vec<(PathBuf, git2::Oid)>) -> Result<Vec<String>> {
         let Some(workdir) = self.inner.workdir() else {
             return Ok(Vec::new());
         };
-        let index = self.inner.index().context("failed to open index")?;
+        let mut index = self.inner.index().context("failed to open index")?;
+        // Reloaded if it changed on disk: the user resolves conflicts and stages
+        // with their own tools between our calls, and judging what is untracked
+        // from a stale cache is how a tracked file gets mistaken for theirs — or
+        // theirs for a tracked file.
+        index.read(false).context("failed to refresh index")?;
         let mut collisions = Vec::new();
         for (path, blob) in incoming {
             let path = path.as_path();
-            if index.get_path(path, 0).is_some() {
+            // Every stage, not just 0: mid-conflict the index holds the path at
+            // stages 1-3 and nothing at 0, and a file git is in the middle of
+            // merging is emphatically not untracked.
+            if (0..=3).any(|stage| index.get_path(path, stage).is_some()) {
                 continue;
             }
             let full = workdir.join(path);

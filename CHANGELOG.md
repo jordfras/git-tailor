@@ -48,6 +48,9 @@ The format is based on
 - A rewrite that stops on a conflict is held to the same rule. Writing the
   half-finished merge out for you to resolve is still a checkout, and it used
   to go over an untracked file at a reintroduced path without a word
+- Aborting — a conflicted operation or a clashing auto-stash reapply — is held
+  to it too. Putting the earlier state back reintroduces every path the
+  operation removed, and a file you had written at one of them was replaced
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

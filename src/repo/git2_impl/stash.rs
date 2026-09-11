@@ -217,10 +217,20 @@ impl Git2Repo {
         };
         let discarded_tip = reads::head_oid(self)?;
 
+        // A hard reset writes the whole tip's tree out, so it reintroduces every
+        // path the operation removed — checked before anything moves.
+        let pre = git2::Oid::from(&record.pre_op_tip);
+        let pre_tree = self
+            .inner
+            .find_commit(pre)?
+            .tree()
+            .context("failed to read the pre-operation tree")?
+            .id();
+        self.refuse_tree_collisions(pre_tree)?;
+
         // Hard-reset to the pre-operation tip, discarding the conflicted reapply
         // (and the operation's commits) in one step. Scope the commit so its
         // borrow of `self.inner` is released before the stash mutations below.
-        let pre = git2::Oid::from(&record.pre_op_tip);
         {
             let pre_commit = self.inner.find_commit(pre)?;
             self.inner

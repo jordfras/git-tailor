@@ -110,13 +110,24 @@ pub(super) fn rebase_abort(repo: &mut Git2Repo, state: &ConflictState) -> Result
     // may have created off it now, before the reset below replaces it.
     let written = index_paths(repo)?;
 
+    // Putting the original tip back is still a checkout: it reintroduces every
+    // path the operation removed. Checked before the ref moves, so a refusal
+    // leaves the conflict as it was and the user can abort again once the file
+    // is out of the way.
+    let head_tree_oid = repo
+        .inner
+        .find_commit(original_oid)?
+        .tree()
+        .context("failed to read the original tree")?
+        .id();
+    repo.refuse_tree_collisions(head_tree_oid)?;
+
     repo.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
 
     // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
     // clears the index and repopulates it from the cherry-pick result (rooted in
     // the target commit's tree), so checkout_head alone cannot restore files that
     // exist in HEAD but were absent from that tree.
-    let head_tree_oid = repo.inner.find_commit(original_oid)?.tree()?.id();
     repo.set_index_tree(head_tree_oid)?;
 
     let mut checkout = git2::build::CheckoutBuilder::new();
