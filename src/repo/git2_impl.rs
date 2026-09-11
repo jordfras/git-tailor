@@ -906,6 +906,31 @@ impl Git2Repo {
         self.checkout_head(prev_tip)
     }
 
+    /// Refuse to treat `commit` as a root when it is only one by accident of a
+    /// shallow fetch.
+    ///
+    /// `git clone --depth` grafts the history: the oldest fetched commit reports
+    /// no parents while upstream it has plenty. Every "is this the root?" test
+    /// in the rewrite engine asks `parent_count() == 0`, so in a shallow clone
+    /// they all get the wrong answer and build a genuinely parentless commit —
+    /// severing the branch from everything behind the graft. Undoable locally;
+    /// pushed, it truncates the history everyone shares.
+    ///
+    /// Only the boundary is refused. Commits above it are ordinary, and a
+    /// shallow clone is a normal way to work on a large repository.
+    pub(super) fn refuse_shallow_root(&self, commit: git2::Oid) -> Result<()> {
+        if !self.inner.is_shallow() {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "Cannot rewrite {} as a root commit: this is a shallow clone, so it \
+             only looks like the root — upstream it has history behind it that \
+             was never fetched. Rewriting it here would cut the branch off from \
+             that history. Run `git fetch --unshallow` first.",
+            Oid::from(commit).short()
+        )
+    }
+
     /// Create a commit whose message is written **byte for byte**.
     ///
     /// git2 cannot: `Repository::commit` and `commit_create_buffer` both take

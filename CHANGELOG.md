@@ -66,6 +66,10 @@ The format is based on
   while the first sat on a conflict dialog read that paused operation as a
   crash and offered to recover it, rewinding the branch under the instance
   still working on it. It now says so and exits instead
+- In a shallow clone, rewriting the oldest fetched commit is refused instead
+  of silently cutting the branch off from the history behind the graft. That
+  commit reports no parents locally but has plenty upstream, and every
+  "is this the root?" test believed it
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

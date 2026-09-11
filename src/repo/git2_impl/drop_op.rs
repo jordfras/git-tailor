@@ -46,6 +46,7 @@ pub(super) fn drop_commit(
     let original_branch_oid = head_oid.clone();
 
     let Some(parent_oid) = parent_oid else {
+        repo.refuse_shallow_root(commit_git_oid)?;
         return drop_root_commit(repo, commit_git_oid, head_git_oid, original_branch_oid);
     };
 

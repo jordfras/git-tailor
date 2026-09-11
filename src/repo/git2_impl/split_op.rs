@@ -570,6 +570,11 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
     if commit.parent_count() > 1 {
         anyhow::bail!("Cannot split a merge commit");
     }
+    if commit.parent_count() == 0 {
+        // The first piece would become an orphan root, which behind a graft
+        // severs the branch from the history that was never fetched.
+        repo.refuse_shallow_root(oid)?;
+    }
     // A split does not copy the message, it derives one — "summary (1/3)". That
     // has to go through a `&str`, and the only one available for bytes we cannot
     // read is the lossy rendering, which would bake replacement characters into

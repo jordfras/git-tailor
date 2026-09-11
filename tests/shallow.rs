@@ -155,3 +155,35 @@ fn commits_above_the_boundary_are_unaffected() {
             .unwrap()
     );
 }
+
+/// Splitting the boundary makes its first piece an orphan root, so it is
+/// refused on the same grounds.
+#[test]
+fn splitting_the_graft_boundary_is_refused() {
+    let Some(s) = shallow_clone("3", "split") else {
+        return;
+    };
+    let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
+
+    let result = git_repo.split_commit_per_file(&Oid::from(s.boundary), &Oid::from(s.head));
+
+    let error = format!("{:#}", result.expect_err("this must be refused"));
+    assert!(error.contains("shallow"), "{error}");
+}
+
+/// A repository that is not shallow keeps its real root rewritable — the guard
+/// must key on the graft, not on "has no parents".
+#[test]
+fn a_real_root_commit_is_still_rewritable() {
+    let test = common::TestRepo::new();
+    let root = test.commit_file("a.txt", "v1\n", "root");
+    test.commit_file("b.txt", "b\n", "second");
+    let head = test.commit_file("c.txt", "c\n", "third");
+
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(root), &Oid::from(head))
+            .unwrap()
+    );
+}

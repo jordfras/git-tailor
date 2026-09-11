@@ -51,6 +51,7 @@ pub(super) fn move_commit(
     if let Some(insert_after) = insert_after_oid
         && parent_count == 0
     {
+        repo.refuse_shallow_root(commit_git_oid)?;
         return move_root_to_later(
             repo,
             commit_git_oid,
@@ -67,7 +68,12 @@ pub(super) fn move_commit(
     // new root commit" (used by --all mode when the user moves a commit
     // before the first visible entry).
     let (chain_base, reordered) = match insert_after_oid {
-        None => plan_move_to_root(repo, commit_git_oid, head_git_oid)?,
+        None => {
+            // Making this commit the new root means building an orphan, which
+            // behind a graft would sever the branch just the same.
+            repo.refuse_shallow_root(commit_git_oid)?;
+            plan_move_to_root(repo, commit_git_oid, head_git_oid)?
+        }
         Some(insert_after) => plan_reorder(
             repo,
             commit_git_oid,
