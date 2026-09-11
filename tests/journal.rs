@@ -185,7 +185,7 @@ fn conflict_state_with_squash_context_round_trips() {
             base_oid: Some(Oid::from("eeeeeeee")),
             source_oid: Oid::from("ffffffff"),
             target_oid: Oid::from("11111111"),
-            combined_message: "combined".into(),
+            combined_message: b"combined".into(),
             descendant_oids: vec![Oid::from("22222222")],
             squash_mode: SquashMode::Fixup,
         }),

@@ -49,8 +49,19 @@ fn commit_with_raw_message(test: &TestRepo, parent: git2::Oid, message: &[u8]) -
         .unwrap()
         .write(git2::ObjectType::Commit, &raw)
         .unwrap();
+    // Whatever branch the fixture is on, not a hardcoded name — otherwise this
+    // lands on a sibling branch and later commits build on the wrong parent.
+    let branch = test
+        .repo
+        .head()
+        .unwrap()
+        .resolve()
+        .unwrap()
+        .name()
+        .unwrap()
+        .to_string();
     test.repo
-        .reference("refs/heads/master", oid, true, "raw commit")
+        .reference(&branch, oid, true, "raw commit")
         .unwrap();
     oid
 }
@@ -170,4 +181,92 @@ fn splitting_a_commit_whose_message_is_not_utf8_is_refused() {
         before,
         "and nothing may have moved"
     );
+}
+
+/// A fixup keeps the target's message, so it is the target's *bytes* that have
+/// to come through — not the lossy rendering the list draws.
+#[test]
+fn a_fixup_keeps_the_targets_non_utf8_message() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "1\n", "base");
+    let parent = test.commit_file("a.txt", "1\n2\n", "parent");
+    let target = commit_with_raw_message(&test, parent, LATIN1_MESSAGE);
+    let source = test.commit_file("b.txt", "b\n", "source to fold in");
+
+    let mut git_repo = test.git_repo();
+    // What a fixup passes: the target's message, read from the repository.
+    let target_message = git_repo.commit_message_bytes(&Oid::from(target)).unwrap();
+    assert_eq!(target_message, LATIN1_MESSAGE.to_vec());
+
+    assert_rebase_complete!(
+        git_repo
+            .squash_commits(
+                &Oid::from(source),
+                &Oid::from(target),
+                &target_message,
+                &Oid::from(source),
+            )
+            .unwrap()
+    );
+
+    let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
+    assert_eq!(
+        message_bytes(&test, new_head),
+        LATIN1_MESSAGE.to_vec(),
+        "the folded commit must keep the target's message byte for byte"
+    );
+    assert_eq!(
+        encoding(&test, new_head).as_deref(),
+        Some("ISO-8859-1"),
+        "and the header describing those bytes"
+    );
+}
+
+/// Rewording *to* readable text drops the `encoding` header, because the header
+/// described bytes that are no longer there.
+#[test]
+fn rewording_to_utf8_drops_the_stale_encoding_header() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "1\n", "base");
+    let parent = test.commit_file("a.txt", "1\n2\n", "parent");
+    let to_reword = commit_with_raw_message(&test, parent, LATIN1_MESSAGE);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .reword_commit(
+            &Oid::from(to_reword),
+            "plain ascii now\n".as_bytes(),
+            &Oid::from(to_reword),
+        )
+        .unwrap();
+
+    let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
+    assert_eq!(
+        message_bytes(&test, new_head),
+        b"plain ascii now\n".to_vec()
+    );
+    assert_eq!(
+        encoding(&test, new_head),
+        None,
+        "UTF-8 is git's default and needs no header"
+    );
+}
+
+/// And rewording while keeping unreadable bytes keeps the header.
+#[test]
+fn rewording_within_latin1_keeps_the_encoding_header() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "1\n", "base");
+    let parent = test.commit_file("a.txt", "1\n2\n", "parent");
+    let to_reword = commit_with_raw_message(&test, parent, LATIN1_MESSAGE);
+
+    let edited: &[u8] = b"Ny rubrik f\xf6r \xe5\xe4\xf6\n";
+    let mut git_repo = test.git_repo();
+    git_repo
+        .reword_commit(&Oid::from(to_reword), edited, &Oid::from(to_reword))
+        .unwrap();
+
+    let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
+    assert_eq!(message_bytes(&test, new_head), edited.to_vec());
+    assert_eq!(encoding(&test, new_head).as_deref(), Some("ISO-8859-1"));
 }

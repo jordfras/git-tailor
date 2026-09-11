@@ -29,7 +29,7 @@ fn squash_returns_conflict_when_source_and_target_conflict() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -63,7 +63,7 @@ fn squash_returns_conflict_when_all_three_modify_same_file() {
     let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let result = git_repo
-        .squash_commits(&Oid::from(source), &Oid::from(target), "squashed", &head)
+        .squash_commits(&Oid::from(source), &Oid::from(target), b"squashed", &head)
         .unwrap();
 
     match result {
@@ -98,7 +98,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -125,7 +125,7 @@ fn squash_with_multiple_intermediates_and_descendants() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(after2),
         )
         .unwrap();
@@ -173,7 +173,7 @@ fn squash_try_combine_returns_none_when_clean() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )
@@ -198,7 +198,7 @@ fn squash_try_combine_returns_conflict_state() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined msg",
+            b"combined msg",
             SquashMode::Squash,
             &head,
         )
@@ -212,7 +212,7 @@ fn squash_try_combine_returns_conflict_state() {
     };
     assert_eq!(ctx.source_oid, Oid::from(source));
     assert_eq!(ctx.target_oid, Oid::from(target));
-    assert_eq!(ctx.combined_message, "combined msg");
+    assert_eq!(ctx.combined_message, b"combined msg".to_vec());
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn squash_finalize_after_conflict_resolution() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )
@@ -257,13 +257,13 @@ fn squash_finalize_after_conflict_resolution() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: "combined".to_string(),
+        combined_message: b"combined".to_vec(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
+        .squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);

@@ -22,7 +22,7 @@ use crate::Oid;
 pub(super) fn reword_commit(
     repo: &mut Git2Repo,
     commit_oid: &Oid,
-    new_message: &str,
+    new_message: &[u8],
     head_oid: &Oid,
 ) -> Result<()> {
     let commit_git_oid = git2::Oid::from(commit_oid);
@@ -39,12 +39,16 @@ pub(super) fn reword_commit(
             .map(|i| commit.parent(i))
             .collect::<std::result::Result<_, _>>()?;
         let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-        repo.inner.commit(
-            None,
+        let tree = commit.tree()?;
+        repo.commit_preserving_message(
             &commit.author(),
             &commit.committer(),
             new_message,
-            &commit.tree()?,
+            // The original's `encoding` describes bytes that are no longer
+            // there once the message is valid UTF-8, which is git's default and
+            // needs no header. Keep it only while it is still true.
+            encoding_for(&commit, new_message),
+            &tree,
             &parent_refs,
         )?
     };
@@ -52,4 +56,20 @@ pub(super) fn reword_commit(
     let tip = repo.replay_descendants_conflict_free(commit_git_oid, head_git_oid, new_oid)?;
     repo.advance_branch_ref(tip, "reword: update branch ref")?;
     Ok(())
+}
+
+/// The `encoding` header a rewritten message still needs.
+///
+/// A message that is valid UTF-8 needs none — that is git's default. One that
+/// is not keeps whatever the original said, since that is the only description
+/// of those bytes anyone has.
+pub(super) fn encoding_for<'c>(
+    original: &'c git2::Commit<'_>,
+    new_message: &[u8],
+) -> Option<&'c str> {
+    if std::str::from_utf8(new_message).is_ok() {
+        None
+    } else {
+        original.message_encoding().ok().flatten()
+    }
 }

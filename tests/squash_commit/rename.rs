@@ -69,7 +69,7 @@ fn squash_across_rename_completes_without_conflict() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -87,7 +87,7 @@ fn squash_try_combine_across_rename_returns_none() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             SquashMode::Squash,
             &Oid::from(source),
         )
@@ -108,7 +108,7 @@ fn squash_across_rename_with_descendant() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(descendant),
         )
         .unwrap();
@@ -134,7 +134,7 @@ fn squash_across_rename_real_repo() {
     let head = source.clone();
 
     let result = git_repo
-        .squash_commits(&source, &target, "squashed", &head)
+        .squash_commits(&source, &target, b"squashed", &head)
         .unwrap();
 
     assert_rebase_complete!(result);

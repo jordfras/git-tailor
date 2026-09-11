@@ -72,7 +72,7 @@ pub(super) fn continue_autofixup(
 pub(super) fn continue_autofixup_after_squash_finalize(
     repo: &mut Git2Repo,
     squash_ctx: &super::super::SquashContext,
-    message: &str,
+    message: &[u8],
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
@@ -132,7 +132,7 @@ fn run_batch(
             repo,
             &pair.source_oid,
             &pair.target_oid,
-            &message,
+            message.as_bytes(),
             &current_tip,
         )? {
             RebaseOutcome::Complete => {

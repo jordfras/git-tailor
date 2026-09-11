@@ -446,8 +446,8 @@ pub(crate) fn edit_message_suspended(
     git_repo: &mut impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
-    seed: &str,
-) -> Result<String> {
+    seed: &[u8],
+) -> Result<Vec<u8>> {
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
         editor::edit_message_in_editor(git_repo, seed)

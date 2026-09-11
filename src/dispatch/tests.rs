@@ -1120,12 +1120,12 @@ fn abandoning_a_commit_source_restores_the_autostash() {
 #[test]
 fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
     assert_eq!(
-        squash_editor_seed(&commit_source(), "the target commit"),
-        "the target commit\n\nthe source commit"
+        squash_editor_seed(Some(b"the source commit"), b"the target commit"),
+        b"the target commit\n\nthe source commit".to_vec()
     );
     assert_eq!(
-        squash_editor_seed(&worktree_source(), "the target commit"),
-        "the target commit"
+        squash_editor_seed(None, b"the target commit"),
+        b"the target commit".to_vec()
     );
 }
 
@@ -1167,7 +1167,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         .squash_try_combine(
             prepared.source_oid(),
             &Oid::from("b".repeat(40)),
-            "the target commit",
+            b"the target commit",
             SquashMode::Fixup,
             prepared.head_oid(),
         )
@@ -1193,7 +1193,7 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
         .squash_try_combine(
             &Oid::from("b".repeat(40)),
             &Oid::from("c".repeat(40)),
-            "the target commit",
+            b"the target commit",
             SquashMode::Fixup,
             &Oid::from("a".repeat(40)),
         )

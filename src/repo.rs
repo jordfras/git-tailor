@@ -315,7 +315,12 @@ pub struct SquashContext {
     /// The message to use for the squash commit. For squash this is the
     /// combined (target + source) message shown in the editor; for fixup
     /// this is just the target message, used as-is without opening an editor.
-    pub combined_message: String,
+    /// Bytes, not text: a message git-tailor cannot read is still the
+    /// user's. Serialized as a string when it happens to be UTF-8, which keeps
+    /// the journal readable and lets a v2 journal written before this load
+    /// unchanged.
+    #[serde(with = "crate::domain::message_bytes")]
+    pub combined_message: Vec<u8>,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<Oid>,
     /// Whether this is a squash (editor shown) or fixup (target message kept as-is).
@@ -482,6 +487,14 @@ pub trait RepoRead {
         to_oid: &Oid,
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>>;
 
+    /// A commit's message exactly as git stores it: bytes, not text.
+    ///
+    /// [`CommitInfo::message`] is a *lossy* rendering for display. Anything
+    /// that will be written back — an editor seed, a reword, a squash — must
+    /// come from here instead, or a message git-tailor cannot read is silently
+    /// replaced by one it can.
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>>;
+
     /// Count how many commits `split_commit_per_file` would produce for this commit.
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
 
@@ -620,7 +633,8 @@ pub trait RepoWrite {
     ///
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
-    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()>;
+    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &[u8], head_oid: &Oid)
+    -> Result<()>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
     /// its parent.
@@ -830,7 +844,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &str,
+        message: &[u8],
         head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
@@ -848,7 +862,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &str,
+        combined_message: &[u8],
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<ConflictState>>;
@@ -867,7 +881,7 @@ pub trait RepoWrite {
     fn squash_finalize(
         &mut self,
         ctx: &SquashContext,
-        message: &str,
+        message: &[u8],
         original_branch_oid: &Oid,
         autofixup_context: Option<&AutofixupContext>,
     ) -> Result<RebaseOutcome>;

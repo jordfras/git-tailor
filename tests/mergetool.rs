@@ -469,7 +469,7 @@ fn stage_file_clears_conflict_for_deleted_file() {
         .squash_try_combine(
             &Oid::from(_source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )

@@ -28,7 +28,7 @@ fn squash_adjacent_commits_source_is_head() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed message",
+            b"squashed message",
             &Oid::from(source),
         )
         .unwrap();
@@ -55,7 +55,7 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -91,7 +91,7 @@ fn squash_source_not_head_rebases_later_commits() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(after),
         )
         .unwrap();
@@ -119,7 +119,7 @@ fn squash_uses_provided_message() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            custom_message,
+            custom_message.as_bytes(),
             &Oid::from(source),
         )
         .unwrap();
@@ -147,7 +147,7 @@ fn squash_preserves_target_authorship() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();

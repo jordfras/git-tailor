@@ -79,7 +79,7 @@ fn fixup_row(
         .squash_commits(
             &started.temp_oid,
             &Oid::from(target),
-            &message,
+            message.as_bytes(),
             &started.temp_oid,
         )
         .unwrap()
@@ -239,7 +239,7 @@ fn aborting_a_conflicted_fold_restores_everything() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "target commit",
+                b"target commit",
                 &started.temp_oid,
             )
             .unwrap()
@@ -282,7 +282,7 @@ fn resolving_a_conflicted_fold_completes_it() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "target commit",
+                b"target commit",
                 &started.temp_oid,
             )
             .unwrap()
@@ -298,7 +298,7 @@ fn resolving_a_conflicted_fold_completes_it() {
         panic!("expected a squash-tree conflict, got {:?}", state.resume);
     };
     let next = git_repo
-        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
         .unwrap();
 
     // Replaying the commits after the target hits the same lines, so the fold
@@ -547,7 +547,7 @@ fn the_conflict_probe_accepts_a_row_source() {
         .squash_try_combine(
             &started.temp_oid,
             &Oid::from(target),
-            "target commit\n\nfolded in",
+            b"target commit\n\nfolded in",
             git_tailor::app::SquashMode::Squash,
             &started.temp_oid,
         )
@@ -559,7 +559,7 @@ fn the_conflict_probe_accepts_a_row_source() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "target commit\n\nfolded in",
+                b"target commit\n\nfolded in",
                 &started.temp_oid,
             )
             .unwrap()
@@ -585,7 +585,7 @@ fn a_squash_folds_a_row_under_a_new_message() {
             .squash_try_combine(
                 &started.temp_oid,
                 &Oid::from(target),
-                "a message of the user's own",
+                b"a message of the user's own",
                 git_tailor::app::SquashMode::Squash,
                 &started.temp_oid,
             )
@@ -597,7 +597,7 @@ fn a_squash_folds_a_row_under_a_new_message() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "a message of the user's own",
+                b"a message of the user's own",
                 &started.temp_oid,
             )
             .unwrap()
@@ -637,7 +637,7 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "target commit",
+                b"target commit",
                 &started.temp_oid,
             )
             .unwrap()
@@ -651,7 +651,7 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
         panic!("expected a squash-tree conflict, got {:?}", state.resume);
     };
     let next = git_repo
-        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
         .unwrap();
 
     let state = expect_rebase_conflict!(next);
@@ -748,7 +748,7 @@ fn fold_until_the_carry_clashes(
             .squash_commits(
                 &lifted.temp_oid,
                 &Oid::from(target),
-                "target commit",
+                b"target commit",
                 &lifted.temp_oid,
             )
             .unwrap()
@@ -764,7 +764,7 @@ fn fold_until_the_carry_clashes(
         panic!("expected a squash-tree conflict, got {:?}", state.resume);
     };
     let mut outcome = git_repo
-        .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+        .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
         .unwrap();
     loop {
         match outcome {
@@ -981,7 +981,7 @@ fn a_fixups_clash_is_labelled_a_fixup() {
         .squash_try_combine(
             &lifted.temp_oid,
             &Oid::from(target),
-            "target commit",
+            b"target commit",
             SquashMode::Fixup,
             &lifted.temp_oid,
         )
@@ -1000,7 +1000,7 @@ fn a_fixups_clash_is_labelled_a_fixup() {
     };
     let carry = expect_rebase_conflict!(
         git_repo
-            .squash_finalize(ctx, "target commit", &state.original_branch_oid, None)
+            .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
             .unwrap()
     );
 
@@ -1174,7 +1174,7 @@ fn a_conflicted_fold_refuses_rather_than_clobber_an_untracked_file() {
     let result = git_repo.squash_commits(
         &started.temp_oid,
         &Oid::from(target),
-        "target commit",
+        b"target commit",
         &started.temp_oid,
     );
 

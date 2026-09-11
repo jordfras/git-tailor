@@ -59,6 +59,9 @@ The format is based on
   `encoding` header — survive a rewrite byte for byte instead of being
   replaced with an empty message, and no longer stop git-tailor opening the
   repository at all
+- Rewording or squashing such a commit keeps its message too. The editor is
+  now seeded with the message as git stores it rather than with a rendering
+  of it, so what you did not edit comes back unchanged
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes

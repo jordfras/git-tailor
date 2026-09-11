@@ -31,7 +31,7 @@ fn squash_commits_blocked_with_staged_changes() {
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         &Oid::from(source),
     );
 
@@ -61,7 +61,7 @@ fn squash_commits_blocked_with_unstaged_changes() {
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         &Oid::from(source),
     );
 
@@ -92,7 +92,7 @@ fn squash_try_combine_blocked_with_staged_changes() {
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         SquashMode::Squash,
         &Oid::from(source),
     );
@@ -123,7 +123,7 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         SquashMode::Squash,
         &Oid::from(source),
     );
@@ -155,7 +155,7 @@ fn squash_commits_allowed_with_staged_submodule() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -180,7 +180,7 @@ fn squash_try_combine_allowed_with_staged_submodule() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             SquashMode::Squash,
             &Oid::from(source),
         )
@@ -232,7 +232,7 @@ fn squash_abort_leaves_clean_working_tree() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &Oid::from(_base),
         )
@@ -341,7 +341,7 @@ fn a_conflicted_squash_does_not_clobber_a_colliding_untracked_file() {
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        "squashed",
+        b"squashed",
         &Oid::from(source),
     );
 

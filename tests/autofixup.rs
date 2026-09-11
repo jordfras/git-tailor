@@ -349,7 +349,10 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     let Resume::Squash(squash_ctx) = &state.resume else {
         panic!("a three-way overwrite conflicts at squash-tree time");
     };
-    assert_eq!(squash_ctx.combined_message, "Custom final message\n");
+    assert_eq!(
+        squash_ctx.combined_message,
+        b"Custom final message\n".to_vec()
+    );
 
     test.write_file("a.txt", "base\nmid version\n");
     git_repo.stage_file("a.txt").unwrap();

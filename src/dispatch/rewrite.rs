@@ -68,14 +68,24 @@ pub(crate) fn handle_prepare_reword(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let editor_result =
-        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message);
+    // The seed comes from the repository, never from `current_message`: that is
+    // the lossy rendering the list draws, and seeding the editor with it would
+    // write its replacement characters back as the message.
+    let _ = current_message;
+    let seed = match git_repo.commit_message_bytes(&commit_oid) {
+        Ok(seed) => seed,
+        Err(e) => {
+            app.set_error_message(format!("Reword failed: {e:#}"));
+            return Ok(LoopAction::Proceed);
+        }
+    };
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &seed);
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(new_message) if new_message.trim().is_empty() => {
+        Ok(new_message) if new_message.iter().all(u8::is_ascii_whitespace) => {
             app.set_success_message("Reword canceled: message is empty");
         }
-        Ok(new_message) if new_message == current_message => {
+        Ok(new_message) if new_message == seed => {
             app.set_success_message("No changes made");
         }
         Ok(new_message) => match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
@@ -103,9 +113,38 @@ pub(crate) fn handle_prepare_squash(
     };
     let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
 
-    let combined = squash_editor_seed(&source, &target_message);
+    // Seeded from the repository, not from `target_message`: that is the lossy
+    // rendering the list draws, and writing it back would replace a message
+    // git-tailor cannot read with one it can.
+    let _ = target_message;
+    let target_bytes = match git_repo.commit_message_bytes(&target_oid) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Ok(prepared.unwind(
+                git_repo,
+                app,
+                format!("{label} failed: {e:#}"),
+                LoopAction::Continue,
+            ));
+        }
+    };
+    let source_bytes = match &source {
+        SquashSource::Commit { oid, .. } => match git_repo.commit_message_bytes(oid) {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                return Ok(prepared.unwind(
+                    git_repo,
+                    app,
+                    format!("{label} failed: {e:#}"),
+                    LoopAction::Continue,
+                ));
+            }
+        },
+        SquashSource::Worktree(_) => None,
+    };
+    let combined = squash_editor_seed(source_bytes.as_deref(), &target_bytes);
     let message_for_context = if squash_mode.keeps_target_message() {
-        target_message.clone()
+        target_bytes.clone()
     } else {
         combined.clone()
     };
@@ -134,7 +173,7 @@ pub(crate) fn handle_prepare_squash(
         Ok(None) => {}
     }
     let final_message = if squash_mode.keeps_target_message() {
-        target_message
+        target_bytes
     } else {
         let editor_result =
             edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
@@ -147,7 +186,7 @@ pub(crate) fn handle_prepare_squash(
                     LoopAction::Continue,
                 ));
             }
-            Ok(msg) if msg.trim().is_empty() => {
+            Ok(msg) if msg.iter().all(u8::is_ascii_whitespace) => {
                 return Ok(prepared.unwind(
                     git_repo,
                     app,
@@ -348,10 +387,16 @@ pub(super) fn prepare_source(
 ///
 /// A working-tree row has no message of its own, so a squash from one starts
 /// from the target's alone rather than the two joined.
-pub(super) fn squash_editor_seed(source: &SquashSource, target_message: &str) -> String {
-    match source.message() {
-        Some(source_message) => format!("{target_message}\n\n{source_message}"),
-        None => target_message.to_string(),
+pub(super) fn squash_editor_seed(source_message: Option<&[u8]>, target_message: &[u8]) -> Vec<u8> {
+    match source_message {
+        Some(source_message) => {
+            let mut seed = Vec::with_capacity(target_message.len() + source_message.len() + 2);
+            seed.extend_from_slice(target_message);
+            seed.extend_from_slice(b"\n\n");
+            seed.extend_from_slice(source_message);
+            seed
+        }
+        None => target_message.to_vec(),
     }
 }
 

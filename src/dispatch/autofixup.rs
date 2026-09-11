@@ -82,9 +82,11 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
+    let editor_result =
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bytes());
     match editor_result {
         Ok(edited) => {
+            let edited = String::from_utf8_lossy(&edited).into_owned();
             let message = git_tailor::autofixup::strip_comment_lines(&edited);
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {

@@ -238,6 +238,9 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
 
+    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<Vec<u8>> {
+        Ok(b"mock message\n".to_vec())
+    }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
             Ok(self.count_per_file)
@@ -426,7 +429,7 @@ impl RepoWrite for MockRepo {
     ) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn reword_commit(&mut self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
+    fn reword_commit(&mut self, _: &Oid, _: &[u8], _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
@@ -436,7 +439,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &str,
+        _: &[u8],
         _: &Oid,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
@@ -445,11 +448,12 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        message: &str,
+        message: &[u8],
         _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
-        *self.squash_probe_message.borrow_mut() = Some(message.to_string());
+        *self.squash_probe_message.borrow_mut() =
+            Some(String::from_utf8_lossy(message).into_owned());
         match self.squash_probe {
             SquashProbe::Clean => Ok(None),
             SquashProbe::Conflict => Ok(Some(make_conflict_state())),
@@ -462,7 +466,7 @@ impl RepoWrite for MockRepo {
     fn squash_finalize(
         &mut self,
         _: &SquashContext,
-        _: &str,
+        _: &[u8],
         _: &Oid,
         _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {

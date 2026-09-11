@@ -89,10 +89,10 @@ fn multi_level_undo_redo() {
     let mut git_repo = test.git_repo();
 
     git_repo
-        .reword_commit(&Oid::from(c2), "c reworded", &Oid::from(head_oid(&test)))
+        .reword_commit(&Oid::from(c2), b"c reworded", &Oid::from(head_oid(&test)))
         .unwrap();
     git_repo
-        .reword_commit(&Oid::from(c1), "b reworded", &Oid::from(head_oid(&test)))
+        .reword_commit(&Oid::from(c1), b"b reworded", &Oid::from(head_oid(&test)))
         .unwrap();
 
     // Undo both rewords back to the original summaries.

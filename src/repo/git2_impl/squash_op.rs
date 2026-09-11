@@ -29,7 +29,7 @@ pub(super) fn squash_commits(
     repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
-    message: &str,
+    message: &[u8],
     head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     repo.check_no_dirty_state()?;
@@ -64,11 +64,11 @@ pub(super) fn squash_commits(
                     .map(|oid| repo.inner.find_commit(oid))
                     .transpose()?;
                 let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-                repo.inner.commit(
-                    None,
+                repo.commit_preserving_message(
                     &target_commit.author(),
                     &target_commit.committer(),
                     message,
+                    super::reword_op::encoding_for(&target_commit, message),
                     &combined_tree,
                     &parents,
                 )?
@@ -108,11 +108,11 @@ pub(super) fn squash_commits(
             .map(|oid| repo.inner.find_commit(oid))
             .transpose()?;
         let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-        repo.inner.commit(
-            None,
+        repo.commit_preserving_message(
             &target_commit.author(),
             &target_commit.committer(),
             message,
+            super::reword_op::encoding_for(&target_commit, message),
             &combined_tree,
             &parents,
         )?
@@ -138,7 +138,7 @@ pub(super) fn squash_try_combine(
     repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
-    combined_message: &str,
+    combined_message: &[u8],
     squash_mode: SquashMode,
     head_oid: &Oid,
 ) -> Result<Option<ConflictState>> {
@@ -184,7 +184,7 @@ pub(super) fn squash_try_combine(
 pub(super) fn squash_finalize(
     repo: &mut Git2Repo,
     ctx: &SquashContext,
-    message: &str,
+    message: &[u8],
     original_branch_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     let mut index = repo.inner.index()?;
@@ -207,11 +207,11 @@ pub(super) fn squash_finalize(
             .map(|oid| repo.inner.find_commit(git2::Oid::from(oid)))
             .transpose()?;
         let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
-        repo.inner.commit(
-            None,
+        repo.commit_preserving_message(
             &target_commit.author(),
             &target_commit.committer(),
             message,
+            super::reword_op::encoding_for(&target_commit, message),
             &combined_tree,
             &parents,
         )?
@@ -281,7 +281,7 @@ fn build_conflict_state(
     repo: &mut Git2Repo,
     cherry_index: &git2::Index,
     inputs: &SquashInputs<'_>,
-    combined_message: &str,
+    combined_message: &[u8],
     squash_mode: SquashMode,
 ) -> Result<ConflictState> {
     let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
@@ -296,7 +296,7 @@ fn build_conflict_state(
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
             target_oid: inputs.target_oid.clone(),
-            combined_message: combined_message.to_string(),
+            combined_message: combined_message.to_vec(),
             descendant_oids,
             squash_mode,
         }),

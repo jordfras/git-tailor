@@ -302,6 +302,15 @@ impl RepoRead for Git2Repo {
         reads::list_commits(self, from_oid, to_oid)
     }
 
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>> {
+        Ok(self
+            .inner
+            .find_commit(git2::Oid::from(commit_oid))
+            .context("failed to read the commit")?
+            .message_bytes()
+            .to_vec())
+    }
+
     fn commit_diff(&self, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
         reads::commit_diff(self, oid, context_lines)
     }
@@ -434,7 +443,12 @@ impl RepoWrite for Git2Repo {
         self.record_unit_undo("Split", head_oid, outcome)
     }
 
-    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &str, head_oid: &Oid) -> Result<()> {
+    fn reword_commit(
+        &mut self,
+        commit_oid: &Oid,
+        new_message: &[u8],
+        head_oid: &Oid,
+    ) -> Result<()> {
         let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
         self.record_unit_undo("Reword", head_oid, outcome)
     }
@@ -584,7 +598,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &str,
+        message: &[u8],
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         let outcome = squash_op::squash_commits(self, source_oid, target_oid, message, head_oid);
@@ -606,7 +620,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &str,
+        combined_message: &[u8],
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
@@ -629,7 +643,7 @@ impl RepoWrite for Git2Repo {
     fn squash_finalize(
         &mut self,
         ctx: &super::SquashContext,
-        message: &str,
+        message: &[u8],
         original_branch_oid: &Oid,
         autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {

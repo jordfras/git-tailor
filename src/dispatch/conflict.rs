@@ -95,7 +95,7 @@ pub(crate) fn handle_rebase_continue(
                     app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
-                Ok(msg) if msg.trim().is_empty() => {
+                Ok(msg) if msg.iter().all(u8::is_ascii_whitespace) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;

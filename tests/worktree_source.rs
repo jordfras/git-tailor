@@ -623,7 +623,7 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
     // An earlier, completed operation to have some history worth keeping.
     let head = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&Oid::from(second), "second reworded", &head)
+        .reword_commit(&Oid::from(second), b"second reworded", &head)
         .unwrap();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
@@ -937,7 +937,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "second",
+                b"second",
                 &started.temp_oid,
             )
             .unwrap()
@@ -977,7 +977,7 @@ fn redo_refuses_once_the_index_has_moved_on() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "second",
+                b"second",
                 &started.temp_oid,
             )
             .unwrap()

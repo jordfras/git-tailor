@@ -158,6 +158,9 @@ impl RepoRead for StubRepo {
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
+    fn commit_message_bytes(&self, _commit_oid: &Oid) -> Result<Vec<u8>> {
+        unimplemented!()
+    }
     fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }
