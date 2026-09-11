@@ -255,6 +255,12 @@ pub(super) fn write_conflicts_to_workdir(
     onto_oid: git2::Oid,
     state: &ConflictState,
 ) -> Result<()> {
+    // Before the write-ahead record and the ref move: a conflict is still a
+    // checkout over the working tree, and refusing here leaves the branch, the
+    // index and the files exactly as they were. The merge is recomputed on the
+    // retry, which costs nothing anyone can measure.
+    repo.refuse_index_collisions(cherry_index)?;
+
     // Write-ahead: record the in-progress operation before mutating anything.
     super::journal::set_in_progress(repo, &InProgress::Conflict(Box::new(state.clone())))?;
 

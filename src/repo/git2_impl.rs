@@ -14,6 +14,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
@@ -903,7 +904,11 @@ impl Git2Repo {
         from_tree: git2::Oid,
         to_tree: git2::Oid,
     ) -> Result<()> {
-        let files = self.untracked_collisions(from_tree, to_tree)?;
+        Self::refuse(self.untracked_collisions(from_tree, to_tree)?)
+    }
+
+    /// Turn a collision list into the refusal the user sees.
+    fn refuse(files: Vec<String>) -> Result<()> {
         if !files.is_empty() {
             anyhow::bail!(
                 "This would overwrite untracked files: {}. \
@@ -924,9 +929,6 @@ impl Git2Repo {
         from_tree: git2::Oid,
         to_tree: git2::Oid,
     ) -> Result<Vec<String>> {
-        let Some(workdir) = self.inner.workdir() else {
-            return Ok(Vec::new());
-        };
         let from = self
             .inner
             .find_tree(from_tree)
@@ -940,15 +942,51 @@ impl Git2Repo {
             .diff_tree_to_tree(Some(&from), Some(&to), None)
             .context("failed to diff for untracked collisions")?;
 
+        // Only what the target *adds* can land on an untracked file; anything
+        // already tracked is the dirty guard's business.
+        let incoming: Vec<(PathBuf, git2::Oid)> = diff
+            .deltas()
+            .filter(|delta| delta.status() == git2::Delta::Added)
+            .filter_map(|delta| {
+                delta
+                    .new_file()
+                    .path()
+                    .map(|path| (path.to_path_buf(), delta.new_file().id()))
+            })
+            .collect();
+        self.collisions_among(incoming)
+    }
+
+    /// Untracked working-tree content that checking `incoming` out would
+    /// overwrite.
+    ///
+    /// The index form of [`Self::untracked_collisions`], for the conflict
+    /// writes: a half-finished merge is an index, not a tree, so there is no
+    /// target tree to diff against. Every path the index names is a candidate;
+    /// the ones already in the current index drop out immediately, which leaves
+    /// the handful the operation is reintroducing.
+    pub(super) fn refuse_index_collisions(&self, incoming: &git2::Index) -> Result<()> {
+        let candidates: Vec<(PathBuf, git2::Oid)> = incoming
+            .iter()
+            .filter_map(|entry| {
+                String::from_utf8(entry.path)
+                    .ok()
+                    .map(|path| (PathBuf::from(path), entry.id))
+            })
+            .collect();
+        Self::refuse(self.collisions_among(candidates)?)
+    }
+
+    /// The shared body: of the paths a checkout is about to write, which ones
+    /// have untracked work of the user's sitting at them.
+    fn collisions_among(&self, incoming: Vec<(PathBuf, git2::Oid)>) -> Result<Vec<String>> {
+        let Some(workdir) = self.inner.workdir() else {
+            return Ok(Vec::new());
+        };
         let index = self.inner.index().context("failed to open index")?;
         let mut collisions = Vec::new();
-        for delta in diff.deltas() {
-            if delta.status() != git2::Delta::Added {
-                continue;
-            }
-            let Some(path) = delta.new_file().path() else {
-                continue;
-            };
+        for (path, blob) in incoming {
+            let path = path.as_path();
             if index.get_path(path, 0).is_some() {
                 continue;
             }
@@ -974,7 +1012,7 @@ impl Git2Repo {
                 // relieved of it.
                 Ok(_) => {
                     if !git2::Oid::hash_file(git2::ObjectType::Blob, &full)
-                        .is_ok_and(|oid| oid == delta.new_file().id())
+                        .is_ok_and(|oid| oid == blob)
                     {
                         collisions.push(path.display().to_string());
                     }

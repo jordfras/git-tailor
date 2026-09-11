@@ -228,6 +228,10 @@ pub(super) enum Settled {
 /// The caller journals the conflict first — a crash between the two would
 /// otherwise leave markers on disk with nothing recording why they are there.
 pub(super) fn write_clash(repo: &mut Git2Repo, merged: &git2::Index) -> Result<()> {
+    // Before the index is touched, for the same reason the chain's conflict
+    // write checks first: this ends in a checkout over the working tree.
+    repo.refuse_index_collisions(merged)?;
+
     let mut index = repo.inner.index().context("failed to open index")?;
     index.clear().context("failed to clear the index")?;
     for entry in merged.iter() {

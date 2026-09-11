@@ -45,6 +45,9 @@ The format is based on
   Cancelling, aborting, or recovering an interrupted edit cleared every
   untracked file in the repository, not just what the edit itself had put
   there
+- A rewrite that stops on a conflict is held to the same rule. Writing the
+  half-finished merge out for you to resolve is still a checkout, and it used
+  to go over an untracked file at a reintroduced path without a word
 - Aborting a conflicted operation no longer deletes untracked files. The
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes
