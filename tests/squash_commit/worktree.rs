@@ -1075,3 +1075,122 @@ fn aborting_a_clashing_carry_puts_the_fold_back() {
     ));
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
+
+/// The collision shape, run through the fold.
+///
+/// The fold has no dirty guard at all — operating on a dirty tree is the whole
+/// point of it — so its three working-tree writes (`restore`, `finish`, and the
+/// clash write) had nothing standing between them and an untracked file. I could
+/// not construct a case where they actually reach one: every tree they check out
+/// is a snapshot of the user's own index and working tree, and an untracked path
+/// is by definition not in the index.
+///
+/// These pin the guarantee rather than the mechanism. If the fold's trees ever
+/// start naming a path the user has, the guard now inside `reset_worktree`
+/// refuses and the file survives; if they never do, the file survives anyway.
+/// Either way these fail the day it stops being true.
+#[test]
+fn a_fold_leaves_a_colliding_untracked_file_alone() {
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("base.txt", "base\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let target = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "target commit");
+    test.delete_file("notes.txt", "delete notes");
+
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "b2\n");
+    // Untracked, at the path an earlier commit deleted.
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let outcome = fixup_row(&mut git_repo, WorktreeSource::Staged, target);
+
+    assert_rebase_complete!(outcome);
+    assert_eq!(
+        workdir(&test, "notes.txt"),
+        "my local scratch\n",
+        "the fold must leave the untracked file exactly as the user wrote it"
+    );
+}
+
+/// Same, on the way back out: aborting a fold puts the snapshot back over the
+/// working tree.
+#[test]
+fn aborting_a_fold_leaves_a_colliding_untracked_file_alone() {
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("base.txt", "base\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "target commit");
+    test.delete_file("notes.txt", "delete notes");
+
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "b2\n");
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(workdir(&test, "notes.txt"), "my local scratch\n");
+
+    git_repo.restore_lifted_row(&lifted).unwrap();
+
+    assert_eq!(
+        workdir(&test, "notes.txt"),
+        "my local scratch\n",
+        "unwinding a fold must leave the untracked file alone"
+    );
+    assert_eq!(workdir(&test, "a.txt"), "a2\n");
+    assert_eq!(workdir(&test, "b.txt"), "b2\n");
+}
+
+/// And through a conflicted fold, which reaches the working tree by a third
+/// route again — the conflict write.
+///
+/// This one is reachable, unlike the two above: the merge is rooted in the
+/// target commit's tree, so it carries every path that commit had, including
+/// one a later commit deleted and the user has since taken for themselves. It
+/// refuses, and the fold is still unwindable afterwards.
+#[test]
+fn a_conflicted_fold_refuses_rather_than_clobber_an_untracked_file() {
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("a.txt", "one\ntwo\n", "base");
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let target = test.commit_file("a.txt", "one\nTARGET\n", "target commit");
+    test.commit_file("a.txt", "one\nLATER\n", "later commit");
+    test.delete_file("notes.txt", "delete notes");
+
+    test.write_file("a.txt", "one\nWIP\n");
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let started = git_repo
+        .lift_worktree_row(WorktreeSource::Unstaged)
+        .unwrap()
+        .expect("the unstaged row has changes");
+    let result = git_repo.squash_commits(
+        &started.temp_oid,
+        &Oid::from(target),
+        "target commit",
+        &started.temp_oid,
+    );
+
+    assert!(
+        result.is_err(),
+        "the fold's conflict write must refuse: {result:?}"
+    );
+    assert_eq!(
+        workdir(&test, "notes.txt"),
+        "my local scratch\n",
+        "and leave the untracked file exactly as the user wrote it"
+    );
+
+    // A refusal mid-fold is not a dead end: the lift is still on the branch and
+    // still recorded, so the fold unwinds the ordinary way.
+    git_repo.restore_lifted_row(&started).unwrap();
+    assert_eq!(workdir(&test, "notes.txt"), "my local scratch\n");
+    assert_eq!(workdir(&test, "a.txt"), "one\nWIP\n");
+}
