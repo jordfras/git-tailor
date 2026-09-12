@@ -159,13 +159,19 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     // Captured before the ref moves: this is the tree the working tree reflects
     // right now, whether that is the temporary commit or a half-built rewrite.
     let current = head_tree_id(repo)?;
+    let worktree_tree = git2::Oid::from(&snapshot.worktree_tree);
+
+    // Before the ref moves, so a refusal leaves the fold in progress and
+    // re-abortable rather than half-unwound.
+    repo.refuse_untracked_collisions(current, worktree_tree)?;
+
     repo.advance_branch_ref(
         git2::Oid::from(&snapshot.tip_before),
         "git-tailor: abort working-tree squash",
     )?;
     repo.reset_worktree(WorktreeReset {
         from_tree: current,
-        worktree_tree: git2::Oid::from(&snapshot.worktree_tree),
+        worktree_tree,
         index_tree: git2::Oid::from(&snapshot.index_tree_before),
     })?;
     journal::set_worktree_source(repo, None)?;

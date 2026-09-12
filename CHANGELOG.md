@@ -96,6 +96,11 @@ The format is based on
   reapplies the auto-stash anyway. It used to, onto a tree the stash no
   longer matched, producing conflicts that had nothing to do with the
   original problem
+- Aborting a squash sourced from a staged or unstaged row no longer rewinds
+  the branch when the restore is refused for a real untracked-file collision.
+  It used to move the branch back first and only then discover the
+  collision, leaving it pointing at the pre-fold tip with the working tree
+  and journal still reflecting the in-progress fold
 
 
 ## [3.0.0] - 2026-09-06
