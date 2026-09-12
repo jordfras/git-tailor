@@ -468,8 +468,7 @@ impl RepoWrite for Git2Repo {
         // A paused conflict left a particular branch on a particular tip.
         // Either having changed means resuming would rewrite something nobody
         // asked it to.
-        self.refuse_if_branch_switched(&state.branch_refname)?;
-        self.refuse_if_branch_moved(&state.new_tip_oid)?;
+        self.refuse_if_conflict_branch_moved(state)?;
         // A carry conflict is not a rebase step: the history it belongs to is
         // already written, and what is left settles the working tree and records
         // the fold's undo entry itself, so it does not go through `journaled`.
@@ -487,8 +486,7 @@ impl RepoWrite for Git2Repo {
     fn rebase_abort(&mut self, state: &super::ConflictState) -> Result<()> {
         // Same as resuming: an abort writes the rewind to a branch, and it must
         // be the branch the conflict is on, still where it was left.
-        self.refuse_if_branch_switched(&state.branch_refname)?;
-        self.refuse_if_branch_moved(&state.new_tip_oid)?;
+        self.refuse_if_conflict_branch_moved(state)?;
         // A squash sourced from a working-tree row has a temporary commit below
         // the conflict, holding changes the generic reset knows nothing about.
         // The snapshot rewinds past both, exactly — but only when the operation
@@ -646,8 +644,7 @@ impl RepoWrite for Git2Repo {
         // journal's own record of it instead — set by squash_try_combine (or
         // squash_commits, on a descendant conflict) at the moment it paused.
         if let Some(super::InProgress::Conflict(state)) = journal::in_progress(self)? {
-            self.refuse_if_branch_switched(&state.branch_refname)?;
-            self.refuse_if_branch_moved(&state.new_tip_oid)?;
+            self.refuse_if_conflict_branch_moved(&state)?;
         }
         if let Some(autofixup_ctx) = autofixup_context {
             let outcome = autofixup_op::continue_autofixup_after_squash_finalize(
@@ -977,6 +974,18 @@ impl Git2Repo {
             actual.short(),
             expected.short()
         )
+    }
+
+    /// Refuse to resume or abort a paused conflict when the branch it belongs
+    /// to is no longer where it was left — switched away from, or moved on by
+    /// something else. The two checks always travel together: a tip match on
+    /// the wrong branch is coincidence, not permission.
+    pub(super) fn refuse_if_conflict_branch_moved(
+        &self,
+        state: &super::ConflictState,
+    ) -> Result<()> {
+        self.refuse_if_branch_switched(&state.branch_refname)?;
+        self.refuse_if_branch_moved(&state.new_tip_oid)
     }
 
     /// Refuse to treat `commit` as a root when it is only one by accident of a
