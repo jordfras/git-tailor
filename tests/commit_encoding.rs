@@ -222,6 +222,39 @@ fn a_fixup_keeps_the_targets_non_utf8_message() {
     );
 }
 
+/// Bulk autofixup builds its default message from the same commit list the
+/// summary-matching planner uses to find pairs — which is lossy by design,
+/// since it is otherwise only ever shown, never written. The fixup/squash
+/// commit's *summary* still has to be plain text for matching to work, but a
+/// squash also folds in the rest of its message, which is free to be raw
+/// bytes.
+#[test]
+fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "1\n", "base");
+    let target = test.commit_file("a.txt", "1\n2\n", "Add target line");
+    let source_message: &[u8] = b"squash! Add target line\n\nBody f\xf6r \xe5\xe4\xf6.\n";
+    let source = commit_with_raw_message(&test, target, source_message);
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    assert_eq!(head_oid, Oid::from(source));
+
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &Default::default())
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
+    let combined = message_bytes(&test, new_head);
+    assert!(
+        combined
+            .windows(source_message.len())
+            .any(|w| w == source_message),
+        "the folded commit must carry the source's body byte for byte: {combined:?}"
+    );
+}
+
 /// Rewording *to* readable text drops the `encoding` header, because the header
 /// described bytes that are no longer there.
 #[test]
