@@ -101,6 +101,10 @@ The format is based on
   It used to move the branch back first and only then discover the
   collision, leaving it pointing at the pre-fold tip with the working tree
   and journal still reflecting the in-progress fold
+- A leftover auto-stash from an earlier crash that fails to restore at
+  startup is now reported instead of passing in silence. Only a conflicting
+  reapply was surfaced before; an outright restore failure looked like a
+  clean start while the stashed work stayed stuck in `git stash list`
 
 
 ## [3.0.0] - 2026-09-06

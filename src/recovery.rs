@@ -140,15 +140,23 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !edit_abort_failed
-        && !matches!(app.mode, AppMode::RecoverConfirm(_))
-        && let Ok(AutostashRestore::Conflict { files }) = git_repo.autostash_restore()
-    {
-        app.enter_stash_conflict(StashConflictState {
-            operation_label: "the operation".to_string(),
-            conflicting_files: files,
-            still_unresolved: false,
-        });
+    if !edit_abort_failed && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+        match git_repo.autostash_restore() {
+            Ok(AutostashRestore::Done) => {}
+            Ok(AutostashRestore::Conflict { files }) => {
+                app.enter_stash_conflict(StashConflictState {
+                    operation_label: "the operation".to_string(),
+                    conflicting_files: files,
+                    still_unresolved: false,
+                });
+            }
+            Err(e) => {
+                app.set_error_message(format!(
+                    "Failed to restore auto-stashed changes from an earlier run: {e:#}. \
+                     They remain in `git stash list`"
+                ));
+            }
+        }
     }
 }
 
