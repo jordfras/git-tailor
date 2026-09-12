@@ -105,6 +105,11 @@ The format is based on
   startup is now reported instead of passing in silence. Only a conflicting
   reapply was surfaced before; an outright restore failure looked like a
   clean start while the stashed work stayed stuck in `git stash list`
+- Moving an ordinary commit to the very beginning of the branch (`--all`
+  mode, inserting before the first visible entry) is no longer refused just
+  because the repository happens to be a shallow clone. Only moving the
+  graft boundary itself is refused now; every other commit was wrongly
+  caught by the same check before
 
 
 ## [3.0.0] - 2026-09-06

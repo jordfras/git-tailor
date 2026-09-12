@@ -70,9 +70,15 @@ pub(super) fn move_commit(
     // before the first visible entry).
     let (chain_base, reordered) = match insert_after_oid {
         None => {
-            // Making this commit the new root means building an orphan, which
-            // behind a graft would sever the branch just the same.
-            repo.refuse_shallow_root(commit_git_oid)?;
+            // Only refuse when this commit already presents as a root: an
+            // ordinary commit becoming the new root is discarding a parent
+            // git-tailor can see, the user's own choice, not the graft
+            // mistaking a boundary for one. A commit that already reports no
+            // parents locally, though, is exactly the case the graft can lie
+            // about.
+            if parent_count == 0 {
+                repo.refuse_shallow_root(commit_git_oid)?;
+            }
             plan_move_to_root(repo, commit_git_oid, head_git_oid)?
         }
         Some(insert_after) => plan_reorder(
