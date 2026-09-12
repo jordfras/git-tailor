@@ -65,6 +65,9 @@ The format is based on
   of it, so what you did not edit comes back unchanged. Bulk autofixup
   (`F`) is held to the same rule when it combines or carries a message forward
   on its own
+- Committing staged changes no longer corrupts a message that is not valid
+  UTF-8 as you type it. It used to be re-encoded before the commit was even
+  created, replacing your own bytes with replacement characters
 - Only one git-tailor runs in a working tree at a time. A second one started
   while the first sat on a conflict dialog read that paused operation as a
   crash and offered to recover it, rewinding the branch under the instance
