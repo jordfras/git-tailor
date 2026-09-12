@@ -263,11 +263,20 @@ Guidelines:
   judged as one piece by someone not holding the numbers in their head. Render
   with `demo/build.sh video`; the pacing levers and what each is worth are in
   `demo/promo/README.md`.
-- [ ] T239 P2 human - Publish the promo video and link it from `README.md`
+- [X] T239 P2 human - Publish the promo video and link it from `README.md`
   (Flags: HUMAN TASK). Upload to YouTube, then link it as a **clickable
   thumbnail** — an image wrapped in a link. Do not embed `<video>` or an MP4:
   GitHub sanitises the tag out of rendered Markdown and crates.io ignores it, so
   an embed silently degrades to nothing on both.
+  Done, minus the thumbnail: the video is published and the README's "## Videos"
+  section links the playlist. The thumbnail requirement predates the decision to
+  publish a *playlist* — a stable address, with individual videos replaced rather
+  than updated when the interface changes — and was dropped rather than met. Not
+  because a thumbnail would go stale: a committed local image wrapped in the
+  playlist URL would not, only hotlinking `img.youtube.com/vi/<id>/…` would. It
+  was dropped because the README already opens with `doc/demo.gif`, and a static
+  thumbnail a few lines below would compete with an animated demo doing the same
+  job better.
 
 ## Build & CI
 - [X] T118 P2 feat - Set up GitHub Releases with pre-built binaries: create
