@@ -59,19 +59,7 @@ pub(crate) fn handle_execute_edit(
             })?;
         if let Err(e) = shell_result {
             // The shell could not even be launched — abort so the branch is restored.
-            let restored = git_repo.abort_edit();
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(match restored {
-                Ok(()) => format!("Edit failed: {e:#}"),
-                // The restore can legitimately refuse — an untracked file
-                // standing where the original tip has a tracked one. Reporting
-                // only the shell failure would leave the user parked on the
-                // edited commit with nothing explaining why.
-                Err(restore_err) => format!(
-                    "Edit failed: {e:#} — and the branch could not be restored: {restore_err:#}"
-                ),
-            });
-            return Ok(LoopAction::Reload);
+            return Ok(handle_shell_launch_failure(git_repo, app, e));
         }
         dirty = git_repo.is_worktree_dirty().unwrap_or(false);
         if !dirty {
@@ -81,6 +69,28 @@ pub(crate) fn handle_execute_edit(
 
     let outcome = git_repo.finish_edit(&commit_oid);
     Ok(handle_edit_outcome(git_repo, app, outcome))
+}
+
+/// The shell that edits a commit could not even be launched. Abort so the
+/// branch is restored, then restore the auto-stash on top of it.
+pub(crate) fn handle_shell_launch_failure(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    shell_error: anyhow::Error,
+) -> LoopAction {
+    let restored = git_repo.abort_edit();
+    let _ = git_repo.autostash_restore();
+    app.set_error_message(match &restored {
+        Ok(()) => format!("Edit failed: {shell_error:#}"),
+        // The restore can legitimately refuse — an untracked file standing
+        // where the original tip has a tracked one. Reporting only the shell
+        // failure would leave the user parked on the edited commit with
+        // nothing explaining why.
+        Err(restore_err) => format!(
+            "Edit failed: {shell_error:#} — and the branch could not be restored: {restore_err:#}"
+        ),
+    });
+    LoopAction::Reload
 }
 
 fn handle_edit_outcome(

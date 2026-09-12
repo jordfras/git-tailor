@@ -45,6 +45,9 @@ pub(crate) struct MockRepo {
     /// Counts `autostash_save` invocations so tests can assert the working-tree-
     /// preserving undo/redo paths skip the stash dance.
     pub(crate) autostash_save_calls: std::cell::Cell<usize>,
+    /// Counts `autostash_restore` invocations, so a test can assert it was
+    /// *not* called when the branch was never rewound back to its base.
+    pub(crate) autostash_restore_calls: std::cell::Cell<usize>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
@@ -142,6 +145,7 @@ impl Default for MockRepo {
             undo_skips_autostash: false,
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
+            autostash_restore_calls: std::cell::Cell::new(0),
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
@@ -389,6 +393,8 @@ impl RepoWrite for MockRepo {
         Ok(())
     }
     fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {
+        self.autostash_restore_calls
+            .set(self.autostash_restore_calls.get() + 1);
         if self.autostash_restore_errs {
             anyhow::bail!("stash apply failed");
         }
