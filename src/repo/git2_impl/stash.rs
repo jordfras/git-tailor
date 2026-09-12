@@ -222,22 +222,22 @@ impl Git2Repo {
         self.refuse_if_branch_switched(&record.branch_refname)?;
         let discarded_tip = reads::head_oid(self)?;
 
-        // A hard reset writes the whole tip's tree out, so it reintroduces every
-        // path the operation removed — checked before anything moves.
-        let pre = git2::Oid::from(&record.pre_op_tip);
-        let pre_tree = self
-            .inner
-            .find_commit(pre)?
-            .tree()
-            .context("failed to read the pre-operation tree")?
-            .id();
-        self.refuse_tree_collisions(pre_tree)?;
-
-        // Hard-reset to the pre-operation tip, discarding the conflicted reapply
-        // (and the operation's commits) in one step. Scope the commit so its
-        // borrow of `self.inner` is released before the stash mutations below.
+        // Scoped: the commit's borrow of `self.inner` must end before the
+        // stash mutations below, which need it mutably.
         {
+            let pre = git2::Oid::from(&record.pre_op_tip);
             let pre_commit = self.inner.find_commit(pre)?;
+
+            // A hard reset writes the whole tip's tree out, so it reintroduces
+            // every path the operation removed — checked before anything moves.
+            let pre_tree = pre_commit
+                .tree()
+                .context("failed to read the pre-operation tree")?
+                .id();
+            self.refuse_tree_collisions(pre_tree)?;
+
+            // Hard-reset to the pre-operation tip, discarding the conflicted
+            // reapply (and the operation's commits) in one step.
             self.inner
                 .reset(pre_commit.as_object(), git2::ResetType::Hard, None)?;
         }
