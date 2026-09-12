@@ -247,15 +247,16 @@ pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<PathBuf> {
 /// Return paths with conflict (non-zero) stages from a specific index. Lets
 /// callers read conflicts from an in-memory merge index before it is written
 /// to the on-disk index.
+///
+/// Not `String::from_utf8`: dropping a non-UTF-8 path here means "no
+/// conflicts" is reported while one is still on disk.
 pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<PathBuf> {
     let mut paths: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
         let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0
-            && let Ok(p) = std::str::from_utf8(&entry.path)
-        {
-            paths.insert(PathBuf::from(p));
+        if stage > 0 {
+            paths.insert(super::bytes_to_path(&entry.path));
         }
     }
     paths.into_iter().collect()

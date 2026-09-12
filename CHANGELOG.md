@@ -79,6 +79,10 @@ The format is based on
   cleanup that removes what the conflict wrote took every untracked file with
   it, including notes you wrote while the operation sat paused; it now removes
   only the files the operation itself introduced
+- A non-UTF-8 path left as an unresolved conflict is no longer treated as if
+  everything were resolved. `--autostash` used to report the reapply as done
+  and drop the stash while real conflict markers were still on disk under
+  that path
 
 
 ## [3.0.0] - 2026-09-06
