@@ -592,6 +592,53 @@ fn autostash_conflict_abort_rewinds_whole_operation() {
     ));
 }
 
+/// HEAD moved to another branch while an autostash reapply sat conflicted.
+/// Aborting used to hard-reset whatever branch HEAD now pointed at back to
+/// the pre-operation tip, discarding anything on that unrelated branch.
+#[test]
+fn autostash_conflict_abort_refuses_after_head_moved_to_another_branch() {
+    let test = common::TestRepo::new();
+    let (base, c1) = setup_restore_conflict(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // A different branch, pointing somewhere else entirely.
+    let elsewhere = test.repo.find_commit(base).unwrap();
+    test.repo.branch("side", &elsewhere, false).unwrap();
+    let side_before = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    test.repo.set_head("refs/heads/side").unwrap();
+
+    let result = git_repo.autostash_conflict_abort();
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    let side_after = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    assert_eq!(
+        side_before, side_after,
+        "the unrelated branch must not be rewritten"
+    );
+}
+
 /// Regression: a *same-size* unstaged edit must survive an autostash round-trip.
 ///
 /// `setup_dirty_repo` edits `u.txt` from "u0\n" to "u1\n" — both 3 bytes. When
