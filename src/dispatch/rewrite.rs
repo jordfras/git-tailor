@@ -21,7 +21,9 @@ use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
 use git_tailor::repo::{GitRepo, LiftedRow};
 
-use crate::dispatch::{LoopAction, edit_message_suspended, handle_rebase_outcome};
+use crate::dispatch::{
+    LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
+};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 pub(crate) fn handle_execute_drop(
@@ -80,7 +82,7 @@ pub(crate) fn handle_prepare_reword(
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &seed);
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(new_message) if new_message.iter().all(u8::is_ascii_whitespace) => {
+        Ok(new_message) if is_blank_message(&new_message) => {
             app.set_success_message("Reword canceled: message is empty");
         }
         Ok(new_message) if new_message == seed => {
@@ -181,7 +183,7 @@ pub(crate) fn handle_prepare_squash(
                     LoopAction::Continue,
                 ));
             }
-            Ok(msg) if msg.iter().all(u8::is_ascii_whitespace) => {
+            Ok(msg) if is_blank_message(&msg) => {
                 return Ok(prepared.unwind(
                     git_repo,
                     app,

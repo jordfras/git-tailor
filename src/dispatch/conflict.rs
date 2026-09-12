@@ -23,7 +23,7 @@ use git_tailor::{editor, mergetool};
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_rebase_outcome,
-    settle_autostash,
+    is_blank_message, settle_autostash,
 };
 use crate::external_tool::with_tui_suspended;
 
@@ -95,7 +95,7 @@ pub(crate) fn handle_rebase_continue(
                     app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
-                Ok(msg) if msg.iter().all(u8::is_ascii_whitespace) => {
+                Ok(msg) if is_blank_message(&msg) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;

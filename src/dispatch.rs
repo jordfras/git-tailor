@@ -426,6 +426,13 @@ pub(crate) fn settle_autostash_after_failure(
     }
 }
 
+/// Whether an edited commit message is empty once ASCII whitespace is
+/// trimmed from both ends — the signal to cancel the operation rather than
+/// write a message nobody typed.
+pub(crate) fn is_blank_message(message: &[u8]) -> bool {
+    message.trim_ascii().is_empty()
+}
+
 /// Suspend the TUI and run the user's `$EDITOR` seeded with `seed`, returning the
 /// edited message. Either failure — suspending/restoring the TUI, or the editor
 /// process itself — comes back as `Err` for the caller to show; neither is

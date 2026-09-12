@@ -19,7 +19,7 @@ use anyhow::Result;
 use git_tailor::app::AppState;
 use git_tailor::repo::{CommitOutcome, GitRepo};
 
-use crate::dispatch::{LoopAction, edit_message_suspended, report_stage_outcome};
+use crate::dispatch::{LoopAction, edit_message_suspended, is_blank_message, report_stage_outcome};
 
 pub(crate) fn handle_stage_all(
     git_repo: &mut impl GitRepo,
@@ -58,7 +58,7 @@ pub(crate) fn handle_commit_staged(
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, b"");
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(message) if message.iter().all(u8::is_ascii_whitespace) => {
+        Ok(message) if is_blank_message(&message) => {
             app.set_success_message("Commit canceled: message is empty");
         }
         Ok(message) => match git_repo.commit_staged(&message) {
