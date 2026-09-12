@@ -261,7 +261,10 @@ fn parse_squash_inputs<'a>(
             anyhow::bail!("Cannot squash into a merge commit");
         }
         match target_commit.parent_count() {
-            0 => None,
+            0 => {
+                repo.refuse_shallow_root(target_git_oid)?;
+                None
+            }
             _ => Some(target_commit.parent_id(0)?),
         }
     };

@@ -70,7 +70,7 @@ The format is based on
 - In a shallow clone, rewriting the oldest fetched commit is refused instead
   of silently cutting the branch off from the history behind the graft. That
   commit reports no parents locally but has plenty upstream, and every
-  "is this the root?" test believed it
+  "is this the root?" test believed it — squashing into it now included
 - An operation is refused when the repository moved after the commit list was
   read — something else committed, or HEAD was switched to another branch.
   A rewrite used to force-write the branch anyway, discarding a commit made
