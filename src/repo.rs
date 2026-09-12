@@ -786,7 +786,7 @@ pub trait RepoWrite {
     /// operation whose undo is a soft reset (the committed changes reappear as
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
-    fn commit_staged(&mut self, message: &str) -> Result<CommitOutcome>;
+    fn commit_staged(&mut self, message: &[u8]) -> Result<CommitOutcome>;
 
     /// Lift the staged or unstaged working-tree changes into a temporary commit
     /// on top of HEAD, so the squash machinery can take them as its source.

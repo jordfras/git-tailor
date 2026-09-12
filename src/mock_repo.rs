@@ -345,7 +345,7 @@ impl RepoWrite for MockRepo {
     fn unstage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
-    fn commit_staged(&mut self, _: &str) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
+    fn commit_staged(&mut self, _: &[u8]) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
         if self.stage_ok {
             Ok(if self.stage_changed {
                 git_tailor::repo::CommitOutcome::Committed

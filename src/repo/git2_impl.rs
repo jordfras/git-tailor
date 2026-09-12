@@ -553,7 +553,7 @@ impl RepoWrite for Git2Repo {
         self.journaled_index_op("Unstage all", stage_op::unstage_all)
     }
 
-    fn commit_staged(&mut self, message: &str) -> Result<super::CommitOutcome> {
+    fn commit_staged(&mut self, message: &[u8]) -> Result<super::CommitOutcome> {
         let before = reads::head_oid(self)?;
         match commit_staged_op::commit_staged(self, message)? {
             None => Ok(super::CommitOutcome::NothingStaged),

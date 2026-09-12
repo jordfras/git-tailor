@@ -61,7 +61,7 @@ pub(crate) fn handle_commit_staged(
         Ok(message) if message.iter().all(u8::is_ascii_whitespace) => {
             app.set_success_message("Commit canceled: message is empty");
         }
-        Ok(message) => match git_repo.commit_staged(&String::from_utf8_lossy(&message)) {
+        Ok(message) => match git_repo.commit_staged(&message) {
             Ok(CommitOutcome::Committed) => {
                 app.set_success_message("Committed staged changes");
                 return Ok(LoopAction::Reload);

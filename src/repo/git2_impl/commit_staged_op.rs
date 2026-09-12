@@ -24,7 +24,7 @@ use crate::Oid;
 /// Commit whatever is staged in the index with `message`, using the current HEAD
 /// as the sole parent. Returns the new commit OID, or `None` when nothing is
 /// staged (the index tree equals HEAD's tree).
-pub(super) fn commit_staged(repo: &mut Git2Repo, message: &str) -> Result<Option<Oid>> {
+pub(super) fn commit_staged(repo: &mut Git2Repo, message: &[u8]) -> Result<Option<Oid>> {
     let (parent_oid, head_tree_oid) = {
         let parent = repo
             .inner
@@ -63,7 +63,14 @@ pub(super) fn commit_staged(repo: &mut Git2Repo, message: &str) -> Result<Option
             .find_commit(parent_oid)
             .context("failed to read HEAD commit")?;
         repo.inner
-            .commit(None, &sig, &sig, message, &tree, &[&parent])
+            .commit(
+                None,
+                &sig,
+                &sig,
+                &String::from_utf8_lossy(message),
+                &tree,
+                &[&parent],
+            )
             .context("failed to create commit")?
     };
     repo.advance_branch_ref(new_oid, "git-tailor: commit staged changes")?;
