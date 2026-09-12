@@ -164,17 +164,9 @@ fn remove_conflict_debris(
         if head_tree.get_path(path).is_ok() {
             continue;
         }
-        let full = workdir.join(path);
-        if full.symlink_metadata().is_err() {
-            continue;
+        if super::remove_written_path(&workdir, path)? {
+            remove_empty_parents(&workdir, workdir.join(path).parent());
         }
-        std::fs::remove_file(&full).with_context(|| {
-            format!(
-                "failed to remove leftover conflict file `{}`",
-                path.display()
-            )
-        })?;
-        remove_empty_parents(&workdir, full.parent());
     }
     Ok(())
 }

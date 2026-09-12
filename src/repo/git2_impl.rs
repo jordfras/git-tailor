@@ -707,6 +707,25 @@ pub(super) struct WorktreeReset {
     pub index_tree: git2::Oid,
 }
 
+/// Delete `path` under `workdir` if it exists and is not a directory.
+/// Reports whether it actually removed a file, so a caller that only wants
+/// to clean up now-empty parent directories knows whether anything changed.
+///
+/// Anything but a directory: a submodule's checkout is not this operation's
+/// to delete, and neither is anything else that grew into one. Asking
+/// `symlink_metadata` rather than `is_file` keeps a symlink in scope — git
+/// tracked it as a file, and following it would judge the entry by whatever
+/// it points at.
+pub(super) fn remove_written_path(workdir: &Path, path: &Path) -> Result<bool> {
+    let full = workdir.join(path);
+    if full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
+        std::fs::remove_file(&full)
+            .with_context(|| format!("failed to remove leftover file {}", full.display()))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 impl Git2Repo {
     /// Refuse if the working tree or index has any staged or unstaged changes,
     /// ignoring submodule pointer updates (consistent with `git rebase`).
@@ -881,17 +900,7 @@ impl Git2Repo {
             if delta.status() == git2::Delta::Deleted
                 && let Some(path) = delta.old_file().path()
             {
-                let full = workdir.join(path);
-                // Anything but a directory: a submodule's checkout is not this
-                // operation's to delete, and neither is anything else that grew
-                // into one. Asking `symlink_metadata` rather than `is_file`
-                // keeps a symlink in scope — git tracked it as a file, and
-                // following it would judge the entry by whatever it points at.
-                if full.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
-                    std::fs::remove_file(&full).with_context(|| {
-                        format!("failed to remove dropped file {}", full.display())
-                    })?;
-                }
+                remove_written_path(workdir, path)?;
             }
         }
         Ok(())

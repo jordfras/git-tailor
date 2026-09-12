@@ -117,6 +117,9 @@ The format is based on
   content and writes its result to the right place for a conflicting path
   that is not valid UTF-8. It used to run against blank files and stage the
   original conflict markers as if resolved
+- Aborting a conflict no longer errors out when the tip being restored to
+  lacks a submodule that got checked out while the conflict sat paused; the
+  leftover directory is now left alone instead of the abort failing outright
 
 
 ## [3.0.0] - 2026-09-06
