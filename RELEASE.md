@@ -123,7 +123,8 @@ Publishing an updated video:
 Pushing the `v<version>` tag triggers the **Release** workflow
 (`.github/workflows/release.yml`), which creates the GitHub Release (notes from
 `CHANGELOG.md`) and attaches pre-built `gt` binaries + SHA-256 checksums for
-Linux (x86_64 musl, static), Windows (x86_64), and macOS (arm64 and x86_64).
+Linux (x86_64 and arm64, musl, static), Windows (x86_64), and macOS (arm64 and
+x86_64).
 
 To (re)build binaries for a tag that already exists — without moving the tag —
 run the workflow manually:

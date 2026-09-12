@@ -7,7 +7,15 @@
 # container. On top of that we add a Rust toolchain so git-tailor itself can be
 # built and driven by the tape scripts. Keeping every tool here means the
 # artifacts can be regenerated on any machine with only Docker installed.
-FROM ghcr.io/charmbracelet/vhs:latest
+#
+# Pinned, not `:latest`: "regenerated on any machine" is only true if the
+# toolchain is the same one, and an unpinned base makes the next rebuild a
+# coin toss. v0.12.0 is why this is not theoretical — on it `vhs` runs the
+# tape, prints "Creating <file>.gif...", exits 0 and writes nothing at all, so
+# a render fails only at the copy step with a missing file and no clue why.
+# v0.11.0 and v0.10.0 are both known good; bump deliberately, after checking a
+# render still lands.
+FROM ghcr.io/charmbracelet/vhs:v0.11.0
 
 # We always build against the latest stable Rust (rebuild the image to pick up
 # newer releases). The C toolchain, cmake and openssl headers are what the

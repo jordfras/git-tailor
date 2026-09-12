@@ -6,7 +6,7 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [Unreleased]
+## [3.1.0] - 2026-09-12
 
 ### Added
 
@@ -14,6 +14,10 @@ The format is based on
   result, including why a check failed. The background check the TUI runs
   stays silent, so this is how to tell "up to date" apart from "could not
   reach crates.io".
+- Pre-built `gt` binaries for arm64 Linux (`aarch64-unknown-linux-musl`) are
+  attached to each release, so an arm64 machine no longer needs a Rust
+  toolchain to get one. Statically linked like the x86_64 build, so it runs on
+  any distribution.
 
 ### Changed
 
