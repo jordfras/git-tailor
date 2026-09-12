@@ -386,4 +386,22 @@ mod tests {
             Some("Discarded a stale interrupted-operation journal (branch has moved)")
         );
     }
+
+    /// A leftover auto-stash from an earlier crash that cannot even be
+    /// restored — not a conflict, an outright error — must still tell the
+    /// user their stashed work is stuck, not start up as if nothing were
+    /// wrong.
+    #[test]
+    fn a_leftover_autostash_restore_failure_is_reported() {
+        let mut repo = MockRepo {
+            autostash_restore_errs: true,
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(
+            app.status.message.is_some(),
+            "a restore failure must not pass in silence"
+        );
+    }
 }
