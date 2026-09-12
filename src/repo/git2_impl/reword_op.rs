@@ -61,16 +61,19 @@ pub(super) fn reword_commit(
 
 /// The `encoding` header a rewritten message still needs.
 ///
-/// A message that is valid UTF-8 needs none — that is git's default. One that
-/// is not keeps whatever the original said, since that is the only description
-/// of those bytes anyone has.
+/// Bytes that never changed keep whatever the original said, whether or not
+/// they happen to also be well-formed UTF-8 under a different reading — the
+/// header describes the original bytes, not a property newly discovered
+/// about them. Otherwise, a message that is valid UTF-8 needs no header —
+/// that is git's default — and one that is not keeps the original's header,
+/// since that is the only description of those bytes anyone has.
 pub(super) fn encoding_for<'c>(
     original: &'c git2::Commit<'_>,
     new_message: &[u8],
 ) -> Option<&'c str> {
-    if std::str::from_utf8(new_message).is_ok() {
-        None
-    } else {
+    if new_message == original.message_bytes() || std::str::from_utf8(new_message).is_err() {
         original.message_encoding().ok().flatten()
+    } else {
+        None
     }
 }

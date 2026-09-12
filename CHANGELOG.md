@@ -110,6 +110,9 @@ The format is based on
   because the repository happens to be a shallow clone. Only moving the
   graft boundary itself is refused now; every other commit was wrongly
   caught by the same check before
+- A fixup or squash that keeps a commit's message untouched no longer
+  silently drops its `encoding` header just because those exact bytes also
+  happen to parse as UTF-8 under a different reading
 
 
 ## [3.0.0] - 2026-09-06
