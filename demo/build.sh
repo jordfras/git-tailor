@@ -19,7 +19,39 @@ CACHE_VOLUME=git-tailor-demo-cache
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
+# Everything below shells out to `docker`, so say so once, in words, rather
+# than letting it surface as `docker: command not found` from whichever line
+# happened to run first.
+require_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+error: docker is not installed, and the demo toolchain needs it.
+
+  vhs, headless Chromium, ttyd, ffmpeg, gifsicle and the TTS voice all live in
+  the image (demo/Dockerfile) so a render is reproducible anywhere; none of it
+  is expected on the host. See demo/README.md.
+
+  Ubuntu / WSL2:
+    sudo apt-get install -y docker.io
+    sudo systemctl enable --now docker
+    sudo usermod -aG docker "$USER"   # then open a new shell
+EOF
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+error: docker is installed but not reachable.
+
+  Either the daemon is not running (sudo systemctl start docker) or your user
+  is not in the 'docker' group (sudo usermod -aG docker "$USER", then open a
+  new shell).
+EOF
+        exit 1
+    fi
+}
+
 build_image() {
+    require_docker
     docker build -t "$IMAGE" "$REPO_ROOT/demo"
 }
 
