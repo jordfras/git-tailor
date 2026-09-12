@@ -62,7 +62,9 @@ The format is based on
   repository at all
 - Rewording or squashing such a commit keeps its message too. The editor is
   now seeded with the message as git stores it rather than with a rendering
-  of it, so what you did not edit comes back unchanged
+  of it, so what you did not edit comes back unchanged. Bulk autofixup
+  (`F`) is held to the same rule when it combines or carries a message forward
+  on its own
 - Only one git-tailor runs in a working tree at a time. A second one started
   while the first sat on a conflict dialog read that paused operation as a
   crash and offered to recover it, rewinding the branch under the instance

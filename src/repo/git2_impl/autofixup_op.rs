@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use super::super::{AutofixupContext, ConflictState, RebaseOutcome};
+use super::super::{AutofixupContext, ConflictState, RebaseOutcome, RepoRead};
 use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
@@ -128,12 +128,12 @@ fn run_batch(
         let more_pending_for_target = plan[1..]
             .iter()
             .any(|p| p.target_summary == pair.target_summary);
-        let message = pair_message(pair, more_pending_for_target, message_overrides);
+        let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
         match squash_op::squash_commits(
             repo,
             &pair.source_oid,
             &pair.target_oid,
-            message.as_bytes(),
+            &message,
             &current_tip,
         )? {
             RebaseOutcome::Complete => {
@@ -165,18 +165,32 @@ fn run_batch(
 /// Otherwise falls back to the default: `fixup!` keeps the target's message
 /// unchanged; `squash!` combines target + source with the same default text
 /// the manual squash editor starts from (`src/main.rs::handle_prepare_squash`).
+///
+/// Read from the repository, not from `pair.target_message`/`source_message`:
+/// those are cloned from the commit list's lossy display rendering, and
+/// writing them back would replace a message git-tailor cannot read with one
+/// it can.
 fn pair_message(
+    repo: &Git2Repo,
     pair: &AutofixupPair,
     more_pending_for_target: bool,
     message_overrides: &HashMap<String, String>,
-) -> String {
+) -> Result<Vec<u8>> {
     if !more_pending_for_target
         && let Some(overridden) = message_overrides.get(&pair.target_summary)
     {
-        return overridden.clone();
+        return Ok(overridden.clone().into_bytes());
     }
+    let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;
     match pair.mode {
-        SquashMode::Fixup => pair.target_message.clone(),
-        SquashMode::Squash => format!("{}\n\n{}", pair.target_message, pair.source_message),
+        SquashMode::Fixup => Ok(target_bytes),
+        SquashMode::Squash => {
+            let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
+            let mut combined = Vec::with_capacity(target_bytes.len() + source_bytes.len() + 2);
+            combined.extend_from_slice(&target_bytes);
+            combined.extend_from_slice(b"\n\n");
+            combined.extend_from_slice(&source_bytes);
+            Ok(combined)
+        }
     }
 }
