@@ -601,13 +601,22 @@ fn delete_orig_ref(repo: &mut Git2Repo) {
     }
 }
 
-/// Remove all git-tailor recovery state: every ref under `refs/git-tailor/`
-/// (undo pins and the in-progress `orig` pin) and the on-disk journal file.
+/// Remove this working tree's git-tailor recovery state: its own undo pins and
+/// in-progress `orig` pin, plus anything repo-wide that is not tied to a
+/// particular working tree, and the on-disk journal file.
 ///
 /// Refs are discovered by namespace rather than from the journal, so stray refs
 /// are removed even when the journal is missing, corrupt, or out of sync — this
-/// is the manual escape hatch behind `--clean-journal`.
+/// is the manual escape hatch behind `--clean-journal`. Scoped to this working
+/// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
+/// another working tree's pin may be the only thing keeping a paused conflict
+/// or interrupted fold of its own reachable, and this tree's journal knows
+/// nothing about it. Rescue refs are content-addressed, not tied to whichever
+/// working tree wrote them, and have no other cleanup path, so they are still
+/// swept globally.
 pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
+    let mine = worktree_prefix(repo);
+    let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
     let mut refs = repo
         .inner
         .references()
@@ -615,7 +624,13 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     let names: Vec<String> = refs
         .names()
         .filter_map(|n| n.ok())
-        .filter(|name| name.starts_with(REF_NAMESPACE))
+        .filter(|name| {
+            name.starts_with(&mine)
+                || name.starts_with(&rescue_prefix)
+                || LEGACY_PIN_PREFIXES
+                    .iter()
+                    .any(|legacy| name.starts_with(legacy))
+        })
         .map(|name| name.to_string())
         .collect();
     let mut refs_removed = 0;

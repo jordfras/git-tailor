@@ -54,7 +54,8 @@ The format is based on
 - A second working tree no longer costs the first its safety net. git-tailor
   keeps refs that stop `git gc` collecting what undo — and an interrupted
   fold's uncommitted changes — still need, and a run in one working tree
-  cleared the refs belonging to every other one
+  cleared the refs belonging to every other one. `gt --clean-journal` is held
+  to the same rule now, clearing only its own working tree's refs
 - Commit messages that are not valid UTF-8 — Latin-1 history, anything with an
   `encoding` header — survive a rewrite byte for byte instead of being
   replaced with an empty message, and no longer stop git-tailor opening the
