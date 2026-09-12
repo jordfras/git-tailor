@@ -12,44 +12,70 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T222 P3 feat - Support gix (gitoxide) as an alternative git backend behind
-  a lower-level raw-git trait: investigate and lay the groundwork for building
-  git-tailor against `gix` (pure-Rust, no libgit2/C dependency — simpler static
-  builds, no C/OpenSSL build deps) instead of `git2`. The current `GitRepo`
-  trait is high-level (it exposes whole operations like `drop_commit`,
-  `squash_commits`, the cherry-pick chain, journal, and undo), so implementing it
-  directly for a second backend would duplicate all the backend-agnostic
-  orchestration (planning, cherry-pick replay, journal, undo). Instead introduce
-  a *lower* trait — e.g. `GitBackend` / `RawGit` — capturing only the raw
-  primitives the orchestration needs: open repo and expose `.git`/workdir paths;
-  read HEAD and resolve refs; walk commits and read commit metadata; read trees
-  and blobs; diff two trees; three-way merge / cherry-pick a commit in memory;
-  apply a diff to a tree; create commits; create/update/delete refs (with reflog
-  messages); read/write the index and conflict stages; checkout (incl. writing
-  conflict markers); stash save/apply; read git config. Refactor today's
-  `Git2Repo` so the orchestration in `git2_impl/*` (cherry-pick chain,
-  drop/move/squash/split planning, journal, undo) depends only on this lower
-  trait, and the two backends implement just the raw operations.
-  Phased:
-  * Spike: audit which git2 calls the orchestration relies on and whether gix has
-    equivalents. The known risk is gix's maturity for tree merges / cherry-pick,
-    `apply_to_tree`, the index/conflict-stage model, checkout-with-conflicts, and
-    stash — if those are missing we may have to reimplement them in Rust or
-    conclude gix is not yet viable (a valid outcome to document). Choose the
-    trait-seam granularity (too low ⇒ we reimplement merge logic ourselves; too
-    high ⇒ duplication).
-  * Refactor: extract the `GitBackend` trait and move the raw git2 calls behind
-    it, leaving the orchestration backend-agnostic. This has standalone value and
-    de-risks the rest even before gix lands.
-  * gix backend: implement `GitBackend` for gix behind a Cargo feature
-    (`backend-git2` default vs `backend-gix`, likely mutually exclusive so a
-    build pulls only one backend's deps; gix is MIT/Apache so `cargo deny` stays
-    green, but it adds many crates — keep it behind the feature).
-  * Parity tests: run the existing `tests/` integration suite against both
-    backends (e.g. rstest `#[case]` per backend, or a feature-gated CI matrix) to
-    prove identical end-state behavior.
-  Keep the `GitRepo` trait interface unchanged so the TUI, journal, and undo are
-  unaffected regardless of backend.
+- [ ] T222 P3 feat - Spike only (timebox: one day): decide whether `gix`
+  (gitoxide) can back the rewrite engine — pure Rust, no libgit2/C dependency,
+  simpler static builds — then close this task either way. Narrowed 2026-09-12
+  from "build a second backend" after auditing the coupling; the seam refactor it
+  used to bundle is now T240, which has to justify itself on its own.
+  The one open question: **can gix produce an index carrying stage 1/2/3 conflict
+  entries from a tree merge, and can that index be checked out with conflict
+  markers?** `ConflictState`, `rebase_continue`/`rebase_abort` and the whole
+  conflict dialog are shaped around libgit2 handing us exactly that
+  (`cherrypick_commit` ×4 → conflicted `git2::Index` → `checkout_index` ×3 writes
+  the markers). gix's crate-status calls tree merge done but describes the stage
+  index as "a way to generate an index with stages, mostly conforming with Git" —
+  "mostly" is the whole question. If we would have to build the stage index and
+  write the markers ourselves, that is us reimplementing the merge surface, and
+  the answer is no.
+  What the audit already settled, so the spike need not redo it:
+  * The two presumed blockers are gone: gix now claims stash (save/apply/pop with
+    conflict handling) and `git apply`-compatible patch application, covering
+    `stash_save2`/`stash_apply` (×6) and `apply_to_tree` (×6, the split/hunk
+    peeling). Verify these, don't re-investigate them.
+  * The coupling is API-shaped, not behavior-shaped, and already contained: all
+    325 `git2::` references in `src/` (161 of them `git2::Oid`) sit inside
+    `src/repo/git2_impl/`, across 14 files, with zero leakage into the rest of
+    the crate. Mechanical.
+  * The hard-won safety work is ours, not libgit2's, and ports as-is:
+    `refuse_*_collisions`, `refuse_if_branch_moved`, the session lock,
+    journal/undo/gc-pins and the shallow-graft guard are rules we invented over
+    git primitives.
+  * The byte-exactness work gets *easier*: gix is bytes-native, so
+    `commit_preserving_message`'s hand-spliced `encoding` header, the
+    `&str`→`&Path` `read_index_stage` signature and `substitute_vars` exist only
+    to route around git2 insisting on `&str`.
+  * Genuinely libgit2-shaped, so re-derived rather than ported:
+    `remove_dropped_files`/`remove_written_path` (it exists because libgit2's
+    checkout leaves now-absent paths behind and `remove_untracked` is unscoped)
+    and the marker-writing checkout above.
+  * `tests/` holds 173 `git2::` references across 28 files building fixtures, so
+    a parity suite keeps a git2 dev-dependency even once the binary sheds it.
+  Outcome is a decision recorded here: either a follow-up task to implement the
+  gix backend behind a Cargo feature (`backend-git2` default vs `backend-gix`,
+  mutually exclusive) with the existing `tests/` suite run against both for
+  parity, or `[-]` WON'T DO with the evidence.
+- [ ] T240 P3 refactor - Extract a `GitBackend` seam under `GitRepo`, separating
+  the backend-agnostic orchestration from the raw git calls. `GitRepo` is
+  high-level (whole operations: `drop_commit`, `squash_commits`, the cherry-pick
+  chain, journal, undo), so a second backend implementing it directly would
+  duplicate all the planning/replay/journal/undo logic. A lower trait would
+  capture only the primitives that orchestration needs: open repo and expose
+  `.git`/workdir paths; read HEAD and resolve refs; walk commits and read commit
+  metadata; read trees and blobs; diff two trees; three-way merge / cherry-pick
+  in memory; apply a diff to a tree; create commits; create/update/delete refs
+  with reflog messages; read/write the index and its conflict stages; checkout
+  (incl. writing conflict markers); stash save/apply; read config. Granularity is
+  the whole design problem: too low and we reimplement merge logic ourselves, too
+  high and the backends duplicate orchestration.
+  Gated, not queued. Split out of T222 so it stops riding on a gix decision it
+  does not depend on — but it does not obviously pay for itself either: it is a
+  mechanical rewrite of 325 call sites through the most safety-critical code in
+  the project, with no user-visible benefit, immediately after that code was
+  hardened by a long run of conflict/byte-safety fixes. Its honest standalone
+  claim is that it would make the orchestration unit-testable without temp repos.
+  Do this only if T222 concludes gix is viable, or if that testability argument
+  becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
+  later precisely because the git2 code is already confined to one directory.
 - [X] T230 P2 refactor - Interface-segregate the `GitRepo` god trait (54 methods,
   `src/repo.rs`). Split it into focused traits: `RepoRead` (the 17 read/query
   methods) plus mutation traits (`SplitOps`, `SquashOps`, `RewriteOps` =
@@ -61,9 +87,9 @@ Guidelines:
   `views/main_view.rs`, `editor.rs`) to `&impl RepoRead`, and shrink the test
   doubles: today 74 `unimplemented!()` stubs across `StubRepo`
   (`tests/common/fake.rs`, 49/54) and `MockRepo` (`src/dispatch/tests.rs`, 25/54)
-  — `StubRepo` becomes a `RepoRead`-only stub. Orthogonal to T222 (which adds a
-  *lower* `GitBackend` seam below `GitRepo`); this segregates the surface *above*
-  it. Pure refactor, behavior-preserving.
+  — `StubRepo` becomes a `RepoRead`-only stub. Orthogonal to T240 (the *lower*
+  `GitBackend` seam below `GitRepo`, split out of T222); this segregates the
+  surface *above* it. Pure refactor, behavior-preserving.
 - [X] T231 P2 refactor - Factor repeated dispatch-handler scaffolding
   (`src/dispatch/*`). (a) The `autostash_save()`-guard block is copied verbatim 8×
   (commit_ops.rs, split.rs, edit.rs, autofixup.rs) → one helper. (b) The "suspend
