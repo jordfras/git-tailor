@@ -32,7 +32,6 @@ pub(super) fn squash_commits(
     message: &[u8],
     head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
-    repo.refuse_if_branch_moved(head_oid)?;
     repo.check_no_dirty_state()?;
 
     let inputs = parse_squash_inputs(repo, source_oid, target_oid, head_oid)?;
@@ -143,7 +142,6 @@ pub(super) fn squash_try_combine(
     squash_mode: SquashMode,
     head_oid: &Oid,
 ) -> Result<Option<ConflictState>> {
-    repo.refuse_if_branch_moved(head_oid)?;
     repo.check_no_dirty_state()?;
 
     let inputs = parse_squash_inputs(repo, source_oid, target_oid, head_oid)?;

@@ -384,13 +384,20 @@ impl RepoRead for Git2Repo {
     }
 }
 
+// Every entry point below checks `refuse_if_branch_moved(head_oid)` as its
+// first statement, before calling into the op module that does the rewrite.
+// Keeping the check here rather than inside each op module means a new
+// operation is written right next to the ones it is modeled on, where the
+// check is the first line any of them would be copied from.
 impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = split_op::split_commit_per_file(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = split_op::split_commit_per_hunk(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
@@ -401,6 +408,7 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
         reference_oid: &Oid,
     ) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome =
             split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid);
         self.record_unit_undo("Split", head_oid, outcome)
@@ -412,6 +420,7 @@ impl RepoWrite for Git2Repo {
         file_paths: &[String],
         head_oid: &Oid,
     ) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
@@ -423,6 +432,7 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
         context_lines: u32,
     ) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome =
             split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines);
         self.record_unit_undo("Split", head_oid, outcome)
@@ -434,16 +444,19 @@ impl RepoWrite for Git2Repo {
         new_message: &[u8],
         head_oid: &Oid,
     ) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
         self.record_unit_undo("Reword", head_oid, outcome)
     }
 
     fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
         self.journaled("Drop", head_oid, outcome)
     }
 
     fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
         edit_op::begin_edit(self, commit_oid, head_oid)
     }
 
@@ -582,6 +595,7 @@ impl RepoWrite for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = move_op::move_commit(self, commit_oid, insert_after_oid, head_oid);
         self.journaled("Move", head_oid, outcome)
     }
@@ -593,6 +607,7 @@ impl RepoWrite for Git2Repo {
         message: &[u8],
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = squash_op::squash_commits(self, source_oid, target_oid, message, head_oid);
         self.journaled("Squash", head_oid, outcome)
     }
@@ -616,6 +631,7 @@ impl RepoWrite for Git2Repo {
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
+        self.refuse_if_branch_moved(head_oid)?;
         let result = squash_op::squash_try_combine(
             self,
             source_oid,
@@ -669,6 +685,7 @@ impl RepoWrite for Git2Repo {
         reference_oid: &Oid,
         message_overrides: &std::collections::HashMap<String, String>,
     ) -> Result<super::RebaseOutcome> {
+        self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
         self.journaled("Autofixup", head_oid, outcome)
     }

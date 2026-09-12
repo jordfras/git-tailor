@@ -33,7 +33,6 @@ use crate::Oid;
 /// Rewind the current branch to `commit_oid` and check it out, after recording
 /// a write-ahead journal entry so a crash mid-edit is recoverable.
 pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);

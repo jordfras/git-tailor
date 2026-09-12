@@ -31,7 +31,6 @@ pub(super) fn split_commit_per_file(
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     let target = load_split_commit(repo, commit_oid)?;
 
     let full_diff =
@@ -120,7 +119,6 @@ pub(super) fn split_commit_per_hunk(
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     let target = load_split_commit(repo, commit_oid)?;
 
     let mut diff_opts = zero_context_diff_opts();
@@ -192,7 +190,6 @@ pub(super) fn split_commit_per_hunk_group(
     head_oid: &Oid,
     reference_oid: &Oid,
 ) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     let target = load_split_commit(repo, commit_oid)?;
 
     // Build the fragmap over all branch commits so hunk grouping reflects how
@@ -356,7 +353,6 @@ pub(super) fn split_commit_out_files(
     file_paths: &[String],
     head_oid: &Oid,
 ) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     if file_paths.is_empty() {
         anyhow::bail!("No files selected — nothing to split out");
     }
@@ -441,7 +437,6 @@ pub(super) fn split_commit_out_hunks(
     head_oid: &Oid,
     context_lines: u32,
 ) -> Result<()> {
-    repo.refuse_if_branch_moved(head_oid)?;
     if hunks.is_empty() {
         anyhow::bail!("No hunks selected — nothing to split out");
     }

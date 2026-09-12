@@ -26,7 +26,6 @@ pub(super) fn drop_commit(
     commit_oid: &Oid,
     head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
-    repo.refuse_if_branch_moved(head_oid)?;
     repo.check_no_dirty_state()?;
 
     let commit_git_oid = git2::Oid::from(commit_oid);
