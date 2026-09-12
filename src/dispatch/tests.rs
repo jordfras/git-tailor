@@ -1270,3 +1270,99 @@ fn execute_drop_error_opens_the_stash_dialog_when_the_restore_clashes() {
     let message = app.status.message.as_deref().unwrap_or("");
     assert!(message.contains("Drop failed"), "{message}");
 }
+
+/// When the shell to edit a commit cannot even be launched and the resulting
+/// abort itself fails (e.g. refused by an untracked-file collision), the
+/// branch was never rewound back to the auto-stash's base — restoring it
+/// anyway would reapply the stash onto a mismatched tree.
+#[test]
+fn shell_launch_failure_does_not_restore_autostash_when_abort_also_fails() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        abort_edit_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        0,
+        "must not restore the auto-stash when the branch was never rewound"
+    );
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the abort failure must be reported too: {message}"
+    );
+}
+
+/// The ordinary case: the abort succeeds, so the auto-stash is restored on
+/// top of the tree it now matches again.
+#[test]
+fn shell_launch_failure_restores_autostash_when_abort_succeeds() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    assert_eq!(repo.autostash_restore_calls.get(), 1);
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(!message.contains("could not be restored"), "{message}");
+}
+
+/// The abort succeeded, but reapplying the auto-stash clashed — the markers
+/// are on disk, so the resolution dialog must open rather than the clash
+/// being silently discarded.
+#[test]
+fn shell_launch_failure_opens_the_stash_dialog_when_the_restore_clashes() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        autostash_restore_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Continue));
+    match &app.mode {
+        AppMode::StashConflict(state) => assert_eq!(state.operation_label, "Edit"),
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+}
+
+/// The abort succeeded, but the auto-stash restore itself errored — that must
+/// be reported, not silently dropped with the stash stranded in
+/// `git stash list`.
+#[test]
+fn shell_launch_failure_reports_when_the_autostash_restore_itself_fails() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(
+        message.contains("git stash list"),
+        "the user must be told where their work is: {message}"
+    );
+}
