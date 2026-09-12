@@ -55,6 +55,50 @@ fn conflict_records_journal_and_recovers_after_reopen() {
     }
 }
 
+/// Same guarantee, but for a conflicting file whose name is not valid UTF-8 —
+/// proving the path round-trips through the on-disk journal file byte for
+/// byte, not just through serde in isolation.
+#[test]
+#[cfg(unix)]
+fn conflict_with_a_non_utf8_path_recovers_after_reopen() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let test = common::TestRepo::new();
+    let bytes = [b'b', b'a', b'd', 0xFF, b'.', b't', b'x', b't'];
+    let path = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes));
+
+    let commit = |content: &str, message: &str| -> git2::Oid {
+        test.write_file(&path, content);
+        let mut index = test.repo.index().unwrap();
+        index.add_path(&path).unwrap();
+        index.write().unwrap();
+        test.commit(message)
+    };
+    let _base = commit("base\n", "base");
+    let to_drop = commit("base\ndropped\n", "add dropped line");
+    let head = commit("base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+    assert_eq!(state.conflicting_files, vec![path.clone()]);
+
+    // Simulate a restart: a brand-new handle reads the on-disk journal.
+    let mut git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::Recovered(recovered) => {
+            let InProgress::Conflict(recovered) = *recovered else {
+                panic!("expected a recovered conflict, not an Edit");
+            };
+            assert_eq!(recovered.conflicting_files, vec![path]);
+        }
+        other => panic!("expected Recovered, got {other:?}"),
+    }
+}
+
 /// Resuming a recovered operation to completion clears the journal entirely
 /// Resuming a recovered operation to completion clears the in-progress record
 /// and the in-progress pin ref. (The journal file itself now persists to hold
