@@ -276,12 +276,16 @@ pub(super) fn workdir(repo: &Git2Repo) -> Option<std::path::PathBuf> {
     repo.inner.workdir().map(|p| p.to_path_buf())
 }
 
-pub(super) fn read_index_stage(repo: &Git2Repo, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+pub(super) fn read_index_stage(
+    repo: &Git2Repo,
+    path: &std::path::Path,
+    stage: i32,
+) -> Result<Option<Vec<u8>>> {
     let mut index = repo.inner.index().context("failed to read index")?;
     index
         .read(true)
         .context("failed to refresh index from disk")?;
-    let Some(entry) = index.get_path(std::path::Path::new(path), stage) else {
+    let Some(entry) = index.get_path(path, stage) else {
         return Ok(None);
     };
     let blob = repo

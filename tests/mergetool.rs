@@ -139,7 +139,9 @@ fn read_index_stage_returns_none_when_no_conflict_entry() {
     let git_repo = test.git_repo();
     // No conflict — stage 2 (ours) for a.txt is a normal stage-0 entry, not a
     // conflict stage. read_index_stage should return None for stages 1–3.
-    let result = git_repo.read_index_stage("a.txt", 2).unwrap();
+    let result = git_repo
+        .read_index_stage(std::path::Path::new("a.txt"), 2)
+        .unwrap();
     assert!(
         result.is_none(),
         "expected None for non-conflicted file at stage 2"
@@ -154,7 +156,7 @@ fn read_index_stage_returns_content_after_conflict() {
 
     // Stage 2 = ours (the cherry-pick source). Must have non-empty content.
     let ours = git_repo
-        .read_index_stage(state.conflicting_files[0].to_str().unwrap(), 2)
+        .read_index_stage(&state.conflicting_files[0], 2)
         .unwrap();
     assert!(
         ours.is_some(),
@@ -164,7 +166,7 @@ fn read_index_stage_returns_content_after_conflict() {
 
     // Stage 3 = theirs. Must also be present.
     let theirs = git_repo
-        .read_index_stage(state.conflicting_files[0].to_str().unwrap(), 3)
+        .read_index_stage(&state.conflicting_files[0], 3)
         .unwrap();
     assert!(
         theirs.is_some(),
@@ -343,21 +345,15 @@ fn read_index_stage_returns_exact_content_for_each_stage() {
     //   stage 1 (base/merge-base) = parent(`head`) = to_drop content
     //   stage 2 (ours)            = destination tree = _base content
     //   stage 3 (theirs)          = head commit content
-    let base = git_repo
-        .read_index_stage(path.to_str().unwrap(), 1)
-        .unwrap();
+    let base = git_repo.read_index_stage(path, 1).unwrap();
     assert!(base.is_some(), "stage 1 (base) must be present");
     assert_eq!(base.unwrap(), b"base\ndropped\n");
 
-    let ours = git_repo
-        .read_index_stage(path.to_str().unwrap(), 2)
-        .unwrap();
+    let ours = git_repo.read_index_stage(path, 2).unwrap();
     assert!(ours.is_some(), "stage 2 (ours) must be present");
     assert_eq!(ours.unwrap(), b"base\n");
 
-    let theirs = git_repo
-        .read_index_stage(path.to_str().unwrap(), 3)
-        .unwrap();
+    let theirs = git_repo.read_index_stage(path, 3).unwrap();
     assert!(theirs.is_some(), "stage 3 (theirs) must be present");
     assert_eq!(theirs.unwrap(), b"base\ndropped\nhead\n");
 }
@@ -368,7 +364,9 @@ fn read_index_stage_returns_none_for_non_existent_path() {
     test.commit_file("a.txt", "content\n", "initial");
     let git_repo = test.git_repo();
     // A path that has never existed in the repo.
-    let result = git_repo.read_index_stage("does_not_exist.txt", 2).unwrap();
+    let result = git_repo
+        .read_index_stage(std::path::Path::new("does_not_exist.txt"), 2)
+        .unwrap();
     assert!(result.is_none(), "non-existent path must return None");
 }
 
@@ -471,17 +469,16 @@ fn stage_file_and_check_content_matches_written_file() {
 
     // After staging, stage 0 must hold our resolved bytes and stages 1-3
     // must be gone.
-    let path_str = path.to_str().unwrap();
     assert!(
-        git_repo.read_index_stage(path_str, 1).unwrap().is_none(),
+        git_repo.read_index_stage(path, 1).unwrap().is_none(),
         "stage 1 (base) must be gone after staging"
     );
     assert!(
-        git_repo.read_index_stage(path_str, 2).unwrap().is_none(),
+        git_repo.read_index_stage(path, 2).unwrap().is_none(),
         "stage 2 (ours) must be gone after staging"
     );
     assert!(
-        git_repo.read_index_stage(path_str, 3).unwrap().is_none(),
+        git_repo.read_index_stage(path, 3).unwrap().is_none(),
         "stage 3 (theirs) must be gone after staging"
     );
     assert!(

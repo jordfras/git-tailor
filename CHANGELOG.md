@@ -113,6 +113,10 @@ The format is based on
 - A fixup or squash that keeps a commit's message untouched no longer
   silently drops its `encoding` header just because those exact bytes also
   happen to parse as UTF-8 under a different reading
+- The external merge tool (`merge.tool`) now sees real BASE/LOCAL/REMOTE
+  content and writes its result to the right place for a conflicting path
+  that is not valid UTF-8. It used to run against blank files and stage the
+  original conflict markers as if resolved
 
 
 ## [3.0.0] - 2026-09-06

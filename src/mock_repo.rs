@@ -222,7 +222,7 @@ impl RepoRead for MockRepo {
     fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
         Ok(false)
     }
-    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
+    fn read_index_stage(&self, _: &std::path::Path, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
         unimplemented!()
     }
     fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {

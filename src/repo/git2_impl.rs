@@ -334,7 +334,7 @@ impl RepoRead for Git2Repo {
         Git2Repo::is_worktree_dirty(self)
     }
 
-    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+    fn read_index_stage(&self, path: &Path, stage: i32) -> Result<Option<Vec<u8>>> {
         reads::read_index_stage(self, path, stage)
     }
 

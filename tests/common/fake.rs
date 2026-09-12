@@ -139,7 +139,7 @@ impl RepoRead for StubRepo {
     fn is_worktree_dirty(&self) -> Result<bool> {
         Ok(false)
     }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
+    fn read_index_stage(&self, _path: &std::path::Path, _stage: i32) -> Result<Option<Vec<u8>>> {
         unimplemented!()
     }
     fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {

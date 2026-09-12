@@ -465,7 +465,7 @@ pub trait RepoRead {
     ///
     /// Stage 1 = base (common ancestor), 2 = ours, 3 = theirs.
     /// Returns `None` when that stage entry does not exist for the path.
-    fn read_index_stage(&self, path: &str, stage: i32) -> Result<Option<Vec<u8>>>;
+    fn read_index_stage(&self, path: &std::path::Path, stage: i32) -> Result<Option<Vec<u8>>>;
 
     /// Return the list of paths that currently have conflict markers in the index
     /// (entries with stage > 0), sorted alphabetically and deduplicated.

@@ -122,22 +122,16 @@ fn run_tool_for_file(
     repo: &mut impl GitRepo,
     file_path: &Path,
 ) -> Result<()> {
-    // `read_index_stage` is string-keyed, so a non-UTF-8 path is looked up
-    // lossily here and may come back empty — a pre-existing limitation of the
-    // external-mergetool path, not made worse by this. Opening the file
-    // directly in `$EDITOR` (the other resolution path) reads the exact
-    // on-disk path and is unaffected.
-    let lookup_path = file_path.to_string_lossy();
     let base_content = repo
-        .read_index_stage(&lookup_path, 1)
+        .read_index_stage(file_path, 1)
         .context("failed to read base stage")?
         .unwrap_or_default();
     let ours_content = repo
-        .read_index_stage(&lookup_path, 2)
+        .read_index_stage(file_path, 2)
         .context("failed to read ours stage")?
         .unwrap_or_default();
     let theirs_content = repo
-        .read_index_stage(&lookup_path, 3)
+        .read_index_stage(file_path, 3)
         .context("failed to read theirs stage")?
         .unwrap_or_default();
 
@@ -190,19 +184,22 @@ fn run_tool_for_file(
     if parts.is_empty() {
         anyhow::bail!("merge tool command is empty");
     }
-    let substitute = |s: String| -> String {
-        s.replace("$BASE", &base_tmp.path().to_string_lossy())
-            .replace("$LOCAL", &local_tmp.path().to_string_lossy())
-            .replace("$REMOTE", &remote_tmp.path().to_string_lossy())
-            .replace("$MERGED", &merged_path.to_string_lossy())
+    let substitute = |s: String| -> std::ffi::OsString {
+        substitute_vars(
+            &s,
+            base_tmp.path(),
+            local_tmp.path(),
+            remote_tmp.path(),
+            &merged_path,
+        )
     };
     let prog = substitute(parts.remove(0));
-    let args: Vec<String> = parts.into_iter().map(substitute).collect();
+    let args: Vec<std::ffi::OsString> = parts.into_iter().map(substitute).collect();
 
     let status = std::process::Command::new(&prog)
         .args(&args)
         .status()
-        .with_context(|| format!("failed to launch merge tool `{prog}`"))?;
+        .with_context(|| format!("failed to launch merge tool `{}`", prog.to_string_lossy()))?;
 
     // Temp files are kept alive (not dropped) until here, ensuring the child
     // can read them for the full duration of its execution.
@@ -221,4 +218,64 @@ fn run_tool_for_file(
         .with_context(|| format!("failed to stage resolved file '{}'", file_path.display()))?;
 
     Ok(())
+}
+
+/// Substitute the merge tool's `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED` variables
+/// in a single command-line token.
+///
+/// `$MERGED` in particular names the real conflicting path, which need not be
+/// valid UTF-8. Rendering it through `String::replace` would require a lossy
+/// `&str` first, and the tool would then be told to write its result to a
+/// path that does not match what is actually on disk — so the splice happens
+/// in raw bytes on Unix instead.
+#[cfg(unix)]
+fn substitute_vars(
+    template: &str,
+    base: &Path,
+    local: &Path,
+    remote: &Path,
+    merged: &Path,
+) -> std::ffi::OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let vars: [(&str, &Path); 4] = [
+        ("$BASE", base),
+        ("$LOCAL", local),
+        ("$REMOTE", remote),
+        ("$MERGED", merged),
+    ];
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut rest = template;
+    'scan: while !rest.is_empty() {
+        for (var, path) in vars {
+            if let Some(after) = rest.strip_prefix(var) {
+                out.extend_from_slice(path.as_os_str().as_bytes());
+                rest = after;
+                continue 'scan;
+            }
+        }
+        let mut chars = rest.chars();
+        let ch = chars.next().expect("rest is non-empty");
+        out.extend_from_slice(ch.encode_utf8(&mut [0u8; 4]).as_bytes());
+        rest = chars.as_str();
+    }
+    std::ffi::OsString::from_vec(out)
+}
+
+#[cfg(not(unix))]
+fn substitute_vars(
+    template: &str,
+    base: &Path,
+    local: &Path,
+    remote: &Path,
+    merged: &Path,
+) -> std::ffi::OsString {
+    std::ffi::OsString::from(
+        template
+            .replace("$BASE", &base.to_string_lossy())
+            .replace("$LOCAL", &local.to_string_lossy())
+            .replace("$REMOTE", &remote.to_string_lossy())
+            .replace("$MERGED", &merged.to_string_lossy()),
+    )
 }
