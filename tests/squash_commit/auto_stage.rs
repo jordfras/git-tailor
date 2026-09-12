@@ -125,7 +125,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
 
     // Step 2: simulate resolving the conflict
     test.write_file("a.txt", "resolved\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
 
     // Step 3: finalize with an empty descendant list to isolate the squash
     //         commit's tree from any descendant cherry-pick effects.

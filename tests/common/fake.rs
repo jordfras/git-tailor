@@ -142,7 +142,7 @@ impl RepoRead for StubRepo {
     fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
         unimplemented!()
     }
-    fn read_conflicting_files(&self) -> Vec<String> {
+    fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {
         unimplemented!()
     }
     fn root_commit_oid(&self) -> Result<Oid> {

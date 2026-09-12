@@ -152,7 +152,7 @@ pub(crate) enum ToolRun {
 /// for the caller to show; neither is fatal.
 pub(crate) fn run_mergetool_suspended(
     git_repo: &mut impl GitRepo,
-    files: &[String],
+    files: &[std::path::PathBuf],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<ToolRun> {
@@ -171,7 +171,7 @@ pub(crate) fn run_mergetool_suspended(
 /// the caller to show; neither is fatal.
 pub(crate) fn run_editor_suspended(
     git_repo: &mut impl GitRepo,
-    files: &[String],
+    files: &[std::path::PathBuf],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<ToolRun> {
@@ -197,7 +197,7 @@ fn finish_conflict_tool(
     app: &mut AppState,
     tool_name: &str,
     outcome: Result<ToolRun>,
-    build_mode: impl FnOnce(Vec<String>) -> AppMode,
+    build_mode: impl FnOnce(Vec<std::path::PathBuf>) -> AppMode,
 ) -> LoopAction {
     match outcome {
         Ok(ToolRun::Finished) => {

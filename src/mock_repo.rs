@@ -48,7 +48,7 @@ pub(crate) struct MockRepo {
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
-    pub(crate) conflicting_files: Vec<String>,
+    pub(crate) conflicting_files: Vec<std::path::PathBuf>,
     /// What `lift_worktree_row` answers: `Ok(None)` for an empty row, an
     /// error, or a lifted row to build the fold on.
     pub(crate) lift: LiftOutcome,
@@ -221,7 +221,7 @@ impl RepoRead for MockRepo {
     fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
         unimplemented!()
     }
-    fn read_conflicting_files(&self) -> Vec<String> {
+    fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {
         self.conflicting_files.clone()
     }
     fn default_branch(&self) -> anyhow::Result<Option<String>> {
@@ -396,7 +396,7 @@ impl RepoWrite for MockRepo {
             Ok(git_tailor::repo::AutostashRestore::Done)
         } else {
             Ok(git_tailor::repo::AutostashRestore::Conflict {
-                files: vec!["conflict.txt".to_string()],
+                files: vec![std::path::PathBuf::from("conflict.txt")],
             })
         }
     }
@@ -498,10 +498,10 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("autofixup failed"))
         }
     }
-    fn stage_file(&mut self, _: &str) -> anyhow::Result<()> {
+    fn stage_file(&mut self, _: &std::path::Path) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn auto_stage_resolved_conflicts(&mut self, _: &[String]) -> anyhow::Result<()> {
+    fn auto_stage_resolved_conflicts(&mut self, _: &[std::path::PathBuf]) -> anyhow::Result<()> {
         unimplemented!()
     }
 }

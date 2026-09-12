@@ -122,14 +122,18 @@ fn drop_root_commit_descendant_modifies_root_file_conflicts() {
         }
     ));
     assert!(
-        state.conflicting_files.contains(&"readme.txt".to_string()),
+        state
+            .conflicting_files
+            .contains(&std::path::PathBuf::from("readme.txt")),
         "readme.txt should be conflicting: {:?}",
         state.conflicting_files
     );
 
     // Resolve by keeping the descendant's content.
     test.write_file("readme.txt", "updated\n");
-    git_repo.stage_file("readme.txt").unwrap();
+    git_repo
+        .stage_file(std::path::Path::new("readme.txt"))
+        .unwrap();
 
     let result = git_repo.rebase_continue(&state).unwrap();
     assert_rebase_complete!(result);

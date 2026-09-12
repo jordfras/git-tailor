@@ -63,3 +63,144 @@ pub(crate) mod message_bytes {
         de.deserialize_any(Either)
     }
 }
+
+/// Serde for a list of file paths, which git does not guarantee are UTF-8.
+///
+/// Each path uses the same string-or-bytes trick as [`message_bytes`],
+/// applied independently per path so one non-UTF-8 entry does not force
+/// every path in the list onto the byte-array shape.
+pub(crate) mod path_list {
+    use super::message_bytes;
+    use serde::Deserialize;
+    use serde::de::{SeqAccess, Visitor};
+    use serde::ser::SerializeSeq;
+    use serde::{Deserializer, Serializer};
+    use std::fmt;
+    use std::path::{Path, PathBuf};
+
+    /// A git index entry's path is raw bytes and need not be UTF-8; non-Unix
+    /// paths are UTF-8 in the index by construction, so the lossy round trip
+    /// there is exact in practice.
+    #[cfg(unix)]
+    fn path_to_bytes(path: &Path) -> Vec<u8> {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().to_vec()
+    }
+    #[cfg(not(unix))]
+    fn path_to_bytes(path: &Path) -> Vec<u8> {
+        path.to_string_lossy().into_owned().into_bytes()
+    }
+
+    #[cfg(unix)]
+    fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    struct Elem<'a>(&'a Path);
+
+    impl serde::Serialize for Elem<'_> {
+        fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+            message_bytes::serialize(&path_to_bytes(self.0), ser)
+        }
+    }
+
+    struct OnePath(PathBuf);
+
+    impl<'de> Deserialize<'de> for OnePath {
+        fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+            message_bytes::deserialize(de).map(|b| OnePath(bytes_to_path(&b)))
+        }
+    }
+
+    pub(crate) fn serialize<S: Serializer>(paths: &[PathBuf], ser: S) -> Result<S::Ok, S::Error> {
+        let mut seq = ser.serialize_seq(Some(paths.len()))?;
+        for path in paths {
+            seq.serialize_element(&Elem(path))?;
+        }
+        seq.end()
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<PathBuf>, D::Error> {
+        struct Paths;
+
+        impl<'de> Visitor<'de> for Paths {
+            type Value = Vec<PathBuf>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a list of file paths")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut out = Vec::new();
+                while let Some(OnePath(p)) = seq.next_element()? {
+                    out.push(p);
+                }
+                Ok(out)
+            }
+        }
+
+        de.deserialize_seq(Paths)
+    }
+}
+
+#[cfg(test)]
+mod path_list_tests {
+    use super::path_list;
+    use std::path::PathBuf;
+
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct Wrapper {
+        #[serde(with = "path_list")]
+        paths: Vec<PathBuf>,
+    }
+
+    #[cfg(unix)]
+    fn non_utf8_path() -> PathBuf {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        // 0xFF is not a valid UTF-8 lead or continuation byte anywhere.
+        let bytes = [b'b', b'a', b'd', 0xFF, b'.', b't', b'x', b't'];
+        PathBuf::from(OsStr::from_bytes(&bytes))
+    }
+
+    #[test]
+    fn utf8_paths_round_trip_as_plain_strings() {
+        let wrapper = Wrapper {
+            paths: vec![PathBuf::from("src/main.rs"), PathBuf::from("a/b.txt")],
+        };
+        let json = serde_json::to_string(&wrapper).unwrap();
+        assert_eq!(json, r#"{"paths":["src/main.rs","a/b.txt"]}"#);
+        let back: Wrapper = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn non_utf8_path_round_trips_through_a_byte_array_without_disturbing_its_neighbors() {
+        let wrapper = Wrapper {
+            paths: vec![PathBuf::from("ok.txt"), non_utf8_path()],
+        };
+        let json = serde_json::to_string(&wrapper).unwrap();
+        // The UTF-8 neighbor keeps its plain-string shape; only the bad one
+        // falls back to a byte array.
+        assert!(json.starts_with(r#"{"paths":["ok.txt",["#), "got {json}");
+        let back: Wrapper = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_journal_written_before_paths_could_be_non_utf8_still_loads() {
+        // The old wire shape (plain strings) must still parse under the new
+        // per-element scheme — that is the whole point of not bumping the
+        // journal version for this.
+        let json = r#"{"paths":["src/main.rs"]}"#;
+        let wrapper: Wrapper = serde_json::from_str(json).unwrap();
+        assert_eq!(wrapper.paths, vec![PathBuf::from("src/main.rs")]);
+    }
+}

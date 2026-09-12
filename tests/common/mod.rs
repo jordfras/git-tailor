@@ -82,8 +82,8 @@ impl TestRepo {
     /// Use it to create unstaged dirty state (e.g. to verify that an operation
     /// preserves working-tree changes) or as the first step before
     /// [`stage_file`][Self::stage_file].
-    pub fn write_file(&self, path: &str, content: &str) {
-        let file_path = self.repo.workdir().unwrap().join(path);
+    pub fn write_file(&self, path: impl AsRef<std::path::Path>, content: &str) {
+        let file_path = self.repo.workdir().unwrap().join(path.as_ref());
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }

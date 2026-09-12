@@ -244,7 +244,7 @@ fn squash_finalize_after_conflict_resolution() {
 
     // Step 2: simulate user resolving the conflict
     test.write_file("a.txt", "resolved\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
 
     // Step 3: finalize with NO descendants so that we only test the squash
     //         commit creation. (Intermediate commits that cause the initial

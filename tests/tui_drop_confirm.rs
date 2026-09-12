@@ -194,9 +194,9 @@ fn test_drop_conflict_dialog_with_files() {
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
         conflicting_files: vec![
-            "src/parser/mod.rs".to_string(),
-            "src/parser/expr.rs".to_string(),
-            "tests/integration.rs".to_string(),
+            std::path::PathBuf::from("src/parser/mod.rs"),
+            std::path::PathBuf::from("src/parser/expr.rs"),
+            std::path::PathBuf::from("tests/integration.rs"),
         ],
         ..Default::default()
     }));
@@ -222,7 +222,7 @@ fn test_drop_conflict_dialog_still_unresolved_warning() {
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        conflicting_files: vec!["src/parser/mod.rs".to_string()],
+        conflicting_files: vec![std::path::PathBuf::from("src/parser/mod.rs")],
         still_unresolved: true,
         ..Default::default()
     }));

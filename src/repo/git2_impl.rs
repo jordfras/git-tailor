@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A git index entry's path, which is raw bytes and need not be UTF-8.
 ///
@@ -258,7 +258,7 @@ impl Git2Repo {
         Ok(super::StageOutcome::Changed)
     }
 
-    pub(super) fn stage_file(&mut self, path: &str) -> Result<()> {
+    pub(super) fn stage_file(&mut self, path: &Path) -> Result<()> {
         let mut index = self.inner.index().context("failed to read index")?;
         index
             .read(true)
@@ -273,15 +273,15 @@ impl Git2Repo {
             // File is present — add it to clear conflict stages and create a
             // normal stage-0 entry.
             index
-                .add_path(std::path::Path::new(path))
-                .with_context(|| format!("failed to stage '{path}'"))?;
+                .add_path(path)
+                .with_context(|| format!("failed to stage '{}'", path.display()))?;
         } else {
             // File was deleted — remove all index entries for this path
             // (stages 0, 1, 2, 3) so the deletion is staged and no phantom
             // conflict entries remain.
             index
-                .remove_path(std::path::Path::new(path))
-                .with_context(|| format!("failed to remove '{path}' from index"))?;
+                .remove_path(path)
+                .with_context(|| format!("failed to remove '{}' from index", path.display()))?;
         }
 
         index
@@ -355,7 +355,7 @@ impl RepoRead for Git2Repo {
         reads::read_index_stage(self, path, stage)
     }
 
-    fn read_conflicting_files(&self) -> Vec<String> {
+    fn read_conflicting_files(&self) -> Vec<PathBuf> {
         conflict::read_conflicting_files(self)
     }
 
@@ -616,14 +616,14 @@ impl RepoWrite for Git2Repo {
         self.journaled("Squash", head_oid, outcome)
     }
 
-    fn stage_file(&mut self, path: &str) -> Result<()> {
+    fn stage_file(&mut self, path: &Path) -> Result<()> {
         // Qualified: with a `&mut self` receiver the trait method now matches
         // method resolution before the inherent one, so `self.stage_file(..)`
         // would call straight back into here.
         Git2Repo::stage_file(self, path)
     }
 
-    fn auto_stage_resolved_conflicts(&mut self, files: &[String]) -> Result<()> {
+    fn auto_stage_resolved_conflicts(&mut self, files: &[PathBuf]) -> Result<()> {
         conflict::auto_stage_resolved_conflicts(self, files)
     }
 

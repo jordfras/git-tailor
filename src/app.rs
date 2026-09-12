@@ -105,12 +105,12 @@ pub enum AppAction {
     RebaseAbort(ConflictState),
     /// Launch the merge tool for conflicting files.
     RunMergetool {
-        files: Vec<String>,
+        files: Vec<std::path::PathBuf>,
         conflict_state: ConflictState,
     },
     /// Open conflicting files in the configured editor.
     RunEditor {
-        files: Vec<String>,
+        files: Vec<std::path::PathBuf>,
         conflict_state: ConflictState,
     },
     /// Finish a conflicting auto-stash reapply (drop the stash if resolved).
@@ -118,9 +118,9 @@ pub enum AppAction {
     /// Abort a conflicting auto-stash reapply, rewinding the whole operation.
     AutostashAbort,
     /// Launch the merge tool for files conflicting in an auto-stash reapply.
-    RunMergetoolForStash { files: Vec<String> },
+    RunMergetoolForStash { files: Vec<std::path::PathBuf> },
     /// Open auto-stash conflicting files in the configured editor.
-    RunEditorForStash { files: Vec<String> },
+    RunEditorForStash { files: Vec<std::path::PathBuf> },
     /// Start the reword flow: get head_oid, launch editor, rewrite commit.
     PrepareReword {
         commit_oid: Oid,

@@ -257,7 +257,7 @@ impl Git2Repo {
     }
 
     /// Conflicting paths (index stage > 0) from a fresh read of the index.
-    fn autostash_conflicting_files(&self) -> Result<Vec<String>> {
+    fn autostash_conflicting_files(&self) -> Result<Vec<std::path::PathBuf>> {
         let mut index = self.inner.index()?;
         index.read(true)?;
         Ok(conflict::collect_conflict_files_from_index(&index))

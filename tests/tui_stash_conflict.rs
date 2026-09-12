@@ -33,7 +33,7 @@ fn make_app_in_stash_conflict(files: Vec<&str>, still_unresolved: bool) -> AppSt
     app.list.selection_index = 0;
     app.mode = AppMode::StashConflict(Box::new(StashConflictState {
         operation_label: "Drop".to_string(),
-        conflicting_files: files.iter().map(|s| s.to_string()).collect(),
+        conflicting_files: files.iter().map(std::path::PathBuf::from).collect(),
         still_unresolved,
     }));
     app

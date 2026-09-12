@@ -587,7 +587,9 @@ fn autostash_reapply_conflicts_on_the_staged_file_itself() {
     // here would strand the user with their work only in the stash and no way
     // to resolve it.
     match git_repo.autostash_restore() {
-        Ok(AutostashRestore::Conflict { files }) => assert_eq!(files, vec!["a.txt"]),
+        Ok(AutostashRestore::Conflict { files }) => {
+            assert_eq!(files, vec![std::path::PathBuf::from("a.txt")])
+        }
         other => panic!("expected a reportable conflict, got {other:?}"),
     }
 

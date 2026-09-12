@@ -186,7 +186,7 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     // would conflict *again* against an arbitrary resolution, which is a
     // second, independent conflict rather than a property of autofixup batching.
     test.write_file("c.txt", "mid version\n");
-    git_repo.stage_file("c.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("c.txt")).unwrap();
     let Resume::Squash(ctx) = &state.resume else {
         panic!("a three-way overwrite conflicts at squash-tree time");
     };
@@ -355,7 +355,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     );
 
     test.write_file("a.txt", "base\nmid version\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
     let outcome = git_repo
         .squash_finalize(
             squash_ctx,

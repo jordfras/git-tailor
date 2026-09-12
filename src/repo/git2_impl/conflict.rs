@@ -207,11 +207,11 @@ fn index_paths(repo: &Git2Repo) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<String> {
+pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<PathBuf> {
     collect_conflict_files(&repo.inner)
 }
 
-pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[String]) -> Result<()> {
+pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[PathBuf]) -> Result<()> {
     let workdir = repo
         .inner
         .workdir()
@@ -226,7 +226,7 @@ pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[String
             continue;
         }
         let content = std::fs::read(&full_path)
-            .with_context(|| format!("failed to read '{path}' from working tree"))?;
+            .with_context(|| format!("failed to read '{}' from working tree", path.display()))?;
         if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
             repo.stage_file(path)?;
         }
@@ -235,7 +235,7 @@ pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[String
 }
 
 /// Read the on-disk index and return paths with conflict (non-zero) stages.
-pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
+pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<PathBuf> {
     let mut index = match repo.index() {
         Ok(i) => i,
         Err(_) => return Vec::new(),
@@ -247,15 +247,15 @@ pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
 /// Return paths with conflict (non-zero) stages from a specific index. Lets
 /// callers read conflicts from an in-memory merge index before it is written
 /// to the on-disk index.
-pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<String> {
-    let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<PathBuf> {
+    let mut paths: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
         let stage = (entry.flags >> 12) & 0x3;
         if stage > 0
             && let Ok(p) = std::str::from_utf8(&entry.path)
         {
-            paths.insert(p.to_string());
+            paths.insert(PathBuf::from(p));
         }
     }
     paths.into_iter().collect()

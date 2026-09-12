@@ -28,7 +28,7 @@
 use crate::repo::GitRepo;
 use anyhow::{Context, Result};
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Resolve the shell command to use for the configured merge tool.
 ///
@@ -81,7 +81,7 @@ fn builtin_cmd(name: &str) -> Option<String> {
 ///
 /// Returns `true` when the tool was invoked for at least one file, or `false`
 /// when no merge tool is configured (so the caller can show a hint).
-pub fn run_mergetool(repo: &mut impl GitRepo, conflicting_files: &[String]) -> Result<bool> {
+pub fn run_mergetool(repo: &mut impl GitRepo, conflicting_files: &[PathBuf]) -> Result<bool> {
     let Some(cmd) = resolve_merge_tool_cmd(repo)? else {
         return Ok(false);
     };
@@ -107,11 +107,11 @@ pub fn run_for_all_files(
     cmd: &str,
     workdir: &Path,
     repo: &mut impl GitRepo,
-    files: &[String],
+    files: &[PathBuf],
 ) -> Result<()> {
     for file_path in files {
         run_tool_for_file(cmd, workdir, repo, file_path)
-            .with_context(|| format!("merge tool failed on '{file_path}'"))?;
+            .with_context(|| format!("merge tool failed on '{}'", file_path.display()))?;
     }
     Ok(())
 }
@@ -120,23 +120,29 @@ fn run_tool_for_file(
     cmd: &str,
     workdir: &Path,
     repo: &mut impl GitRepo,
-    file_path: &str,
+    file_path: &Path,
 ) -> Result<()> {
+    // `read_index_stage` is string-keyed, so a non-UTF-8 path is looked up
+    // lossily here and may come back empty — a pre-existing limitation of the
+    // external-mergetool path, not made worse by this. Opening the file
+    // directly in `$EDITOR` (the other resolution path) reads the exact
+    // on-disk path and is unaffected.
+    let lookup_path = file_path.to_string_lossy();
     let base_content = repo
-        .read_index_stage(file_path, 1)
+        .read_index_stage(&lookup_path, 1)
         .context("failed to read base stage")?
         .unwrap_or_default();
     let ours_content = repo
-        .read_index_stage(file_path, 2)
+        .read_index_stage(&lookup_path, 2)
         .context("failed to read ours stage")?
         .unwrap_or_default();
     let theirs_content = repo
-        .read_index_stage(file_path, 3)
+        .read_index_stage(&lookup_path, 3)
         .context("failed to read theirs stage")?
         .unwrap_or_default();
 
     // Include the original file extension so tools can apply syntax highlighting.
-    let ext = Path::new(file_path)
+    let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| format!(".{e}"))
@@ -212,7 +218,7 @@ fn run_tool_for_file(
     // replaced with a normal stage-0 entry. This is what `git mergetool` does
     // automatically and what makes `index.has_conflicts()` return false afterward.
     repo.stage_file(file_path)
-        .with_context(|| format!("failed to stage resolved file '{file_path}'"))?;
+        .with_context(|| format!("failed to stage resolved file '{}'", file_path.display()))?;
 
     Ok(())
 }

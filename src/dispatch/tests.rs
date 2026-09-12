@@ -60,7 +60,10 @@ fn execute_drop_opens_stash_conflict_dialog_on_conflict() {
     match &app.mode {
         AppMode::StashConflict(state) => {
             assert_eq!(state.operation_label, "Drop");
-            assert_eq!(state.conflicting_files, vec!["conflict.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("conflict.txt")]
+            );
         }
         other => panic!("expected StashConflict mode, got {other:?}"),
     }
@@ -572,7 +575,7 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
     // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
     // with the still-conflicting files and a success banner naming the tool.
     let mut repo = MockRepo {
-        conflicting_files: vec!["a.txt".to_string()],
+        conflicting_files: vec![std::path::PathBuf::from("a.txt")],
         ..MockRepo::default()
     };
     let mut app = AppState::default();
@@ -586,7 +589,10 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
     assert!(matches!(action, LoopAction::Proceed));
     match &app.mode {
         AppMode::RebaseConflict(state) => {
-            assert_eq!(state.conflicting_files, vec!["a.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("a.txt")]
+            );
             assert!(!state.still_unresolved);
         }
         other => panic!("expected RebaseConflict mode, got {other:?}"),
@@ -644,7 +650,7 @@ fn conflict_tool_failure_reports_the_tool_name() {
 #[test]
 fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
     let mut repo = MockRepo {
-        conflicting_files: vec!["b.txt".to_string()],
+        conflicting_files: vec![std::path::PathBuf::from("b.txt")],
         ..MockRepo::default()
     };
     // handle_run_stash_tool reads the operation label off the current mode.
@@ -661,7 +667,10 @@ fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
     match &app.mode {
         AppMode::StashConflict(state) => {
             assert_eq!(state.operation_label, "Drop");
-            assert_eq!(state.conflicting_files, vec!["b.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("b.txt")]
+            );
             assert!(!state.still_unresolved);
         }
         other => panic!("expected StashConflict mode, got {other:?}"),

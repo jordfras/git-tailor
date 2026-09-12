@@ -18,6 +18,7 @@ pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
@@ -195,7 +196,12 @@ pub struct ConflictState {
     pub conflicting_commit_oid: Oid,
     /// Paths of files that have conflict markers in the index (stage > 0).
     /// Collected at the point of conflict so the dialog can list them.
-    pub conflicting_files: Vec<String>,
+    ///
+    /// Paths, not text: git does not guarantee a path is UTF-8. Serialized one
+    /// path at a time as a string when it happens to be UTF-8, which keeps the
+    /// journal readable and lets a journal written before this load unchanged.
+    #[serde(with = "crate::domain::path_list")]
+    pub conflicting_files: Vec<PathBuf>,
     /// True when `rebase_continue` was called but the index still had
     /// unresolved entries. The dialog uses this to show a warning to the user.
     pub still_unresolved: bool,
@@ -348,7 +354,7 @@ pub struct StashConflictState {
     /// used in the dialog title.
     pub operation_label: String,
     /// Paths with conflict markers left by the reapply.
-    pub conflicting_files: Vec<String>,
+    pub conflicting_files: Vec<PathBuf>,
     /// True when the user pressed continue but conflicts still remain.
     pub still_unresolved: bool,
 }
@@ -360,7 +366,7 @@ pub enum AutostashRestore {
     Done,
     /// The reapply conflicted: markers are in the working tree and the stash is
     /// kept. Carries the conflicting file paths for the resolution dialog.
-    Conflict { files: Vec<String> },
+    Conflict { files: Vec<PathBuf> },
 }
 
 /// Result of attempting to finish a conflicting auto-stash reapply.
@@ -369,7 +375,7 @@ pub enum AutostashContinue {
     /// All conflicts resolved; the stash was dropped.
     Resolved,
     /// Conflicts still remain; `files` lists them.
-    StillUnresolved { files: Vec<String> },
+    StillUnresolved { files: Vec<PathBuf> },
 }
 
 /// Read-only git queries: HEAD/refs, commit walking, diffs, config, and index
@@ -463,7 +469,7 @@ pub trait RepoRead {
 
     /// Return the list of paths that currently have conflict markers in the index
     /// (entries with stage > 0), sorted alphabetically and deduplicated.
-    fn read_conflicting_files(&self) -> Vec<String>;
+    fn read_conflicting_files(&self) -> Vec<PathBuf>;
 
     /// Return the OID of the root (parentless) commit reachable from HEAD.
     ///
@@ -930,7 +936,7 @@ pub trait RepoWrite {
     /// adds it to the index at stage 0 (which removes stages 1/2/3), and writes
     /// the updated index to disk. Must be called after a merge tool resolves a
     /// conflict so that subsequent `index.has_conflicts()` checks return false.
-    fn stage_file(&mut self, path: &str) -> Result<()>;
+    fn stage_file(&mut self, path: &Path) -> Result<()>;
 
     /// Auto-stage conflicting files whose working-tree content no longer
     /// contains conflict markers.
@@ -940,7 +946,7 @@ pub trait RepoWrite {
     /// This method reads each file from disk and stages it if the standard
     /// `<<<<<<<` marker is absent, so that `index.has_conflicts()` reflects
     /// the actual resolution state.
-    fn auto_stage_resolved_conflicts(&mut self, files: &[String]) -> Result<()>;
+    fn auto_stage_resolved_conflicts(&mut self, files: &[PathBuf]) -> Result<()>;
 }
 
 /// A full repository handle: everything a caller can do, read and write. This is

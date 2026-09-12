@@ -798,7 +798,7 @@ fn a_clashing_carry_is_a_conflict_like_any_other() {
 
     let state = fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Staged);
 
-    assert_eq!(state.conflicting_files, ["a.txt"]);
+    assert_eq!(state.conflicting_files, [std::path::PathBuf::from("a.txt")]);
     let on_disk = workdir(&test, "a.txt");
     assert!(on_disk.contains("<<<<<<<"), "got {on_disk:?}");
     assert!(
