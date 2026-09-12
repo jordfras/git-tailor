@@ -171,6 +171,9 @@ pub fn render_conflict_dialog(
         dialog = dialog
             .blank()
             .styled_line("Conflicting files:", TextRole::Highlight);
+        // Re-stringified every frame rather than cached: capped at MAX_FILES
+        // and truncated to the current frame width below, which a resize
+        // changes, so there is nothing width-independent worth caching here.
         const MAX_FILES: usize = 5;
         let shown = conflicting_files.len().min(MAX_FILES);
         for path in &conflicting_files[..shown] {
