@@ -178,3 +178,75 @@ fn continuing_refuses_after_head_moved_to_another_branch() {
         .target();
     assert_eq!(side_before, side_after);
 }
+
+/// Finalizing a squash-tree conflict has the same exposure as continuing a
+/// plain one, but `squash_finalize` is not handed a `ConflictState` to check
+/// against — it has to come from the journal's own record of the conflict.
+#[test]
+fn finalizing_a_squash_refuses_after_head_moved_to_another_branch() {
+    use git_tailor::app::SquashMode;
+    use git_tailor::repo::SquashContext;
+
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_file("a.txt", "target\n", "target changes a");
+    let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
+    let source = test.commit_file("a.txt", "source\n", "source changes a");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    let state = git_repo
+        .squash_try_combine(
+            &Oid::from(source),
+            &Oid::from(target),
+            b"combined",
+            SquashMode::Squash,
+            &head,
+        )
+        .unwrap()
+        .expect("should conflict");
+
+    // The user resolves the conflict — so, absent the branch check, finalizing
+    // below would otherwise succeed.
+    test.write_file("a.txt", "resolved\n");
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
+    // No descendants, so finalizing is a single commit with nothing left to
+    // cascade-conflict on.
+    let ctx = SquashContext {
+        base_oid: match &state.resume {
+            Resume::Squash(sc) => sc.base_oid.clone(),
+            _ => panic!("squash-tree conflict should carry a squash context"),
+        },
+        source_oid: Oid::from(source),
+        target_oid: Oid::from(target),
+        combined_message: b"combined".to_vec(),
+        descendant_oids: vec![],
+        squash_mode: SquashMode::Squash,
+    };
+
+    // A different branch, pointing somewhere else entirely.
+    let elsewhere = test.repo.find_commit(base).unwrap();
+    test.repo.branch("side", &elsewhere, false).unwrap();
+    let side_before = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    test.repo.set_head("refs/heads/side").unwrap();
+
+    let result =
+        git_repo.squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None);
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    let side_after = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    assert_eq!(
+        side_before, side_after,
+        "the unrelated branch must not be rewritten"
+    );
+}
