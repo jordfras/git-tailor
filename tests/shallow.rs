@@ -198,6 +198,28 @@ fn squashing_into_the_graft_boundary_is_refused() {
     );
 }
 
+/// Moving an ordinary commit to the very beginning of the branch (`--all`
+/// mode's "insert before the first visible entry") must not be refused just
+/// because the repository happens to be shallow somewhere. The commit being
+/// moved is not the graft boundary, so nothing behind it is at risk.
+#[test]
+fn moving_an_ordinary_commit_to_root_is_unaffected() {
+    let Some(s) = shallow_clone("3", "move-root") else {
+        return;
+    };
+    let head_commit = s.repo.find_commit(s.head).unwrap();
+    let just_below = head_commit.parent_id(0).unwrap();
+    assert_ne!(just_below, s.boundary, "the fixture needs room above");
+
+    let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
+    let result = git_repo.move_commit(&Oid::from(just_below), None, &Oid::from(s.head));
+
+    assert!(
+        result.is_ok(),
+        "moving an ordinary commit to root must not be refused: {result:?}"
+    );
+}
+
 /// A repository that is not shallow keeps its real root rewritable — the guard
 /// must key on the graft, not on "has no parents".
 #[test]
