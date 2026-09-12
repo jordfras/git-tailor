@@ -123,7 +123,10 @@ point, making the layout unambiguous at a glance.
 ### Code Comments Convention
 
 **Avoid redundant comments.** Comments should explain *why* or provide context,
-not restate what the code already clearly expresses.
+not restate what the code already clearly expresses. Keep them short — a
+sentence or two of what a future reader needs, not a narrative of how the code
+came to be. Don't reference the current task, a review, or a PR discussion;
+that context is gone once the commit lands.
 
 ❌ Bad (comment restates the obvious):
 ```rust
@@ -155,8 +158,11 @@ After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and
 Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `refactor:`,
 `docs:`, `chore:`, `tasks:`. Each commit represents one logical change.
 
-**Bug fixes — TDD:** write a failing test first, commit it with `test:` prefix,
-then implement the fix. Skip only if the bug cannot be exercised by a test.
+**Bug fixes — TDD:** write a failing test first, commit it alone with a
+`test:` prefix, then implement the fix as a separate, following commit. Never
+combine the two in one commit — verify the test actually fails before the fix
+lands and passes after. Skip the test only if the bug cannot be exercised by
+one.
 
 **Design fit over diff size.** If the existing structure is a poor fit for a
 change — fragile, duplicated, or poorly abstracted — propose a preparatory
