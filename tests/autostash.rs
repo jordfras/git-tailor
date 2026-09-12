@@ -397,6 +397,85 @@ fn autostash_conflict_continue_stays_when_unresolved() {
     }
 }
 
+/// A filename that is not valid UTF-8 anywhere in its byte stream: 0xFF is
+/// never a valid UTF-8 lead or continuation byte.
+#[cfg(unix)]
+fn non_utf8_filename() -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = [b'b', b'a', b'd', 0xFF, b'.', b't', b'x', b't'];
+    std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
+}
+
+/// Same shape as [`setup_restore_conflict`], but the conflicting file's name
+/// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
+/// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
+#[cfg(unix)]
+fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Path) -> git2::Oid {
+    test.write_file(path, "AAAA\nBBBB\nCCCC\n");
+    let mut index = test.repo.index().unwrap();
+    index.add_path(path).unwrap();
+    index.write().unwrap();
+    let _base = test.commit("base");
+
+    test.write_file(path, "AAAA\nYYYY\nCCCC\n");
+    let mut index = test.repo.index().unwrap();
+    index.add_path(path).unwrap();
+    index.write().unwrap();
+    let c1 = test.commit("c1");
+
+    test.write_file(path, "AAAA\nZZZZZZZZ\nCCCC\n");
+    c1
+}
+
+/// A non-UTF-8 conflicting path must not be invisible to the "is everything
+/// resolved?" check, or an unresolved conflict reads as clean and the stash
+/// holding the user's only copy of their work gets dropped.
+#[test]
+#[cfg(unix)]
+fn autostash_conflict_continue_stays_when_unresolved_with_a_non_utf8_path() {
+    let test = common::TestRepo::new();
+    let path = non_utf8_filename();
+    let c1 = setup_restore_conflict_non_utf8(&test, &path);
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // Conflict markers are still in the working tree — untouched, so this must
+    // report the file as still conflicted rather than silently dropping the
+    // stash.
+    match git_repo.autostash_conflict_continue().unwrap() {
+        AutostashContinue::StillUnresolved { files } => {
+            assert_eq!(files, vec![path.clone()]);
+        }
+        AutostashContinue::Resolved => panic!(
+            "must not report resolved: the non-UTF-8 conflict is still on disk, \
+             unresolved, and dropping the stash here would destroy the user's \
+             only copy of their work"
+        ),
+    }
+    assert_eq!(
+        stash_count(&gitdir),
+        1,
+        "the stash must survive an unresolved (non-UTF-8) conflict"
+    );
+    let on_disk = std::fs::read_to_string(test.repo.workdir().unwrap().join(&path)).unwrap();
+    assert!(
+        on_disk.contains("<<<<<<<"),
+        "conflict markers should remain: {on_disk:?}"
+    );
+}
+
 #[test]
 fn split_refuses_overlapping_dirty_without_autostash() {
     // Documents the guard that auto-stash sidesteps: split on its own refuses
