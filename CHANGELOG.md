@@ -91,6 +91,11 @@ The format is based on
   everything were resolved. `--autostash` used to report the reapply as done
   and drop the stash while real conflict markers were still on disk under
   that path
+- If the shell to edit a commit could not be launched and undoing the edit
+  then also failed (say, an untracked file blocking it), git-tailor no longer
+  reapplies the auto-stash anyway. It used to, onto a tree the stash no
+  longer matched, producing conflicts that had nothing to do with the
+  original problem
 
 
 ## [3.0.0] - 2026-09-06

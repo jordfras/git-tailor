@@ -31,6 +31,12 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // history changes, so it doesn't clutter the journal or tools like gitk.
     let _ = git_repo.prune_stale_journal();
 
+    // Set when a recovered Edit's abort fails, so the branch is left wherever
+    // the crash left it rather than back at the edit's original tip — the
+    // trailing auto-stash restore below has to know not to reapply a stash
+    // taken against a tree that no longer matches.
+    let mut edit_abort_failed = false;
+
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(record)) => match *record {
             InProgress::Edit(_) => {
@@ -45,8 +51,12 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                         "Recovered an interrupted Edit — restored the branch \
                          (in-shell commits remain in the reflog)",
                     ),
-                    Err(e) => app
-                        .set_error_message(format!("Failed to recover an interrupted Edit: {e:#}")),
+                    Err(e) => {
+                        edit_abort_failed = true;
+                        app.set_error_message(format!(
+                            "Failed to recover an interrupted Edit: {e:#}"
+                        ));
+                    }
                 }
             }
             InProgress::WorktreeSquash(snapshot) => {
@@ -130,7 +140,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !matches!(app.mode, AppMode::RecoverConfirm(_))
+    if !edit_abort_failed
+        && !matches!(app.mode, AppMode::RecoverConfirm(_))
         && let Ok(AutostashRestore::Conflict { files }) = git_repo.autostash_restore()
     {
         app.enter_stash_conflict(StashConflictState {
