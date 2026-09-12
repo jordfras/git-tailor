@@ -110,6 +110,14 @@ pub(super) fn rescue_ref(tree: &Oid) -> String {
 /// used as-is because a working tree's name only has to be a valid directory
 /// name, while this has to be a valid ref name. Hashing the name and not the
 /// full path keeps the pins matching after the repository is moved.
+///
+/// Truncated to 12 hex chars (48 bits): two working trees landing on the same
+/// prefix needs on the order of 2^24 of them on one repository before it
+/// becomes likely, far past anything a real project has open at once.
+/// Widening this would help nothing already on disk — a ref written under the
+/// old, shorter id would stop matching the new prefix and never be pruned —
+/// so it stays exactly this long rather than trading a theoretical collision
+/// for a real leak.
 fn worktree_prefix(repo: &Git2Repo) -> String {
     let path = repo.inner.path();
     let name = path
