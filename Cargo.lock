@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "git-tailor"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "clap",
