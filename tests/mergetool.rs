@@ -250,6 +250,54 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     assert_rebase_complete!(outcome);
 }
 
+/// A conflicting path that is not valid UTF-8 must still reach the external
+/// merge tool with real BASE/LOCAL/REMOTE content. `read_index_stage` used to
+/// be looked up through a lossy `to_string_lossy()` rendering of the path,
+/// which cannot match the exact bytes the index holds — so every stage came
+/// back empty and the tool ran against blank files.
+#[test]
+#[cfg(unix)]
+fn run_for_all_files_finds_content_at_a_non_utf8_path() {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"ba\xffd.txt"));
+
+    let test = common::TestRepo::new();
+    let stage = |content: &str, message: &str| -> git2::Oid {
+        test.write_file(&path, content);
+        let mut index = test.repo.index().unwrap();
+        index.add_path(&path).unwrap();
+        index.write().unwrap();
+        test.commit(message)
+    };
+    let _base = stage("base\n", "base");
+    let to_drop = stage("base\ndropped\n", "add dropped line");
+    let head = stage("base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+    assert_eq!(
+        state.conflicting_files[0].as_os_str().as_bytes(),
+        path.as_os_str().as_bytes(),
+        "the fixture must actually conflict on the non-UTF-8 path"
+    );
+
+    let workdir = git_repo.workdir().unwrap();
+    // Copies the base-stage content to MERGED — proves BASE was populated.
+    let cmd = "cp $BASE $MERGED";
+    mergetool::run_for_all_files(cmd, &workdir, &mut git_repo, &state.conflicting_files)
+        .expect("run_for_all_files should succeed");
+
+    let merged = std::fs::read(test.repo.workdir().unwrap().join(&path)).unwrap();
+    assert_eq!(
+        merged, b"base\ndropped\n",
+        "the merge tool must see the real base-stage content, not an empty file"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Git2Repo — workdir / read_index_stage / read_conflicting_files / stage_file
 // ---------------------------------------------------------------------------
