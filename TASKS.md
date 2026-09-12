@@ -257,7 +257,7 @@ Guidelines:
   and a TUI test for the confirmation dialog.
 
 ## Demo & Promo Video
-- [ ] T238 P2 human - Watch the promo video end to end with fresh eyes and
+- [X] T238 P2 human - Watch the promo video end to end with fresh eyes and
   tighten whatever grates (Flags: HUMAN TASK). Every scene has been checked
   against its own narration and timings, but the whole thing has never been
   judged as one piece by someone not holding the numbers in their head. Render
