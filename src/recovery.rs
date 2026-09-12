@@ -316,6 +316,36 @@ mod tests {
         );
     }
 
+    /// If the abort itself fails (e.g. refused by an untracked-file collision),
+    /// the branch was never restored to the edit's original tip — restoring a
+    /// pending auto-stash on top of it anyway would reapply a stash taken
+    /// against a tree that no longer matches.
+    #[test]
+    fn a_failed_interrupted_edit_abort_does_not_restore_autostash() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Edit(EditInProgress {
+                original_branch_oid: mock_head(),
+                ..Default::default()
+            })),
+            abort_edit_ok: false,
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(
+            app.status
+                .message
+                .as_deref()
+                .unwrap_or("")
+                .contains("Failed to recover an interrupted Edit")
+        );
+        assert_eq!(
+            repo.autostash_restore_calls.get(),
+            0,
+            "must not restore the auto-stash when the branch was never restored"
+        );
+    }
+
     /// A paused conflict is the one case the user is asked about, because
     /// resuming it needs their resolution.
     #[test]
