@@ -1147,6 +1147,48 @@ fn aborting_a_fold_leaves_a_colliding_untracked_file_alone() {
     assert_eq!(workdir(&test, "b.txt"), "b2\n");
 }
 
+/// A real collision — the branch moved past the lift (as a squash step can
+/// leave it) to a tip that no longer tracks a path the snapshot still names,
+/// and the user's now-untracked file at that path has different content —
+/// must leave the branch exactly where it was, not already rewound with the
+/// working tree still owed.
+#[test]
+fn restoring_a_lifted_row_refuses_a_real_untracked_collision_without_moving_the_branch() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    test.write_file("extra.txt", "staged\n");
+    test.stage_file("extra.txt");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+
+    // Simulate history moving past the lift to a tip that no longer tracks
+    // extra.txt, while the fold's own snapshot still names it.
+    test.delete_file("extra.txt", "drop extra");
+    let head_before_restore = git_repo.head_oid().unwrap();
+
+    // The user's now-untracked extra.txt has different content than what the
+    // snapshot recorded.
+    test.write_file("extra.txt", "clashing content\n");
+
+    let result = git_repo.restore_lifted_row(&lifted);
+
+    assert!(result.is_err(), "a real collision must be refused");
+    assert_eq!(
+        workdir(&test, "extra.txt"),
+        "clashing content\n",
+        "the refusal must not have touched the untracked file"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_before_restore,
+        "a refused restore must not have moved the branch"
+    );
+}
+
 /// And through a conflicted fold, which reaches the working tree by a third
 /// route again — the conflict write.
 ///
