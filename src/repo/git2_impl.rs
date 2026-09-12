@@ -658,6 +658,14 @@ impl RepoWrite for Git2Repo {
         original_branch_oid: &Oid,
         autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {
+        // Not handed a ConflictState like rebase_continue/rebase_abort are, so
+        // the branch and tip this squash-tree conflict paused on come from the
+        // journal's own record of it instead — set by squash_try_combine (or
+        // squash_commits, on a descendant conflict) at the moment it paused.
+        if let Some(super::InProgress::Conflict(state)) = journal::in_progress(self)? {
+            self.refuse_if_branch_switched(&state.branch_refname)?;
+            self.refuse_if_branch_moved(&state.new_tip_oid)?;
+        }
         if let Some(autofixup_ctx) = autofixup_context {
             let outcome = autofixup_op::continue_autofixup_after_squash_finalize(
                 self,
