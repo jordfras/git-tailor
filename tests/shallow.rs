@@ -171,6 +171,33 @@ fn splitting_the_graft_boundary_is_refused() {
     assert!(error.contains("shallow"), "{error}");
 }
 
+/// Squashing into the graft boundary makes the squash commit an orphan root,
+/// so it is refused on the same grounds as drop, move, and split.
+#[test]
+fn squashing_into_the_graft_boundary_is_refused() {
+    let Some(s) = shallow_clone("3", "squash") else {
+        return;
+    };
+    let head_commit = s.repo.find_commit(s.head).unwrap();
+    let source = head_commit.parent_id(0).unwrap();
+    let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
+
+    let result = git_repo.squash_commits(
+        &Oid::from(source),
+        &Oid::from(s.boundary),
+        b"squashed",
+        &Oid::from(s.head),
+    );
+
+    let error = format!("{:#}", result.expect_err("this must be refused"));
+    assert!(error.contains("shallow"), "{error}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        Oid::from(s.head),
+        "and nothing may have moved"
+    );
+}
+
 /// A repository that is not shallow keeps its real root rewritable — the guard
 /// must key on the graft, not on "has no parents".
 #[test]
