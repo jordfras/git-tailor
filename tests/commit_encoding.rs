@@ -285,6 +285,47 @@ fn rewording_to_utf8_drops_the_stale_encoding_header() {
     );
 }
 
+/// A fixup that keeps the target's message unchanged must keep its `encoding`
+/// header too, even when those exact bytes also happen to be well-formed
+/// UTF-8. The header describes how the *original* bytes were meant to be
+/// read; whether they can *also* be parsed a different way is not something a
+/// fixup that never touches the message gets to decide.
+#[test]
+fn a_fixup_keeps_the_targets_encoding_header_even_when_it_reads_as_utf8() {
+    // Latin-1 "Café fix": 0xC3 0xA9 is also a well-formed UTF-8 encoding of
+    // U+00E9, so this message is valid UTF-8 despite its declared encoding.
+    const AMBIGUOUS_MESSAGE: &[u8] = b"Caf\xc3\xa9 fix\n";
+    assert!(std::str::from_utf8(AMBIGUOUS_MESSAGE).is_ok());
+
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "1\n", "base");
+    let parent = test.commit_file("a.txt", "1\n2\n", "parent");
+    let target = commit_with_raw_message(&test, parent, AMBIGUOUS_MESSAGE);
+    let source = test.commit_file("b.txt", "b\n", "source to fold in");
+
+    let mut git_repo = test.git_repo();
+    let target_message = git_repo.commit_message_bytes(&Oid::from(target)).unwrap();
+
+    assert_rebase_complete!(
+        git_repo
+            .squash_commits(
+                &Oid::from(source),
+                &Oid::from(target),
+                &target_message,
+                &Oid::from(source),
+            )
+            .unwrap()
+    );
+
+    let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
+    assert_eq!(message_bytes(&test, new_head), AMBIGUOUS_MESSAGE.to_vec());
+    assert_eq!(
+        encoding(&test, new_head).as_deref(),
+        Some("ISO-8859-1"),
+        "the message never changed, so neither should how it's read"
+    );
+}
+
 /// And rewording while keeping unreadable bytes keeps the header.
 #[test]
 fn rewording_within_latin1_keeps_the_encoding_header() {
