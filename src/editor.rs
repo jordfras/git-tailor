@@ -99,27 +99,12 @@ pub fn edit_message_in_editor(repo: &impl RepoRead, message: &[u8]) -> anyhow::R
     launch_editor(repo, tmpfile.path())?;
 
     let edited = std::fs::read(tmpfile.path()).context("failed to read edited commit message")?;
-    let trimmed = trim_ascii_whitespace(&edited);
-    let mut out = trimmed.to_vec();
+    // Byte-wise rather than `str::trim` so it works on a message that is not
+    // UTF-8; every byte `trim_ascii` looks at is ASCII, which cannot be part
+    // of a multi-byte sequence in any encoding git accepts.
+    let mut out = edited.trim_ascii().to_vec();
     out.push(b'\n');
     Ok(out)
-}
-
-/// Trim leading and trailing ASCII whitespace.
-///
-/// Byte-wise rather than `str::trim` so it works on a message that is not
-/// UTF-8; every byte it looks at is ASCII, which cannot be part of a multi-byte
-/// sequence in any encoding git accepts.
-fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|b| !b.is_ascii_whitespace())
-        .unwrap_or(bytes.len());
-    let end = bytes
-        .iter()
-        .rposition(|b| !b.is_ascii_whitespace())
-        .map_or(start, |i| i + 1);
-    &bytes[start..end]
 }
 
 /// Open an existing working-tree file in the configured editor.
