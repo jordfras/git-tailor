@@ -952,11 +952,15 @@ impl Git2Repo {
     /// An empty `expected` means the state predates this being recorded, so
     /// there is nothing to compare and the check stands aside.
     pub(super) fn refuse_if_branch_switched(&self, expected: &str) -> Result<()> {
-        if expected.is_empty() {
-            return Ok(());
-        }
         let actual = self.current_branch_refname().unwrap_or_default();
-        if actual == expected {
+        Self::check_branch_refname(&actual, expected)
+    }
+
+    /// The comparison [`Self::refuse_if_branch_switched`] makes, split out so
+    /// [`Self::refuse_if_conflict_branch_moved`] can reuse it against a branch
+    /// name it already resolved, instead of resolving HEAD a second time.
+    fn check_branch_refname(actual: &str, expected: &str) -> Result<()> {
+        if expected.is_empty() || actual == expected {
             return Ok(());
         }
         anyhow::bail!(
@@ -965,7 +969,7 @@ impl Git2Repo {
             if actual.is_empty() {
                 "a detached HEAD"
             } else {
-                &actual
+                actual
             }
         )
     }
@@ -990,7 +994,14 @@ impl Git2Repo {
     /// has been on screen.
     pub(super) fn refuse_if_branch_moved(&self, expected: &Oid) -> Result<()> {
         let actual = reads::head_oid(self)?;
-        if &actual == expected {
+        Self::check_branch_tip(&actual, expected)
+    }
+
+    /// The comparison [`Self::refuse_if_branch_moved`] makes, split out so
+    /// [`Self::refuse_if_conflict_branch_moved`] can reuse it against a tip it
+    /// already resolved, instead of resolving HEAD a second time.
+    fn check_branch_tip(actual: &Oid, expected: &Oid) -> Result<()> {
+        if actual == expected {
             return Ok(());
         }
         anyhow::bail!(
@@ -1010,8 +1021,23 @@ impl Git2Repo {
         &self,
         state: &super::ConflictState,
     ) -> Result<()> {
-        self.refuse_if_branch_switched(&state.branch_refname)?;
-        self.refuse_if_branch_moved(&state.new_tip_oid)
+        // One `head()` resolution feeds both checks, rather than each of
+        // refuse_if_branch_switched/refuse_if_branch_moved resolving it again.
+        let head = self.inner.head();
+        let actual_refname: String = match &head {
+            Ok(h) => match h.resolve() {
+                Ok(resolved) => resolved.name().unwrap_or_default().to_string(),
+                Err(_) => String::new(),
+            },
+            Err(_) => String::new(),
+        };
+        Self::check_branch_refname(&actual_refname, &state.branch_refname)?;
+
+        let actual_oid = head
+            .context("Failed to get HEAD")?
+            .target()
+            .context("HEAD is not a direct reference")?;
+        Self::check_branch_tip(&Oid::from(actual_oid), &state.new_tip_oid)
     }
 
     /// Refuse to treat `commit` as a root when it is only one by accident of a
