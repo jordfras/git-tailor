@@ -383,16 +383,7 @@ pub(super) fn prepare_source(
 /// A working-tree row has no message of its own, so a squash from one starts
 /// from the target's alone rather than the two joined.
 pub(super) fn squash_editor_seed(source_message: Option<&[u8]>, target_message: &[u8]) -> Vec<u8> {
-    match source_message {
-        Some(source_message) => {
-            let mut seed = Vec::with_capacity(target_message.len() + source_message.len() + 2);
-            seed.extend_from_slice(target_message);
-            seed.extend_from_slice(b"\n\n");
-            seed.extend_from_slice(source_message);
-            seed
-        }
-        None => target_message.to_vec(),
-    }
+    git_tailor::domain::combine_messages(target_message, source_message)
 }
 
 /// What a completed squash or fixup reports, named after what it folded in.

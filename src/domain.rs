@@ -40,6 +40,23 @@ pub(crate) fn bytes_to_path(bytes: &[u8]) -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// Combine a target's message with a source's, the default text a squash or
+/// fixup starts from: the target's message, a blank line, then the source's —
+/// or just the target's when there is no source message to fold in (a fixup,
+/// or a source with none of its own, such as a working-tree row).
+pub fn combine_messages(target: &[u8], source: Option<&[u8]>) -> Vec<u8> {
+    match source {
+        Some(source) => {
+            let mut combined = Vec::with_capacity(target.len() + source.len() + 2);
+            combined.extend_from_slice(target);
+            combined.extend_from_slice(b"\n\n");
+            combined.extend_from_slice(source);
+            combined
+        }
+        None => target.to_vec(),
+    }
+}
+
 /// Serde for a commit message held as bytes.
 ///
 /// git stores a message as bytes and most of them are UTF-8, so this writes a

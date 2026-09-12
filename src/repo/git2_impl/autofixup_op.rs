@@ -186,11 +186,10 @@ fn pair_message(
         SquashMode::Fixup => Ok(target_bytes),
         SquashMode::Squash => {
             let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
-            let mut combined = Vec::with_capacity(target_bytes.len() + source_bytes.len() + 2);
-            combined.extend_from_slice(&target_bytes);
-            combined.extend_from_slice(b"\n\n");
-            combined.extend_from_slice(&source_bytes);
-            Ok(combined)
+            Ok(crate::domain::combine_messages(
+                &target_bytes,
+                Some(&source_bytes),
+            ))
         }
     }
 }
