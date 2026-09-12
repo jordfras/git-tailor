@@ -927,7 +927,6 @@ use rewrite::{prepare_source, squash_editor_seed, squash_success_message};
 fn commit_source() -> SquashSource {
     SquashSource::Commit {
         oid: Oid::from("b".repeat(40)),
-        message: "the source commit".to_string(),
     }
 }
 

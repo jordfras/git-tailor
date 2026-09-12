@@ -57,13 +57,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 return AppAction::Handled;
             };
             let target_oid = target.oid.expect_real_oid();
-            let target_message = target.message.clone();
 
             let source = &app.list.commits[source_index];
             let result = AppAction::PrepareSquash {
                 source: squash_source(source),
                 target_oid,
-                target_message,
                 squash_mode,
             };
 
@@ -90,7 +88,6 @@ fn squash_source(source: &CommitInfo) -> SquashSource {
         VirtualOid::Unstaged => SquashSource::Worktree(WorktreeSource::Unstaged),
         VirtualOid::Real(_) => SquashSource::Commit {
             oid: source.oid.expect_real_oid(),
-            message: source.message.clone(),
         },
     }
 }

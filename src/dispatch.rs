@@ -259,23 +259,12 @@ pub(crate) fn dispatch_action(
             let outcome = run_editor_suspended(git_repo, &files, terminal_guard, kb_enhanced);
             return Ok(handle_run_stash_tool(git_repo, app, "Editor", outcome));
         }
-        AppAction::PrepareReword {
-            commit_oid,
-            current_message,
-        } => {
-            return handle_prepare_reword(
-                git_repo,
-                app,
-                commit_oid,
-                current_message,
-                terminal_guard,
-                kb_enhanced,
-            );
+        AppAction::PrepareReword { commit_oid } => {
+            return handle_prepare_reword(git_repo, app, commit_oid, terminal_guard, kb_enhanced);
         }
         AppAction::PrepareSquash {
             source,
             target_oid,
-            target_message,
             squash_mode,
         } => {
             return handle_prepare_squash(
@@ -283,7 +272,6 @@ pub(crate) fn dispatch_action(
                 app,
                 source,
                 target_oid,
-                target_message,
                 squash_mode,
                 terminal_guard,
                 kb_enhanced,

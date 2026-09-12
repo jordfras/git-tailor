@@ -122,15 +122,11 @@ pub enum AppAction {
     /// Open auto-stash conflicting files in the configured editor.
     RunEditorForStash { files: Vec<std::path::PathBuf> },
     /// Start the reword flow: get head_oid, launch editor, rewrite commit.
-    PrepareReword {
-        commit_oid: Oid,
-        current_message: String,
-    },
+    PrepareReword { commit_oid: Oid },
     /// Start the squash/fixup flow: user picked source and target.
     PrepareSquash {
         source: SquashSource,
         target_oid: Oid,
-        target_message: String,
         squash_mode: SquashMode,
     },
     /// Stage all changes to tracked files (`git add -u`).
@@ -214,7 +210,7 @@ impl SplitStrategy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SquashSource {
     /// An existing commit, which is removed from history once folded in.
-    Commit { oid: Oid, message: String },
+    Commit { oid: Oid },
     /// One of the synthetic working-tree rows, folded in without having to be
     /// committed under a throwaway message first.
     Worktree(WorktreeSource),
@@ -226,15 +222,6 @@ impl SquashSource {
         match self {
             SquashSource::Commit { .. } => "Commit",
             SquashSource::Worktree(row) => row.label(),
-        }
-    }
-
-    /// The message a `squash` seeds its editor with below the target's, if the
-    /// source has one — a working-tree row does not.
-    pub fn message(&self) -> Option<&str> {
-        match self {
-            SquashSource::Commit { message, .. } => Some(message),
-            SquashSource::Worktree(_) => None,
         }
     }
 }

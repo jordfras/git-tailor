@@ -63,15 +63,13 @@ pub(crate) fn handle_prepare_reword(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
-    current_message: String,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    // The seed comes from the repository, never from `current_message`: that is
-    // the lossy rendering the list draws, and seeding the editor with it would
+    // Read from the repository, never from the list's rendering of the
+    // message: that rendering is lossy, and seeding the editor with it would
     // write its replacement characters back as the message.
-    let _ = current_message;
     let seed = match git_repo.commit_message_bytes(&commit_oid) {
         Ok(seed) => seed,
         Err(e) => {
@@ -96,13 +94,11 @@ pub(crate) fn handle_prepare_reword(
     Ok(LoopAction::Proceed)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_prepare_squash(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source: SquashSource,
     target_oid: Oid,
-    target_message: String,
     squash_mode: SquashMode,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
@@ -113,10 +109,9 @@ pub(crate) fn handle_prepare_squash(
     };
     let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
 
-    // Seeded from the repository, not from `target_message`: that is the lossy
-    // rendering the list draws, and writing it back would replace a message
-    // git-tailor cannot read with one it can.
-    let _ = target_message;
+    // Read from the repository, not from the list's rendering of the target's
+    // message: that rendering is lossy, and writing it back would replace a
+    // message git-tailor cannot read with one it can.
     let target_bytes = match git_repo.commit_message_bytes(&target_oid) {
         Ok(bytes) => bytes,
         Err(e) => {
