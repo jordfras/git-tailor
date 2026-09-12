@@ -80,6 +80,28 @@ fn commit_staged_creates_a_commit_from_the_index() {
     assert!(git_repo.unstaged_diff(3).unwrap().is_some());
 }
 
+/// Latin-1 "Fix för åäö handling" — valid git, invalid UTF-8. What the editor
+/// hands back is bytes, and those bytes have to reach the commit unchanged.
+const LATIN1_MESSAGE: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n";
+
+#[test]
+fn commit_staged_keeps_a_non_utf8_message() {
+    let test = repo_with_staged_and_unstaged();
+    let mut git_repo = test.git_repo();
+
+    assert_eq!(
+        git_repo.commit_staged(LATIN1_MESSAGE).unwrap(),
+        CommitOutcome::Committed
+    );
+
+    let new = head_commit(&test);
+    assert_eq!(
+        new.message_bytes(),
+        LATIN1_MESSAGE,
+        "the commit message must come through byte for byte"
+    );
+}
+
 #[test]
 fn commit_staged_with_nothing_staged_is_a_noop() {
     let test = common::TestRepo::new();
