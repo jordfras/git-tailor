@@ -76,3 +76,39 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
+
+## Build & CI
+- [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
+  automatically on each `v*` tag, so `brew install` works for people without a
+  Rust toolchain. Create `jordfras/homebrew-tap` (the `homebrew-` prefix is what
+  makes the short form resolve), giving users
+  `brew install jordfras/tap/git-tailor`.
+  Not homebrew-core, deliberately: core has a notability bar (roughly 75 stars /
+  30 forks / 30 watchers, and this repo is at 3 / 0 / 0) and its formulae are
+  bumped by PR, so "publish on every tag" is not a thing it does. Revisit only
+  if the project ever clears that bar.
+  A binary formula, not build-from-source — the release already produces exactly
+  the assets it needs, with `.sha256` files alongside them:
+  * `on_macos` is a single block: `universal-apple-darwin` covers Apple Silicon
+    and Intel in one asset, so there is no `on_arm`/`on_intel` split to write.
+  * `on_linux` needs both arches now that the release matrix builds
+    `aarch64-unknown-linux-musl` as well as x86_64.
+  * `def install` is just `bin.install "gt"`; the `test do` block can assert
+    `gt --version`.
+  Automation is a third job in `.github/workflows/release.yml`, after
+  `upload-assets`: download the `.sha256` files from the release, render
+  `git-tailor.rb` from a template, commit it to the tap repo. **The one real
+  setup cost**: `GITHUB_TOKEN` is scoped to this repository, so pushing to a
+  second repo needs a fine-grained PAT (contents-write on the tap) stored as a
+  secret here.
+  Considered and rejected: `cargo-dist` does tap publishing too, but adopting it
+  means replacing the working `taiki-e` pipeline wholesale to gain one formula
+  file. Also considered: self-tapping this repo via the two-argument
+  `brew tap <user>/<name> <URL>` form, which works on any repo name and needs no
+  second repo and no PAT — but leaves users a permanent two-command install
+  instead of a one-liner. Worth falling back to if the PAT is the sticking
+  point; if so, put the formula in `Formula/` (searched before
+  `HomebrewFormula/`, then the repo root) and add it to `Cargo.toml`'s `exclude`
+  so it does not ship inside the published crate.
+  The Linux half of the formula can be tested locally — Homebrew is already
+  installed on the dev machine.
