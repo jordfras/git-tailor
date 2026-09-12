@@ -41,20 +41,22 @@ pub(super) fn squash_commits(
         .find_renames(true)
         .rename_threshold(10)
         .target_limit(1000);
-    let mut cherry_index = {
+    let (mut cherry_index, renamed_tree_oid) = {
         let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
         let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
-        repo.inner
-            .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?
-    };
-    if cherry_index.has_conflicts() {
+        let cherry_index =
+            repo.inner
+                .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?;
         // If rename detection in the 3-way merge didn't resolve the conflict,
         // try an explicit rename-aware tree merge as a fallback.
-        let renamed_tree_oid = {
-            let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
-            let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
+        let renamed_tree_oid = if cherry_index.has_conflicts() {
             rename_aware_squash_tree(&repo.inner, &source_commit, &target_commit)?
+        } else {
+            None
         };
+        (cherry_index, renamed_tree_oid)
+    };
+    if cherry_index.has_conflicts() {
         if let Some(tree_oid) = renamed_tree_oid {
             let squash_oid = {
                 let combined_tree = repo.inner.find_tree(tree_oid)?;
@@ -151,23 +153,24 @@ pub(super) fn squash_try_combine(
         .find_renames(true)
         .rename_threshold(10)
         .target_limit(1000);
-    let cherry_index = {
+    let (cherry_index, renamed) = {
         let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
         let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
-        repo.inner
-            .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?
+        let cherry_index =
+            repo.inner
+                .cherrypick_commit(&source_commit, &target_commit, 0, Some(&merge_opts))?;
+        // If rename detection in the 3-way merge didn't resolve the conflict,
+        // try explicit rename-aware tree merge as a fallback.
+        let renamed = if cherry_index.has_conflicts() {
+            rename_aware_squash_tree(&repo.inner, &source_commit, &target_commit)?
+        } else {
+            None
+        };
+        (cherry_index, renamed)
     };
     if !cherry_index.has_conflicts() {
         return Ok(None);
     }
-
-    // If rename detection in the 3-way merge didn't resolve the conflict,
-    // try explicit rename-aware tree merge as a fallback.
-    let renamed = {
-        let source_commit = repo.inner.find_commit(inputs.source_git_oid)?;
-        let target_commit = repo.inner.find_commit(inputs.target_git_oid)?;
-        rename_aware_squash_tree(&repo.inner, &source_commit, &target_commit)?
-    };
     if renamed.is_some() {
         return Ok(None);
     }
