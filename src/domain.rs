@@ -15,6 +15,31 @@
 pub mod commit;
 pub mod diff;
 
+use std::path::{Path, PathBuf};
+
+/// A git index entry's path is raw bytes and need not be UTF-8; non-Unix
+/// paths are UTF-8 in the index by construction, so the lossy round trip
+/// there is exact in practice.
+#[cfg(unix)]
+pub(crate) fn path_to_bytes(path: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().to_vec()
+}
+#[cfg(not(unix))]
+pub(crate) fn path_to_bytes(path: &Path) -> Vec<u8> {
+    path.to_string_lossy().into_owned().into_bytes()
+}
+
+#[cfg(unix)]
+pub(crate) fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+#[cfg(not(unix))]
+pub(crate) fn bytes_to_path(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
 /// Serde for a commit message held as bytes.
 ///
 /// git stores a message as bytes and most of them are UTF-8, so this writes a
@@ -71,35 +96,13 @@ pub(crate) mod message_bytes {
 /// every path in the list onto the byte-array shape.
 pub(crate) mod path_list {
     use super::message_bytes;
+    use super::{bytes_to_path, path_to_bytes};
     use serde::Deserialize;
     use serde::de::{SeqAccess, Visitor};
     use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
     use std::fmt;
     use std::path::{Path, PathBuf};
-
-    /// A git index entry's path is raw bytes and need not be UTF-8; non-Unix
-    /// paths are UTF-8 in the index by construction, so the lossy round trip
-    /// there is exact in practice.
-    #[cfg(unix)]
-    fn path_to_bytes(path: &Path) -> Vec<u8> {
-        use std::os::unix::ffi::OsStrExt;
-        path.as_os_str().as_bytes().to_vec()
-    }
-    #[cfg(not(unix))]
-    fn path_to_bytes(path: &Path) -> Vec<u8> {
-        path.to_string_lossy().into_owned().into_bytes()
-    }
-
-    #[cfg(unix)]
-    fn bytes_to_path(bytes: &[u8]) -> PathBuf {
-        use std::os::unix::ffi::OsStrExt;
-        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
-    }
-    #[cfg(not(unix))]
-    fn bytes_to_path(bytes: &[u8]) -> PathBuf {
-        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
-    }
 
     struct Elem<'a>(&'a Path);
 
