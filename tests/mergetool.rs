@@ -261,7 +261,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
 #[cfg(unix)]
 fn run_for_all_files_finds_content_at_a_non_utf8_path() {
     use std::os::unix::ffi::OsStrExt;
-    let path = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"ba\xffd.txt"));
+    let path = common::non_utf8_path("ba", "d.txt");
 
     let test = common::TestRepo::new();
     let stage = |content: &str, message: &str| -> git2::Oid {

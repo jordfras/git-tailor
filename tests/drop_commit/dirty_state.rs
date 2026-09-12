@@ -578,11 +578,8 @@ fn rebase_abort_does_not_clobber_a_colliding_untracked_file() {
 /// uses it — went straight over them.
 #[test]
 fn a_non_utf8_untracked_file_is_guarded_on_the_conflict_path() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
     let test = common::TestRepo::new();
-    let odd = std::path::PathBuf::from(OsStr::from_bytes(b"notes\xff.txt"));
+    let odd = common::non_utf8_path("notes", ".txt");
     let workdir = test.repo.workdir().unwrap().to_path_buf();
 
     test.commit_file("a.txt", "base\n", "base");

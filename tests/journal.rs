@@ -61,11 +61,8 @@ fn conflict_records_journal_and_recovers_after_reopen() {
 #[test]
 #[cfg(unix)]
 fn conflict_with_a_non_utf8_path_recovers_after_reopen() {
-    use std::os::unix::ffi::OsStrExt;
-
     let test = common::TestRepo::new();
-    let bytes = [b'b', b'a', b'd', 0xFF, b'.', b't', b'x', b't'];
-    let path = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes));
+    let path = common::non_utf8_path("bad", ".txt");
 
     let commit = |content: &str, message: &str| -> git2::Oid {
         test.write_file(&path, content);

@@ -397,15 +397,6 @@ fn autostash_conflict_continue_stays_when_unresolved() {
     }
 }
 
-/// A filename that is not valid UTF-8 anywhere in its byte stream: 0xFF is
-/// never a valid UTF-8 lead or continuation byte.
-#[cfg(unix)]
-fn non_utf8_filename() -> std::path::PathBuf {
-    use std::os::unix::ffi::OsStrExt;
-    let bytes = [b'b', b'a', b'd', 0xFF, b'.', b't', b'x', b't'];
-    std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
-}
-
 /// Same shape as [`setup_restore_conflict`], but the conflicting file's name
 /// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
 /// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
@@ -434,7 +425,7 @@ fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Pa
 #[cfg(unix)]
 fn autostash_conflict_continue_stays_when_unresolved_with_a_non_utf8_path() {
     let test = common::TestRepo::new();
-    let path = non_utf8_filename();
+    let path = common::non_utf8_path("bad", ".txt");
     let c1 = setup_restore_conflict_non_utf8(&test, &path);
     let gitdir = test.repo.path().to_path_buf();
 

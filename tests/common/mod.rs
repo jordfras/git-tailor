@@ -389,6 +389,18 @@ impl TuiTestHarness {
     }
 }
 
+/// A path that is not valid UTF-8 anywhere in its byte stream: `0xFF` is never
+/// a valid UTF-8 lead or continuation byte. `prefix` and `suffix` bracket it
+/// so callers can still give the fixture a readable, distinct name.
+#[cfg(unix)]
+pub fn non_utf8_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let mut bytes = prefix.as_bytes().to_vec();
+    bytes.push(0xFF);
+    bytes.extend_from_slice(suffix.as_bytes());
+    std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
+}
+
 /// Build an `AppState` with synthesised commits for use in TUI tests.
 ///
 /// Each element of `summaries` becomes one commit. OIDs are derived
