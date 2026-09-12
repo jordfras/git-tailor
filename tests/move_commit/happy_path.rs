@@ -26,7 +26,7 @@ fn move_commit_earlier() {
     let _b = test.commit_file("y.txt", "y\n", "B");
     let c = test.commit_file("z.txt", "z\n", "C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(c), Some(&Oid::from(a)), &Oid::from(c))
         .unwrap();
@@ -52,7 +52,7 @@ fn move_commit_later() {
     let _c = test.commit_file("z.txt", "z\n", "C");
     let d = test.commit_file("w.txt", "w\n", "D");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(b), Some(&Oid::from(d)), &Oid::from(d))
         .unwrap();
@@ -73,7 +73,7 @@ fn move_commit_to_beginning() {
     let _b = test.commit_file("y.txt", "y\n", "B");
     let c = test.commit_file("z.txt", "z\n", "C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(c), Some(&Oid::from(base)), &Oid::from(c))
         .unwrap();
@@ -94,7 +94,7 @@ fn move_head_commit_earlier() {
     let _b = test.commit_file("y.txt", "y\n", "B");
     let head = test.commit_file("z.txt", "z\n", "C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(head), Some(&Oid::from(a)), &Oid::from(head))
         .unwrap();
@@ -115,7 +115,7 @@ fn move_commit_conflict_returns_conflict_state() {
     let _a = test.commit_file("a.txt", "line1\nline2\n", "A");
     let b = test.commit_file("a.txt", "line1\nline2\nline3\n", "B");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(b), Some(&Oid::from(base)), &Oid::from(b))
         .unwrap();
@@ -148,7 +148,7 @@ fn move_commit_preserves_file_contents() {
     let b = test.commit_file("y.txt", "y-content\n", "B");
     let c = test.commit_file("z.txt", "z-content\n", "C");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .move_commit(&Oid::from(b), Some(&Oid::from(c)), &Oid::from(c))
         .unwrap();

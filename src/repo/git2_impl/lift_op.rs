@@ -48,7 +48,7 @@ const TEMP_MESSAGE: &str = "git-tailor: working-tree changes";
 /// so it only excuses the dirt it actually recorded. A snapshot stranded by an
 /// earlier run describes a working tree that is long gone, and must not keep the
 /// guard on uncommitted changes switched off.
-pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
+pub(super) fn covers_working_tree(repo: &mut Git2Repo) -> Result<bool> {
     let Some(snapshot) = journal::worktree_source(repo)? else {
         return Ok(false);
     };
@@ -66,45 +66,53 @@ pub(super) fn covers_working_tree(repo: &Git2Repo) -> Result<bool> {
 
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
 /// changes. See [`super::Git2Repo::lift_worktree_row`] for the contract.
-pub(super) fn lift(repo: &Git2Repo, source: WorktreeSource) -> Result<Option<LiftedRow>> {
-    let head = repo
-        .inner
-        .head()
-        .context("failed to resolve HEAD")?
-        .peel_to_commit()
-        .context("failed to read HEAD commit")?;
-    let head_tree = head.tree().context("failed to read HEAD tree")?;
+pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option<LiftedRow>> {
+    // Only the oids are carried past this point: a `Commit` or `Tree` handle
+    // borrows the repository, and the lift goes on to move the branch.
+    let (head_oid, head_tree_oid) = {
+        let head = repo
+            .inner
+            .head()
+            .context("failed to resolve HEAD")?
+            .peel_to_commit()
+            .context("failed to read HEAD commit")?;
+        let head_tree_oid = head.tree().context("failed to read HEAD tree")?.id();
+        (head.id(), head_tree_oid)
+    };
 
     let (index_tree_before, worktree_tree) = snapshot_trees(repo)?;
     let temp_tree_oid = match source {
         WorktreeSource::Staged => index_tree_before,
         WorktreeSource::Unstaged => {
+            let head_tree = repo.inner.find_tree(head_tree_oid)?;
             unstaged_only_tree(repo, &head_tree, index_tree_before, worktree_tree)?
         }
     };
-    if temp_tree_oid == head_tree.id() {
+    if temp_tree_oid == head_tree_oid {
         return Ok(None);
     }
 
     // Created before anything is recorded: an unreferenced commit is garbage the
     // next gc collects, where a record naming a commit that was never made
     // describes a state nothing can be recovered to.
-    let temp_tree = repo
-        .inner
-        .find_tree(temp_tree_oid)
-        .context("failed to find the working-tree source tree")?;
-    let sig = repo
-        .inner
-        .signature()
-        .context("failed to build commit signature (set user.name / user.email)")?;
-    let temp_oid = repo
-        .inner
-        .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
-        .context("failed to commit the working-tree changes")?;
+    let temp_oid = {
+        let temp_tree = repo
+            .inner
+            .find_tree(temp_tree_oid)
+            .context("failed to find the working-tree source tree")?;
+        let head = repo.inner.find_commit(head_oid)?;
+        let sig = repo
+            .inner
+            .signature()
+            .context("failed to build commit signature (set user.name / user.email)")?;
+        repo.inner
+            .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
+            .context("failed to commit the working-tree changes")?
+    };
 
     let snapshot = LiftedRow {
         source,
-        tip_before: Oid::from(head.id()),
+        tip_before: Oid::from(head_oid),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
         source_tree: Oid::from(temp_tree_oid),
@@ -131,7 +139,7 @@ pub(super) fn lift(repo: &Git2Repo, source: WorktreeSource) -> Result<Option<Lif
 
 /// Move the branch onto the temporary commit, leaving the index describing what
 /// the row did not take.
-fn place_temp_commit(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
+fn place_temp_commit(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     repo.advance_branch_ref(
         git2::Oid::from(&snapshot.temp_oid),
         "git-tailor: working-tree squash source",
@@ -147,17 +155,23 @@ fn place_temp_commit(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 
 /// Unwind back to `snapshot`. See
 /// [`super::Git2Repo::restore_lifted_row`] for the contract.
-pub(super) fn restore(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
+pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     // Captured before the ref moves: this is the tree the working tree reflects
     // right now, whether that is the temporary commit or a half-built rewrite.
     let current = head_tree_id(repo)?;
+    let worktree_tree = git2::Oid::from(&snapshot.worktree_tree);
+
+    // Before the ref moves, so a refusal leaves the fold in progress and
+    // re-abortable rather than half-unwound.
+    repo.refuse_untracked_collisions(current, worktree_tree)?;
+
     repo.advance_branch_ref(
         git2::Oid::from(&snapshot.tip_before),
         "git-tailor: abort working-tree squash",
     )?;
     repo.reset_worktree(WorktreeReset {
         from_tree: current,
-        worktree_tree: git2::Oid::from(&snapshot.worktree_tree),
+        worktree_tree,
         index_tree: git2::Oid::from(&snapshot.index_tree_before),
     })?;
     journal::set_worktree_source(repo, None)?;
@@ -178,7 +192,11 @@ pub(super) fn restore(repo: &Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// What ends up in the index differs by row: the staged row's changes are now
 /// committed, so the index matches the new tip, while the unstaged row's are
 /// committed and the staged ones stay staged, which is the whole working tree.
-pub(super) fn finish(repo: &Git2Repo, snapshot: &LiftedRow, tip_after: &Oid) -> Result<Settled> {
+pub(super) fn finish(
+    repo: &mut Git2Repo,
+    snapshot: &LiftedRow,
+    tip_after: &Oid,
+) -> Result<Settled> {
     let tip_tree = repo
         .inner
         .find_commit(git2::Oid::from(tip_after))
@@ -215,7 +233,11 @@ pub(super) enum Settled {
 ///
 /// The caller journals the conflict first — a crash between the two would
 /// otherwise leave markers on disk with nothing recording why they are there.
-pub(super) fn write_clash(repo: &Git2Repo, merged: &git2::Index) -> Result<()> {
+pub(super) fn write_clash(repo: &mut Git2Repo, merged: &git2::Index) -> Result<()> {
+    // Before the index is touched, for the same reason the chain's conflict
+    // write checks first: this ends in a checkout over the working tree.
+    repo.refuse_index_collisions(merged)?;
+
     let mut index = repo.inner.index().context("failed to open index")?;
     index.clear().context("failed to clear the index")?;
     for entry in merged.iter() {
@@ -241,7 +263,7 @@ pub(super) fn write_clash(repo: &Git2Repo, merged: &git2::Index) -> Result<()> {
 /// of the staged/unstaged line the row's own changes came from, and record the
 /// whole fold as one undoable step.
 pub(super) fn continue_carry(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     lifted: &LiftedRow,
     state: &ConflictState,
 ) -> Result<RebaseOutcome> {
@@ -300,7 +322,7 @@ pub(super) fn continue_carry(
 /// cannot sit on, and that is theirs to settle: the merge comes back for
 /// [`write_clash`] rather than being quietly dropped in favour of content that
 /// would revert half the resolution.
-fn carry_onto(repo: &Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<Carried> {
+fn carry_onto(repo: &mut Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<Carried> {
     let recorded = git2::Oid::from(&snapshot.worktree_tree);
     let base = git2::Oid::from(&snapshot.source_tree);
     if tip_tree == base {
@@ -334,7 +356,7 @@ enum Carried {
 /// index, so untracked files stay out of `W` exactly as they stay out of the
 /// unstaged row's diff. The changes are never written to disk — the on-disk
 /// index is reloaded afterwards.
-fn snapshot_trees(repo: &Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
+fn snapshot_trees(repo: &mut Git2Repo) -> Result<(git2::Oid, git2::Oid)> {
     // Without this, a same-size edit would be judged unchanged and silently
     // dropped from `W`.
     repo.refresh_index_stat_cache()?;
@@ -432,7 +454,7 @@ fn unstaged_only_tree(
 
 /// Keep `lifted`'s recorded working tree reachable under a ref. See
 /// [`super::Git2Repo::rescue_lifted_row`] for the contract.
-pub(super) fn rescue(repo: &Git2Repo, lifted: &LiftedRow) -> Result<Option<String>> {
+pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<String>> {
     if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
         return Ok(None);
     }

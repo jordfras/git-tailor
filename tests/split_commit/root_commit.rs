@@ -23,7 +23,7 @@ fn split_root_commit_per_file() {
 
     let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // head_oid == root since there's only one commit
     let head_oid = git_repo.head_oid().unwrap();
     assert_eq!(head_oid, Oid::from(root));
@@ -85,7 +85,7 @@ fn split_root_commit_per_file_with_descendants() {
     let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
     test.commit_file("c.txt", "gamma\n", "descendant");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -123,7 +123,7 @@ fn split_root_commit_per_hunk() {
     // The root commit introduces two files; each file introduction is one hunk.
     let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
@@ -163,7 +163,7 @@ fn split_root_commit_per_hunk_group() {
     // than root's b.txt hunk
     test.commit_file("a.txt", "A2\n", "commit A");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     // In --all mode reference_oid is the root commit OID
     let reference_oid = Oid::from(root);
@@ -204,7 +204,7 @@ fn split_root_per_file_last_piece_has_original_tree() {
     let root = test.commit_files(&[("a.txt", "alpha\n"), ("b.txt", "beta\n")], "root commit");
     let original_tree = test.tree_id(root);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
         .split_commit_per_file(&Oid::from(root), &head_oid)

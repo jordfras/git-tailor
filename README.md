@@ -38,7 +38,7 @@ re-recording.
 cargo install --locked git-tailor
 ```
 
-Requires Rust 1.85 or later.
+Requires Rust 1.89 or later.
 
 Or download a pre-built `gt` binary for Linux (x86_64), Windows (x86_64), or
 macOS (Apple Silicon or Intel) from the

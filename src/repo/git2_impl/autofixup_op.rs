@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use super::super::{AutofixupContext, ConflictState, RebaseOutcome};
+use super::super::{AutofixupContext, ConflictState, RebaseOutcome, RepoRead};
 use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
@@ -33,7 +33,7 @@ use crate::app::SquashMode;
 use crate::autofixup::{self, AutofixupPair};
 
 pub(super) fn autofixup(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
     message_overrides: &HashMap<String, String>,
@@ -52,18 +52,17 @@ pub(super) fn autofixup(
 /// already created, and cherry-picking one of its descendants conflicted).
 /// Finishes that step via the ordinary conflict-continuation logic, unaware
 /// of autofixup, then keeps going through any remaining fixup/target pairs.
-pub(super) fn continue_autofixup(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
+pub(super) fn continue_autofixup(
+    repo: &mut Git2Repo,
+    state: &ConflictState,
+) -> Result<RebaseOutcome> {
     let ctx = state
         .autofixup_context
         .clone()
         .expect("continue_autofixup only called for an autofixup batch");
     let batch_original_oid = state.original_branch_oid.clone();
-    continue_after_step(
-        repo,
-        conflict::rebase_continue(repo, state),
-        &batch_original_oid,
-        &ctx,
-    )
+    let step = conflict::rebase_continue(repo, state);
+    continue_after_step(repo, step, &batch_original_oid, &ctx)
 }
 
 /// Resume an in-progress autofixup batch through a *squash-time* conflict
@@ -71,18 +70,14 @@ pub(super) fn continue_autofixup(repo: &Git2Repo, state: &ConflictState) -> Resu
 /// conflicted). Finalizes that step via `squash_finalize`, then keeps going
 /// through any remaining fixup/target pairs.
 pub(super) fn continue_autofixup_after_squash_finalize(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     squash_ctx: &super::super::SquashContext,
-    message: &str,
+    message: &[u8],
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    continue_after_step(
-        repo,
-        squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid),
-        batch_original_oid,
-        autofixup_ctx,
-    )
+    let step = squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid);
+    continue_after_step(repo, step, batch_original_oid, autofixup_ctx)
 }
 
 /// Shared continuation: if the just-finished step completed, keep going
@@ -90,7 +85,7 @@ pub(super) fn continue_autofixup_after_squash_finalize(
 /// the batch's true original tip and context so it can be resumed the
 /// same way.
 fn continue_after_step(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     step_outcome: Result<RebaseOutcome>,
     batch_original_oid: &Oid,
     ctx: &AutofixupContext,
@@ -117,7 +112,7 @@ fn continue_after_step(
 }
 
 fn run_batch(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     mut current_tip: Oid,
     batch_original_oid: &Oid,
     reference_oid: &Oid,
@@ -132,7 +127,7 @@ fn run_batch(
         let more_pending_for_target = plan[1..]
             .iter()
             .any(|p| p.target_summary == pair.target_summary);
-        let message = pair_message(pair, more_pending_for_target, message_overrides);
+        let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
         match squash_op::squash_commits(
             repo,
             &pair.source_oid,
@@ -169,18 +164,31 @@ fn run_batch(
 /// Otherwise falls back to the default: `fixup!` keeps the target's message
 /// unchanged; `squash!` combines target + source with the same default text
 /// the manual squash editor starts from (`src/main.rs::handle_prepare_squash`).
+///
+/// Read from the repository, not from `pair.target_message`/`source_message`:
+/// those are cloned from the commit list's lossy display rendering, and
+/// writing them back would replace a message git-tailor cannot read with one
+/// it can.
 fn pair_message(
+    repo: &Git2Repo,
     pair: &AutofixupPair,
     more_pending_for_target: bool,
     message_overrides: &HashMap<String, String>,
-) -> String {
+) -> Result<Vec<u8>> {
     if !more_pending_for_target
         && let Some(overridden) = message_overrides.get(&pair.target_summary)
     {
-        return overridden.clone();
+        return Ok(overridden.clone().into_bytes());
     }
+    let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;
     match pair.mode {
-        SquashMode::Fixup => pair.target_message.clone(),
-        SquashMode::Squash => format!("{}\n\n{}", pair.target_message, pair.source_message),
+        SquashMode::Fixup => Ok(target_bytes),
+        SquashMode::Squash => {
+            let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
+            Ok(crate::domain::combine_messages(
+                &target_bytes,
+                Some(&source_bytes),
+            ))
+        }
     }
 }

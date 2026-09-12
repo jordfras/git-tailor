@@ -20,34 +20,59 @@ use super::Git2Repo;
 use crate::Oid;
 
 pub(super) fn reword_commit(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
-    new_message: &str,
+    new_message: &[u8],
     head_oid: &Oid,
 ) -> Result<()> {
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
-    let commit = repo.inner.find_commit(commit_git_oid)?;
-
     if repo.range_has_merge(Some(commit_git_oid), head_git_oid)? {
         anyhow::bail!("Cannot reword: a merge commit lies between this commit and HEAD");
     }
 
-    let parents: Vec<git2::Commit> = (0..commit.parent_count())
-        .map(|i| commit.parent(i))
-        .collect::<std::result::Result<_, _>>()?;
-    let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-
-    let new_oid = repo.inner.commit(
-        None,
-        &commit.author(),
-        &commit.committer(),
-        new_message,
-        &commit.tree()?,
-        &parent_refs,
-    )?;
+    // Scoped: the commit and its parents borrow the repository, which moving
+    // the branch below needs mutably.
+    let new_oid = {
+        let commit = repo.inner.find_commit(commit_git_oid)?;
+        let parents: Vec<git2::Commit> = (0..commit.parent_count())
+            .map(|i| commit.parent(i))
+            .collect::<std::result::Result<_, _>>()?;
+        let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+        let tree = commit.tree()?;
+        repo.commit_preserving_message(
+            &commit.author(),
+            &commit.committer(),
+            new_message,
+            // The original's `encoding` describes bytes that are no longer
+            // there once the message is valid UTF-8, which is git's default and
+            // needs no header. Keep it only while it is still true.
+            encoding_for(&commit, new_message),
+            &tree,
+            &parent_refs,
+        )?
+    };
 
     let tip = repo.replay_descendants_conflict_free(commit_git_oid, head_git_oid, new_oid)?;
     repo.advance_branch_ref(tip, "reword: update branch ref")?;
     Ok(())
+}
+
+/// The `encoding` header a rewritten message still needs.
+///
+/// Bytes that never changed keep whatever the original said, whether or not
+/// they happen to also be well-formed UTF-8 under a different reading — the
+/// header describes the original bytes, not a property newly discovered
+/// about them. Otherwise, a message that is valid UTF-8 needs no header —
+/// that is git's default — and one that is not keeps the original's header,
+/// since that is the only description of those bytes anyone has.
+pub(super) fn encoding_for<'c>(
+    original: &'c git2::Commit<'_>,
+    new_message: &[u8],
+) -> Option<&'c str> {
+    if new_message == original.message_bytes() || std::str::from_utf8(new_message).is_err() {
+        original.message_encoding().ok().flatten()
+    } else {
+        None
+    }
 }

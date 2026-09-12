@@ -60,7 +60,10 @@ fn execute_drop_opens_stash_conflict_dialog_on_conflict() {
     match &app.mode {
         AppMode::StashConflict(state) => {
             assert_eq!(state.operation_label, "Drop");
-            assert_eq!(state.conflicting_files, vec!["conflict.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("conflict.txt")]
+            );
         }
         other => panic!("expected StashConflict mode, got {other:?}"),
     }
@@ -252,13 +255,13 @@ fn three_hunk_commit_diff() -> CommitDiff {
 /// exact pair the backend expects back when the split is confirmed.
 #[test]
 fn prepare_split_out_hunks_flattens_diff_into_picker_entries() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(three_hunk_commit_diff()),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
@@ -285,13 +288,13 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let mut diff = three_hunk_commit_diff();
     diff.files.truncate(1);
     diff.files[0].hunks.truncate(1);
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(diff),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -302,10 +305,10 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
 /// the picker with stale or empty data.
 #[test]
 fn prepare_split_out_hunks_error_sets_error_message() {
-    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut repo = MockRepo::default(); // commit_diff left unconfigured -> Err
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_hunks(&repo, &mut app, Oid::from("a".repeat(40)), 3);
+    let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -361,13 +364,13 @@ fn three_file_commit_diff() -> CommitDiff {
 /// `old_path` since it has no `new_path`.
 #[test]
 fn prepare_split_out_files_loads_diff_into_picker_files() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(three_file_commit_diff()),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
@@ -388,13 +391,13 @@ fn prepare_split_out_files_loads_diff_into_picker_files() {
 fn prepare_split_out_files_refuses_fewer_than_two_files() {
     let mut diff = three_file_commit_diff();
     diff.files.truncate(1);
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         commit_diff: Some(diff),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -405,10 +408,10 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
 /// the picker with stale or empty data.
 #[test]
 fn prepare_split_out_files_error_sets_error_message() {
-    let repo = MockRepo::default(); // commit_diff left unconfigured -> Err
+    let mut repo = MockRepo::default(); // commit_diff left unconfigured -> Err
     let mut app = AppState::default();
 
-    let result = handle_prepare_split_out_files(&repo, &mut app, Oid::from("a".repeat(40)));
+    let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -417,7 +420,7 @@ fn prepare_split_out_files_error_sets_error_message() {
 
 #[test]
 fn stage_all_changed_reloads_and_reports_success() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = report_stage_outcome(
         &mut app,
@@ -432,7 +435,7 @@ fn stage_all_changed_reloads_and_reports_success() {
 
 #[test]
 fn stage_all_noop_reports_without_reload() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_changed: false,
         ..MockRepo::default()
     };
@@ -450,7 +453,7 @@ fn stage_all_noop_reports_without_reload() {
 
 #[test]
 fn stage_all_error_sets_error_message() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_ok: false,
         ..MockRepo::default()
     };
@@ -470,7 +473,7 @@ fn stage_all_error_message_keeps_the_underlying_cause() {
     // `format!("{e}")` on an `anyhow::Error` prints only the outermost context
     // and drops the source chain, which hid libgit2's "invalid path: 'nul'"
     // behind a bare "failed to stage working-tree changes".
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         stage_ok: false,
         ..MockRepo::default()
     };
@@ -571,13 +574,13 @@ fn only_key_events_dismiss_transient_status() {
 fn conflict_tool_finished_refreshes_rebase_dialog() {
     // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
     // with the still-conflicting files and a success banner naming the tool.
-    let repo = MockRepo {
-        conflicting_files: vec!["a.txt".to_string()],
+    let mut repo = MockRepo {
+        conflicting_files: vec![std::path::PathBuf::from("a.txt")],
         ..MockRepo::default()
     };
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Merge tool",
@@ -586,7 +589,10 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
     assert!(matches!(action, LoopAction::Proceed));
     match &app.mode {
         AppMode::RebaseConflict(state) => {
-            assert_eq!(state.conflicting_files, vec!["a.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("a.txt")]
+            );
             assert!(!state.still_unresolved);
         }
         other => panic!("expected RebaseConflict mode, got {other:?}"),
@@ -603,10 +609,10 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
 
 #[test]
 fn conflict_tool_no_merge_tool_sets_error() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Merge tool",
@@ -625,10 +631,10 @@ fn conflict_tool_no_merge_tool_sets_error() {
 
 #[test]
 fn conflict_tool_failure_reports_the_tool_name() {
-    let repo = MockRepo::default();
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
     let action = handle_run_conflict_tool(
-        &repo,
+        &mut repo,
         &mut app,
         make_conflict_state(),
         "Editor",
@@ -643,8 +649,8 @@ fn conflict_tool_failure_reports_the_tool_name() {
 
 #[test]
 fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
-    let repo = MockRepo {
-        conflicting_files: vec!["b.txt".to_string()],
+    let mut repo = MockRepo {
+        conflicting_files: vec![std::path::PathBuf::from("b.txt")],
         ..MockRepo::default()
     };
     // handle_run_stash_tool reads the operation label off the current mode.
@@ -656,12 +662,15 @@ fn stash_tool_finished_refreshes_stash_dialog_keeping_the_label() {
         })),
         ..Default::default()
     };
-    let action = handle_run_stash_tool(&repo, &mut app, "Editor", Ok(ToolRun::Finished));
+    let action = handle_run_stash_tool(&mut repo, &mut app, "Editor", Ok(ToolRun::Finished));
     assert!(matches!(action, LoopAction::Proceed));
     match &app.mode {
         AppMode::StashConflict(state) => {
             assert_eq!(state.operation_label, "Drop");
-            assert_eq!(state.conflicting_files, vec!["b.txt".to_string()]);
+            assert_eq!(
+                state.conflicting_files,
+                vec![std::path::PathBuf::from("b.txt")]
+            );
             assert!(!state.still_unresolved);
         }
         other => panic!("expected StashConflict mode, got {other:?}"),
@@ -918,7 +927,6 @@ use rewrite::{prepare_source, squash_editor_seed, squash_success_message};
 fn commit_source() -> SquashSource {
     SquashSource::Commit {
         oid: Oid::from("b".repeat(40)),
-        message: "the source commit".to_string(),
     }
 }
 
@@ -1120,12 +1128,12 @@ fn abandoning_a_commit_source_restores_the_autostash() {
 #[test]
 fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
     assert_eq!(
-        squash_editor_seed(&commit_source(), "the target commit"),
-        "the target commit\n\nthe source commit"
+        squash_editor_seed(Some(b"the source commit"), b"the target commit"),
+        b"the target commit\n\nthe source commit".to_vec()
     );
     assert_eq!(
-        squash_editor_seed(&worktree_source(), "the target commit"),
-        "the target commit"
+        squash_editor_seed(None, b"the target commit"),
+        b"the target commit".to_vec()
     );
 }
 
@@ -1167,7 +1175,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         .squash_try_combine(
             prepared.source_oid(),
             &Oid::from("b".repeat(40)),
-            "the target commit",
+            b"the target commit",
             SquashMode::Fixup,
             prepared.head_oid(),
         )
@@ -1184,7 +1192,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
 /// A probe that fails carries its cause up, the same as a failed lift.
 #[test]
 fn a_failed_conflict_probe_reports_the_underlying_cause() {
-    let repo = MockRepo {
+    let mut repo = MockRepo {
         squash_probe: SquashProbe::Error,
         ..Default::default()
     };
@@ -1193,7 +1201,7 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
         .squash_try_combine(
             &Oid::from("b".repeat(40)),
             &Oid::from("c".repeat(40)),
-            "the target commit",
+            b"the target commit",
             SquashMode::Fixup,
             &Oid::from("a".repeat(40)),
         )
@@ -1202,5 +1210,158 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
     assert_eq!(
         format!("{error:#}"),
         "failed to combine the two commits: tree is unmergeable"
+    );
+}
+
+/// A failed operation restores the auto-stash, and if *that* fails too the user
+/// has to be told: their tracked work is sitting in the stash, and the
+/// operation's own error says nothing about where it went.
+#[test]
+fn execute_drop_error_reports_a_failed_autostash_restore() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let _ = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Drop failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the restore failure must be reported too: {message}"
+    );
+    assert!(
+        message.contains("git stash list"),
+        "and the user must be told where their work is: {message}"
+    );
+}
+
+/// When the restore clashes instead of failing, the markers are on disk and the
+/// resolution dialog is the urgent thing — but the message still has to say
+/// what went wrong on the way in.
+#[test]
+fn execute_drop_error_opens_the_stash_dialog_when_the_restore_clashes() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        autostash_restore_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let _ = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+
+    match &app.mode {
+        AppMode::StashConflict(state) => assert_eq!(state.operation_label, "Drop"),
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Drop failed"), "{message}");
+}
+
+/// When the shell to edit a commit cannot even be launched and the resulting
+/// abort itself fails (e.g. refused by an untracked-file collision), the
+/// branch was never rewound back to the auto-stash's base — restoring it
+/// anyway would reapply the stash onto a mismatched tree.
+#[test]
+fn shell_launch_failure_does_not_restore_autostash_when_abort_also_fails() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        abort_edit_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        0,
+        "must not restore the auto-stash when the branch was never rewound"
+    );
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the abort failure must be reported too: {message}"
+    );
+}
+
+/// The ordinary case: the abort succeeds, so the auto-stash is restored on
+/// top of the tree it now matches again.
+#[test]
+fn shell_launch_failure_restores_autostash_when_abort_succeeds() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    assert_eq!(repo.autostash_restore_calls.get(), 1);
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(!message.contains("could not be restored"), "{message}");
+}
+
+/// The abort succeeded, but reapplying the auto-stash clashed — the markers
+/// are on disk, so the resolution dialog must open rather than the clash
+/// being silently discarded.
+#[test]
+fn shell_launch_failure_opens_the_stash_dialog_when_the_restore_clashes() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        autostash_restore_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Continue));
+    match &app.mode {
+        AppMode::StashConflict(state) => assert_eq!(state.operation_label, "Edit"),
+        other => panic!("expected StashConflict mode, got {other:?}"),
+    }
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+}
+
+/// The abort succeeded, but the auto-stash restore itself errored — that must
+/// be reported, not silently dropped with the stash stranded in
+/// `git stash list`.
+#[test]
+fn shell_launch_failure_reports_when_the_autostash_restore_itself_fails() {
+    use super::edit::handle_shell_launch_failure;
+
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_shell_launch_failure(&mut repo, &mut app, anyhow::anyhow!("no such shell"));
+
+    assert!(matches!(result, LoopAction::Reload));
+    let message = app.status.message.as_deref().unwrap_or("");
+    assert!(message.contains("Edit failed"), "{message}");
+    assert!(
+        message.contains("git stash list"),
+        "the user must be told where their work is: {message}"
     );
 }

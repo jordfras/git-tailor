@@ -31,6 +31,12 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // history changes, so it doesn't clutter the journal or tools like gitk.
     let _ = git_repo.prune_stale_journal();
 
+    // Set when a recovered Edit's abort fails, so the branch is left wherever
+    // the crash left it rather than back at the edit's original tip — the
+    // trailing auto-stash restore below has to know not to reapply a stash
+    // taken against a tree that no longer matches.
+    let mut edit_abort_failed = false;
+
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(record)) => match *record {
             InProgress::Edit(_) => {
@@ -45,8 +51,12 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                         "Recovered an interrupted Edit — restored the branch \
                          (in-shell commits remain in the reflog)",
                     ),
-                    Err(e) => app
-                        .set_error_message(format!("Failed to recover an interrupted Edit: {e:#}")),
+                    Err(e) => {
+                        edit_abort_failed = true;
+                        app.set_error_message(format!(
+                            "Failed to recover an interrupted Edit: {e:#}"
+                        ));
+                    }
                 }
             }
             InProgress::WorktreeSquash(snapshot) => {
@@ -130,14 +140,23 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !matches!(app.mode, AppMode::RecoverConfirm(_))
-        && let Ok(AutostashRestore::Conflict { files }) = git_repo.autostash_restore()
-    {
-        app.enter_stash_conflict(StashConflictState {
-            operation_label: "the operation".to_string(),
-            conflicting_files: files,
-            still_unresolved: false,
-        });
+    if !edit_abort_failed && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+        match git_repo.autostash_restore() {
+            Ok(AutostashRestore::Done) => {}
+            Ok(AutostashRestore::Conflict { files }) => {
+                app.enter_stash_conflict(StashConflictState {
+                    operation_label: "the operation".to_string(),
+                    conflicting_files: files,
+                    still_unresolved: false,
+                });
+            }
+            Err(e) => {
+                app.set_error_message(format!(
+                    "Failed to restore auto-stashed changes from an earlier run: {e:#}. \
+                     They remain in `git stash list`"
+                ));
+            }
+        }
     }
 }
 
@@ -316,6 +335,36 @@ mod tests {
         );
     }
 
+    /// If the abort itself fails (e.g. refused by an untracked-file collision),
+    /// the branch was never restored to the edit's original tip — restoring a
+    /// pending auto-stash on top of it anyway would reapply a stash taken
+    /// against a tree that no longer matches.
+    #[test]
+    fn a_failed_interrupted_edit_abort_does_not_restore_autostash() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Edit(EditInProgress {
+                original_branch_oid: mock_head(),
+                ..Default::default()
+            })),
+            abort_edit_ok: false,
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(
+            app.status
+                .message
+                .as_deref()
+                .unwrap_or("")
+                .contains("Failed to recover an interrupted Edit")
+        );
+        assert_eq!(
+            repo.autostash_restore_calls.get(),
+            0,
+            "must not restore the auto-stash when the branch was never restored"
+        );
+    }
+
     /// A paused conflict is the one case the user is asked about, because
     /// resuming it needs their resolution.
     #[test]
@@ -343,6 +392,24 @@ mod tests {
         assert_eq!(
             app.status.message.as_deref(),
             Some("Discarded a stale interrupted-operation journal (branch has moved)")
+        );
+    }
+
+    /// A leftover auto-stash from an earlier crash that cannot even be
+    /// restored — not a conflict, an outright error — must still tell the
+    /// user their stashed work is stuck, not start up as if nothing were
+    /// wrong.
+    #[test]
+    fn a_leftover_autostash_restore_failure_is_reported() {
+        let mut repo = MockRepo {
+            autostash_restore_errs: true,
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert!(
+            app.status.message.is_some(),
+            "a restore failure must not pass in silence"
         );
     }
 }

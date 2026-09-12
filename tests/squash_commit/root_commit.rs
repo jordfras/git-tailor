@@ -24,12 +24,12 @@ fn squash_into_root_commit() {
     let root = test.commit_file("a.txt", "root\n", "root commit");
     let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            "squashed message",
+            b"squashed message",
             &Oid::from(source),
         )
         .unwrap();
@@ -69,12 +69,12 @@ fn fixup_into_root_commit() {
     let root = test.commit_file("a.txt", "root\n", "root commit");
     let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            "root commit", // fixup: caller passes only the target message
+            b"root commit", // fixup: caller passes only the target message
             &Oid::from(source),
         )
         .unwrap();
@@ -101,12 +101,12 @@ fn squash_into_root_with_descendants() {
     let middle = test.commit_file("c.txt", "middle\n", "middle commit");
     let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();

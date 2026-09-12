@@ -23,7 +23,7 @@ use git_tailor::{editor, mergetool};
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_rebase_outcome,
-    settle_autostash,
+    is_blank_message, settle_autostash,
 };
 use crate::external_tool::with_tui_suspended;
 
@@ -95,7 +95,7 @@ pub(crate) fn handle_rebase_continue(
                     app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
-                Ok(msg) if msg.trim().is_empty() => {
+                Ok(msg) if is_blank_message(&msg) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;
@@ -151,8 +151,8 @@ pub(crate) enum ToolRun {
 /// suspending/restoring the TUI, or the merge tool itself — comes back as `Err`
 /// for the caller to show; neither is fatal.
 pub(crate) fn run_mergetool_suspended(
-    git_repo: &impl GitRepo,
-    files: &[String],
+    git_repo: &mut impl GitRepo,
+    files: &[std::path::PathBuf],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<ToolRun> {
@@ -170,8 +170,8 @@ pub(crate) fn run_mergetool_suspended(
 /// suspending/restoring the TUI, or the editor itself — comes back as `Err` for
 /// the caller to show; neither is fatal.
 pub(crate) fn run_editor_suspended(
-    git_repo: &impl GitRepo,
-    files: &[String],
+    git_repo: &mut impl GitRepo,
+    files: &[std::path::PathBuf],
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<ToolRun> {
@@ -193,11 +193,11 @@ pub(crate) fn run_editor_suspended(
 /// auto-stash-conflict paths, which differ only in the mode they rebuild. Takes
 /// the tool's already-computed outcome, so it does no TUI work of its own.
 fn finish_conflict_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     tool_name: &str,
     outcome: Result<ToolRun>,
-    build_mode: impl FnOnce(Vec<String>) -> AppMode,
+    build_mode: impl FnOnce(Vec<std::path::PathBuf>) -> AppMode,
 ) -> LoopAction {
     match outcome {
         Ok(ToolRun::Finished) => {
@@ -220,7 +220,7 @@ fn finish_conflict_tool(
 /// Refresh the rebase-conflict dialog after `tool_name` ran (its `outcome` passed
 /// in), with the remaining conflicts.
 pub(crate) fn handle_run_conflict_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     conflict_state: ConflictState,
     tool_name: &str,
@@ -238,7 +238,7 @@ pub(crate) fn handle_run_conflict_tool(
 /// Refresh the auto-stash-conflict dialog after `tool_name` ran (its `outcome`
 /// passed in), with the remaining conflicts.
 pub(crate) fn handle_run_stash_tool(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     tool_name: &str,
     outcome: Result<ToolRun>,

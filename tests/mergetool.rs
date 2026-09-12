@@ -139,7 +139,9 @@ fn read_index_stage_returns_none_when_no_conflict_entry() {
     let git_repo = test.git_repo();
     // No conflict — stage 2 (ours) for a.txt is a normal stage-0 entry, not a
     // conflict stage. read_index_stage should return None for stages 1–3.
-    let result = git_repo.read_index_stage("a.txt", 2).unwrap();
+    let result = git_repo
+        .read_index_stage(std::path::Path::new("a.txt"), 2)
+        .unwrap();
     assert!(
         result.is_none(),
         "expected None for non-conflicted file at stage 2"
@@ -176,7 +178,7 @@ fn read_index_stage_returns_content_after_conflict() {
 fn stage_file_clears_conflict_entries_in_index() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Sanity: there is a conflict.
     assert!(!state.conflicting_files.is_empty());
@@ -215,7 +217,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -230,7 +232,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
 
     // Use 'cp $LOCAL $MERGED' as the "merge tool" — takes the ours-side content.
     let cmd = "cp $LOCAL $MERGED";
-    mergetool::run_for_all_files(cmd, &workdir, &git_repo, &state.conflicting_files)
+    mergetool::run_for_all_files(cmd, &workdir, &mut git_repo, &state.conflicting_files)
         .expect("run_for_all_files should succeed");
 
     // Conflict must be cleared in the index.
@@ -248,6 +250,54 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
     };
     let outcome = git_repo.rebase_continue(&refreshed_state).unwrap();
     assert_rebase_complete!(outcome);
+}
+
+/// A conflicting path that is not valid UTF-8 must still reach the external
+/// merge tool with real BASE/LOCAL/REMOTE content. `read_index_stage` used to
+/// be looked up through a lossy `to_string_lossy()` rendering of the path,
+/// which cannot match the exact bytes the index holds — so every stage came
+/// back empty and the tool ran against blank files.
+#[test]
+#[cfg(unix)]
+fn run_for_all_files_finds_content_at_a_non_utf8_path() {
+    use std::os::unix::ffi::OsStrExt;
+    let path = common::non_utf8_path("ba", "d.txt");
+
+    let test = common::TestRepo::new();
+    let stage = |content: &str, message: &str| -> git2::Oid {
+        test.write_file(&path, content);
+        let mut index = test.repo.index().unwrap();
+        index.add_path(&path).unwrap();
+        index.write().unwrap();
+        test.commit(message)
+    };
+    let _base = stage("base\n", "base");
+    let to_drop = stage("base\ndropped\n", "add dropped line");
+    let head = stage("base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+    assert_eq!(
+        state.conflicting_files[0].as_os_str().as_bytes(),
+        path.as_os_str().as_bytes(),
+        "the fixture must actually conflict on the non-UTF-8 path"
+    );
+
+    let workdir = git_repo.workdir().unwrap();
+    // Copies the base-stage content to MERGED — proves BASE was populated.
+    let cmd = "cp $BASE $MERGED";
+    mergetool::run_for_all_files(cmd, &workdir, &mut git_repo, &state.conflicting_files)
+        .expect("run_for_all_files should succeed");
+
+    let merged = std::fs::read(test.repo.workdir().unwrap().join(&path)).unwrap();
+    assert_eq!(
+        merged, b"base\ndropped\n",
+        "the merge tool must see the real base-stage content, not an empty file"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +330,7 @@ fn read_index_stage_returns_exact_content_for_each_stage() {
     let to_drop = test.commit_file("a.txt", "base\ndropped\n", "add dropped line");
     let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -314,7 +364,9 @@ fn read_index_stage_returns_none_for_non_existent_path() {
     test.commit_file("a.txt", "content\n", "initial");
     let git_repo = test.git_repo();
     // A path that has never existed in the repo.
-    let result = git_repo.read_index_stage("does_not_exist.txt", 2).unwrap();
+    let result = git_repo
+        .read_index_stage(std::path::Path::new("does_not_exist.txt"), 2)
+        .unwrap();
     assert!(result.is_none(), "non-existent path must return None");
 }
 
@@ -362,7 +414,7 @@ fn read_conflicting_files_returns_multiple_paths() {
         "add head lines",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let state = expect_rebase_conflict!(
         git_repo
             .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -374,8 +426,8 @@ fn read_conflicting_files_returns_multiple_paths() {
         conflicts.len() >= 2,
         "expected at least 2 conflicting files, got: {conflicts:?}"
     );
-    assert!(conflicts.contains(&"a.txt".to_string()));
-    assert!(conflicts.contains(&"b.txt".to_string()));
+    assert!(conflicts.contains(&std::path::PathBuf::from("a.txt")));
+    assert!(conflicts.contains(&std::path::PathBuf::from("b.txt")));
     // Also verify ConflictState agrees.
     assert_eq!(conflicts, state.conflicting_files);
 }
@@ -393,7 +445,7 @@ fn read_conflicting_files_is_sorted() {
         "add head",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     if let RebaseOutcome::Conflict(_) = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap()
@@ -409,7 +461,7 @@ fn read_conflicting_files_is_sorted() {
 fn stage_file_and_check_content_matches_written_file() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let path = &state.conflicting_files[0];
     test.write_file(path, "fully resolved content\n");
 
@@ -461,7 +513,7 @@ fn stage_file_clears_conflict_for_deleted_file() {
     let _intermediate = test.commit_file("a.txt", "intermediate\n", "intermediate modifies a");
     let _source = test.delete_file("a.txt", "source deletes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     // squash_try_combine should detect a conflict.
@@ -469,7 +521,7 @@ fn stage_file_clears_conflict_for_deleted_file() {
         .squash_try_combine(
             &Oid::from(_source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )

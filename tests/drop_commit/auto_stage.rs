@@ -27,7 +27,7 @@ fn auto_stage_resolved_conflicts_stages_externally_edited_file() {
     let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -73,7 +73,7 @@ fn auto_stage_does_not_stage_file_with_conflict_markers() {
     let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();

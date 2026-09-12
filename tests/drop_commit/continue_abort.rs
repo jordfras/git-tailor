@@ -23,7 +23,7 @@ fn drop_continue_after_resolving_conflict() {
     let to_drop = test.commit_file("a.txt", "line1\nline2\n", "add line2");
     let head = test.commit_file("a.txt", "line1\nline2\nline3\n", "add line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(to_drop), &Oid::from(head))
         .unwrap();
@@ -57,7 +57,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
     // editing or abort.
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // Do NOT resolve the conflict — just call continue immediately.
     let result = git_repo.rebase_continue(&state).unwrap();
@@ -104,7 +104,7 @@ fn drop_continue_with_unresolved_conflicts_stays_in_conflict_mode() {
 fn drop_abort_restores_original_branch() {
     let test = common::TestRepo::new();
     let state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     git_repo.rebase_abort(&state).unwrap();
 
@@ -117,4 +117,57 @@ fn drop_abort_restores_original_branch() {
     );
 
     assert_file_contents_at_head!(&test.repo, "a.txt", "base\ndropped\nhead\n");
+}
+
+/// Aborting a conflict must not trip over a submodule the aborted-back-to tip
+/// no longer has — an ordinary directory the checkout leaves alone must not
+/// be handed to `remove_file`.
+///
+/// The submodule is added, then removed again by the commit being dropped:
+/// HEAD (what abort restores to) lacks it, but the merge that produced the
+/// mid-conflict index carries it forward untouched from the drop target's
+/// tree, so it is one of the paths abort's cleanup considers.
+#[test]
+fn drop_abort_does_not_trip_over_a_submodule_missing_from_the_restored_tip() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.stage_gitlink("sub", base);
+    let with_sub = test.commit("add submodule");
+    let _ = with_sub;
+
+    test.write_file("a.txt", "base\ndropped\n");
+    test.stage_file("a.txt");
+    let mut index = test.repo.index().unwrap();
+    index.remove_path(std::path::Path::new("sub")).unwrap();
+    index.write().unwrap();
+    let to_drop = test.commit("remove submodule, add dropped line");
+
+    let head = test.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
+
+    let mut git_repo = test.git_repo();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(to_drop), &Oid::from(head))
+            .unwrap()
+    );
+
+    // Simulates the submodule getting checked out while the conflict sits
+    // paused (a plain `git submodule update`, unrelated to git-tailor) —
+    // added after the conflict write, so the untracked-collision guard on
+    // that write never saw it and cannot have refused it there.
+    let sub_dir = test.repo.workdir().unwrap().join("sub");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    std::fs::write(sub_dir.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
+
+    git_repo
+        .rebase_abort(&state)
+        .expect("abort must not error out trying to remove the submodule directory");
+
+    let restored = test.repo.head().unwrap().target().unwrap();
+    assert_eq!(Oid::from(restored), state.original_branch_oid);
+    assert!(
+        sub_dir.is_dir(),
+        "the submodule directory must survive the abort"
+    );
 }

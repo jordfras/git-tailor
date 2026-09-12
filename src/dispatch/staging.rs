@@ -19,9 +19,12 @@ use anyhow::Result;
 use git_tailor::app::AppState;
 use git_tailor::repo::{CommitOutcome, GitRepo};
 
-use crate::dispatch::{LoopAction, edit_message_suspended, report_stage_outcome};
+use crate::dispatch::{LoopAction, edit_message_suspended, is_blank_message, report_stage_outcome};
 
-pub(crate) fn handle_stage_all(git_repo: &impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
+pub(crate) fn handle_stage_all(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+) -> Result<LoopAction> {
     let outcome = git_repo.stage_all();
     Ok(report_stage_outcome(
         app,
@@ -32,7 +35,7 @@ pub(crate) fn handle_stage_all(git_repo: &impl GitRepo, app: &mut AppState) -> R
 }
 
 pub(crate) fn handle_unstage_all(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
 ) -> Result<LoopAction> {
     let outcome = git_repo.unstage_all();
@@ -47,15 +50,15 @@ pub(crate) fn handle_unstage_all(
 /// Commit the staged changes: open the editor for a message (reusing the reword
 /// editor flow), then create the commit. An empty message cancels.
 pub(crate) fn handle_commit_staged(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "");
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, b"");
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(message) if message.trim().is_empty() => {
+        Ok(message) if is_blank_message(&message) => {
             app.set_success_message("Commit canceled: message is empty");
         }
         Ok(message) => match git_repo.commit_staged(&message) {

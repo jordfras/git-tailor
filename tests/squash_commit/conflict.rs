@@ -24,12 +24,12 @@ fn squash_returns_conflict_when_source_and_target_conflict() {
     let _mid = test.commit_file("a.txt", "mid version\n", "mid changes a");
     let source = test.commit_file("a.txt", "source version\n", "source changes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -60,10 +60,10 @@ fn squash_returns_conflict_when_all_three_modify_same_file() {
     let source = test.commit_file("a.txt", "source\n", "source modifies a");
     let _after = test.commit_file("b.txt", "after\n", "after source");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let result = git_repo
-        .squash_commits(&Oid::from(source), &Oid::from(target), "squashed", &head)
+        .squash_commits(&Oid::from(source), &Oid::from(target), b"squashed", &head)
         .unwrap();
 
     match result {
@@ -90,7 +90,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
     let target = test.commit_file("a.txt", "line1\nline2\n", "target adds line2");
     let source = test.commit_file("a.txt", "line1\nline2\nline3\n", "source adds line3");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // Source modifies the same file as target in a way that may conflict
     // when cherry-picked. For this specific case git can auto-merge, so
     // it should succeed.
@@ -98,7 +98,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -120,12 +120,12 @@ fn squash_with_multiple_intermediates_and_descendants() {
     let _after1 = test.commit_file("f.txt", "after1\n", "after1");
     let after2 = test.commit_file("g.txt", "after2\n", "after2");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(after2),
         )
         .unwrap();
@@ -166,14 +166,14 @@ fn squash_try_combine_returns_none_when_clean() {
     let target = test.commit_file("b.txt", "target\n", "target");
     let source = test.commit_file("c.txt", "source\n", "source");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     let result = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )
@@ -191,14 +191,14 @@ fn squash_try_combine_returns_conflict_state() {
     let _mid = test.commit_file("a.txt", "mid\n", "mid");
     let source = test.commit_file("a.txt", "source\n", "source");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     let state = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined msg",
+            b"combined msg",
             SquashMode::Squash,
             &head,
         )
@@ -212,7 +212,7 @@ fn squash_try_combine_returns_conflict_state() {
     };
     assert_eq!(ctx.source_oid, Oid::from(source));
     assert_eq!(ctx.target_oid, Oid::from(target));
-    assert_eq!(ctx.combined_message, "combined msg");
+    assert_eq!(ctx.combined_message, b"combined msg".to_vec());
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn squash_finalize_after_conflict_resolution() {
     let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
     let source = test.commit_file("a.txt", "source\n", "source changes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     // Step 1: try combine -> conflict
@@ -235,7 +235,7 @@ fn squash_finalize_after_conflict_resolution() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )
@@ -244,7 +244,7 @@ fn squash_finalize_after_conflict_resolution() {
 
     // Step 2: simulate user resolving the conflict
     test.write_file("a.txt", "resolved\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
 
     // Step 3: finalize with NO descendants so that we only test the squash
     //         commit creation. (Intermediate commits that cause the initial
@@ -257,13 +257,13 @@ fn squash_finalize_after_conflict_resolution() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: "combined".to_string(),
+        combined_message: b"combined".to_vec(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
+        .squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);

@@ -23,7 +23,7 @@ fn drop_root_commit_makes_next_commit_orphan() {
     let _child1 = test.commit_file("b.txt", "child1\n", "first child");
     let child2 = test.commit_file("c.txt", "child2\n", "second child");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(root), &Oid::from(child2))
         .unwrap();
@@ -67,7 +67,7 @@ fn drop_root_commit_single_descendant() {
     let root = test.commit_file("a.txt", "root\n", "root commit");
     let child = test.commit_file("b.txt", "child\n", "only child");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(root), &Oid::from(child))
         .unwrap();
@@ -107,7 +107,7 @@ fn drop_root_commit_descendant_modifies_root_file_conflicts() {
     let root = test.commit_file("readme.txt", "initial\n", "root commit");
     let child = test.commit_file("readme.txt", "updated\n", "update readme");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .drop_commit(&Oid::from(root), &Oid::from(child))
         .unwrap();
@@ -122,14 +122,18 @@ fn drop_root_commit_descendant_modifies_root_file_conflicts() {
         }
     ));
     assert!(
-        state.conflicting_files.contains(&"readme.txt".to_string()),
+        state
+            .conflicting_files
+            .contains(&std::path::PathBuf::from("readme.txt")),
         "readme.txt should be conflicting: {:?}",
         state.conflicting_files
     );
 
     // Resolve by keeping the descendant's content.
     test.write_file("readme.txt", "updated\n");
-    git_repo.stage_file("readme.txt").unwrap();
+    git_repo
+        .stage_file(std::path::Path::new("readme.txt"))
+        .unwrap();
 
     let result = git_repo.rebase_continue(&state).unwrap();
     assert_rebase_complete!(result);

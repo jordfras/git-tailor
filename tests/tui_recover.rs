@@ -37,7 +37,10 @@ fn make_app_in_recover(operation_label: &str, conflicting_files: Vec<&str>) -> A
         original_branch_oid: Oid::from("def456ghi789abcdef012"),
         new_tip_oid: Oid::from("aabbccddeeff00112233"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        conflicting_files: conflicting_files.into_iter().map(String::from).collect(),
+        conflicting_files: conflicting_files
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect(),
         ..Default::default()
     }));
     app

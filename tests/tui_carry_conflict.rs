@@ -38,7 +38,7 @@ fn make_app_in_carry_conflict(source: WorktreeSource) -> AppState {
         original_branch_oid: Oid::from("c".repeat(40)),
         new_tip_oid: Oid::from("abc123def456"),
         conflicting_commit_oid: Oid::from("abc123def456"),
-        conflicting_files: vec!["src/parser.rs".to_string()],
+        conflicting_files: vec![std::path::PathBuf::from("src/parser.rs")],
         resume: Resume::CarryRow(LiftedRow {
             source,
             tip_before: Oid::from("a".repeat(40)),

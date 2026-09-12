@@ -55,7 +55,7 @@ fn mixed_state() -> common::TestRepo {
 #[test]
 fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
     let started = git_repo
@@ -87,7 +87,7 @@ fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
 #[test]
 fn unstaged_source_commits_only_the_unstaged_delta() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -117,7 +117,7 @@ fn unstaged_source_without_staged_changes_commits_the_working_tree() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a1\n", "first");
     test.write_file("a.txt", "a2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -138,7 +138,7 @@ fn unstaged_source_without_staged_changes_commits_the_working_tree() {
 fn abort_restores_the_branch_index_and_working_tree() {
     for source in [WorktreeSource::Staged, WorktreeSource::Unstaged] {
         let test = mixed_state();
-        let git_repo = test.git_repo();
+        let mut git_repo = test.git_repo();
         let head_before = git_repo.head_oid().unwrap();
 
         let started = git_repo.lift_worktree_row(source).unwrap().unwrap();
@@ -159,7 +159,7 @@ fn abort_restores_a_file_the_row_deleted() {
     let test = common::TestRepo::new();
     test.commit_files(&[("a.txt", "a1\n"), ("gone.txt", "g1\n")], "first");
     std::fs::remove_file(test.repo.workdir().unwrap().join("gone.txt")).unwrap();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -180,7 +180,7 @@ fn abort_restores_a_file_the_row_deleted() {
 fn untracked_files_are_left_alone() {
     let test = mixed_state();
     test.write_file("untracked.txt", "u1\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -198,7 +198,7 @@ fn untracked_files_are_left_alone() {
 fn an_empty_row_yields_nothing() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a1\n", "first");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert!(
         git_repo
@@ -223,7 +223,7 @@ fn overlapping_staged_and_unstaged_edits_are_refused() {
     test.write_file("a.txt", "one\nSTAGED\nthree\n");
     test.stage_file("a.txt");
     test.write_file("a.txt", "one\nUNSTAGED\nthree\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
     let err = git_repo
@@ -245,7 +245,7 @@ fn overlapping_staged_and_unstaged_edits_are_refused() {
 #[test]
 fn the_snapshot_names_the_commit_the_branch_was_left_on() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
         .unwrap()
@@ -263,14 +263,14 @@ fn the_snapshot_names_the_commit_the_branch_was_left_on() {
 #[test]
 fn beginning_records_the_snapshot_in_the_journal() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
     // A fresh handle (simulating a restart) sees the paused operation.
-    let reopened = test.git_repo();
+    let mut reopened = test.git_repo();
     match reopened.read_journal().unwrap() {
         git_tailor::repo::JournalStatus::Recovered(record) => match *record {
             git_tailor::repo::InProgress::WorktreeSquash(snapshot) => {
@@ -306,7 +306,7 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     test.stage_gitlink("sub", first);
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Unstaged)
@@ -345,7 +345,7 @@ fn a_stranded_record_stops_excusing_a_dirty_working_tree() {
     test.write_file("b.txt", "b1\n");
     test.stage_file("b.txt");
     test.write_file("b.txt", "b2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -385,7 +385,7 @@ fn a_discarded_record_keeps_the_working_tree_it_recorded() {
     // The unstaged edit is the one at risk: the fold lifts the staged row, and
     // this is what a discarded record would take with it.
     test.write_file("b.txt", "b2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -422,7 +422,7 @@ fn a_record_with_nothing_uncommitted_is_not_kept() {
     test.commit_file("a.txt", "a1\n", "base");
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -446,7 +446,7 @@ fn a_staged_submodule_pointer_survives_a_fold() {
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     test.stage_gitlink("sub", first);
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -489,7 +489,7 @@ fn a_stale_snapshot_is_not_applied_to_another_operation() {
     test.commit_file("top.txt", "t\n", "top");
     test.write_file("keep.txt", "staged\n");
     test.stage_file("keep.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -547,7 +547,7 @@ fn discarding_the_journal_discards_the_snapshot() {
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     test.write_file("b.txt", "b2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -587,7 +587,7 @@ fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     test.write_file("b.txt", "b2\n");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -618,12 +618,12 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
     test.commit_file("base.txt", "base\n", "base");
     let second = test.commit_file("a.txt", "a1\n", "second");
     test.commit_file("b.txt", "b1\n", "third");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     // An earlier, completed operation to have some history worth keeping.
     let head = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&Oid::from(second), "second reworded", &head)
+        .reword_commit(&Oid::from(second), b"second reworded", &head)
         .unwrap();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
@@ -694,7 +694,7 @@ fn a_stale_snapshot_is_not_applied_to_another_abort() {
     let base = test.commit_files(&[("a.txt", "base\n"), ("keep.txt", "keep\n")], "base");
     test.write_file("keep.txt", "staged\n");
     test.stage_file("keep.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -776,7 +776,7 @@ fn a_conflicted_index_is_refused() {
     index.write().unwrap();
     assert!(test.repo.index().unwrap().has_conflicts());
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let error = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap_err();
@@ -796,7 +796,7 @@ fn a_mode_only_change_can_be_folded() {
     let path = test.repo.workdir().unwrap().join("script.sh");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     test.stage_file("script.sh");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let unstaged_before = git_repo.unstaged_diff(3).unwrap();
     assert!(
@@ -836,7 +836,7 @@ fn an_unstaged_rename_folds_the_deletion_and_leaves_the_new_file() {
     test.commit_file("old.txt", "content\n", "base");
     let workdir = test.repo.workdir().unwrap().to_path_buf();
     std::fs::rename(workdir.join("old.txt"), workdir.join("new.txt")).unwrap();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert_eq!(
         row_paths(git_repo.unstaged_diff(3).unwrap()),
@@ -873,7 +873,7 @@ fn an_unborn_head_is_refused() {
     let test = common::TestRepo::new();
     test.write_file("a.txt", "a1\n");
     test.stage_file("a.txt");
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let error = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -890,7 +890,7 @@ fn an_unborn_head_is_refused() {
 #[test]
 fn a_fold_in_flight_pins_everything_its_snapshot_names() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     let started = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
@@ -899,7 +899,7 @@ fn a_fold_in_flight_pins_everything_its_snapshot_names() {
 
     let pins: Vec<git2::Oid> = test
         .repo
-        .references_glob("refs/git-tailor/undo/*")
+        .references_glob("refs/git-tailor/wt/main/undo/*")
         .unwrap()
         .filter_map(|r| r.ok())
         .filter_map(|r| r.target())
@@ -923,7 +923,7 @@ fn a_fold_in_flight_pins_everything_its_snapshot_names() {
 #[test]
 fn a_completed_fold_pins_what_its_undo_needs() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let target = test.repo.head().unwrap().target().unwrap();
     let tip_before = git_repo.head_oid().unwrap();
     let index_before = staged_tree(&test);
@@ -937,7 +937,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "second",
+                b"second",
                 &started.temp_oid,
             )
             .unwrap()
@@ -945,7 +945,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
 
     let pins: Vec<git2::Oid> = test
         .repo
-        .references_glob("refs/git-tailor/undo/*")
+        .references_glob("refs/git-tailor/wt/main/undo/*")
         .unwrap()
         .filter_map(|r| r.ok())
         .filter_map(|r| r.target())
@@ -965,7 +965,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
 #[test]
 fn redo_refuses_once_the_index_has_moved_on() {
     let test = mixed_state();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let target = test.repo.head().unwrap().target().unwrap();
 
     let started = git_repo
@@ -977,7 +977,7 @@ fn redo_refuses_once_the_index_has_moved_on() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                "second",
+                b"second",
                 &started.temp_oid,
             )
             .unwrap()

@@ -21,7 +21,9 @@ use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
 use git_tailor::repo::{GitRepo, LiftedRow};
 
-use crate::dispatch::{LoopAction, edit_message_suspended, handle_rebase_outcome};
+use crate::dispatch::{
+    LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
+};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 pub(crate) fn handle_execute_drop(
@@ -60,22 +62,30 @@ pub(crate) fn handle_execute_move(
 }
 
 pub(crate) fn handle_prepare_reword(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
-    current_message: String,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let editor_result =
-        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &current_message);
+    // Read from the repository, never from the list's rendering of the
+    // message: that rendering is lossy, and seeding the editor with it would
+    // write its replacement characters back as the message.
+    let seed = match git_repo.commit_message_bytes(&commit_oid) {
+        Ok(seed) => seed,
+        Err(e) => {
+            app.set_error_message(format!("Reword failed: {e:#}"));
+            return Ok(LoopAction::Proceed);
+        }
+    };
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &seed);
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(new_message) if new_message.trim().is_empty() => {
+        Ok(new_message) if is_blank_message(&new_message) => {
             app.set_success_message("Reword canceled: message is empty");
         }
-        Ok(new_message) if new_message == current_message => {
+        Ok(new_message) if new_message == seed => {
             app.set_success_message("No changes made");
         }
         Ok(new_message) => match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
@@ -86,13 +96,11 @@ pub(crate) fn handle_prepare_reword(
     Ok(LoopAction::Proceed)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_prepare_squash(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source: SquashSource,
     target_oid: Oid,
-    target_message: String,
     squash_mode: SquashMode,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
@@ -103,9 +111,37 @@ pub(crate) fn handle_prepare_squash(
     };
     let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
 
-    let combined = squash_editor_seed(&source, &target_message);
+    // Read from the repository, not from the list's rendering of the target's
+    // message: that rendering is lossy, and writing it back would replace a
+    // message git-tailor cannot read with one it can.
+    let target_bytes = match git_repo.commit_message_bytes(&target_oid) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Ok(prepared.unwind(
+                git_repo,
+                app,
+                format!("{label} failed: {e:#}"),
+                LoopAction::Continue,
+            ));
+        }
+    };
+    let source_bytes = match &source {
+        SquashSource::Commit { oid, .. } => match git_repo.commit_message_bytes(oid) {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                return Ok(prepared.unwind(
+                    git_repo,
+                    app,
+                    format!("{label} failed: {e:#}"),
+                    LoopAction::Continue,
+                ));
+            }
+        },
+        SquashSource::Worktree(_) => None,
+    };
+    let combined = squash_editor_seed(source_bytes.as_deref(), &target_bytes);
     let message_for_context = if squash_mode.keeps_target_message() {
-        target_message.clone()
+        target_bytes.clone()
     } else {
         combined.clone()
     };
@@ -134,7 +170,7 @@ pub(crate) fn handle_prepare_squash(
         Ok(None) => {}
     }
     let final_message = if squash_mode.keeps_target_message() {
-        target_message
+        target_bytes
     } else {
         let editor_result =
             edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
@@ -147,7 +183,7 @@ pub(crate) fn handle_prepare_squash(
                     LoopAction::Continue,
                 ));
             }
-            Ok(msg) if msg.trim().is_empty() => {
+            Ok(msg) if is_blank_message(&msg) => {
                 return Ok(prepared.unwind(
                     git_repo,
                     app,
@@ -348,11 +384,8 @@ pub(super) fn prepare_source(
 ///
 /// A working-tree row has no message of its own, so a squash from one starts
 /// from the target's alone rather than the two joined.
-pub(super) fn squash_editor_seed(source: &SquashSource, target_message: &str) -> String {
-    match source.message() {
-        Some(source_message) => format!("{target_message}\n\n{source_message}"),
-        None => target_message.to_string(),
-    }
+pub(super) fn squash_editor_seed(source_message: Option<&[u8]>, target_message: &[u8]) -> Vec<u8> {
+    git_tailor::domain::combine_messages(target_message, source_message)
 }
 
 /// What a completed squash or fixup reports, named after what it folded in.

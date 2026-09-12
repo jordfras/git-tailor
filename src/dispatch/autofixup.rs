@@ -75,16 +75,18 @@ pub(crate) fn autofixup_target_selection_index(
 /// `target_summary`. Does not execute anything; the batch only runs once the
 /// user confirms.
 pub(crate) fn handle_prepare_autofixup_edit_message(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     app: &mut AppState,
     target_summary: String,
     template: String,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
+    let editor_result =
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bytes());
     match editor_result {
         Ok(edited) => {
+            let edited = String::from_utf8_lossy(&edited).into_owned();
             let message = git_tailor::autofixup::strip_comment_lines(&edited);
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
@@ -132,11 +134,13 @@ pub(crate) fn handle_execute_autofixup(
             app.enter_rebase_conflict(*state);
             Ok(LoopAction::Continue)
         }
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Autofixup failed: {e:#}"));
-            Ok(LoopAction::Proceed)
-        }
+        Err(e) => Ok(crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Autofixup",
+            format!("Autofixup failed: {e:#}"),
+            LoopAction::Proceed,
+        )),
     }
 }
 

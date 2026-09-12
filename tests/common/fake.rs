@@ -139,10 +139,10 @@ impl RepoRead for StubRepo {
     fn is_worktree_dirty(&self) -> Result<bool> {
         Ok(false)
     }
-    fn read_index_stage(&self, _path: &str, _stage: i32) -> Result<Option<Vec<u8>>> {
+    fn read_index_stage(&self, _path: &std::path::Path, _stage: i32) -> Result<Option<Vec<u8>>> {
         unimplemented!()
     }
-    fn read_conflicting_files(&self) -> Vec<String> {
+    fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {
         unimplemented!()
     }
     fn root_commit_oid(&self) -> Result<Oid> {
@@ -156,6 +156,24 @@ impl RepoRead for StubRepo {
         _from_oid: &Oid,
         _to_oid: &Oid,
     ) -> Result<Box<dyn Iterator<Item = Result<CommitInfo>> + 'a>> {
+        unimplemented!()
+    }
+    fn commit_message_bytes(&self, _commit_oid: &Oid) -> Result<Vec<u8>> {
+        unimplemented!()
+    }
+    fn count_split_per_file(&self, _commit_oid: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> Result<usize> {
+        unimplemented!()
+    }
+    fn pending_undo_skips_autostash(&self) -> Result<bool> {
+        unimplemented!()
+    }
+    fn pending_redo_skips_autostash(&self) -> Result<bool> {
         unimplemented!()
     }
 }

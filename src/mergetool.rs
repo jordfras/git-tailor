@@ -28,7 +28,7 @@
 use crate::repo::GitRepo;
 use anyhow::{Context, Result};
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Resolve the shell command to use for the configured merge tool.
 ///
@@ -81,7 +81,7 @@ fn builtin_cmd(name: &str) -> Option<String> {
 ///
 /// Returns `true` when the tool was invoked for at least one file, or `false`
 /// when no merge tool is configured (so the caller can show a hint).
-pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Result<bool> {
+pub fn run_mergetool(repo: &mut impl GitRepo, conflicting_files: &[PathBuf]) -> Result<bool> {
     let Some(cmd) = resolve_merge_tool_cmd(repo)? else {
         return Ok(false);
     };
@@ -106,12 +106,12 @@ pub fn run_mergetool(repo: &impl GitRepo, conflicting_files: &[String]) -> Resul
 pub fn run_for_all_files(
     cmd: &str,
     workdir: &Path,
-    repo: &impl GitRepo,
-    files: &[String],
+    repo: &mut impl GitRepo,
+    files: &[PathBuf],
 ) -> Result<()> {
     for file_path in files {
         run_tool_for_file(cmd, workdir, repo, file_path)
-            .with_context(|| format!("merge tool failed on '{file_path}'"))?;
+            .with_context(|| format!("merge tool failed on '{}'", file_path.display()))?;
     }
     Ok(())
 }
@@ -119,8 +119,8 @@ pub fn run_for_all_files(
 fn run_tool_for_file(
     cmd: &str,
     workdir: &Path,
-    repo: &impl GitRepo,
-    file_path: &str,
+    repo: &mut impl GitRepo,
+    file_path: &Path,
 ) -> Result<()> {
     let base_content = repo
         .read_index_stage(file_path, 1)
@@ -136,7 +136,7 @@ fn run_tool_for_file(
         .unwrap_or_default();
 
     // Include the original file extension so tools can apply syntax highlighting.
-    let ext = Path::new(file_path)
+    let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| format!(".{e}"))
@@ -184,19 +184,22 @@ fn run_tool_for_file(
     if parts.is_empty() {
         anyhow::bail!("merge tool command is empty");
     }
-    let substitute = |s: String| -> String {
-        s.replace("$BASE", &base_tmp.path().to_string_lossy())
-            .replace("$LOCAL", &local_tmp.path().to_string_lossy())
-            .replace("$REMOTE", &remote_tmp.path().to_string_lossy())
-            .replace("$MERGED", &merged_path.to_string_lossy())
+    let substitute = |s: String| -> std::ffi::OsString {
+        substitute_vars(
+            &s,
+            base_tmp.path(),
+            local_tmp.path(),
+            remote_tmp.path(),
+            &merged_path,
+        )
     };
     let prog = substitute(parts.remove(0));
-    let args: Vec<String> = parts.into_iter().map(substitute).collect();
+    let args: Vec<std::ffi::OsString> = parts.into_iter().map(substitute).collect();
 
     let status = std::process::Command::new(&prog)
         .args(&args)
         .status()
-        .with_context(|| format!("failed to launch merge tool `{prog}`"))?;
+        .with_context(|| format!("failed to launch merge tool `{}`", prog.to_string_lossy()))?;
 
     // Temp files are kept alive (not dropped) until here, ensuring the child
     // can read them for the full duration of its execution.
@@ -212,7 +215,67 @@ fn run_tool_for_file(
     // replaced with a normal stage-0 entry. This is what `git mergetool` does
     // automatically and what makes `index.has_conflicts()` return false afterward.
     repo.stage_file(file_path)
-        .with_context(|| format!("failed to stage resolved file '{file_path}'"))?;
+        .with_context(|| format!("failed to stage resolved file '{}'", file_path.display()))?;
 
     Ok(())
+}
+
+/// Substitute the merge tool's `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED` variables
+/// in a single command-line token.
+///
+/// `$MERGED` in particular names the real conflicting path, which need not be
+/// valid UTF-8. Rendering it through `String::replace` would require a lossy
+/// `&str` first, and the tool would then be told to write its result to a
+/// path that does not match what is actually on disk — so the splice happens
+/// in raw bytes on Unix instead.
+#[cfg(unix)]
+fn substitute_vars(
+    template: &str,
+    base: &Path,
+    local: &Path,
+    remote: &Path,
+    merged: &Path,
+) -> std::ffi::OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let vars: [(&str, &Path); 4] = [
+        ("$BASE", base),
+        ("$LOCAL", local),
+        ("$REMOTE", remote),
+        ("$MERGED", merged),
+    ];
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut rest = template;
+    'scan: while !rest.is_empty() {
+        for (var, path) in vars {
+            if let Some(after) = rest.strip_prefix(var) {
+                out.extend_from_slice(path.as_os_str().as_bytes());
+                rest = after;
+                continue 'scan;
+            }
+        }
+        let mut chars = rest.chars();
+        let ch = chars.next().expect("rest is non-empty");
+        out.extend_from_slice(ch.encode_utf8(&mut [0u8; 4]).as_bytes());
+        rest = chars.as_str();
+    }
+    std::ffi::OsString::from_vec(out)
+}
+
+#[cfg(not(unix))]
+fn substitute_vars(
+    template: &str,
+    base: &Path,
+    local: &Path,
+    remote: &Path,
+    merged: &Path,
+) -> std::ffi::OsString {
+    std::ffi::OsString::from(
+        template
+            .replace("$BASE", &base.to_string_lossy())
+            .replace("$LOCAL", &local.to_string_lossy())
+            .replace("$REMOTE", &remote.to_string_lossy())
+            .replace("$MERGED", &merged.to_string_lossy()),
+    )
 }

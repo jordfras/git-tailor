@@ -48,11 +48,13 @@ impl Git2Repo {
 
         let new_tree_oid = cherry_index.write_tree_to(repo)?;
         let new_tree = repo.find_tree(new_tree_oid)?;
-        let picked = repo.commit(
-            None,
+        // Byte for byte: a replayed commit's message is not ours to edit, and
+        // one we cannot read is still not empty.
+        let picked = self.commit_preserving_message(
             &desc.author(),
             &desc.committer(),
-            desc.message().unwrap_or(""),
+            desc.message_bytes(),
+            desc.message_encoding().ok().flatten(),
             &new_tree,
             &[onto],
         )?;
@@ -160,27 +162,26 @@ impl Git2Repo {
     /// `write_conflicts_to_workdir`, which journals *before* mutating so a crash
     /// mid-operation is recoverable.
     pub(super) fn cherry_pick_chain(
-        &self,
+        &mut self,
         mut tip: git2::Oid,
         commits: &[git2::Oid],
         ctx: &ChainCtx,
     ) -> Result<CherryPickResult> {
-        let repo = &self.inner;
-
         for (idx, &desc_oid) in commits.iter().enumerate() {
-            let desc_commit = repo.find_commit(desc_oid)?;
-            let onto_commit = repo.find_commit(tip)?;
+            // Scoped: the two commit handles borrow the repository, and writing
+            // the conflict out below needs it mutably.
+            let step = {
+                let desc_commit = self.inner.find_commit(desc_oid)?;
+                let onto_commit = self.inner.find_commit(tip)?;
+                self.cherry_pick_one(&onto_commit, &desc_commit)?
+            };
 
-            match self.cherry_pick_one(&onto_commit, &desc_commit)? {
+            match step {
                 PickStep::Picked(new_tip) => tip = new_tip,
                 PickStep::Conflicted(cherry_index) => {
-                    let state = build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
-                    conflict::write_conflicts_to_workdir(
-                        self,
-                        &cherry_index,
-                        &onto_commit,
-                        &state,
-                    )?;
+                    let mut state =
+                        build_chain_conflict_state(&cherry_index, tip, commits, idx, ctx);
+                    conflict::write_conflicts_to_workdir(self, &cherry_index, tip, &mut state)?;
                     return Ok(CherryPickResult::Conflict(Box::new(state)));
                 }
             }
@@ -218,15 +219,14 @@ pub(super) enum CherryPickResult {
 /// journaled) state. The single tail shared by drop, move, squash, and
 /// conflict-resume.
 pub(super) fn advance_and_finish(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     result: CherryPickResult,
     checkout_target: &Oid,
     reflog_msg: &str,
 ) -> Result<RebaseOutcome> {
     match result {
         CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, reflog_msg)?;
-            repo.checkout_head(checkout_target)?;
+            repo.advance_and_checkout(tip, checkout_target, reflog_msg)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),
@@ -297,30 +297,43 @@ fn build_chain_conflict_state(
 /// cherry-pick chain.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn replace_root_and_replay(
-    repo: &Git2Repo,
-    root_tree: &git2::Tree,
-    first_commit: &git2::Commit,
+    repo: &mut Git2Repo,
+    root_tree_oid: git2::Oid,
+    first_commit_oid: git2::Oid,
     remaining: &[git2::Oid],
     operation_label: &str,
     original_branch_oid: Oid,
     moved_commit_oid: Option<Oid>,
     reflog_msg: &str,
 ) -> Result<RebaseOutcome> {
-    let empty_tree = repo.empty_tree()?;
+    let empty_tree_oid = repo.empty_tree()?.id();
 
-    let mut cherry_index =
+    // Every lookup below is scoped: a `Tree` or `Commit` handle borrows the
+    // repository, and the writes here need it mutably.
+    let mut cherry_index = {
+        let root_tree = repo.inner.find_tree(root_tree_oid)?;
+        let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+        let first_tree = repo.inner.find_commit(first_commit_oid)?.tree()?;
         repo.inner
-            .merge_trees(root_tree, &empty_tree, &first_commit.tree()?, None)?;
+            .merge_trees(&root_tree, &empty_tree, &first_tree, None)?
+    };
 
     if cherry_index.has_conflicts() {
-        let sig = first_commit.author();
-        let anchor_oid =
-            repo.inner
-                .commit(None, &sig, &first_commit.committer(), "", &empty_tree, &[])?;
-        let anchor_commit = repo.inner.find_commit(anchor_oid)?;
+        let anchor_oid = {
+            let first_commit = repo.inner.find_commit(first_commit_oid)?;
+            let empty_tree = repo.inner.find_tree(empty_tree_oid)?;
+            repo.inner.commit(
+                None,
+                &first_commit.author(),
+                &first_commit.committer(),
+                "",
+                &empty_tree,
+                &[],
+            )?
+        };
 
         let remaining_oids: Vec<Oid> = remaining.iter().map(|&oid| Oid::from(oid)).collect();
-        let state = ConflictState {
+        let mut state = ConflictState {
             resume: Resume::Chain {
                 remaining_oids,
                 orphan_root: true,
@@ -330,26 +343,28 @@ pub(super) fn replace_root_and_replay(
                 label: operation_label,
                 original_branch_oid,
                 new_tip: anchor_oid,
-                conflicting_commit: first_commit.id(),
+                conflicting_commit: first_commit_oid,
                 index: &cherry_index,
             })
         };
         // Journals write-ahead, then mutates the ref/index/workdir.
-        conflict::write_conflicts_to_workdir(repo, &cherry_index, &anchor_commit, &state)?;
+        conflict::write_conflicts_to_workdir(repo, &cherry_index, anchor_oid, &mut state)?;
         return Ok(RebaseOutcome::Conflict(Box::new(state)));
     }
 
-    let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
-
-    let new_root_oid = repo.inner.commit(
-        None,
-        &first_commit.author(),
-        &first_commit.committer(),
-        first_commit.message().unwrap_or(""),
-        &new_tree,
-        &[],
-    )?;
+    let new_root_oid = {
+        let new_tree_oid = cherry_index.write_tree_to(&repo.inner)?;
+        let new_tree = repo.inner.find_tree(new_tree_oid)?;
+        let first_commit = repo.inner.find_commit(first_commit_oid)?;
+        repo.commit_preserving_message(
+            &first_commit.author(),
+            &first_commit.committer(),
+            first_commit.message_bytes(),
+            first_commit.message_encoding().ok().flatten(),
+            &new_tree,
+            &[],
+        )?
+    };
 
     let ctx = ChainCtx {
         label: operation_label,

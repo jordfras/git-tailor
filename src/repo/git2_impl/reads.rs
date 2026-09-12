@@ -276,12 +276,16 @@ pub(super) fn workdir(repo: &Git2Repo) -> Option<std::path::PathBuf> {
     repo.inner.workdir().map(|p| p.to_path_buf())
 }
 
-pub(super) fn read_index_stage(repo: &Git2Repo, path: &str, stage: i32) -> Result<Option<Vec<u8>>> {
+pub(super) fn read_index_stage(
+    repo: &Git2Repo,
+    path: &std::path::Path,
+    stage: i32,
+) -> Result<Option<Vec<u8>>> {
     let mut index = repo.inner.index().context("failed to read index")?;
     index
         .read(true)
         .context("failed to refresh index from disk")?;
-    let Some(entry) = index.get_path(std::path::Path::new(path), stage) else {
+    let Some(entry) = index.get_path(path, stage) else {
         return Ok(None);
     };
     let blob = repo
@@ -348,23 +352,35 @@ pub(super) fn root_commit_oid(repo: &Git2Repo) -> Result<Oid> {
     anyhow::bail!("No root commit found reachable from HEAD")
 }
 
+/// Build the display-side view of a commit.
+///
+/// Every string here is decoded lossily rather than with `?`. git stores
+/// messages, names and emails as bytes, and a commit that predates everyone
+/// agreeing on UTF-8 is still a commit the user has to be able to see: failing
+/// the read means git-tailor refuses to open the repository at all.
+///
+/// Lossy is safe *because* it is display-only. Nothing here is ever written
+/// back — a rewrite takes the original bytes straight from the commit through
+/// [`Git2Repo::commit_preserving_message`], so the replacement characters a
+/// reader sees never reach an object.
 pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author_time = commit.author().when();
     let commit_time = commit.time();
     let author = commit.author();
     let committer = commit.committer();
+    let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: commit.summary()?.unwrap_or("").to_string(),
-        author: Some(author.name()?.to_string()),
+        summary: commit.summary_bytes().map(lossy).unwrap_or_default(),
+        author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
-        message: commit.message()?.to_string(),
-        author_email: Some(author.email()?.to_string()),
+        message: lossy(commit.message_bytes()),
+        author_email: Some(lossy(author.email_bytes())),
         author_date: Some(git_time_to_offset_datetime(author_time)),
-        committer: Some(committer.name()?.to_string()),
-        committer_email: Some(committer.email()?.to_string()),
+        committer: Some(lossy(committer.name_bytes())),
+        committer_email: Some(lossy(committer.email_bytes())),
         commit_date: Some(git_time_to_offset_datetime(commit_time)),
     })
 }

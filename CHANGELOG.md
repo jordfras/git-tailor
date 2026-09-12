@@ -15,11 +15,111 @@ The format is based on
   stays silent, so this is how to tell "up to date" apart from "could not
   reach crates.io".
 
+### Changed
+
+- `--autostash` no longer stashes untracked files, only staged and unstaged
+  changes. Sweeping them up was meant to stop a checkout landing on top of one,
+  but it never fired in the case that mattered, and when it did fire it merely
+  deferred the clash into the reapply — which merged the two and left conflict
+  markers while reporting success. That collision is refused outright now, so
+  untracked files stay where you put them
+
 ### Fixed
 
+- `--autostash` no longer gives up when the changes it reapplies clash with the
+  operation's result. It used to fail outright, leaving the rewrite done and
+  your work only in `git stash list` with no way to resolve it; the clash is now
+  raised as a normal conflict, with both sides on disk to choose between
 - The new-version notification now works behind a TLS-inspecting corporate
   proxy, and checks on the first run after an install instead of staying
   quiet for a day
+- An untracked file is no longer silently overwritten when an operation
+  reintroduces a file at the same path (for example, dropping the commit that
+  deleted it). git-tailor now refuses before touching anything and names the
+  files, so content that was never in git cannot be lost
+- The same refusal now covers a path where the two disagree on what lives
+  there: an untracked directory where a file returns, and an untracked file
+  standing where a directory returns. Both used to be replaced outright,
+  reported as success
+- Ending an edit without applying it no longer deletes your untracked files.
+  Cancelling, aborting, or recovering an interrupted edit cleared every
+  untracked file in the repository, not just what the edit itself had put
+  there
+- A rewrite that stops on a conflict is held to the same rule. Writing the
+  half-finished merge out for you to resolve is still a checkout, and it used
+  to go over an untracked file at a reintroduced path without a word
+- Aborting — a conflicted operation or a clashing auto-stash reapply — is held
+  to it too. Putting the earlier state back reintroduces every path the
+  operation removed, and a file you had written at one of them was replaced
+- A second working tree no longer costs the first its safety net. git-tailor
+  keeps refs that stop `git gc` collecting what undo — and an interrupted
+  fold's uncommitted changes — still need, and a run in one working tree
+  cleared the refs belonging to every other one. `gt --clean-journal` is held
+  to the same rule now, clearing only its own working tree's refs
+- Commit messages that are not valid UTF-8 — Latin-1 history, anything with an
+  `encoding` header — survive a rewrite byte for byte instead of being
+  replaced with an empty message, and no longer stop git-tailor opening the
+  repository at all
+- Rewording or squashing such a commit keeps its message too. The editor is
+  now seeded with the message as git stores it rather than with a rendering
+  of it, so what you did not edit comes back unchanged. Bulk autofixup
+  (`F`) is held to the same rule when it combines or carries a message forward
+  on its own
+- Committing staged changes no longer corrupts a message that is not valid
+  UTF-8 as you type it. It used to be re-encoded before the commit was even
+  created, replacing your own bytes with replacement characters
+- Only one git-tailor runs in a working tree at a time. A second one started
+  while the first sat on a conflict dialog read that paused operation as a
+  crash and offered to recover it, rewinding the branch under the instance
+  still working on it. It now says so and exits instead
+- In a shallow clone, rewriting the oldest fetched commit is refused instead
+  of silently cutting the branch off from the history behind the graft. That
+  commit reports no parents locally but has plenty upstream, and every
+  "is this the root?" test believed it — squashing into it now included
+- An operation is refused when the repository moved after the commit list was
+  read — something else committed, or HEAD was switched to another branch.
+  A rewrite used to force-write the branch anyway, discarding a commit made
+  elsewhere, and resuming or aborting a paused conflict could rewrite a
+  branch it had nothing to do with. Finishing a squash after its conflict is
+  resolved, and aborting a conflicting `--autostash` reapply, are now held to
+  the same check
+- Aborting a conflicted operation no longer deletes untracked files. The
+  cleanup that removes what the conflict wrote took every untracked file with
+  it, including notes you wrote while the operation sat paused; it now removes
+  only the files the operation itself introduced
+- A non-UTF-8 path left as an unresolved conflict is no longer treated as if
+  everything were resolved. `--autostash` used to report the reapply as done
+  and drop the stash while real conflict markers were still on disk under
+  that path
+- If the shell to edit a commit could not be launched and undoing the edit
+  then also failed (say, an untracked file blocking it), git-tailor no longer
+  reapplies the auto-stash anyway. It used to, onto a tree the stash no
+  longer matched, producing conflicts that had nothing to do with the
+  original problem
+- Aborting a squash sourced from a staged or unstaged row no longer rewinds
+  the branch when the restore is refused for a real untracked-file collision.
+  It used to move the branch back first and only then discover the
+  collision, leaving it pointing at the pre-fold tip with the working tree
+  and journal still reflecting the in-progress fold
+- A leftover auto-stash from an earlier crash that fails to restore at
+  startup is now reported instead of passing in silence. Only a conflicting
+  reapply was surfaced before; an outright restore failure looked like a
+  clean start while the stashed work stayed stuck in `git stash list`
+- Moving an ordinary commit to the very beginning of the branch (`--all`
+  mode, inserting before the first visible entry) is no longer refused just
+  because the repository happens to be a shallow clone. Only moving the
+  graft boundary itself is refused now; every other commit was wrongly
+  caught by the same check before
+- A fixup or squash that keeps a commit's message untouched no longer
+  silently drops its `encoding` header just because those exact bytes also
+  happen to parse as UTF-8 under a different reading
+- The external merge tool (`merge.tool`) now sees real BASE/LOCAL/REMOTE
+  content and writes its result to the right place for a conflicting path
+  that is not valid UTF-8. It used to run against blank files and stage the
+  original conflict markers as if resolved
+- Aborting a conflict no longer errors out when the tip being restored to
+  lacks a submodule that got checked out while the conflict sat paused; the
+  leftover directory is now left alone instead of the abort failing outright
 
 
 ## [3.0.0] - 2026-09-06

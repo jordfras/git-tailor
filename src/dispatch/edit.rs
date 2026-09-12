@@ -37,9 +37,13 @@ pub(crate) fn handle_execute_edit(
     // `begin_edit`'s clean-tree check refuses a dirty working tree.
     autostash_save_or_bail!(git_repo, app);
     if let Err(e) = git_repo.begin_edit(&commit_oid, &head_oid) {
-        let _ = git_repo.autostash_restore();
-        app.set_error_message(format!("Edit failed: {e:#}"));
-        return Ok(LoopAction::Proceed);
+        return Ok(crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Edit",
+            format!("Edit failed: {e:#}"),
+            LoopAction::Proceed,
+        ));
     }
 
     // Suspend the TUI and drop the user into a shell to rewrite the commit.
@@ -55,10 +59,7 @@ pub(crate) fn handle_execute_edit(
             })?;
         if let Err(e) = shell_result {
             // The shell could not even be launched — abort so the branch is restored.
-            let _ = git_repo.abort_edit();
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e:#}"));
-            return Ok(LoopAction::Reload);
+            return Ok(handle_shell_launch_failure(git_repo, app, e));
         }
         dirty = git_repo.is_worktree_dirty().unwrap_or(false);
         if !dirty {
@@ -68,6 +69,43 @@ pub(crate) fn handle_execute_edit(
 
     let outcome = git_repo.finish_edit(&commit_oid);
     Ok(handle_edit_outcome(git_repo, app, outcome))
+}
+
+/// The shell that edits a commit could not even be launched. Abort so the
+/// branch is restored, then — only if that succeeded — restore the auto-stash
+/// on top of it.
+///
+/// Restoring unconditionally would reapply a stash taken against the pre-edit
+/// tip onto whatever `abort_edit` left behind, which is still the edited
+/// commit when the abort itself failed — a mismatched base that can only
+/// produce conflicts unrelated to the real problem. `settle_autostash_after_failure`
+/// handles the restore itself succeeding, conflicting, or erroring — never
+/// discard its result by hand.
+pub(crate) fn handle_shell_launch_failure(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    shell_error: anyhow::Error,
+) -> LoopAction {
+    match git_repo.abort_edit() {
+        Ok(()) => crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Edit",
+            format!("Edit failed: {shell_error:#}"),
+            LoopAction::Reload,
+        ),
+        // The restore can legitimately refuse — an untracked file standing
+        // where the original tip has a tracked one. Reporting only the shell
+        // failure would leave the user parked on the edited commit with
+        // nothing explaining why. The auto-stash is left untouched: it was
+        // taken against the pre-edit tip, which abort_edit never reached.
+        Err(restore_err) => {
+            app.set_error_message(format!(
+                "Edit failed: {shell_error:#} — and the branch could not be restored: {restore_err:#}"
+            ));
+            LoopAction::Reload
+        }
+    }
 }
 
 fn handle_edit_outcome(
@@ -83,22 +121,26 @@ fn handle_edit_outcome(
             "Commit edited",
             LoopAction::ReloadPreserving,
         ),
-        Ok(EditOutcome::Canceled) => {
-            let _ = git_repo.autostash_restore();
-            app.set_success_message("Edit canceled — no changes");
-            LoopAction::Reload
-        }
+        Ok(EditOutcome::Canceled) => settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Edit",
+            "Edit canceled — no changes",
+            LoopAction::Reload,
+        ),
         Ok(EditOutcome::Conflict(state)) => {
             // Replaying descendants conflicted — defer the auto-stash restore
             // until the conflict is resolved/aborted, like every other rebase.
             app.enter_rebase_conflict(*state);
             LoopAction::Continue
         }
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Edit failed: {e:#}"));
-            LoopAction::Reload
-        }
+        Err(e) => crate::dispatch::settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Edit",
+            format!("Edit failed: {e:#}"),
+            LoopAction::Reload,
+        ),
     }
 }
 
@@ -110,7 +152,7 @@ fn handle_edit_outcome(
 /// uncommitted changes; the banner then explains they must commit or discard
 /// them (nothing is applied while the tree is dirty, so nothing is lost).
 fn run_edit_shell(
-    git_repo: &impl GitRepo,
+    git_repo: &mut impl GitRepo,
     short_oid: &str,
     summary: &str,
     dirty: bool,

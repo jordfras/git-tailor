@@ -131,7 +131,7 @@ fn autostash_restores_mixed_state_after_drop() {
 }
 
 #[test]
-fn autostash_preserves_untracked_files() {
+fn autostash_leaves_untracked_files_alone() {
     let test = common::TestRepo::new();
     let (_base, c1, c2) = setup_dirty_repo(&test);
     test.write_file("untracked.txt", "keep me\n");
@@ -141,9 +141,10 @@ fn autostash_preserves_untracked_files() {
     git_repo.set_autostash(true);
 
     git_repo.autostash_save().unwrap();
-    assert!(
-        !test.repo.workdir().unwrap().join("untracked.txt").exists(),
-        "untracked file should be stashed away"
+    assert_eq!(
+        read_workdir(&test, "untracked.txt"),
+        "keep me\n",
+        "an untracked file stays where the user put it"
     );
 
     assert_rebase_complete!(
@@ -396,6 +397,76 @@ fn autostash_conflict_continue_stays_when_unresolved() {
     }
 }
 
+/// Same shape as [`setup_restore_conflict`], but the conflicting file's name
+/// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
+/// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
+#[cfg(unix)]
+fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Path) -> git2::Oid {
+    test.write_file(path, "AAAA\nBBBB\nCCCC\n");
+    let mut index = test.repo.index().unwrap();
+    index.add_path(path).unwrap();
+    index.write().unwrap();
+    let _base = test.commit("base");
+
+    test.write_file(path, "AAAA\nYYYY\nCCCC\n");
+    let mut index = test.repo.index().unwrap();
+    index.add_path(path).unwrap();
+    index.write().unwrap();
+    let c1 = test.commit("c1");
+
+    test.write_file(path, "AAAA\nZZZZZZZZ\nCCCC\n");
+    c1
+}
+
+/// A non-UTF-8 conflicting path must not be invisible to the "is everything
+/// resolved?" check, or an unresolved conflict reads as clean and the stash
+/// holding the user's only copy of their work gets dropped.
+#[test]
+#[cfg(unix)]
+fn autostash_conflict_continue_stays_when_unresolved_with_a_non_utf8_path() {
+    let test = common::TestRepo::new();
+    let path = common::non_utf8_path("bad", ".txt");
+    let c1 = setup_restore_conflict_non_utf8(&test, &path);
+    let gitdir = test.repo.path().to_path_buf();
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // Conflict markers are still in the working tree — untouched, so this must
+    // report the file as still conflicted rather than silently dropping the
+    // stash.
+    match git_repo.autostash_conflict_continue().unwrap() {
+        AutostashContinue::StillUnresolved { files } => {
+            assert_eq!(files, vec![path.clone()]);
+        }
+        AutostashContinue::Resolved => panic!(
+            "must not report resolved: the non-UTF-8 conflict is still on disk, \
+             unresolved, and dropping the stash here would destroy the user's \
+             only copy of their work"
+        ),
+    }
+    assert_eq!(
+        stash_count(&gitdir),
+        1,
+        "the stash must survive an unresolved (non-UTF-8) conflict"
+    );
+    let on_disk = std::fs::read_to_string(test.repo.workdir().unwrap().join(&path)).unwrap();
+    assert!(
+        on_disk.contains("<<<<<<<"),
+        "conflict markers should remain: {on_disk:?}"
+    );
+}
+
 #[test]
 fn split_refuses_overlapping_dirty_without_autostash() {
     // Documents the guard that auto-stash sidesteps: split on its own refuses
@@ -405,7 +476,7 @@ fn split_refuses_overlapping_dirty_without_autostash() {
     let to_split = test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "big change");
     test.write_file("a.txt", "a1-dirty\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let err = git_repo
         .split_commit_per_file(&Oid::from(to_split), &head_oid)
@@ -512,6 +583,53 @@ fn autostash_conflict_abort_rewinds_whole_operation() {
     ));
 }
 
+/// HEAD moved to another branch while an autostash reapply sat conflicted.
+/// Aborting used to hard-reset whatever branch HEAD now pointed at back to
+/// the pre-operation tip, discarding anything on that unrelated branch.
+#[test]
+fn autostash_conflict_abort_refuses_after_head_moved_to_another_branch() {
+    let test = common::TestRepo::new();
+    let (base, c1) = setup_restore_conflict(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c1))
+            .unwrap()
+    );
+    assert!(matches!(
+        git_repo.autostash_restore().unwrap(),
+        AutostashRestore::Conflict { .. }
+    ));
+
+    // A different branch, pointing somewhere else entirely.
+    let elsewhere = test.repo.find_commit(base).unwrap();
+    test.repo.branch("side", &elsewhere, false).unwrap();
+    let side_before = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    test.repo.set_head("refs/heads/side").unwrap();
+
+    let result = git_repo.autostash_conflict_abort();
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    let side_after = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    assert_eq!(
+        side_before, side_after,
+        "the unrelated branch must not be rewritten"
+    );
+}
+
 /// Regression: a *same-size* unstaged edit must survive an autostash round-trip.
 ///
 /// `setup_dirty_repo` edits `u.txt` from "u0\n" to "u1\n" — both 3 bytes. When
@@ -543,4 +661,113 @@ fn autostash_preserves_same_size_unstaged_edit() {
             "same-size unstaged edit was silently dropped by autostash"
         );
     }
+}
+
+/// The staged content itself clashes when the stash is put back.
+///
+/// The existing conflict test stages a *different* file from the one the drop
+/// rewrites, so the reapply is clean and only the rebase conflicts. Here the
+/// staged change is to the very file the resolution rewrote, so putting it back
+/// is itself a conflict — and it is staged, which is the combination git cannot
+/// represent: a file cannot be both "staged" and "conflicted" at once.
+#[test]
+fn autostash_reapply_conflicts_on_the_staged_file_itself() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "0\n", "base");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    // Staged edit to the same file, on the same lines the resolution will touch.
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    // Resolve the rebase conflict to something that clashes with the staged edit.
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    // Reportable, not a hard error: the rewrite is already done, so refusing
+    // here would strand the user with their work only in the stash and no way
+    // to resolve it.
+    match git_repo.autostash_restore() {
+        Ok(AutostashRestore::Conflict { files }) => {
+            assert_eq!(files, vec![std::path::PathBuf::from("a.txt")])
+        }
+        other => panic!("expected a reportable conflict, got {other:?}"),
+    }
+
+    // Both sides are on disk to choose between, the staged edit included.
+    let on_disk = read_workdir(&test, "a.txt");
+    assert!(on_disk.contains("RESOLVED"), "{on_disk:?}");
+    assert!(on_disk.contains("STAGED"), "{on_disk:?}");
+    let _ = base;
+}
+
+/// Aborting a clashing reapply hard-resets the working tree back to the
+/// pre-operation tip, which reintroduces every path the operation removed.
+#[test]
+fn autostash_abort_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "0\n", "base");
+    // Present at the pre-operation tip; the user replaces it while paused.
+    test.commit_file("notes.txt", "from history\n", "add notes");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    match git_repo.autostash_restore() {
+        Ok(AutostashRestore::Conflict { .. }) => {}
+        other => panic!("expected a reportable conflict, got {other:?}"),
+    }
+
+    // On the stash-conflict dialog, the user drops the tracked notes.txt and
+    // writes their own at that path.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("notes.txt")).unwrap();
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.remove_path(Path::new("notes.txt")).unwrap();
+    index.write().unwrap();
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let result = git_repo.autostash_conflict_abort();
+
+    assert_eq!(
+        read_workdir(&test, "notes.txt"),
+        "my local scratch\n",
+        "the abort's hard reset must refuse rather than overwrite (result: {result:?})"
+    );
 }

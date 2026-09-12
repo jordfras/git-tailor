@@ -161,7 +161,7 @@ pub fn render_conflict_dialog(
     app: &mut AppState,
     frame: &mut Frame,
     mut dialog: Dialog,
-    conflicting_files: &[String],
+    conflicting_files: &[std::path::PathBuf],
     still_unresolved: bool,
     preferred_width: u16,
     title: &str,
@@ -171,10 +171,16 @@ pub fn render_conflict_dialog(
         dialog = dialog
             .blank()
             .styled_line("Conflicting files:", TextRole::Highlight);
+        // Re-stringified every frame rather than cached: capped at MAX_FILES
+        // and truncated to the current frame width below, which a resize
+        // changes, so there is nothing width-independent worth caching here.
         const MAX_FILES: usize = 5;
         let shown = conflicting_files.len().min(MAX_FILES);
         for path in &conflicting_files[..shown] {
-            dialog = dialog.styled_line(truncate_path_tail(path, iw), TextRole::Danger);
+            dialog = dialog.styled_line(
+                truncate_path_tail(&path.display().to_string(), iw),
+                TextRole::Danger,
+            );
         }
         let extra = conflicting_files.len().saturating_sub(MAX_FILES);
         if extra > 0 {

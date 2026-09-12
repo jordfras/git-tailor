@@ -71,9 +71,12 @@ pub struct Cli {
 
     /// Stash working-tree changes around operations, restoring them afterwards.
     ///
-    /// Automatically stash staged/unstaged/untracked changes around operations
-    /// that need a clean working tree (move, drop, squash, fixup, undo, redo),
+    /// Automatically stash staged and unstaged changes around operations that
+    /// need a clean working tree (move, drop, squash, fixup, undo, redo),
     /// restoring them afterwards, instead of refusing to run.
+    ///
+    /// Untracked files are left where they are. An operation that would check
+    /// out over one is refused outright, with or without this flag.
     #[arg(short = 'a', long, env = "GT_AUTOSTASH")]
     pub autostash: bool,
 

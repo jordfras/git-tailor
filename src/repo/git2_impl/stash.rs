@@ -21,7 +21,7 @@
 //! aborted all the way back to the pre-operation state.
 
 use anyhow::{Context, Result};
-use git2::{Signature, StashApplyOptions, StashFlags};
+use git2::{Signature, StashApplyOptions};
 
 use super::super::{AutostashContinue, AutostashRestore};
 use super::Git2Repo;
@@ -32,9 +32,24 @@ use super::reads;
 use crate::Oid;
 
 impl Git2Repo {
-    /// Stash dirty working-tree state (staged + unstaged + untracked) when
-    /// auto-stash is enabled and the tree is dirty, recording the stash and the
-    /// current branch tip in the journal.
+    /// Stash dirty working-tree state (staged + unstaged) when auto-stash is
+    /// enabled and the tree is dirty, recording the stash and the current
+    /// branch tip in the journal.
+    ///
+    /// Tracked changes only. Untracked files used to be swept in as well, to
+    /// stop a checkout landing on top of one, but that never worked: the stash
+    /// is only taken when [`Self::is_worktree_dirty`] says so, and that ignores
+    /// untracked files — so the one case it was meant to cover, a working tree
+    /// holding nothing else, never triggered it. When it *did* fire it merely
+    /// deferred the clash into the reapply, which merged the stashed copy onto
+    /// the reintroduced file and left conflict markers behind without an
+    /// unmerged index entry for [`Self::restore_autostash`] to notice.
+    ///
+    /// That case is now refused up front by
+    /// [`Git2Repo::refuse_untracked_collisions`], which needs the file left
+    /// where it is to see it. Leaving untracked files alone also matches what
+    /// the working-tree fold has always done, so the two agree on what they
+    /// touch.
     ///
     /// Idempotent: if a stash is already recorded for the in-flight operation
     /// (e.g. a multi-step squash), this is a no-op so the dirty state is stashed
@@ -46,6 +61,17 @@ impl Git2Repo {
         if journal::autostash(self)?.is_some() {
             return Ok(());
         }
+        self.set_work_aside("git-tailor: autostash")
+    }
+
+    /// Put whatever is uncommitted into a stash and record it, whatever asked
+    /// for it. A no-op when there is nothing to set aside.
+    ///
+    /// Separate from [`Self::save_autostash`] so that "did the user ask for a
+    /// stash" and "take one" are two questions. Only auto-stash asks today; the
+    /// working-tree fold keeps its own tree objects (see `lift_op`), and
+    /// unifying the two onto this is what a later change would do.
+    pub(super) fn set_work_aside(&mut self, message: &str) -> Result<()> {
         if !self.is_worktree_dirty()? {
             return Ok(());
         }
@@ -58,16 +84,13 @@ impl Git2Repo {
         // can rewind here — where the stash, whose base this tip is, re-applies
         // cleanly.
         let pre_op_tip = reads::head_oid(self)?;
+        let branch_refname = self.current_branch_refname().unwrap_or_default();
 
         let sig = self
             .inner
             .signature()
             .or_else(|_| Signature::now("git-tailor", "git-tailor@localhost"))?;
-        let oid = self.inner.stash_save2(
-            &sig,
-            Some("git-tailor: autostash"),
-            Some(StashFlags::INCLUDE_UNTRACKED),
-        )?;
+        let oid = self.inner.stash_save2(&sig, Some(message), None)?;
 
         // The stash reset the working tree and index; refresh the cached index
         // so subsequent reads on this handle see the clean state.
@@ -78,8 +101,10 @@ impl Git2Repo {
                 stash: Oid::from(oid),
                 pre_op_tip,
                 applied_with_conflict: false,
+                branch_refname,
             }),
-        )
+        )?;
+        Ok(())
     }
 
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
@@ -113,12 +138,35 @@ impl Git2Repo {
             )
         })?;
 
+        // `reinstantiate_index` asks libgit2 to restore the staged/unstaged
+        // split as well as the contents. It cannot do both when the reapply
+        // conflicts: a path cannot be staged and unmerged at once, so libgit2
+        // refuses with `Conflict` rather than writing markers. Refusing would
+        // strand the user — the rewrite is already done and their work is only
+        // in the stash, with no dialog to resolve it — so fall back to a plain
+        // apply, which does write markers. The split is what gives way, and it
+        // is the lesser loss: the contents are on disk and resolvable.
+        //
+        // Retrying assumes the refused attempt applied nothing. libgit2 checks
+        // for conflicts against the index before it writes, so it gives up
+        // before touching the working tree — but it is its assumption to keep,
+        // and a partial apply followed by this retry would apply twice.
         let mut opts = StashApplyOptions::new();
         opts.reinstantiate_index();
-        self.inner.stash_apply(index, Some(&mut opts)).context(
-            "could not reapply auto-stashed changes — they may conflict with the \
-             result; your changes remain in `git stash list`",
-        )?;
+        if let Err(e) = self.inner.stash_apply(index, Some(&mut opts)) {
+            if e.code() != git2::ErrorCode::Conflict {
+                return Err(e).context(
+                    "could not reapply auto-stashed changes — they may conflict \
+                     with the result; your changes remain in `git stash list`",
+                );
+            }
+            self.inner
+                .stash_apply(index, Some(&mut StashApplyOptions::new()))
+                .context(
+                    "could not reapply auto-stashed changes — they may conflict \
+                     with the result; your changes remain in `git stash list`",
+                )?;
+        }
 
         let files = self.autostash_conflicting_files()?;
         if !files.is_empty() {
@@ -169,14 +217,27 @@ impl Git2Repo {
         let Some(record) = journal::autostash(self)? else {
             return Ok(());
         };
+        // The hard reset below moves whatever branch HEAD resolves to now; that
+        // has to still be the branch this stash was taken on.
+        self.refuse_if_branch_switched(&record.branch_refname)?;
         let discarded_tip = reads::head_oid(self)?;
 
-        // Hard-reset to the pre-operation tip, discarding the conflicted reapply
-        // (and the operation's commits) in one step. Scope the commit so its
-        // borrow of `self.inner` is released before the stash mutations below.
-        let pre = git2::Oid::from(&record.pre_op_tip);
+        // Scoped: the commit's borrow of `self.inner` must end before the
+        // stash mutations below, which need it mutably.
         {
+            let pre = git2::Oid::from(&record.pre_op_tip);
             let pre_commit = self.inner.find_commit(pre)?;
+
+            // A hard reset writes the whole tip's tree out, so it reintroduces
+            // every path the operation removed — checked before anything moves.
+            let pre_tree = pre_commit
+                .tree()
+                .context("failed to read the pre-operation tree")?
+                .id();
+            self.refuse_tree_collisions(pre_tree)?;
+
+            // Hard-reset to the pre-operation tip, discarding the conflicted
+            // reapply (and the operation's commits) in one step.
             self.inner
                 .reset(pre_commit.as_object(), git2::ResetType::Hard, None)?;
         }
@@ -201,7 +262,7 @@ impl Git2Repo {
     }
 
     /// Conflicting paths (index stage > 0) from a fresh read of the index.
-    fn autostash_conflicting_files(&self) -> Result<Vec<String>> {
+    fn autostash_conflicting_files(&self) -> Result<Vec<std::path::PathBuf>> {
         let mut index = self.inner.index()?;
         index.read(true)?;
         Ok(conflict::collect_conflict_files_from_index(&index))

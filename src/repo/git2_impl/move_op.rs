@@ -23,7 +23,7 @@ use super::cherry_pick::{ChainCtx, advance_and_finish, replace_root_and_replay};
 use crate::Oid;
 
 pub(super) fn move_commit(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_oid: &Oid,
     insert_after_oid: Option<&Oid>,
     head_oid: &Oid,
@@ -33,10 +33,15 @@ pub(super) fn move_commit(
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
 
-    let commit = repo.inner.find_commit(commit_git_oid)?;
-    if commit.parent_count() > 1 {
-        anyhow::bail!("Cannot move a merge commit");
-    }
+    // Scoped: the commit handle borrows the repository, which the rewrite below
+    // needs mutably.
+    let parent_count = {
+        let commit = repo.inner.find_commit(commit_git_oid)?;
+        if commit.parent_count() > 1 {
+            anyhow::bail!("Cannot move a merge commit");
+        }
+        commit.parent_count()
+    };
 
     let original_branch_oid = head_oid.clone();
 
@@ -44,8 +49,9 @@ pub(super) fn move_commit(
     // (merge_trees for the new root + conflict routing), so it returns
     // RebaseOutcome directly rather than going through the plan/chain pattern.
     if let Some(insert_after) = insert_after_oid
-        && commit.parent_count() == 0
+        && parent_count == 0
     {
+        repo.refuse_shallow_root(commit_git_oid)?;
         return move_root_to_later(
             repo,
             commit_git_oid,
@@ -62,7 +68,18 @@ pub(super) fn move_commit(
     // new root commit" (used by --all mode when the user moves a commit
     // before the first visible entry).
     let (chain_base, reordered) = match insert_after_oid {
-        None => plan_move_to_root(repo, commit_git_oid, head_git_oid)?,
+        None => {
+            // Only refuse when this commit already presents as a root: an
+            // ordinary commit becoming the new root is discarding a parent
+            // git-tailor can see, the user's own choice, not the graft
+            // mistaking a boundary for one. A commit that already reports no
+            // parents locally, though, is exactly the case the graft can lie
+            // about.
+            if parent_count == 0 {
+                repo.refuse_shallow_root(commit_git_oid)?;
+            }
+            plan_move_to_root(repo, commit_git_oid, head_git_oid)?
+        }
         Some(insert_after) => plan_reorder(
             repo,
             commit_git_oid,
@@ -91,7 +108,7 @@ pub(super) fn move_commit(
 /// root commit, and all other commits are left in their original order to be
 /// cherry-picked on top.  Returns `(new_root_oid, remaining_oids)`.
 fn plan_move_to_root(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_git_oid: git2::Oid,
     head_git_oid: git2::Oid,
 ) -> Result<(git2::Oid, Vec<git2::Oid>)> {
@@ -114,11 +131,11 @@ fn plan_move_to_root(
     let new_tree_oid = new_idx.write_tree_to(&repo.inner)?;
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
 
-    let new_root_oid = repo.inner.commit(
-        None,
+    let new_root_oid = repo.commit_preserving_message(
         &commit.author(),
         &commit.committer(),
-        commit.message().unwrap_or(""),
+        commit.message_bytes(),
+        commit.message_encoding().ok().flatten(),
         &new_tree,
         &[], // no parents — this becomes the new root
     )?;
@@ -139,7 +156,7 @@ fn plan_move_to_root(
 /// `replace_root_and_replay` which strips the root's content and handles
 /// conflicts.
 fn move_root_to_later(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_git_oid: git2::Oid,
     insert_after_git_oid: git2::Oid,
     head_git_oid: git2::Oid,
@@ -160,13 +177,12 @@ fn move_root_to_later(
         + 1;
     reordered.insert(insert_pos, commit_git_oid);
 
-    let root_tree = repo.inner.find_commit(commit_git_oid)?.tree()?;
-    let first_commit = repo.inner.find_commit(reordered[0])?;
+    let root_tree_oid = repo.inner.find_commit(commit_git_oid)?.tree()?.id();
 
     replace_root_and_replay(
         repo,
-        &root_tree,
-        &first_commit,
+        root_tree_oid,
+        reordered[0],
         &reordered[1..],
         "Move",
         original_branch_oid,
@@ -182,7 +198,7 @@ fn move_root_to_later(
 /// position, and inserts it after `insert_after`.
 /// Returns `(chain_base_oid, reordered_oids)`.
 fn plan_reorder(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     commit_git_oid: git2::Oid,
     insert_after_git_oid: git2::Oid,
     head_git_oid: git2::Oid,

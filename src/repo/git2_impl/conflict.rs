@@ -18,15 +18,15 @@
 
 use anyhow::{Context, Result};
 
+use std::path::{Path, PathBuf};
+
 use super::super::{ConflictState, InProgress, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, advance_and_finish};
 
-pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
+pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
     let conflicting_oid = git2::Oid::from(&state.conflicting_commit_oid);
-    let conflicting_commit = repo.inner.find_commit(conflicting_oid)?;
-    let onto_commit = repo.inner.find_commit(tip_oid)?;
 
     // Re-read index from disk — the user (or another process) resolved
     // conflicts by editing the on-disk index.
@@ -45,7 +45,7 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     }
 
     let new_tree_oid = index.write_tree()?;
-    let new_tree = repo.inner.find_tree(new_tree_oid)?;
+    drop(index);
 
     // Squash-tree conflicts resume via squash_finalize, never here; a Squash
     // resume reaching this point is a routing bug, so fail loudly rather than
@@ -63,24 +63,25 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     let orphan_root = *orphan_root;
     let moved_commit_oid = moved_commit_oid.as_ref();
 
-    let new_tip = if orphan_root {
-        // The conflicting commit becomes an orphan root (no parents).
-        repo.inner.commit(
-            None,
+    // Scoped: these handles borrow the repository, and replaying the rest of the
+    // chain below needs it mutably.
+    let new_tip = {
+        let conflicting_commit = repo.inner.find_commit(conflicting_oid)?;
+        let new_tree = repo.inner.find_tree(new_tree_oid)?;
+        // An orphan root has no parents; every other commit keeps the tip it
+        // conflicted onto.
+        let parents: Vec<git2::Commit<'_>> = if orphan_root {
+            Vec::new()
+        } else {
+            vec![repo.inner.find_commit(tip_oid)?]
+        };
+        repo.commit_preserving_message(
             &conflicting_commit.author(),
             &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
+            conflicting_commit.message_bytes(),
+            conflicting_commit.message_encoding().ok().flatten(),
             &new_tree,
-            &[],
-        )?
-    } else {
-        repo.inner.commit(
-            None,
-            &conflicting_commit.author(),
-            &conflicting_commit.committer(),
-            conflicting_commit.message().unwrap_or(""),
-            &new_tree,
-            &[&onto_commit],
+            &parents.iter().collect::<Vec<_>>(),
         )?
     };
 
@@ -102,36 +103,112 @@ pub(super) fn rebase_continue(repo: &Git2Repo, state: &ConflictState) -> Result<
     )
 }
 
-pub(super) fn rebase_abort(repo: &Git2Repo, state: &ConflictState) -> Result<()> {
+pub(super) fn rebase_abort(repo: &mut Git2Repo, state: &ConflictState) -> Result<()> {
     let original_oid = git2::Oid::from(&state.original_branch_oid);
     let label = state.operation_label.to_lowercase();
+
+    // The conflict checkout wrote exactly the index `write_conflicts_to_workdir`
+    // populated, and that index is still in place — so read the list of paths it
+    // may have created off it now, before the reset below replaces it.
+    let written = index_paths(repo)?;
+
+    // Putting the original tip back is still a checkout: it reintroduces every
+    // path the operation removed. Checked before the ref moves, so a refusal
+    // leaves the conflict as it was and the user can abort again once the file
+    // is out of the way.
+    let head_tree_oid = repo
+        .inner
+        .find_commit(original_oid)?
+        .tree()
+        .context("failed to read the original tree")?
+        .id();
+    repo.refuse_tree_collisions(head_tree_oid)?;
+
     repo.advance_branch_ref(original_oid, &format!("git-tailor: {label} (abort)"))?;
 
     // Reset the index to HEAD's tree before checkout. write_conflicts_to_workdir
     // clears the index and repopulates it from the cherry-pick result (rooted in
     // the target commit's tree), so checkout_head alone cannot restore files that
     // exist in HEAD but were absent from that tree.
-    let head_commit = repo.inner.find_commit(original_oid)?;
-    repo.set_index_tree(head_commit.tree()?.id())?;
+    repo.set_index_tree(head_tree_oid)?;
 
-    // Force-checkout HEAD and remove files that were written to the workdir
-    // by the conflict checkout but are not tracked by the original HEAD.
     let mut checkout = git2::build::CheckoutBuilder::new();
     checkout.force();
-    checkout.remove_untracked(true);
     repo.inner.checkout_head(Some(&mut checkout))?;
-    Ok(())
+
+    remove_conflict_debris(repo, &written, head_tree_oid)
 }
 
-pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<String> {
-    collect_conflict_files(&repo.inner)
-}
-
-pub(super) fn auto_stage_resolved_conflicts(repo: &Git2Repo, files: &[String]) -> Result<()> {
+/// Delete what the conflict left in the working tree that checking out HEAD
+/// does not take back: paths the operation introduced which HEAD does not
+/// track, and which the checkout therefore has no opinion about.
+///
+/// `CheckoutBuilder::remove_untracked` would do this in one line, but libgit2
+/// does not scope it to our own debris — it removes every untracked file under
+/// the checkout, the ones the user wrote while the operation sat paused
+/// included. Aborting must undo the operation, not clean the working tree.
+fn remove_conflict_debris(
+    repo: &mut Git2Repo,
+    written: &[PathBuf],
+    head_tree_oid: git2::Oid,
+) -> Result<()> {
     let workdir = repo
         .inner
         .workdir()
-        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?
+        .to_path_buf();
+    let head_tree = repo.inner.find_tree(head_tree_oid)?;
+
+    for path in written {
+        // Tracked by HEAD: the checkout above already restored the right content.
+        if head_tree.get_path(path).is_ok() {
+            continue;
+        }
+        if super::remove_written_path(&workdir, path)? {
+            remove_empty_parents(&workdir, workdir.join(path).parent());
+        }
+    }
+    Ok(())
+}
+
+/// A directory the operation created only to hold a file it introduced would
+/// otherwise stay behind, empty, once that file is gone.
+fn remove_empty_parents(workdir: &Path, mut dir: Option<&Path>) {
+    while let Some(d) = dir {
+        if d == workdir || std::fs::remove_dir(d).is_err() {
+            return;
+        }
+        dir = d.parent();
+    }
+}
+
+/// Every path the index mentions, one entry per path regardless of how many
+/// conflict stages it is recorded under.
+fn index_paths(repo: &Git2Repo) -> Result<Vec<PathBuf>> {
+    let mut index = repo.inner.index()?;
+    // The user may have staged resolutions since we wrote it.
+    index.read(false)?;
+    // Not `String::from_utf8`: a path that is not UTF-8 would drop out of the
+    // list and its debris file would be left behind after an abort.
+    let mut paths: Vec<PathBuf> = index
+        .iter()
+        .map(|entry| super::bytes_to_path(&entry.path))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+pub(super) fn read_conflicting_files(repo: &Git2Repo) -> Vec<PathBuf> {
+    collect_conflict_files(&repo.inner)
+}
+
+pub(super) fn auto_stage_resolved_conflicts(repo: &mut Git2Repo, files: &[PathBuf]) -> Result<()> {
+    let workdir = repo
+        .inner
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("repository has no working directory"))?
+        .to_path_buf();
 
     for path in files {
         let full_path = workdir.join(path);
@@ -141,7 +218,7 @@ pub(super) fn auto_stage_resolved_conflicts(repo: &Git2Repo, files: &[String]) -
             continue;
         }
         let content = std::fs::read(&full_path)
-            .with_context(|| format!("failed to read '{path}' from working tree"))?;
+            .with_context(|| format!("failed to read '{}' from working tree", path.display()))?;
         if !content.windows(b"<<<<<<<".len()).any(|w| w == b"<<<<<<<") {
             repo.stage_file(path)?;
         }
@@ -150,7 +227,7 @@ pub(super) fn auto_stage_resolved_conflicts(repo: &Git2Repo, files: &[String]) -
 }
 
 /// Read the on-disk index and return paths with conflict (non-zero) stages.
-pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
+pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<PathBuf> {
     let mut index = match repo.index() {
         Ok(i) => i,
         Err(_) => return Vec::new(),
@@ -162,15 +239,16 @@ pub(super) fn collect_conflict_files(repo: &git2::Repository) -> Vec<String> {
 /// Return paths with conflict (non-zero) stages from a specific index. Lets
 /// callers read conflicts from an in-memory merge index before it is written
 /// to the on-disk index.
-pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<String> {
-    let mut paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+///
+/// Not `String::from_utf8`: dropping a non-UTF-8 path here means "no
+/// conflicts" is reported while one is still on disk.
+pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<PathBuf> {
+    let mut paths: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for entry in index.iter() {
         // stage is encoded in the high bits of flags
         let stage = (entry.flags >> 12) & 0x3;
-        if stage > 0
-            && let Ok(p) = std::str::from_utf8(&entry.path)
-        {
-            paths.insert(p.to_string());
+        if stage > 0 {
+            paths.insert(super::bytes_to_path(&entry.path));
         }
     }
     paths.into_iter().collect()
@@ -184,18 +262,28 @@ pub(super) fn collect_conflict_files_from_index(index: &git2::Index) -> Vec<Stri
 /// ref, writing the index, checking out) still leaves a recoverable journal
 /// entry rather than a partially-rebased branch with no record of it.
 pub(super) fn write_conflicts_to_workdir(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     cherry_index: &git2::Index,
-    onto_commit: &git2::Commit,
-    state: &ConflictState,
+    onto_oid: git2::Oid,
+    state: &mut ConflictState,
 ) -> Result<()> {
+    // Recorded here because this is where the branch is chosen: whatever HEAD
+    // resolves to now is what the ref moves below, and resuming or aborting has
+    // to come back to the same one.
+    state.branch_refname = repo.current_branch_refname().unwrap_or_default();
+    // Before the write-ahead record and the ref move: a conflict is still a
+    // checkout over the working tree, and refusing here leaves the branch, the
+    // index and the files exactly as they were. The merge is recomputed on the
+    // retry, which costs nothing anyone can measure.
+    repo.refuse_index_collisions(cherry_index)?;
+
     // Write-ahead: record the in-progress operation before mutating anything.
     super::journal::set_in_progress(repo, &InProgress::Conflict(Box::new(state.clone())))?;
 
     // Point the branch at the onto commit so HEAD matches the partially
     // rebased chain.
     let label = state.operation_label.to_lowercase();
-    repo.advance_branch_ref(onto_commit.id(), &format!("git-tailor: {label} (conflict)"))?;
+    repo.advance_branch_ref(onto_oid, &format!("git-tailor: {label} (conflict)"))?;
 
     // Write the conflicted index entries (including conflict markers) into
     // the repo's index so `git status` and the user's editor see them.

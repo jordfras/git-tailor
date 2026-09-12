@@ -23,12 +23,12 @@ fn squash_adjacent_commits_source_is_head() {
     let target = test.commit_file("a.txt", "target\n", "target commit");
     let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed message",
+            b"squashed message",
             &Oid::from(source),
         )
         .unwrap();
@@ -50,12 +50,12 @@ fn squash_non_adjacent_commits_rebases_intermediates() {
     let middle = test.commit_file("c.txt", "middle\n", "middle commit");
     let source = test.commit_file("b.txt", "source\n", "source commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -86,12 +86,12 @@ fn squash_source_not_head_rebases_later_commits() {
     let source = test.commit_file("b.txt", "source\n", "source commit");
     let after = test.commit_file("c.txt", "after\n", "after commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(after),
         )
         .unwrap();
@@ -113,13 +113,13 @@ fn squash_uses_provided_message() {
     let target = test.commit_file("b.txt", "target\n", "target msg");
     let source = test.commit_file("c.txt", "source\n", "source msg");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let custom_message = "target msg\n\nsource msg\n";
     git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            custom_message,
+            custom_message.as_bytes(),
             &Oid::from(source),
         )
         .unwrap();
@@ -142,12 +142,12 @@ fn squash_preserves_target_authorship() {
     let target_commit = test.repo.find_commit(target).unwrap();
     let target_author = target_commit.author().name().unwrap().to_string();
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();

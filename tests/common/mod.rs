@@ -82,8 +82,8 @@ impl TestRepo {
     /// Use it to create unstaged dirty state (e.g. to verify that an operation
     /// preserves working-tree changes) or as the first step before
     /// [`stage_file`][Self::stage_file].
-    pub fn write_file(&self, path: &str, content: &str) {
-        let file_path = self.repo.workdir().unwrap().join(path);
+    pub fn write_file(&self, path: impl AsRef<std::path::Path>, content: &str) {
+        let file_path = self.repo.workdir().unwrap().join(path.as_ref());
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
@@ -153,13 +153,19 @@ impl TestRepo {
     }
 
     pub fn delete_file(&self, path: &str, message: &str) -> git2::Oid {
-        let repo_path = self.repo.workdir().unwrap();
-        let file_path = repo_path.join(path);
+        self.delete_files(&[path], message)
+    }
 
-        fs::remove_file(&file_path).unwrap();
+    /// Delete several paths in a *single* commit, so dropping that commit
+    /// brings them all back at once.
+    pub fn delete_files(&self, paths: &[&str], message: &str) -> git2::Oid {
+        let repo_path = self.repo.workdir().unwrap();
 
         let mut index = self.repo.index().unwrap();
-        index.remove_path(std::path::Path::new(path)).unwrap();
+        for path in paths {
+            fs::remove_file(repo_path.join(path)).unwrap();
+            index.remove_path(std::path::Path::new(path)).unwrap();
+        }
         index.write().unwrap();
 
         let tree_oid = index.write_tree().unwrap();
@@ -326,7 +332,7 @@ impl TestRepo {
         let _base = self.commit_file("a.txt", "base\n", "base");
         let to_drop = self.commit_file("a.txt", "base\ndropped\n", "add dropped line");
         let head = self.commit_file("a.txt", "base\ndropped\nhead\n", "add head line");
-        let git_repo = self.git_repo();
+        let mut git_repo = self.git_repo();
         crate::expect_rebase_conflict!(
             git_repo
                 .drop_commit(&Oid::from(to_drop), &Oid::from(head))
@@ -381,6 +387,18 @@ impl TuiTestHarness {
         self.terminal.draw(|frame| f(frame)).unwrap();
         self.terminal.backend().buffer().clone()
     }
+}
+
+/// A path that is not valid UTF-8 anywhere in its byte stream: `0xFF` is never
+/// a valid UTF-8 lead or continuation byte. `prefix` and `suffix` bracket it
+/// so callers can still give the fixture a readable, distinct name.
+#[cfg(unix)]
+pub fn non_utf8_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let mut bytes = prefix.as_bytes().to_vec();
+    bytes.push(0xFF);
+    bytes.extend_from_slice(suffix.as_bytes());
+    std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
 }
 
 /// Build an `AppState` with synthesised commits for use in TUI tests.

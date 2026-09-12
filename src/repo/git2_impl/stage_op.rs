@@ -24,7 +24,7 @@ use super::Git2Repo;
 /// Equivalent to `git add -u`. Untracked files are deliberately left alone —
 /// they are invisible in the unstaged row's diff, so sweeping them in would
 /// stage files the user never saw.
-pub(super) fn stage_all(repo: &Git2Repo) -> Result<()> {
+pub(super) fn stage_all(repo: &mut Git2Repo) -> Result<()> {
     let mut index = repo.inner.index().context("failed to open index")?;
     index.read(true).context("failed to refresh index")?;
 
@@ -45,7 +45,7 @@ pub(super) fn stage_all(repo: &Git2Repo) -> Result<()> {
 
 /// Unstage every staged change by resetting the index to HEAD's tree. Also
 /// clears any conflict stages.
-pub(super) fn unstage_all(repo: &Git2Repo) -> Result<()> {
+pub(super) fn unstage_all(repo: &mut Git2Repo) -> Result<()> {
     let head_tree = repo
         .inner
         .head()

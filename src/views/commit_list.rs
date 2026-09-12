@@ -123,7 +123,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             };
             AppAction::PrepareReword {
                 commit_oid: commit.oid.expect_real_oid(),
-                current_message: commit.message.clone(),
             }
         }
         KeyCommand::Edit => {

@@ -62,14 +62,34 @@ const JOURNAL_VERSION: u32 = 2;
 /// concatenate `&str` consts, so the full names are composed at use sites.)
 const REF_NAMESPACE: &str = "refs/git-tailor/";
 
-/// Leaf (under [`REF_NAMESPACE`]) of the ref pinning the pre-operation branch
-/// tip of an *interrupted* operation so `git gc` cannot prune the commits it
-/// still needs while it is paused.
+/// Leaf (under [`REF_NAMESPACE`]) under which each working tree keeps its own
+/// pins, as `wt/<id>/…`.
+///
+/// The journal is per-working-tree — `repo.path()` is `<gitdir>/worktrees/<name>/`
+/// for a linked one — while refs are shared across all of them. Flat pin names
+/// meant [`sync_undo_pins`], which clears the lot before rewriting what its own
+/// journal names, unpinned every *other* working tree's objects. For an
+/// interrupted fold that is the user's uncommitted work: the recorded working
+/// tree is a tree object no commit and no reflog names, so the pin is the only
+/// thing holding it.
+///
+/// Not git's own `refs/worktree/` namespace, which would isolate them properly
+/// and is the obvious answer — `git gc` prunes straight through it. See
+/// `tests/gc_pins.rs`.
+const WORKTREE_REF_LEAF: &str = "wt/";
+
+/// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
+/// ref pinning the pre-operation branch tip of an *interrupted* operation so
+/// `git gc` cannot prune the commits it still needs while it is paused.
 const ORIG_REF_LEAF: &str = "orig";
 
-/// Leaf (under [`REF_NAMESPACE`]) of the subdirectory pinning every tip
-/// referenced by the undo/redo stacks.
+/// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
+/// subdirectory pinning every tip referenced by the undo/redo stacks.
 const UNDO_REF_LEAF: &str = "undo/";
+
+/// Pin names written by versions before pins were scoped per working tree.
+/// Cleared alongside our own so an upgrade does not strand them.
+const LEGACY_PIN_PREFIXES: [&str; 2] = ["refs/git-tailor/undo/", "refs/git-tailor/orig"];
 
 /// Leaf (under [`REF_NAMESPACE`]) of the subdirectory keeping the working tree
 /// a discarded lift record still named, so the uncommitted work in it stays
@@ -82,9 +102,47 @@ pub(super) fn rescue_ref(tree: &Oid) -> String {
     format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{}", tree.short())
 }
 
-/// Full name of the in-progress `orig` pin.
-fn orig_ref() -> String {
-    format!("{REF_NAMESPACE}{ORIG_REF_LEAF}")
+/// Prefix of every pin belonging to this working tree.
+///
+/// `repo.path()` is `<gitdir>/` for the main working tree and
+/// `<gitdir>/worktrees/<name>/` for a linked one, so the name is the last
+/// component when the one before it is `worktrees`. It is hashed rather than
+/// used as-is because a working tree's name only has to be a valid directory
+/// name, while this has to be a valid ref name. Hashing the name and not the
+/// full path keeps the pins matching after the repository is moved.
+///
+/// Truncated to 12 hex chars (48 bits): two working trees landing on the same
+/// prefix needs on the order of 2^24 of them on one repository before it
+/// becomes likely, far past anything a real project has open at once.
+/// Widening this would help nothing already on disk — a ref written under the
+/// old, shorter id would stop matching the new prefix and never be pruned —
+/// so it stays exactly this long rather than trading a theoretical collision
+/// for a real leak.
+fn worktree_prefix(repo: &Git2Repo) -> String {
+    let path = repo.inner.path();
+    let name = path
+        .parent()
+        .filter(|parent| parent.file_name() == Some(std::ffi::OsStr::new("worktrees")))
+        .and_then(|_| path.file_name());
+    let id = match name {
+        Some(name) => {
+            let digest =
+                git2::Oid::hash_object(git2::ObjectType::Blob, name.to_string_lossy().as_bytes());
+            match digest {
+                Ok(oid) => oid.to_string()[..12].to_string(),
+                // Only if libgit2 cannot hash at all; sharing one bucket is
+                // still better than failing an operation over a pin name.
+                Err(_) => "unknown".to_string(),
+            }
+        }
+        None => "main".to_string(),
+    };
+    format!("{REF_NAMESPACE}{WORKTREE_REF_LEAF}{id}/")
+}
+
+/// Full name of the in-progress `orig` pin for this working tree.
+fn orig_ref(repo: &Git2Repo) -> String {
+    format!("{}{ORIG_REF_LEAF}", worktree_prefix(repo))
 }
 
 /// Maximum number of undo records kept. Bounds how many old tips stay pinned
@@ -220,6 +278,7 @@ impl UndoRecord {
 /// Kept in the journal so the stash can be reapplied — or, on a conflicting
 /// reapply, aborted back to `pre_op_tip` — even across a crash or restart.
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub(super) struct AutostashRecord {
     /// OID of the stash commit holding the user's dirty changes.
     pub stash: Oid,
@@ -230,6 +289,9 @@ pub(super) struct AutostashRecord {
     /// Set once the stash has been reapplied and left conflict markers in the
     /// working tree, so startup recovery does not reapply it a second time.
     pub applied_with_conflict: bool,
+    /// Branch the stash was taken on. An empty name means the record predates
+    /// this being tracked, so the check it enables stands aside.
+    pub branch_refname: String,
 }
 
 /// The full journal document.
@@ -292,7 +354,7 @@ fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
 }
 
 /// Atomically write the document (temp file + rename).
-fn write_doc(repo: &Git2Repo, doc: &JournalDoc) -> Result<()> {
+fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
     let dir = journal_dir(repo);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create journal dir {}", dir.display()))?;
@@ -308,7 +370,7 @@ fn write_doc(repo: &Git2Repo, doc: &JournalDoc) -> Result<()> {
 
 /// Persist the document — removing the file when nothing is left to store — and
 /// reconcile the undo pin refs with the stacks.
-fn save(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
+fn save(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
     if is_empty(doc) {
         let path = journal_path(repo);
@@ -340,7 +402,7 @@ pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
 
 /// Record (or clear, with `None`) the working-tree-source snapshot for the
 /// in-flight operation.
-pub(super) fn set_worktree_source(repo: &Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
+pub(super) fn set_worktree_source(repo: &mut Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.worktree_source = snapshot;
     save(repo, &mut doc)
@@ -352,7 +414,7 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 }
 
 /// Record (or clear, with `None`) the auto-stash for the in-flight operation.
-pub(super) fn set_autostash(repo: &Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
+pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.autostash = record;
     save(repo, &mut doc)
@@ -366,7 +428,7 @@ pub(super) fn set_autostash(repo: &Git2Repo, record: Option<AutostashRecord>) ->
 /// `discarded_tip`; undo/redo records (which move between stacks) do not match
 /// and are left to the staleness check.
 pub(super) fn drop_reverted_undo_record(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     pre_op_tip: &Oid,
     discarded_tip: &Oid,
 ) -> Result<()> {
@@ -397,7 +459,7 @@ pub(super) fn drop_reverted_undo_record(
 ///   stacks — even while paused, since they are independent of the in-progress
 ///   operation — dropping any orphans. The `orig` pin belongs to a paused
 ///   operation, so it is dropped whenever there is none.
-pub(super) fn prune_stale(repo: &Git2Repo) -> Result<()> {
+pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
 
     // A fold in flight is an operation in progress too, even before it reaches a
@@ -441,14 +503,28 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
 /// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
 /// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
 /// caller (pins are only a gc optimization).
-fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
-    if let Ok(refs) = repo
-        .inner
-        .references_glob(&format!("{REF_NAMESPACE}{UNDO_REF_LEAF}*"))
-    {
+///
+/// The pins are dropped before they are rewritten, so for that moment the
+/// objects they name are unreferenced and a `git gc --prune=now` running right
+/// then could take them. Rebuilding the set in place is not worth the
+/// complication: the window is microseconds, git's default prune expiry is two
+/// weeks, and the journal still names the oids either way.
+fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
+    let prefix = worktree_prefix(repo);
+    // Only this working tree's pins, plus anything an older version left under
+    // the flat names. Another working tree's belong to its journal, not ours.
+    let mine = format!("{prefix}{UNDO_REF_LEAF}");
+    if let Ok(mut refs) = repo.inner.references() {
         let names: Vec<String> = refs
-            .filter_map(|r| r.ok())
-            .filter_map(|r| r.name().ok().map(String::from))
+            .names()
+            .filter_map(|n| n.ok())
+            .filter(|name| {
+                name.starts_with(&mine)
+                    || LEGACY_PIN_PREFIXES
+                        .iter()
+                        .any(|legacy| name.starts_with(legacy))
+            })
+            .map(String::from)
             .collect();
         for name in names {
             if let Ok(mut r) = repo.inner.find_reference(&name) {
@@ -473,7 +549,7 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
     }
     for (i, oid) in oids.into_iter().enumerate() {
         let _ = repo.inner.reference(
-            &format!("{REF_NAMESPACE}{UNDO_REF_LEAF}{i}"),
+            &format!("{prefix}{UNDO_REF_LEAF}{i}"),
             git2::Oid::from(oid),
             true,
             "git-tailor: undo pin",
@@ -482,14 +558,18 @@ fn sync_undo_pins(repo: &Git2Repo, doc: &JournalDoc) {
 }
 
 /// Record `record` as the in-progress operation and pin the original branch tip.
-pub(super) fn set_in_progress(repo: &Git2Repo, record: &InProgress) -> Result<()> {
+pub(super) fn set_in_progress(repo: &mut Git2Repo, record: &InProgress) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = Some(record.clone());
     save(repo, &mut doc)?;
 
     let orig = git2::Oid::from(record.original_branch_oid());
-    repo.inner
-        .reference(&orig_ref(), orig, true, "git-tailor: journal in-progress")?;
+    repo.inner.reference(
+        &orig_ref(repo),
+        orig,
+        true,
+        "git-tailor: journal in-progress",
+    )?;
     Ok(())
 }
 
@@ -500,7 +580,7 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 
 /// Clear the in-progress record after a clean completion or abort, keeping any
 /// undo/redo stack intact, and drop the in-progress pin ref.
-pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
+pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
     save(repo, &mut doc)?;
@@ -514,7 +594,7 @@ pub(super) fn clear_in_progress(repo: &Git2Repo) -> Result<()> {
 /// working tree is accounted for. Distinct from
 /// [`clear_in_progress`], which only ends one phase of an operation that is
 /// still running.
-pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
+pub(super) fn discard_in_flight(repo: &mut Git2Repo) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.in_progress = None;
     doc.worktree_source = None;
@@ -523,19 +603,28 @@ pub(super) fn discard_in_flight(repo: &Git2Repo) -> Result<()> {
     Ok(())
 }
 
-fn delete_orig_ref(repo: &Git2Repo) {
-    if let Ok(mut r) = repo.inner.find_reference(&orig_ref()) {
+fn delete_orig_ref(repo: &mut Git2Repo) {
+    if let Ok(mut r) = repo.inner.find_reference(&orig_ref(repo)) {
         let _ = r.delete();
     }
 }
 
-/// Remove all git-tailor recovery state: every ref under `refs/git-tailor/`
-/// (undo pins and the in-progress `orig` pin) and the on-disk journal file.
+/// Remove this working tree's git-tailor recovery state: its own undo pins and
+/// in-progress `orig` pin, plus anything repo-wide that is not tied to a
+/// particular working tree, and the on-disk journal file.
 ///
 /// Refs are discovered by namespace rather than from the journal, so stray refs
 /// are removed even when the journal is missing, corrupt, or out of sync — this
-/// is the manual escape hatch behind `--clean-journal`.
-pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
+/// is the manual escape hatch behind `--clean-journal`. Scoped to this working
+/// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
+/// another working tree's pin may be the only thing keeping a paused conflict
+/// or interrupted fold of its own reachable, and this tree's journal knows
+/// nothing about it. Rescue refs are content-addressed, not tied to whichever
+/// working tree wrote them, and have no other cleanup path, so they are still
+/// swept globally.
+pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
+    let mine = worktree_prefix(repo);
+    let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
     let mut refs = repo
         .inner
         .references()
@@ -543,7 +632,13 @@ pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
     let names: Vec<String> = refs
         .names()
         .filter_map(|n| n.ok())
-        .filter(|name| name.starts_with(REF_NAMESPACE))
+        .filter(|name| {
+            name.starts_with(&mine)
+                || name.starts_with(&rescue_prefix)
+                || LEGACY_PIN_PREFIXES
+                    .iter()
+                    .any(|legacy| name.starts_with(legacy))
+        })
         .map(|name| name.to_string())
         .collect();
     let mut refs_removed = 0;
@@ -576,7 +671,7 @@ pub(super) fn clean(repo: &Git2Repo) -> Result<JournalCleanSummary> {
 
 /// Push a completed history-rewriting operation onto the undo stack.
 pub(super) fn record_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     tip_before: &Oid,
     tip_after: &Oid,
@@ -593,7 +688,7 @@ pub(super) fn record_undo(
 
 /// Push a completed index-only operation (stage/unstage all) onto the undo stack.
 pub(super) fn record_index_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     head: &Oid,
     index_tree_before: &Oid,
@@ -612,7 +707,7 @@ pub(super) fn record_index_undo(
 
 /// Push a completed commit-staged operation onto the undo stack.
 pub(super) fn record_commit_undo(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     label: &str,
     tip_before: &Oid,
     tip_after: &Oid,
@@ -640,7 +735,11 @@ pub(super) struct MixedUndo<'a> {
 }
 
 /// Push a completed working-tree-sourced squash onto the undo stack.
-pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'_>) -> Result<()> {
+pub(super) fn record_mixed_undo(
+    repo: &mut Git2Repo,
+    label: &str,
+    moved: MixedUndo<'_>,
+) -> Result<()> {
     push_undo(
         repo,
         UndoRecord::MixedReset {
@@ -655,7 +754,7 @@ pub(super) fn record_mixed_undo(repo: &Git2Repo, label: &str, moved: MixedUndo<'
 
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
-fn push_undo(repo: &Git2Repo, record: UndoRecord) -> Result<()> {
+fn push_undo(repo: &mut Git2Repo, record: UndoRecord) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.undo.push(record);
     doc.redo.clear();
@@ -687,7 +786,7 @@ pub(super) fn pending_redo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
 /// Undo the most recent operation, moving its record to the redo stack. A
 /// history-rewriting op restores its pre-operation tip; an index-only op restores
 /// its pre-operation index tree; a commit soft-resets to its parent.
-pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
+pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.undo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
@@ -756,7 +855,7 @@ pub(super) fn apply_undo(repo: &Git2Repo) -> Result<UndoOutcome> {
 
 /// Redo the most recently undone operation, moving its record back to the undo
 /// stack: restore its post-operation tip, or its post-operation index tree.
-pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
+pub(super) fn apply_redo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
     let mut doc = load_doc(repo).unwrap_or_default();
     let Some(record) = doc.redo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
@@ -827,7 +926,7 @@ pub(super) fn apply_redo(repo: &Git2Repo) -> Result<UndoOutcome> {
 /// `false` (after clearing the now-stale stacks) when HEAD has drifted from
 /// `expected` — history was changed outside git-tailor.
 fn revert_ref(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     expected: &Oid,
     target: &Oid,
@@ -848,7 +947,7 @@ fn revert_ref(
 /// ref has drifted from `head` or the index no longer matches `expected` — the
 /// user staged something else outside this undo history.
 fn revert_index(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     head: &Oid,
     expected: &Oid,
@@ -866,7 +965,7 @@ fn revert_index(
 /// as staged on undo. Returns `false` (after clearing the now-stale stacks) when
 /// HEAD has drifted from `expected`.
 fn revert_soft(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     expected: &Oid,
     target: &Oid,
@@ -898,7 +997,7 @@ struct MixedRevert<'a> {
 /// means the user changed things outside this history, and forcing the recorded
 /// state over it would discard their work.
 fn revert_mixed(
-    repo: &Git2Repo,
+    repo: &mut Git2Repo,
     doc: &mut JournalDoc,
     revert: MixedRevert<'_>,
     verb: &str,
@@ -918,21 +1017,24 @@ fn revert_mixed(
     Ok(true)
 }
 
-fn clear_stacks(repo: &Git2Repo, doc: &mut JournalDoc) -> Result<()> {
+fn clear_stacks(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.undo.clear();
     doc.redo.clear();
     save(repo, doc)
 }
 
 /// Point the current branch at `target` and check it out.
-fn restore_tip(repo: &Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
+fn restore_tip(repo: &mut Git2Repo, target: &Oid, verb: &str, label: &str) -> Result<()> {
     // The working tree currently reflects the tip we're moving away from, so
     // capture it before advancing — checkout_head needs it to remove files the
     // restored tip no longer contains.
     let prev_tip = reads::head_oid(repo)?;
     let oid = git2::Oid::from(target);
-    repo.advance_branch_ref(oid, &format!("git-tailor: {verb} {}", label.to_lowercase()))?;
-    repo.checkout_head(&prev_tip)
+    repo.advance_and_checkout(
+        oid,
+        &prev_tip,
+        &format!("git-tailor: {verb} {}", label.to_lowercase()),
+    )
 }
 
 /// Tree OID of the on-disk index, without mutating it. Used to snapshot the
@@ -949,13 +1051,13 @@ pub(super) fn current_index_tree(repo: &Git2Repo) -> Result<Oid> {
 /// Reset the index to `target` tree, leaving the branch ref and working tree
 /// untouched. Always returns `Ok(true)` so callers can treat it as the
 /// non-stale arm of `revert_index`.
-fn restore_index(repo: &Git2Repo, target: &Oid) -> Result<bool> {
+fn restore_index(repo: &mut Git2Repo, target: &Oid) -> Result<bool> {
     repo.set_index_tree(git2::Oid::from(target))?;
     Ok(true)
 }
 
 /// Read the journal and classify it for the startup recovery flow.
-pub(super) fn read(repo: &Git2Repo) -> JournalStatus {
+pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     let path = journal_path(repo);
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,

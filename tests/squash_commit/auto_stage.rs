@@ -30,14 +30,14 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
     let _mid = test.commit_file("a.txt", "mid\n", "mid changes a");
     let source = test.commit_file("a.txt", "source\n", "source changes a");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     let state = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &head,
         )
@@ -70,13 +70,13 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: "combined".to_string(),
+        combined_message: b"combined".to_vec(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "resolved squash", &state.original_branch_oid, None)
+        .squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -108,7 +108,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
     let source = test.commit_file("a.txt", "source version\n", "source");
     let _desc = test.commit_file("b.txt", "new file\n", "desc adds b.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
     // Step 1: squash_try_combine detects the conflict
@@ -116,7 +116,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             SquashMode::Squash,
             &head,
         )
@@ -125,7 +125,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
 
     // Step 2: simulate resolving the conflict
     test.write_file("a.txt", "resolved\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
 
     // Step 3: finalize with an empty descendant list to isolate the squash
     //         commit's tree from any descendant cherry-pick effects.
@@ -136,13 +136,13 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: "squashed".to_string(),
+        combined_message: b"squashed".to_vec(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, "squashed", &state.original_branch_oid, None)
+        .squash_finalize(&ctx, b"squashed", &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -175,7 +175,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
     let source = test.commit_file("a.txt", "source version\n", "source");
     let _extra = test.commit_file("b.txt", "extra file\n", "extra adds b.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let original_head = head.clone();
 
@@ -184,7 +184,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Fixup,
             &head,
         )

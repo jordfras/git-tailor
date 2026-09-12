@@ -33,7 +33,7 @@ fn multiple_fixups_for_the_same_target_stack_correctly() {
         "fixup! Add target line",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo
@@ -53,7 +53,7 @@ fn a_fixup_with_no_matching_target_is_left_in_place() {
     test.commit_file("a.txt", "base\ntarget\n", "Add target line");
     test.commit_file("b.txt", "orphan\n", "fixup! Nonexistent commit");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo
@@ -79,7 +79,7 @@ fn mixed_fixup_and_squash_prefixes() {
     test.commit_file("a.txt", "base\nparser\nfix\n", "fixup! Add parser");
     test.commit_file("b.txt", "lexer\nextra\n", "squash! Add lexer");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo
@@ -116,7 +116,7 @@ fn a_single_undo_entry_reverts_the_whole_batch() {
         "fixup! Add target line",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo
@@ -157,7 +157,7 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     test.commit_file("c.txt", "mid version\n", "Unrelated edit to c");
     test.commit_file("c.txt", "source version\n", "fixup! Add T2");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo
@@ -186,7 +186,7 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     // would conflict *again* against an arbitrary resolution, which is a
     // second, independent conflict rather than a property of autofixup batching.
     test.write_file("c.txt", "mid version\n");
-    git_repo.stage_file("c.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("c.txt")).unwrap();
     let Resume::Squash(ctx) = &state.resume else {
         panic!("a three-way overwrite conflicts at squash-tree time");
     };
@@ -231,7 +231,7 @@ fn a_message_override_applies_to_the_final_message_of_a_single_fixup() {
     test.commit_file("a.txt", "base\ntarget\n", "Add target line");
     test.commit_file("a.txt", "base\ntarget\nfix1\n", "fixup! Add target line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let overrides = std::collections::HashMap::from([(
@@ -255,7 +255,7 @@ fn a_message_override_replaces_the_auto_combined_squash_text() {
     test.commit_file("a.txt", "base\ntarget\n", "Add target line");
     test.commit_file("a.txt", "base\ntarget\nfix1\n", "squash! Add target line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let overrides = std::collections::HashMap::from([(
@@ -286,7 +286,7 @@ fn a_message_override_only_applies_once_every_fixup_for_the_target_has_folded_in
         "fixup! Add target line",
     );
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let overrides = std::collections::HashMap::from([(
@@ -317,7 +317,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     test.commit_file("a.txt", "base\nmid version\n", "Unrelated edit");
     test.commit_file("a.txt", "base\nsource version\n", "fixup! Add target line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let overrides = std::collections::HashMap::from([(
@@ -349,10 +349,13 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     let Resume::Squash(squash_ctx) = &state.resume else {
         panic!("a three-way overwrite conflicts at squash-tree time");
     };
-    assert_eq!(squash_ctx.combined_message, "Custom final message\n");
+    assert_eq!(
+        squash_ctx.combined_message,
+        b"Custom final message\n".to_vec()
+    );
 
     test.write_file("a.txt", "base\nmid version\n");
-    git_repo.stage_file("a.txt").unwrap();
+    git_repo.stage_file(std::path::Path::new("a.txt")).unwrap();
     let outcome = git_repo
         .squash_finalize(
             squash_ctx,
@@ -375,7 +378,7 @@ fn nothing_to_autofixup_is_a_clean_no_op() {
     let base = test.commit_file("a.txt", "base\n", "base");
     test.commit_file("a.txt", "base\ntarget\n", "Add target line");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
     let outcome = git_repo

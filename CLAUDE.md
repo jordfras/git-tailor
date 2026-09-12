@@ -123,7 +123,10 @@ point, making the layout unambiguous at a glance.
 ### Code Comments Convention
 
 **Avoid redundant comments.** Comments should explain *why* or provide context,
-not restate what the code already clearly expresses.
+not restate what the code already clearly expresses. Keep them short — a
+sentence or two of what a future reader needs, not a narrative of how the code
+came to be. Don't reference the current task, a review, or a PR discussion;
+that context is gone once the commit lands.
 
 ❌ Bad (comment restates the obvious):
 ```rust
@@ -155,8 +158,11 @@ After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and
 Use conventional commit prefixes: `feat:`, `fix:`, `test:`, `refactor:`,
 `docs:`, `chore:`, `tasks:`. Each commit represents one logical change.
 
-**Bug fixes — TDD:** write a failing test first, commit it with `test:` prefix,
-then implement the fix. Skip only if the bug cannot be exercised by a test.
+**Bug fixes — TDD:** write a failing test first, commit it alone with a
+`test:` prefix, then implement the fix as a separate, following commit. Never
+combine the two in one commit — verify the test actually fails before the fix
+lands and passes after. Skip the test only if the bug cannot be exercised by
+one.
 
 **Design fit over diff size.** If the existing structure is a poor fit for a
 change — fragile, duplicated, or poorly abstracted — propose a preparatory
@@ -200,6 +206,51 @@ TouchKind    ∈ { Added, Modified, Deleted, None }
 
 All git operations — both reads and mutations — use the `git2` crate (libgit2
 bindings). The tool does **not** shell out to the `git` CLI.
+
+**One repository handle.** `Git2Repo` owns a single `git2::Repository` and
+everything goes through it. Never open a second handle onto the same repository
+— not for convenience, and above all not to obtain a `&mut` where the
+surrounding code only has `&self`. Two handles carry two index caches, so a
+write through one leaves the other stale, and the bugs that follow are silent
+and timing-dependent.
+
+If an operation mutates, it takes `&mut self` and the signature says so. Some
+libgit2 calls (`stash_save2`, `stash_apply`) require `&mut` — that is the API
+being honest about what they do, and the fix is to propagate the `&mut`, never
+to conjure a second handle around it. A wide but mechanical diff is the right
+price for a signature that does not lie.
+
+**Nothing reaches the working tree unchecked.** A working-tree write — checking
+out a tree, checking out an index, or hard-resetting — can land on top of a file
+git has no record of, and that content exists nowhere else: not in undo, not in
+the reflog, not in the stash. Every such write goes through `reset_worktree`,
+`refuse_index_collisions` or `refuse_tree_collisions`, which refuse first and
+name the files. Do not call `checkout_head`, `checkout_index` or `reset` on the
+inner repository from anywhere else, and check before moving the ref where the
+caller can still back out cheaply — that is what makes a refusal free.
+
+Never reach for `CheckoutBuilder::remove_untracked` to clean up after an
+operation. libgit2 does not scope it to what the operation wrote; it removes
+every untracked file under the checkout, the user's own included. Work out which
+paths the operation put there and remove exactly those.
+
+**A rewrite may only act on the repository it was shown.** Every operation is
+chosen against a commit list read at some earlier moment and is handed the tip
+that list was built from; `refuse_if_branch_moved` checks the branch still holds
+it, at every entry point and again when a paused conflict resumes. A paused
+conflict also records the branch it belongs to, because comparing tips cannot
+tell two branches apart when they sit on the same commit — and `advance_branch_ref`
+writes to whatever HEAD resolves to *now*. The session lock does not cover this:
+it keeps another git-tailor out, not `git commit` in another terminal.
+
+**One session per working tree.** The journal records an operation as in
+progress, and nothing in that record says whether the process that wrote it is
+still alive — so a second git-tailor reads a *live* operation as a crashed one.
+`session_lock` supplies the missing fact with `File::try_lock` held for the
+session; the operating system releases it however the process dies, so a crash
+cannot strand it. Anything that can rewrite history takes it; read-only paths
+such as `--static` deliberately do not. This is what sets the crate's
+`rust-version`.
 
 For mutations (reorder, squash, split), the rebase engine builds new commit
 chains using `Repository::cherrypick_commit` (the in-memory variant) rather than

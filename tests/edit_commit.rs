@@ -65,7 +65,7 @@ fn file_at(test: &TestRepo, commit: git2::Oid, path: &str) -> Option<String> {
 #[test]
 fn edit_amend_replaces_commit_and_replays_descendants() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
     let head = Oid::from(f.head);
 
     git_repo.begin_edit(&Oid::from(f.edited), &head).unwrap();
@@ -93,7 +93,7 @@ fn edit_amend_replaces_commit_and_replays_descendants() {
 #[test]
 fn edit_can_split_into_several_commits() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -122,7 +122,7 @@ fn edit_can_split_into_several_commits() {
 #[test]
 fn edit_noop_cancels_and_restores_the_branch() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -139,7 +139,7 @@ fn edit_noop_cancels_and_restores_the_branch() {
 #[test]
 fn edit_discarding_content_drops_the_commit() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -160,7 +160,7 @@ fn edit_discarding_content_drops_the_commit() {
 #[test]
 fn edit_undo_restores_the_original_branch() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -179,7 +179,7 @@ fn edit_undo_restores_the_original_branch() {
 #[test]
 fn edit_aborts_and_restores_on_a_merge_commit() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -215,7 +215,7 @@ fn edit_aborts_and_restores_on_a_merge_commit() {
 #[test]
 fn edit_aborts_and_restores_when_off_parent() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -246,7 +246,7 @@ fn edit_descendant_conflict_returns_conflict() {
     );
     let _ = base;
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     git_repo
         .begin_edit(&Oid::from(edited), &Oid::from(head))
         .unwrap();
@@ -269,13 +269,13 @@ fn edit_descendant_conflict_returns_conflict() {
 fn edit_crash_recovery_is_an_abortable_edit_state() {
     use git_tailor::repo::{InProgress, JournalStatus};
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
         .unwrap();
 
     // Simulate a crash mid-edit: a fresh handle sees the in-progress record.
-    let recovered = f.test.git_repo();
+    let mut recovered = f.test.git_repo();
     match recovered.read_journal().unwrap() {
         JournalStatus::Recovered(record) => {
             assert!(
@@ -302,7 +302,7 @@ fn edit_crash_recovery_is_an_abortable_edit_state() {
 #[test]
 fn edit_with_uncommitted_changes_is_not_applied_and_preserves_the_work() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     git_repo
         .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
@@ -330,7 +330,7 @@ fn edit_with_uncommitted_changes_is_not_applied_and_preserves_the_work() {
 #[test]
 fn edit_refuses_a_dirty_working_tree() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     f.test.write_file("a.txt", "dirty\n");
     f.test.stage_file("a.txt");
@@ -345,7 +345,7 @@ fn edit_refuses_a_dirty_working_tree() {
 #[test]
 fn edit_the_root_commit_amends_and_replays_descendants() {
     let f = fixture();
-    let git_repo = f.test.git_repo();
+    let mut git_repo = f.test.git_repo();
 
     // Edit the root commit (only reachable under --all).
     git_repo
@@ -385,4 +385,134 @@ fn edit_the_root_commit_amends_and_replays_descendants() {
     assert_eq!(file_at(&f.test, tip, "a.txt").as_deref(), Some("a\n"));
     assert_eq!(file_at(&f.test, tip, "b.txt").as_deref(), Some("b\n"));
     assert_eq!(file_at(&f.test, tip, "c.txt").as_deref(), Some("c\n"));
+}
+
+/// Beginning an edit rewinds the branch to the edited commit, bringing back
+/// files that later commits deleted — the same collision the drop had.
+#[test]
+fn begin_edit_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let edited = test.commit_file("notes.txt", "from history\n", "add notes");
+    test.delete_file("notes.txt", "delete notes");
+    let head = test.commit_file("c.txt", "v1\n", "later");
+
+    // Untracked at the path the edited commit still has.
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.begin_edit(&Oid::from(edited), &Oid::from(head));
+
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "begin_edit must not overwrite an untracked file (result: {result:?})"
+    );
+}
+
+/// Leaving the shell without changing anything restores the branch — and that
+/// restoring checkout must not take the user's scratch files with it.
+///
+/// `finish_edit` refuses outright on a dirty tree precisely so uncommitted work
+/// is never discarded. Untracked files do not count towards dirty, so they walk
+/// straight past that guard and into the checkout below it.
+#[test]
+fn canceling_an_edit_keeps_untracked_files() {
+    let f = fixture();
+    let mut git_repo = f.test.git_repo();
+
+    git_repo
+        .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
+        .unwrap();
+
+    // Written in the shell, nothing to do with the commit being edited.
+    f.test.write_file("my-notes.txt", "important\n");
+
+    let outcome = git_repo.finish_edit(&Oid::from(f.edited)).unwrap();
+    assert!(matches!(outcome, EditOutcome::Canceled));
+
+    let workdir = f.test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("my-notes.txt")).unwrap_or_default(),
+        "important\n",
+        "canceling an edit must not delete the user's own untracked files"
+    );
+}
+
+/// Same for an explicit abort — which is also what crash recovery runs at
+/// startup, without asking.
+#[test]
+fn aborting_an_edit_keeps_untracked_files() {
+    let f = fixture();
+    let mut git_repo = f.test.git_repo();
+
+    git_repo
+        .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
+        .unwrap();
+    f.test.write_file("my-notes.txt", "important\n");
+
+    git_repo.abort_edit().unwrap();
+
+    let workdir = f.test.repo.workdir().unwrap().to_path_buf();
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("my-notes.txt")).unwrap_or_default(),
+        "important\n",
+        "aborting an edit must not delete the user's own untracked files"
+    );
+}
+
+/// The cleanup that flag was there for is still owed: a file added by a commit
+/// the user made in the shell is tracked while the edit runs and untracked the
+/// moment the branch rewinds past it. That one has to go.
+#[test]
+fn aborting_an_edit_removes_files_its_own_commits_added() {
+    let f = fixture();
+    let mut git_repo = f.test.git_repo();
+
+    git_repo
+        .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
+        .unwrap();
+
+    // The user commits a new file in the shell, then the edit is abandoned.
+    f.test.write_file("from-the-edit.txt", "in-shell work\n");
+    f.test.stage_file("from-the-edit.txt");
+    f.test.commit("in-shell commit");
+
+    git_repo.abort_edit().unwrap();
+
+    let workdir = f.test.repo.workdir().unwrap().to_path_buf();
+    assert!(
+        !workdir.join("from-the-edit.txt").exists(),
+        "a file the abandoned edit's own commit added must not be left behind"
+    );
+}
+
+/// Aborting restores the original tip, which brings back every file the edited
+/// commit did not have — the same collision `begin_edit` already refuses, on the
+/// way back out.
+#[test]
+fn aborting_an_edit_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let edited = test.commit_file("b.txt", "b\n", "add b");
+    let head = test.commit_file("keep.txt", "from history\n", "add keep");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .begin_edit(&Oid::from(edited), &Oid::from(head))
+        .unwrap();
+
+    // Rewinding to `edited` removed keep.txt; the user writes their own there.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    assert!(!workdir.join("keep.txt").exists());
+    test.write_file("keep.txt", "my local scratch\n");
+
+    let result = git_repo.abort_edit();
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("keep.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "the abort must refuse rather than overwrite (result: {result:?})"
+    );
 }

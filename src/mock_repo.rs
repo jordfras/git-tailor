@@ -32,6 +32,10 @@ pub(crate) struct MockRepo {
     pub(crate) autofixup_conflicts: bool,
     pub(crate) abort_ok: bool,
     pub(crate) autostash_restore_ok: bool,
+    /// Makes `autostash_restore` fail outright rather than report a conflict —
+    /// the case where the user's work stays in the stash with nothing on disk
+    /// to show for it.
+    pub(crate) autostash_restore_errs: bool,
     pub(crate) count_per_file: usize,
     pub(crate) count_ok: bool,
     pub(crate) stage_ok: bool,
@@ -41,10 +45,13 @@ pub(crate) struct MockRepo {
     /// Counts `autostash_save` invocations so tests can assert the working-tree-
     /// preserving undo/redo paths skip the stash dance.
     pub(crate) autostash_save_calls: std::cell::Cell<usize>,
+    /// Counts `autostash_restore` invocations, so a test can assert it was
+    /// *not* called when the branch was never rewound back to its base.
+    pub(crate) autostash_restore_calls: std::cell::Cell<usize>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
-    pub(crate) conflicting_files: Vec<String>,
+    pub(crate) conflicting_files: Vec<std::path::PathBuf>,
     /// What `lift_worktree_row` answers: `Ok(None)` for an empty row, an
     /// error, or a lifted row to build the fold on.
     pub(crate) lift: LiftOutcome,
@@ -130,6 +137,7 @@ impl Default for MockRepo {
             autofixup_conflicts: false,
             abort_ok: true,
             autostash_restore_ok: true,
+            autostash_restore_errs: false,
             count_per_file: 0,
             count_ok: true,
             stage_ok: true,
@@ -137,6 +145,7 @@ impl Default for MockRepo {
             undo_skips_autostash: false,
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
+            autostash_restore_calls: std::cell::Cell::new(0),
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
@@ -213,10 +222,10 @@ impl RepoRead for MockRepo {
     fn is_worktree_dirty(&self) -> anyhow::Result<bool> {
         Ok(false)
     }
-    fn read_index_stage(&self, _: &str, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
+    fn read_index_stage(&self, _: &std::path::Path, _: i32) -> anyhow::Result<Option<Vec<u8>>> {
         unimplemented!()
     }
-    fn read_conflicting_files(&self) -> Vec<String> {
+    fn read_conflicting_files(&self) -> Vec<std::path::PathBuf> {
         self.conflicting_files.clone()
     }
     fn default_branch(&self) -> anyhow::Result<Option<String>> {
@@ -232,64 +241,91 @@ impl RepoRead for MockRepo {
     ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<CommitInfo>> + 'a>> {
         unimplemented!()
     }
+
+    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<Vec<u8>> {
+        Ok(b"mock message\n".to_vec())
+    }
+    fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
+        if self.count_ok {
+            Ok(self.count_per_file)
+        } else {
+            Err(anyhow::anyhow!("count failed"))
+        }
+    }
+
+    fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
+        unimplemented!()
+    }
+
+    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
+        unimplemented!()
+    }
+
+    fn pending_undo_skips_autostash(&self) -> anyhow::Result<bool> {
+        Ok(self.undo_skips_autostash)
+    }
+
+    fn pending_redo_skips_autostash(&self) -> anyhow::Result<bool> {
+        Ok(self.redo_skips_autostash)
+    }
 }
 
 impl RepoWrite for MockRepo {
-    fn drop_commit(&self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn drop_commit(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)
         } else {
             Err(anyhow::anyhow!("drop failed"))
         }
     }
-    fn move_commit(&self, _: &Oid, _: Option<&Oid>, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn move_commit(&mut self, _: &Oid, _: Option<&Oid>, _: &Oid) -> anyhow::Result<RebaseOutcome> {
         if self.move_ok {
             Ok(RebaseOutcome::Complete)
         } else {
             Err(anyhow::anyhow!("move failed"))
         }
     }
-    fn begin_edit(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn begin_edit(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn finish_edit(&self, _: &Oid) -> anyhow::Result<git_tailor::repo::EditOutcome> {
+    fn finish_edit(&mut self, _: &Oid) -> anyhow::Result<git_tailor::repo::EditOutcome> {
         unimplemented!()
     }
-    fn abort_edit(&self) -> anyhow::Result<()> {
+    fn abort_edit(&mut self) -> anyhow::Result<()> {
         if self.abort_edit_ok {
             Ok(())
         } else {
             Err(anyhow::anyhow!("abort edit failed"))
         }
     }
-    fn rebase_abort(&self, _: &ConflictState) -> anyhow::Result<()> {
+    fn rebase_abort(&mut self, _: &ConflictState) -> anyhow::Result<()> {
         if self.abort_ok {
             Ok(())
         } else {
             Err(anyhow::anyhow!("abort failed"))
         }
     }
-    fn read_journal(&self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
+    fn read_journal(&mut self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
         Ok(match &self.journal {
             Some(record) => git_tailor::repo::JournalStatus::Recovered(Box::new(record.clone())),
             None => git_tailor::repo::JournalStatus::None,
         })
     }
-    fn clear_journal(&self) -> anyhow::Result<()> {
+    fn clear_journal(&mut self) -> anyhow::Result<()> {
         self.clear_journal_calls
             .set(self.clear_journal_calls.get() + 1);
         Ok(())
     }
-    fn prune_stale_journal(&self) -> anyhow::Result<()> {
+    fn prune_stale_journal(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn clean_journal(&self) -> anyhow::Result<git_tailor::repo::JournalCleanSummary> {
+    fn clean_journal(&mut self) -> anyhow::Result<git_tailor::repo::JournalCleanSummary> {
         Ok(git_tailor::repo::JournalCleanSummary {
             refs_removed: 0,
             journal_removed: false,
         })
     }
-    fn undo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
+    fn undo(&mut self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         if self.undo_skips_autostash {
             Ok(git_tailor::repo::UndoOutcome::Done {
                 label: "Stage all".to_string(),
@@ -298,7 +334,7 @@ impl RepoWrite for MockRepo {
             Ok(git_tailor::repo::UndoOutcome::Empty)
         }
     }
-    fn redo(&self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
+    fn redo(&mut self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         if self.redo_skips_autostash {
             Ok(git_tailor::repo::UndoOutcome::Done {
                 label: "Stage all".to_string(),
@@ -307,19 +343,13 @@ impl RepoWrite for MockRepo {
             Ok(git_tailor::repo::UndoOutcome::Empty)
         }
     }
-    fn pending_undo_skips_autostash(&self) -> anyhow::Result<bool> {
-        Ok(self.undo_skips_autostash)
-    }
-    fn pending_redo_skips_autostash(&self) -> anyhow::Result<bool> {
-        Ok(self.redo_skips_autostash)
-    }
-    fn stage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
+    fn stage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
-    fn unstage_all(&self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
+    fn unstage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
-    fn commit_staged(&self, _: &str) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
+    fn commit_staged(&mut self, _: &[u8]) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
         if self.stage_ok {
             Ok(if self.stage_changed {
                 git_tailor::repo::CommitOutcome::Committed
@@ -331,7 +361,7 @@ impl RepoWrite for MockRepo {
         }
     }
     fn lift_worktree_row(
-        &self,
+        &mut self,
         _: git_tailor::repo::WorktreeSource,
     ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
         match self.lift {
@@ -342,7 +372,7 @@ impl RepoWrite for MockRepo {
             LiftOutcome::Lifted => Ok(Some(mock_lifted_row())),
         }
     }
-    fn restore_lifted_row(&self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<()> {
+    fn restore_lifted_row(&mut self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<()> {
         self.restore_lifted_calls
             .set(self.restore_lifted_calls.get() + 1);
         if self.restore_lifted_ok {
@@ -351,7 +381,10 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))
         }
     }
-    fn rescue_lifted_row(&self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<Option<String>> {
+    fn rescue_lifted_row(
+        &mut self,
+        _: &git_tailor::repo::LiftedRow,
+    ) -> anyhow::Result<Option<String>> {
         Ok(self.rescued_ref.clone())
     }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
@@ -360,11 +393,16 @@ impl RepoWrite for MockRepo {
         Ok(())
     }
     fn autostash_restore(&mut self) -> anyhow::Result<git_tailor::repo::AutostashRestore> {
+        self.autostash_restore_calls
+            .set(self.autostash_restore_calls.get() + 1);
+        if self.autostash_restore_errs {
+            anyhow::bail!("stash apply failed");
+        }
         if self.autostash_restore_ok {
             Ok(git_tailor::repo::AutostashRestore::Done)
         } else {
             Ok(git_tailor::repo::AutostashRestore::Conflict {
-                files: vec!["conflict.txt".to_string()],
+                files: vec![std::path::PathBuf::from("conflict.txt")],
             })
         }
     }
@@ -376,27 +414,20 @@ impl RepoWrite for MockRepo {
     fn autostash_conflict_abort(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
-        if self.count_ok {
-            Ok(self.count_per_file)
-        } else {
-            Err(anyhow::anyhow!("count failed"))
-        }
-    }
-    fn split_commit_per_file(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_per_file(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_per_hunk(&self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_per_hunk(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_per_hunk_group(&mut self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_out_files(&self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_out_files(&mut self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn split_commit_out_hunks(
-        &self,
+        &mut self,
         _: &Oid,
         _: &[(usize, usize)],
         _: &Oid,
@@ -404,30 +435,31 @@ impl RepoWrite for MockRepo {
     ) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn count_split_per_hunk(&self, _: &Oid) -> anyhow::Result<usize> {
+    fn reword_commit(&mut self, _: &Oid, _: &[u8], _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
+    fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
     }
-    fn reword_commit(&self, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-    fn rebase_continue(&self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
-    }
-    fn squash_commits(&self, _: &Oid, _: &Oid, _: &str, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn squash_commits(
+        &mut self,
+        _: &Oid,
+        _: &Oid,
+        _: &[u8],
+        _: &Oid,
+    ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
     }
     fn squash_try_combine(
-        &self,
+        &mut self,
         _: &Oid,
         _: &Oid,
-        message: &str,
+        message: &[u8],
         _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
-        *self.squash_probe_message.borrow_mut() = Some(message.to_string());
+        *self.squash_probe_message.borrow_mut() =
+            Some(String::from_utf8_lossy(message).into_owned());
         match self.squash_probe {
             SquashProbe::Clean => Ok(None),
             SquashProbe::Conflict => Ok(Some(make_conflict_state())),
@@ -438,16 +470,16 @@ impl RepoWrite for MockRepo {
         }
     }
     fn squash_finalize(
-        &self,
+        &mut self,
         _: &SquashContext,
-        _: &str,
+        _: &[u8],
         _: &Oid,
         _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
     }
     fn autofixup(
-        &self,
+        &mut self,
         _: &Oid,
         _: &Oid,
         _: &std::collections::HashMap<String, String>,
@@ -472,10 +504,10 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("autofixup failed"))
         }
     }
-    fn stage_file(&self, _: &str) -> anyhow::Result<()> {
+    fn stage_file(&mut self, _: &std::path::Path) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn auto_stage_resolved_conflicts(&self, _: &[String]) -> anyhow::Result<()> {
+    fn auto_stage_resolved_conflicts(&mut self, _: &[std::path::PathBuf]) -> anyhow::Result<()> {
         unimplemented!()
     }
 }

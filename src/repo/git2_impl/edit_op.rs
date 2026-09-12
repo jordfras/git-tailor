@@ -25,18 +25,18 @@ use anyhow::{Context, Result};
 
 use super::super::{EditInProgress, EditOutcome, InProgress};
 use super::Git2Repo;
+use super::WorktreeReset;
 use super::cherry_pick::{ChainCtx, CherryPickResult};
 use super::journal;
 use crate::Oid;
 
 /// Rewind the current branch to `commit_oid` and check it out, after recording
 /// a write-ahead journal entry so a crash mid-edit is recoverable.
-pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
+pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);
-    let commit = repo.inner.find_commit(commit_git)?;
-    if commit.parent_count() > 1 {
+    if repo.inner.find_commit(commit_git)?.parent_count() > 1 {
         anyhow::bail!("Cannot edit a merge commit");
     }
 
@@ -57,14 +57,13 @@ pub(super) fn begin_edit(repo: &Git2Repo, commit_oid: &Oid, head_oid: &Oid) -> R
     )?;
 
     // Rewind the branch to the edited commit and sync the working tree to it.
-    repo.advance_branch_ref(commit_git, "git-tailor: edit (begin)")?;
-    repo.checkout_head(head_oid)?;
+    repo.advance_and_checkout(commit_git, head_oid, "git-tailor: edit (begin)")?;
     Ok(())
 }
 
 /// Splice the user-authored chain (now on the branch) in place of the edited
 /// commit and replay the original descendants onto it.
-pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutcome> {
+pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditOutcome> {
     let edit = match journal::in_progress(repo)? {
         Some(InProgress::Edit(edit)) => edit,
         _ => anyhow::bail!("no edit in progress"),
@@ -73,12 +72,15 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     let original = edit.original_branch_oid.clone();
 
     let commit_git = git2::Oid::from(commit_oid);
-    let commit = repo.inner.find_commit(commit_git)?;
     // `None` when editing the root commit — there is no parent to build on.
-    let parent = if commit.parent_count() > 0 {
-        Some(commit.parent_id(0)?)
-    } else {
-        None
+    // Scoped: the commit handle borrows the repository, which the replay below
+    // needs mutably.
+    let parent = {
+        let commit = repo.inner.find_commit(commit_git)?;
+        match commit.parent_count() {
+            0 => None,
+            _ => Some(commit.parent_id(0)?),
+        }
     };
 
     let branch_tip = repo
@@ -108,20 +110,26 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
 
     // Validate the state the user left. On anything unexpected, restore the
     // branch to its original tip and error out rather than rewrite blindly.
-    let abort = |reason: &str| -> Result<EditOutcome> {
-        restore_original(repo, &branch_refname, &original)?;
-        journal::clear_in_progress(repo)?;
-        anyhow::bail!("Edit aborted: {reason}. Restored the branch to its previous state.")
-    };
-
+    // `abort_edit_with` is a function rather than a closure capturing `repo`:
+    // the checks between the calls need the repository too.
     if !head_on_branch(repo, &branch_refname) {
-        return abort("HEAD is no longer on the edited branch");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "HEAD is no longer on the edited branch",
+        );
     }
     // The new tip must not still contain the edited commit (or its old
     // descendants) — replaying descendants onto such a tip would duplicate
     // them. This also rejects a reset back onto the old history.
     if repo.inner.graph_descendant_of(branch_tip, commit_git)? {
-        return abort("the new commits still include the edited commit");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "the new commits still include the edited commit",
+        );
     }
     // For a non-root commit, the new tip must build on the edited commit's
     // parent (== parent means the content was fully discarded — like a drop).
@@ -130,11 +138,21 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
         let built_on_parent =
             branch_tip == parent || repo.inner.graph_descendant_of(branch_tip, parent)?;
         if !built_on_parent {
-            return abort("the new commits do not build on the edited commit's parent");
+            return abort_edit_with(
+                repo,
+                &branch_refname,
+                &original,
+                "the new commits do not build on the edited commit's parent",
+            );
         }
     }
     if repo.range_has_merge(parent, branch_tip)? {
-        return abort("a merge commit was created");
+        return abort_edit_with(
+            repo,
+            &branch_refname,
+            &original,
+            "a merge commit was created",
+        );
     }
 
     // Replay the original descendants onto the user's chain. A conflict here
@@ -149,9 +167,8 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     };
     match repo.cherry_pick_chain(branch_tip, &descendants, &ctx)? {
         CherryPickResult::Complete(tip) => {
-            repo.advance_branch_ref(tip, "git-tailor: edit")?;
             // The working tree currently reflects the user's chain tip.
-            repo.checkout_head(&Oid::from(branch_tip))?;
+            repo.advance_and_checkout(tip, &Oid::from(branch_tip), "git-tailor: edit")?;
             journal::clear_in_progress(repo)?;
             Ok(EditOutcome::Complete)
         }
@@ -159,9 +176,22 @@ pub(super) fn finish_edit(repo: &Git2Repo, commit_oid: &Oid) -> Result<EditOutco
     }
 }
 
+/// Restore the branch and give up on the edit, naming what was wrong with the
+/// state the user left behind.
+fn abort_edit_with(
+    repo: &mut Git2Repo,
+    branch_refname: &str,
+    original: &Oid,
+    reason: &str,
+) -> Result<EditOutcome> {
+    restore_original(repo, branch_refname, original)?;
+    journal::clear_in_progress(repo)?;
+    anyhow::bail!("Edit aborted: {reason}. Restored the branch to its previous state.")
+}
+
 /// Restore the branch to its original tip (abort / crash-recovery), using the
 /// branch name + original tip recorded in the in-progress journal.
-pub(super) fn abort_edit(repo: &Git2Repo) -> Result<()> {
+pub(super) fn abort_edit(repo: &mut Git2Repo) -> Result<()> {
     let Some(InProgress::Edit(edit)) = journal::in_progress(repo)? else {
         return Ok(());
     };
@@ -171,10 +201,39 @@ pub(super) fn abort_edit(repo: &Git2Repo) -> Result<()> {
 }
 
 /// Force the named branch back to `original`, reattach HEAD to it (in case the
-/// user detached HEAD or checked out elsewhere in the shell), and hard-reset
-/// the index + working tree to match.
-fn restore_original(repo: &Git2Repo, branch_refname: &str, original: &Oid) -> Result<()> {
+/// user detached HEAD or checked out elsewhere in the shell), and reset the
+/// index + working tree to match.
+///
+/// The reset goes tree-to-tree rather than through `remove_untracked`. That
+/// flag used to stand in for "clear what the edit left behind", but libgit2 does
+/// not scope it that way — it removes every untracked file under the checkout,
+/// the user's scratch files included. What is actually owed is narrower: a file
+/// an in-shell commit added is tracked while the edit runs and untracked the
+/// moment the branch rewinds past it, and `reset_worktree` already removes
+/// exactly the paths the old tree has and the new one does not.
+fn restore_original(repo: &mut Git2Repo, branch_refname: &str, original: &Oid) -> Result<()> {
     let original_git = git2::Oid::from(original);
+    // Wherever the user left the branch — detached HEAD included — is what the
+    // working tree reflects right now.
+    let current_tree = repo
+        .inner
+        .head()
+        .context("failed to resolve HEAD")?
+        .peel_to_tree()
+        .context("failed to read the current tree")?
+        .id();
+    let original_tree = repo
+        .inner
+        .find_commit(original_git)
+        .context("failed to read the original branch tip")?
+        .tree()
+        .context("failed to read the original tree")?
+        .id();
+
+    // Before the ref moves, so a refusal leaves the edit in progress and
+    // re-openable rather than half-unwound.
+    repo.refuse_untracked_collisions(current_tree, original_tree)?;
+
     repo.inner.reference(
         branch_refname,
         original_git,
@@ -183,28 +242,16 @@ fn restore_original(repo: &Git2Repo, branch_refname: &str, original: &Oid) -> Re
     )?;
     repo.inner.set_head(branch_refname)?;
 
-    let commit = repo.inner.find_commit(original_git)?;
-    let mut index = repo.inner.index()?;
-    index.read_tree(&commit.tree()?)?;
-    index.write()?;
-
-    let mut checkout = git2::build::CheckoutBuilder::new();
-    checkout.force();
-    checkout.remove_untracked(true);
-    repo.inner.checkout_head(Some(&mut checkout))?;
-    Ok(())
+    repo.reset_worktree(WorktreeReset {
+        from_tree: current_tree,
+        worktree_tree: original_tree,
+        index_tree: original_tree,
+    })
 }
 
 /// Full ref name of the branch HEAD points at. Errors if HEAD is detached.
 fn current_branch_refname(repo: &Git2Repo) -> Result<String> {
-    let head = repo.inner.head()?;
-    let name = head
-        .resolve()
-        .context("HEAD is not on a branch")?
-        .name()
-        .context("branch ref has no name")?
-        .to_string();
-    Ok(name)
+    repo.current_branch_refname()
 }
 
 /// Whether HEAD is currently a symbolic ref pointing at `branch_refname`.

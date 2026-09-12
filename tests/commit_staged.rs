@@ -28,7 +28,7 @@ fn head_commit(test: &common::TestRepo) -> git2::Commit<'_> {
 
 fn undo_pins(test: &common::TestRepo) -> Vec<git2::Oid> {
     test.repo
-        .references_glob("refs/git-tailor/undo/*")
+        .references_glob("refs/git-tailor/wt/main/undo/*")
         .unwrap()
         .filter_map(|r| r.ok())
         .filter_map(|r| r.target())
@@ -56,7 +56,7 @@ fn repo_with_staged_and_unstaged() -> common::TestRepo {
 #[test]
 fn commit_staged_creates_a_commit_from_the_index() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let parent = head_commit(&test).id();
     let staged_tree = {
         let mut index = test.repo.index().unwrap();
@@ -65,7 +65,7 @@ fn commit_staged_creates_a_commit_from_the_index() {
     };
 
     assert_eq!(
-        git_repo.commit_staged("add a change\n").unwrap(),
+        git_repo.commit_staged(b"add a change\n").unwrap(),
         CommitOutcome::Committed
     );
 
@@ -80,16 +80,38 @@ fn commit_staged_creates_a_commit_from_the_index() {
     assert!(git_repo.unstaged_diff(3).unwrap().is_some());
 }
 
+/// Latin-1 "Fix för åäö handling" — valid git, invalid UTF-8. What the editor
+/// hands back is bytes, and those bytes have to reach the commit unchanged.
+const LATIN1_MESSAGE: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n";
+
+#[test]
+fn commit_staged_keeps_a_non_utf8_message() {
+    let test = repo_with_staged_and_unstaged();
+    let mut git_repo = test.git_repo();
+
+    assert_eq!(
+        git_repo.commit_staged(LATIN1_MESSAGE).unwrap(),
+        CommitOutcome::Committed
+    );
+
+    let new = head_commit(&test);
+    assert_eq!(
+        new.message_bytes(),
+        LATIN1_MESSAGE,
+        "the commit message must come through byte for byte"
+    );
+}
+
 #[test]
 fn commit_staged_with_nothing_staged_is_a_noop() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a\n", "base");
     test.write_file("a.txt", "a changed\n"); // unstaged only
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let head = head_commit(&test).id();
 
     assert_eq!(
-        git_repo.commit_staged("nope\n").unwrap(),
+        git_repo.commit_staged(b"nope\n").unwrap(),
         CommitOutcome::NothingStaged
     );
     assert_eq!(head_commit(&test).id(), head, "HEAD must not move");
@@ -99,9 +121,9 @@ fn commit_staged_with_nothing_staged_is_a_noop() {
 #[test]
 fn undo_commit_is_a_soft_reset_and_redo_recommits() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let parent = head_commit(&test).id();
-    git_repo.commit_staged("add a change\n").unwrap();
+    git_repo.commit_staged(b"add a change\n").unwrap();
     let committed = head_commit(&test).id();
 
     // Undo soft-resets to the parent: the committed change is staged again and
@@ -125,8 +147,8 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
 #[test]
 fn undo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
-    git_repo.commit_staged("add a change\n").unwrap();
+    let mut git_repo = test.git_repo();
+    git_repo.commit_staged(b"add a change\n").unwrap();
 
     // Another commit lands outside git-tailor.
     test.commit_file("c.txt", "c\n", "external commit");
@@ -138,8 +160,8 @@ fn undo_commit_is_stale_when_head_moved_externally() {
 #[test]
 fn redo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
-    let git_repo = test.git_repo();
-    git_repo.commit_staged("add a change\n").unwrap();
+    let mut git_repo = test.git_repo();
+    git_repo.commit_staged(b"add a change\n").unwrap();
     git_repo.undo().unwrap(); // commit now sits on the redo stack, HEAD at parent
 
     // HEAD moves outside git-tailor, so the redo target no longer matches.
@@ -153,10 +175,10 @@ fn redo_commit_is_stale_when_head_moved_externally() {
 fn commit_staged_errors_on_conflicted_index() {
     let test = common::TestRepo::new();
     let _state = test.make_drop_conflict();
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
 
     assert!(
-        git_repo.commit_staged("x\n").is_err(),
+        git_repo.commit_staged(b"x\n").is_err(),
         "committing must refuse a conflicted index"
     );
 }

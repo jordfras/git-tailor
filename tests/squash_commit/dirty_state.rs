@@ -27,11 +27,11 @@ fn squash_commits_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         &Oid::from(source),
     );
 
@@ -57,11 +57,11 @@ fn squash_commits_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         &Oid::from(source),
     );
 
@@ -88,11 +88,11 @@ fn squash_try_combine_blocked_with_staged_changes() {
     test.write_file("unrelated.txt", "staged work\n");
     test.stage_file("unrelated.txt");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         SquashMode::Squash,
         &Oid::from(source),
     );
@@ -119,11 +119,11 @@ fn squash_try_combine_blocked_with_unstaged_changes() {
     // Modify a tracked file without staging
     test.write_file("a.txt", "unstaged work\n");
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo.squash_try_combine(
         &Oid::from(source),
         &Oid::from(target),
-        "combined",
+        b"combined",
         SquashMode::Squash,
         &Oid::from(source),
     );
@@ -150,12 +150,12 @@ fn squash_commits_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     let result = git_repo
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             &Oid::from(source),
         )
         .unwrap();
@@ -174,13 +174,13 @@ fn squash_try_combine_allowed_with_staged_submodule() {
     // Stage a submodule pointer update — the only dirty state is a gitlink.
     test.stage_gitlink("libs/sub", base);
 
-    let git_repo = test.git_repo();
+    let mut git_repo = test.git_repo();
     // Returns Ok(None) when there is no merge conflict — both files differ.
     let result = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "squashed",
+            b"squashed",
             SquashMode::Squash,
             &Oid::from(source),
         )
@@ -224,15 +224,24 @@ fn squash_abort_leaves_clean_working_tree() {
         "source modifies a and adds b",
     );
 
-    let git_repo = test.git_repo();
+    // Put the branch back on _base for real, rather than telling git-tailor it
+    // is there: an operation is refused when the tip it was handed is not the
+    // tip the branch has, and rightly so. target and source stay reachable as
+    // objects, which is all the squash needs of them.
+    let base_obj = test.repo.find_object(_base, None).unwrap();
+    test.repo
+        .reset(&base_obj, git2::ResetType::Hard, None)
+        .unwrap();
 
-    // Pass _base as head_oid so rebase_abort restores the branch there.
-    // _base has only a.txt; b.txt is absent from it.
+    let mut git_repo = test.git_repo();
+
+    // _base has only a.txt; b.txt is absent from it, so aborting back to it
+    // must take b.txt off disk again.
     let state = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            "combined",
+            b"combined",
             SquashMode::Squash,
             &Oid::from(_base),
         )
@@ -305,4 +314,50 @@ fn squash_abort_leaves_clean_working_tree() {
         untracked.is_empty(),
         "no untracked files should remain after abort: {untracked:?}"
     );
+}
+
+/// A squash whose tree merge conflicts writes that merge into the working tree
+/// through the same unguarded path the cherry-pick chain uses.
+#[test]
+fn a_conflicted_squash_does_not_clobber_a_colliding_untracked_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "original\n", "base");
+    let target = test.commit_files(
+        &[
+            ("a.txt", "target version\n"),
+            ("notes.txt", "from history\n"),
+        ],
+        "target changes a and adds notes",
+    );
+    // The middle commit deletes notes.txt and touches the same line.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("notes.txt")).unwrap();
+    test.write_file("a.txt", "mid version\n");
+    {
+        let mut index = test.repo.index().unwrap();
+        index
+            .remove_path(std::path::Path::new("notes.txt"))
+            .unwrap();
+        index.add_path(std::path::Path::new("a.txt")).unwrap();
+        index.write().unwrap();
+        test.commit("mid changes a, deletes notes");
+    }
+    let source = test.commit_file("a.txt", "source version\n", "source changes a");
+
+    test.write_file("notes.txt", "my local scratch\n");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo.squash_commits(
+        &Oid::from(source),
+        &Oid::from(target),
+        b"squashed",
+        &Oid::from(source),
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(workdir.join("notes.txt")).unwrap_or_default(),
+        "my local scratch\n",
+        "the squash conflict write must refuse rather than overwrite (result: {result:?})"
+    );
+    assert!(result.is_err(), "and say so: {result:?}");
 }

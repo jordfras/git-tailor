@@ -76,7 +76,6 @@ fn test_squash_confirm_returns_prepare_squash() {
                 source,
                 SquashSource::Commit {
                     oid: Oid::from("333333333333"),
-                    message: "Newest commit (HEAD)".to_string(),
                 }
             );
             assert_eq!(target_oid, Oid::from("111111111111"));
@@ -447,7 +446,6 @@ fn test_fixup_confirm_returns_prepare_fixup() {
                 source,
                 SquashSource::Commit {
                     oid: Oid::from("333333333333"),
-                    message: "Newest commit (HEAD)".to_string(),
                 }
             );
             assert_eq!(target_oid, Oid::from("111111111111"));
