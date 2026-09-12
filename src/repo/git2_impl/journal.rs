@@ -270,6 +270,7 @@ impl UndoRecord {
 /// Kept in the journal so the stash can be reapplied — or, on a conflicting
 /// reapply, aborted back to `pre_op_tip` — even across a crash or restart.
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub(super) struct AutostashRecord {
     /// OID of the stash commit holding the user's dirty changes.
     pub stash: Oid,
@@ -280,6 +281,9 @@ pub(super) struct AutostashRecord {
     /// Set once the stash has been reapplied and left conflict markers in the
     /// working tree, so startup recovery does not reapply it a second time.
     pub applied_with_conflict: bool,
+    /// Branch the stash was taken on. An empty name means the record predates
+    /// this being tracked, so the check it enables stands aside.
+    pub branch_refname: String,
 }
 
 /// The full journal document.

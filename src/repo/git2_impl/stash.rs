@@ -84,6 +84,7 @@ impl Git2Repo {
         // can rewind here — where the stash, whose base this tip is, re-applies
         // cleanly.
         let pre_op_tip = reads::head_oid(self)?;
+        let branch_refname = self.current_branch_refname().unwrap_or_default();
 
         let sig = self
             .inner
@@ -100,6 +101,7 @@ impl Git2Repo {
                 stash: Oid::from(oid),
                 pre_op_tip,
                 applied_with_conflict: false,
+                branch_refname,
             }),
         )?;
         Ok(())
@@ -215,6 +217,9 @@ impl Git2Repo {
         let Some(record) = journal::autostash(self)? else {
             return Ok(());
         };
+        // The hard reset below moves whatever branch HEAD resolves to now; that
+        // has to still be the branch this stash was taken on.
+        self.refuse_if_branch_switched(&record.branch_refname)?;
         let discarded_tip = reads::head_oid(self)?;
 
         // A hard reset writes the whole tip's tree out, so it reintroduces every
