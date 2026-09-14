@@ -6,6 +6,14 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Fixed
+
+- `--autostash` now names the untracked file standing in the way when it cannot
+  put your changes back, instead of reporting a generic failure. Nothing was at
+  risk — the reapply was already stopped — but clearing the path was guesswork
+
 ## [3.1.0] - 2026-09-12
 
 ### Added
