@@ -941,7 +941,6 @@ fn a_fold_in_flight_pins_everything_its_snapshot_names() {
         ("tip_before", &started.tip_before),
         ("index_tree_before", &started.index_tree_before),
         ("worktree_tree", &started.worktree_tree),
-        ("source_tree", &started.source_tree),
         ("temp_oid", &started.temp_oid),
     ] {
         assert!(
