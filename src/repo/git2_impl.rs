@@ -737,14 +737,9 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&mut self) -> Result<()> {
-        // A working-tree-sourced squash deliberately leaves the *other* row's
-        // changes in place. They are recorded in the snapshot and restored when
-        // the operation finishes, so they are not the unexpected dirt this guard
-        // is here to catch — as long as the snapshot still describes what is
-        // actually there.
-        if lift_op::covers_working_tree(self)? {
-            return Ok(());
-        }
+        // No exemption for a fold in flight: the lift sets the other row's
+        // changes aside in the stash, so the working tree it leaves behind is
+        // genuinely clean and there is nothing here to excuse.
         if self.is_worktree_dirty()? {
             anyhow::bail!(
                 "You have staged or unstaged changes. \

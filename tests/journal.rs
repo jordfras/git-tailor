@@ -370,7 +370,6 @@ fn a_journal_pins_the_working_tree_fold_shapes() {
             "tip_before": "1111",
             "index_tree_before": "2222",
             "worktree_tree": "3333",
-            "source_tree": "4444",
             "temp_oid": "5555"
         },
         "undo": [
@@ -396,7 +395,6 @@ fn a_journal_pins_the_working_tree_fold_shapes() {
                 assert_eq!(snapshot.tip_before, Oid::from("1111"));
                 assert_eq!(snapshot.index_tree_before, Oid::from("2222"));
                 assert_eq!(snapshot.worktree_tree, Oid::from("3333"));
-                assert_eq!(snapshot.source_tree, Oid::from("4444"));
                 assert_eq!(snapshot.temp_oid, Oid::from("5555"));
             }
             other => panic!("expected a working-tree fold record, got {other:?}"),

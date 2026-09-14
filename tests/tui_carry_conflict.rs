@@ -44,7 +44,6 @@ fn make_app_in_carry_conflict(source: WorktreeSource) -> AppState {
             tip_before: Oid::from("a".repeat(40)),
             index_tree_before: Oid::from("d".repeat(40)),
             worktree_tree: Oid::from("e".repeat(40)),
-            source_tree: Oid::from("f".repeat(40)),
             temp_oid: Oid::from("c".repeat(40)),
         }),
         ..Default::default()

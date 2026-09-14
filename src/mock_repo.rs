@@ -122,7 +122,6 @@ pub(crate) fn mock_lifted_row() -> git_tailor::repo::LiftedRow {
         tip_before: Oid::from("a".repeat(40)),
         index_tree_before: Oid::from("d".repeat(40)),
         worktree_tree: Oid::from("e".repeat(40)),
-        source_tree: Oid::from("f".repeat(40)),
         temp_oid: mock_temp_oid(),
     }
 }

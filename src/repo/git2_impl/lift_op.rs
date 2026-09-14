@@ -41,29 +41,6 @@ use crate::repo::{ConflictState, InProgress, LiftedRow, RebaseOutcome, WorktreeS
 /// between creating it and folding it away, where naming it plainly helps.
 const TEMP_MESSAGE: &str = "git-tailor: working-tree changes";
 
-/// Whether a fold is in flight over a working tree the snapshot still accounts
-/// for.
-///
-/// The snapshot is what makes it safe to run a squash over a dirty working tree,
-/// so it only excuses the dirt it actually recorded. A snapshot stranded by an
-/// earlier run describes a working tree that is long gone, and must not keep the
-/// guard on uncommitted changes switched off.
-pub(super) fn covers_working_tree(repo: &mut Git2Repo) -> Result<bool> {
-    let Some(snapshot) = journal::worktree_source(repo)? else {
-        return Ok(false);
-    };
-    // Only while the fold is running: the branch sits on the temporary commit
-    // from the lift until the squash settles, which is exactly when the guard
-    // has to be lenient. A record left behind by a fold that failed part-way
-    // describes the same working tree and would go on excusing it — the same
-    // provenance the other two readers of this record insist on.
-    if super::reads::head_oid(repo)? != snapshot.temp_oid {
-        return Ok(false);
-    }
-    let (_, worktree_tree) = snapshot_trees(repo)?;
-    Ok(worktree_tree == git2::Oid::from(&snapshot.worktree_tree))
-}
-
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
 /// changes. See [`super::Git2Repo::lift_worktree_row`] for the contract.
 pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option<LiftedRow>> {
@@ -115,7 +92,6 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         tip_before: Oid::from(head_oid),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
-        source_tree: Oid::from(temp_tree_oid),
         temp_oid: Oid::from(temp_oid),
     };
     // Write-ahead: the branch is about to move onto the temporary commit, so the
