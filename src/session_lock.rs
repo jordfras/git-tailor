@@ -117,11 +117,30 @@ mod tests {
     /// This one stops at the directory; the next reaches the lock file itself.
     /// Mutation testing showed why both are needed — with only this one, every
     /// misclassification past `create_dir_all` went undetected.
+    ///
+    /// The unwritable place is a path whose parent is a regular file, because no
+    /// operating system will create a directory under one. Naming an OS-specific
+    /// path instead is how this first failed on Windows: `/proc/self/...` is
+    /// Linux-only, and on Windows it is an ordinary relative path that
+    /// `create_dir_all` happily creates, so the lock was granted and the test
+    /// fell through to `Ok`. macOS passed only by accident — no procfs, and `/`
+    /// not writable — which would itself stop being true under a root CI
+    /// container. This shape depends on neither.
     #[test]
     fn an_unavailable_lock_is_reported_as_such_not_as_busy() {
-        let missing = std::path::Path::new("/proc/self/no/such/place");
-        match SessionLock::acquire(missing) {
-            Err(LockRefusal::Unavailable(_)) => {}
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("a-file-not-a-directory");
+        std::fs::write(&blocker, b"").unwrap();
+
+        match SessionLock::acquire(&blocker) {
+            // Not just the variant: which step produced it. Asserting only
+            // `Unavailable` would pass just as well if the directory had been
+            // created and the failure came from somewhere later, which is the
+            // half of this test that the next one is not covering.
+            Err(LockRefusal::Unavailable(e)) => assert!(
+                format!("{e:#}").contains("failed to create"),
+                "must fail creating the directory, got: {e:#}"
+            ),
             Err(LockRefusal::Busy) => {
                 panic!("a directory we cannot write is not another git-tailor")
             }
