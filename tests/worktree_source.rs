@@ -434,6 +434,59 @@ fn a_discarded_record_keeps_the_working_tree_it_recorded() {
     git_repo.restore_lifted_row(&lifted).unwrap();
 }
 
+/// Abandoning a fold must take its stash with it: `discard_in_flight` spares
+/// the auto-stash record, and startup would reapply it onto a branch that has
+/// moved away from the temporary commit it was based on.
+#[test]
+fn abandoning_a_stale_fold_takes_its_stash_with_it() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    // The unstaged edit is what the lift sets aside, and so what the stash holds.
+    test.write_file("b.txt", "b2\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the lift must have set the unstaged edit aside"
+    );
+
+    // History moves on outside git-tailor, which is what makes the record stale
+    // and the rewind unsafe.
+    test.commit_file("c.txt", "c\n", "later work");
+
+    let kept = git_repo
+        .rescue_lifted_row(&lifted)
+        .unwrap()
+        .expect("the recorded tree holds work HEAD does not");
+    git_repo.clear_journal().unwrap();
+
+    // The kept tree carries both rows, so nothing needs the stash any more.
+    let reference = test.repo.find_reference(&kept).unwrap();
+    let tree = test.repo.find_tree(reference.target().unwrap()).unwrap();
+    for (path, content) in [("a.txt", "a2\n"), ("b.txt", "b2\n")] {
+        let entry = tree.get_path(std::path::Path::new(path)).unwrap();
+        let blob = test.repo.find_blob(entry.id()).unwrap();
+        assert_eq!(
+            std::str::from_utf8(blob.content()).unwrap(),
+            content,
+            "the kept tree must hold {path}"
+        );
+    }
+
+    assert_eq!(
+        stash_count(test.repo.path()),
+        0,
+        "the abandoned fold's stash must not be left for startup to reapply"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
