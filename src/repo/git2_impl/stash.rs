@@ -107,6 +107,57 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Put work set aside back at `base`, the commit it was taken on, and drop
+    /// it. Cannot conflict: applying a stash onto its own base is a no-op merge.
+    ///
+    /// The abort half of [`Self::set_work_aside`], for a caller that will move
+    /// the branch itself afterwards — the fold rewinds past `base` to the tip it
+    /// started from, which [`Self::abort_autostash`] has no reason to do.
+    pub(super) fn abort_work_aside(&mut self, base: &Oid) -> Result<()> {
+        // Read before the reset, but the reset happens either way: a row whose
+        // counterpart was clean leaves nothing to set aside, and the working
+        // tree still has to come back to `base` from wherever the operation
+        // checked it out to.
+        let record = journal::autostash(self)?;
+
+        // Scoped so the commit's borrow ends before the stash mutations below.
+        {
+            let base_oid = git2::Oid::from(base);
+            let base_commit = self.inner.find_commit(base_oid)?;
+
+            // The reset writes the whole of `base`'s tree out, reintroducing
+            // every path currently missing from disk — checked before anything
+            // moves, exactly as `abort_autostash` does.
+            let base_tree = base_commit
+                .tree()
+                .context("failed to read the tree being restored")?
+                .id();
+            self.refuse_tree_collisions(base_tree)?;
+
+            self.inner
+                .reset(base_commit.as_object(), git2::ResetType::Hard, None)?;
+        }
+
+        let Some(record) = record else {
+            self.inner.index()?.read(true)?;
+            return Ok(());
+        };
+
+        let git_oid = git2::Oid::from(&record.stash);
+        if let Some(index) = self.stash_index_of(git_oid)? {
+            let mut opts = StashApplyOptions::new();
+            opts.reinstantiate_index();
+            self.inner
+                .stash_apply(index, Some(&mut opts))
+                .context("failed to put the working-tree changes back")?;
+            if let Some(index) = self.stash_index_of(git_oid)? {
+                self.inner.stash_drop(index)?;
+            }
+        }
+        self.inner.index()?.read(true)?;
+        journal::set_autostash(self, None)
+    }
+
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
     /// split. Returns [`AutostashRestore::Done`] when nothing is recorded or it
     /// reapplies cleanly.

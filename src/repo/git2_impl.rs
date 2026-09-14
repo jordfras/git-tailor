@@ -161,7 +161,7 @@ impl Git2Repo {
         let tip_after = reads::head_oid(self)?;
         let index_tree_after = match lift_op::finish(self, snapshot, &tip_after)? {
             lift_op::Settled::Done(index_tree) => index_tree,
-            lift_op::Settled::Clash(merged) => {
+            lift_op::Settled::Clash(files) => {
                 let state = super::ConflictState {
                     operation_label: label.to_string(),
                     // The lift is what an abort rewinds to, which unwinds the
@@ -169,19 +169,18 @@ impl Git2Repo {
                     original_branch_oid: snapshot.temp_oid.clone(),
                     new_tip_oid: tip_after.clone(),
                     conflicting_commit_oid: tip_after,
-                    conflicting_files: conflict::collect_conflict_files_from_index(&merged),
+                    conflicting_files: files,
                     still_unresolved: false,
                     resume: super::Resume::CarryRow(snapshot.clone()),
                     autofixup_context: None,
                     branch_refname: self.current_branch_refname().unwrap_or_default(),
                 };
-                // Write-ahead: the markers are about to go on disk, and a crash
-                // between the two would leave them there unexplained.
+                // The reapply already wrote the markers, so this records why
+                // they are there rather than getting ahead of them.
                 journal::set_in_progress(
                     self,
                     &super::InProgress::Conflict(Box::new(state.clone())),
                 )?;
-                lift_op::write_clash(self, &merged)?;
                 return Ok(Some(state));
             }
         };

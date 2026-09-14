@@ -54,7 +54,15 @@ use crate::Oid;
 /// does not know; a new [`UndoRecord`] variant is not, because the enum is
 /// tagged and an unknown tag fails the whole document — the reader then reports
 /// a perfectly good journal as corrupt instead of as one from the future.
-const JOURNAL_VERSION: u32 = 2;
+///
+/// Bump for a change of *meaning* as well. v3 is that case: the shape is
+/// identical to v2, but a fold now sets the other row aside in the stash where
+/// v2 left it on disk and restored it from recorded trees. A v2 build reading a
+/// v3 journal would rewind the fold from those trees and strand the stash; a v3
+/// build resuming a v2 fold would find no stash and discard what is on disk.
+/// Neither is representable in the other, so the version is what keeps them
+/// apart — see [`migrate_v2`].
+const JOURNAL_VERSION: u32 = 3;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
 /// the leaf names below build on it, and `--clean-journal` finds every ref by
@@ -1075,24 +1083,41 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         return JournalStatus::NewerVersion(header.version);
     }
 
-    // Older versions: read the version-specific shape and upgrade. A v1
-    // in-progress record (the old flat ConflictState) isn't representable in the
-    // current schema. If one is present we must NOT rewrite the file — leaving it
-    // as-is lets an older git-tailor still finish the operation — and we surface
-    // it as UpgradeInterrupted. Otherwise the upgrade is lossless: undo/redo/
-    // autostash carry over and the file is rewritten to the current version.
+    // Older versions: read the version-specific shape and upgrade. In both cases
+    // an operation the new schema cannot represent means we must NOT rewrite the
+    // file — leaving it as-is lets an older git-tailor still finish the
+    // operation — and we surface it as UpgradeInterrupted. Otherwise the upgrade
+    // is lossless and the file is rewritten to the current version.
     // See CHANGELOG.
     if header.version < JOURNAL_VERSION {
-        let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
+        // v1's in-progress record is the old flat ConflictState, which no later
+        // schema can express.
+        if header.version < 2 {
+            let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
+                Ok(d) => d,
+                Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+            };
+            if let Some(op) = old.interrupted_op_label() {
+                return JournalStatus::UpgradeInterrupted { op };
+            }
+            let upgraded = migrate_v1(old);
+            let _ = write_doc(repo, &upgraded);
+            return classify(upgraded);
+        }
+
+        // v2 shares v3's shape, so it parses directly; only an in-flight fold
+        // means something different between them.
+        let old: JournalDoc = match serde_json::from_slice(&bytes) {
             Ok(d) => d,
             Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
         };
-        if let Some(op) = old.interrupted_op_label() {
-            return JournalStatus::UpgradeInterrupted { op };
+        match migrate_v2(old) {
+            Ok(upgraded) => {
+                let _ = write_doc(repo, &upgraded);
+                return classify(upgraded);
+            }
+            Err(status) => return status,
         }
-        let upgraded = migrate_v1(old);
-        let _ = write_doc(repo, &upgraded);
-        return classify(upgraded);
     }
 
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
@@ -1147,6 +1172,29 @@ impl JournalDocV1 {
                 .to_string(),
         )
     }
+}
+
+/// Upgrade a v2 document, or refuse when it describes a fold this build would
+/// finish differently.
+///
+/// v2 left the row the fold did not target on disk and restored it from the
+/// trees recorded in [`LiftedRow`]; v3 sets it aside in the stash. Resuming a v2
+/// fold here would look for a stash that was never taken and reset the working
+/// tree over the changes v2 deliberately left sitting in it. The file is left
+/// untouched so the build that started the fold can still finish it.
+///
+/// Everything else — undo, redo, a paused conflict that is not a fold, an
+/// auto-stash — means the same in both versions and carries over unchanged.
+fn migrate_v2(old: JournalDoc) -> std::result::Result<JournalDoc, JournalStatus> {
+    if old.worktree_source.is_some() {
+        return Err(JournalStatus::UpgradeInterrupted {
+            op: "a working-tree squash".to_string(),
+        });
+    }
+    Ok(JournalDoc {
+        version: JOURNAL_VERSION,
+        ..old
+    })
 }
 
 /// Upgrade a v1 document to the current schema, dropping any in-progress record.

@@ -264,7 +264,7 @@ fn v1_journal_without_interrupted_op_migrates_and_keeps_undo() {
     // The file was rewritten to the current version with the undo stack intact.
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(doc["version"], 2);
+    assert_eq!(doc["version"], 3);
     assert_eq!(
         doc["undo"].as_array().unwrap().len(),
         1,
@@ -317,7 +317,7 @@ fn v1_journal_with_interrupted_op_is_flagged_and_file_left_untouched() {
 fn a_journal_in_the_current_format_recovers_a_paused_operation() {
     let test = common::TestRepo::new();
     let current = r#"{
-        "version": 2,
+        "version": 3,
         "in_progress": {
             "Conflict": {
                 "operation_label": "Squash",
@@ -349,7 +349,7 @@ fn a_journal_in_the_current_format_recovers_a_paused_operation() {
 
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(doc["version"], 2);
+    assert_eq!(doc["version"], 3);
     assert_eq!(doc["undo"].as_array().unwrap().len(), 1);
 }
 
@@ -363,7 +363,7 @@ fn a_journal_in_the_current_format_recovers_a_paused_operation() {
 fn a_journal_pins_the_working_tree_fold_shapes() {
     let test = common::TestRepo::new();
     let current = r#"{
-        "version": 2,
+        "version": 3,
         "in_progress": null,
         "worktree_source": {
             "source": "Unstaged",
@@ -424,4 +424,77 @@ fn write_raw_journal(test: &common::TestRepo, contents: &str) {
     let path = journal_path(test);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, contents).unwrap();
+}
+
+/// A v2 journal describing a fold in flight is not upgraded. v2 left the row the
+/// fold did not target on disk and restored it from recorded trees; v3 sets it
+/// aside in the stash. Resuming one here would look for a stash that was never
+/// taken and reset the working tree over changes v2 deliberately left in it, so
+/// the file is left alone for the build that started it.
+#[test]
+fn a_v2_journal_with_a_fold_in_flight_is_left_for_the_older_build() {
+    let test = common::TestRepo::new();
+    let v2 = r#"{
+        "version": 2,
+        "in_progress": null,
+        "worktree_source": {
+            "source": "Unstaged",
+            "tip_before": "1111",
+            "index_tree_before": "2222",
+            "worktree_tree": "3333",
+            "source_tree": "4444",
+            "temp_oid": "5555"
+        },
+        "undo": [],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v2);
+
+    let mut git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::UpgradeInterrupted { op } => assert!(
+            op.contains("working-tree squash"),
+            "the refusal must name what is unfinished, got: {op}"
+        ),
+        other => panic!("expected UpgradeInterrupted, got {other:?}"),
+    }
+
+    // Untouched, so the build that wrote it can still finish the fold.
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 2, "the file must not have been rewritten");
+}
+
+/// A v2 journal with nothing in flight means the same in v3 and upgrades
+/// losslessly, undo stack and all.
+#[test]
+fn a_v2_journal_without_a_fold_migrates_and_keeps_undo() {
+    let test = common::TestRepo::new();
+    let v2 = r#"{
+        "version": 2,
+        "in_progress": null,
+        "worktree_source": null,
+        "undo": [
+            { "kind": "RefMove", "label": "Drop", "tip_before": "1111", "tip_after": "2222" }
+        ],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v2);
+
+    let mut git_repo = test.git_repo();
+    assert!(matches!(
+        git_repo.read_journal().unwrap(),
+        JournalStatus::None
+    ));
+
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 3);
+    assert_eq!(
+        doc["undo"].as_array().unwrap().len(),
+        1,
+        "the undo stack must survive migration"
+    );
 }
