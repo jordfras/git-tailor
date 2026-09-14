@@ -86,14 +86,45 @@ Guidelines:
   journal protects (undo/redo, the in-progress record that recovers a paused
   conflict, the auto-stash record naming a stash) depends on it being on disk
   when the process dies.
-  Scope: fsync the temp file before the rename and the directory after it.
-  Decide whether the gc-pin refs need the same treatment. **Measure first** —
-  this sits on the path of every operation, and an fsync per write may be
-  noticeable on spinning disks or a network filesystem; if so, restrict it to
-  the writes that immediately precede a ref move rather than all of them.
-  Testing is the hard part: the failure needs a crash between two writes, which
-  is not reachable in-process. The realistic check is an audit that every write
-  preceding a ref move is fsynced, recorded in the commit message.
+  Note which failure is worse. A journal that is **corrupt but present** comes
+  back as `JournalStatus::Corrupt` and tells the user. A journal that is
+  **missing** comes back from `load_doc` as `JournalDoc::default()` — "nothing
+  was in progress" — so the refs have moved and nothing records what to undo.
+  The silent one is the one to design for.
+  Scope, in portability order:
+  * `sync_all()` on the temp file before the rename. Portable — `fsync` on Unix,
+    `FlushFileBuffers` on Windows — and it is what stops a half-written journal
+    becoming visible.
+  * fsync the containing directory after the rename, under `#[cfg(unix)]`. This
+    is what makes the rename itself durable, and it has no portable form: a
+    directory cannot be opened by `std::fs::File::open` on Windows at all
+    (`CreateFile` needs `FILE_FLAG_BACKUP_SEMANTICS`, which std does not set).
+  * Decide `F_FULLFSYNC` on macOS deliberately rather than by accident: plain
+    `fsync` there does not flush the drive's own cache, so `sync_all()` means
+    something weaker on macOS than on Linux.
+  * Do **not** add a `windows-sys` dependency for `MOVEFILE_WRITE_THROUGH` (the
+    Windows equivalent of the directory fsync, which `std::fs::rename` does not
+    expose) on spec. Record the gap and revisit only with evidence.
+  **Handle the Windows rename failure as part of this task**, not as a
+  follow-up. `std::fs::rename` over an existing file fails on Windows when
+  anything holds a handle to the destination, and antivirus and the search
+  indexer take transient handles constantly. This is far more likely in practice
+  than power loss, and nobody will report it — it surfaces as an occasional
+  "failed to finalize journal" that looks like a fluke. The session lock keeps
+  another git-tailor out; it does nothing about a scanner.
+  Retry the rename with a short backoff, `#[cfg(windows)]`. Match on
+  `raw_os_error()` — `ERROR_ACCESS_DENIED` (5) and `ERROR_SHARING_VIOLATION`
+  (32) — rather than on `io::ErrorKind`, which does not distinguish these
+  reliably across Rust versions. Cap the total wait low enough that a genuine
+  permission error still fails promptly rather than hanging the TUI.
+  **Measure the fsync cost first** — it sits on the path of every operation, and
+  a sync per write may be noticeable on spinning disks or a network filesystem.
+  If so, restrict it to the writes that immediately precede a ref move.
+  Testing is the hard part and is honest to state: a crash between two writes is
+  not reachable in-process, and the Windows path cannot be exercised by CI at
+  all while `rust.yml` runs only on `ubuntu-latest` (see T247). What is testable
+  is the retry helper itself, given an injected error. The rest is an audit that
+  every write preceding a ref move is synced, recorded in the commit message.
 - [ ] T243 P2 fix - Decide whether the dirty-state guard should know about
   *parked* work. `check_no_dirty_state` (`src/repo/git2_impl.rs`) refuses a
   rewrite when the tree has staged or unstaged changes. It no longer exempts a
@@ -151,6 +182,26 @@ Guidelines:
   silently falling back to `main`.
 
 ## Build & CI
+- [ ] T247 P2 fix - Run the test suite on Windows and macOS in CI.
+  `.github/workflows/rust.yml` is a single job on `ubuntu-latest`, while
+  `release.yml` ships `x86_64-pc-windows-msvc` and `universal-apple-darwin`.
+  So two of the three released binaries are *built* on their own runners but
+  have never had a test executed on them — and the things that differ between
+  these platforms are exactly what git-tailor leans on: path handling
+  (non-UTF-8 paths are handled deliberately, and Windows paths are UTF-16),
+  file locking (`File::try_lock` for the session lock, which is what sets the
+  MSRV), rename-over-existing semantics, and `fsync` meaning three different
+  things across the three targets.
+  Concretely: give the `build` job a matrix over `ubuntu-latest`,
+  `windows-latest` and `macos-14`, keeping fmt/clippy/cargo-deny on Linux only
+  (they are platform-independent and would just triple the runtime) and running
+  build + test everywhere.
+  Expect failures on the first run rather than a clean pass — 887 tests written
+  and only ever run on Linux, against a tempdir-and-real-git fixture suite, will
+  turn up path and permission assumptions. Budget for fixing those, and treat a
+  red first run as the task working rather than as a reason to abandon it.
+  Blocks verifying the Windows half of T242: the rename retry there is a
+  `#[cfg(windows)]` path that nothing currently compiles, let alone exercises.
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
   automatically on each `v*` tag, so `brew install` works for people without a
   Rust toolchain. Create `jordfras/homebrew-tap` (the `homebrew-` prefix is what
