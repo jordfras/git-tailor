@@ -771,3 +771,69 @@ fn autostash_abort_does_not_clobber_a_colliding_untracked_file() {
         "the abort's hard reset must refuse rather than overwrite (result: {result:?})"
     );
 }
+
+/// The reapply refuses a path an untracked file is sitting on, and names it.
+///
+/// A newly staged file is in no commit, so only the reapply puts it back — and
+/// the user can recreate one by hand while the operation sits paused.
+#[test]
+fn autostash_restore_refuses_a_colliding_untracked_file_by_name() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "0\n", "base");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    // Staged, so the stash takes it; in no commit, so only the reapply brings
+    // it back.
+    test.write_file("scratch.txt", "from the stash\n");
+    test.stage_file("scratch.txt");
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert!(
+        !test.repo.workdir().unwrap().join("scratch.txt").exists(),
+        "the stash must have taken the staged file off disk"
+    );
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    // Paused on the conflict, the user writes their own file at that path.
+    test.write_file("scratch.txt", "my local scratch\n");
+
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    let err = git_repo
+        .autostash_restore()
+        .expect_err("a path an untracked file occupies must be refused");
+    let message = format!("{err:#}");
+
+    assert!(
+        message.contains("scratch.txt"),
+        "the refusal must name the file in the way, got: {message}"
+    );
+    assert!(
+        message.contains("untracked"),
+        "and say why it is in the way, got: {message}"
+    );
+
+    // Nothing was lost on either side of the refusal.
+    assert_eq!(read_workdir(&test, "scratch.txt"), "my local scratch\n");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the stash is kept so the user can retry once the path is clear"
+    );
+}
