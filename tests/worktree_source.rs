@@ -40,6 +40,17 @@ fn workdir(test: &common::TestRepo, path: &str) -> String {
 
 /// A repository with `a.txt` staged and `b.txt` modified but unstaged, on top
 /// of a two-commit history.
+fn stash_count(gitdir: &std::path::Path) -> usize {
+    let mut repo = git2::Repository::open(gitdir).unwrap();
+    let mut n = 0;
+    repo.stash_foreach(|_, _, _| {
+        n += 1;
+        true
+    })
+    .unwrap();
+    n
+}
+
 fn mixed_state() -> common::TestRepo {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a1\n", "first");
@@ -50,10 +61,10 @@ fn mixed_state() -> common::TestRepo {
     test
 }
 
-/// The staged row becomes a commit of exactly the index, leaving the unstaged
-/// edit untouched and still unstaged.
+/// The staged row becomes a commit of exactly the index, with the unstaged edit
+/// set aside in the stash for the duration of the fold.
 #[test]
-fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
+fn staged_source_commits_the_index_and_parks_the_unstaged_changes() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
@@ -76,14 +87,17 @@ fn staged_source_commits_the_index_and_keeps_unstaged_changes() {
         vec!["a.txt".to_string()]
     );
 
-    // Nothing is staged any more, and the unstaged edit survived verbatim.
+    // Nothing is staged any more, and the unstaged edit is in the stash rather
+    // than on disk — which is what lets the squash check out over the working
+    // tree freely. `finish` puts it back.
     assert!(git_repo.staged_diff(3).unwrap().is_none());
-    assert_eq!(row_paths(git_repo.unstaged_diff(3).unwrap()), ["b.txt"]);
-    assert_eq!(workdir(&test, "b.txt"), "b2\n");
+    assert!(git_repo.unstaged_diff(3).unwrap().is_none());
+    assert_eq!(workdir(&test, "b.txt"), "b1\n");
+    assert_eq!(stash_count(test.repo.path()), 1);
 }
 
 /// The unstaged row becomes a commit of exactly the unstaged delta — the staged
-/// change stays behind, still staged.
+/// change is set aside in the stash until the fold finishes.
 #[test]
 fn unstaged_source_commits_only_the_unstaged_delta() {
     let test = mixed_state();
@@ -103,11 +117,14 @@ fn unstaged_source_commits_only_the_unstaged_delta() {
         vec!["b.txt".to_string()]
     );
 
-    // The staged change is still staged and nothing is left unstaged.
-    assert_eq!(row_paths(git_repo.staged_diff(3).unwrap()), ["a.txt"]);
+    // The staged change is parked, so both rows read empty and `a.txt` is back
+    // to what the temporary commit holds. The unstaged edit it folded in is
+    // committed, so `b.txt` keeps its new content.
+    assert!(git_repo.staged_diff(3).unwrap().is_none());
     assert!(git_repo.unstaged_diff(3).unwrap().is_none());
-    assert_eq!(workdir(&test, "a.txt"), "a2\n");
+    assert_eq!(workdir(&test, "a.txt"), "a1\n");
     assert_eq!(workdir(&test, "b.txt"), "b2\n");
+    assert_eq!(stash_count(test.repo.path()), 1);
 }
 
 /// With nothing staged, the unstaged row needs no patch surgery — the whole
@@ -322,9 +339,12 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
             .collect::<Vec<_>>(),
         vec!["bin.dat".to_string()]
     );
-    let mut staged = row_paths(git_repo.staged_diff(3).unwrap());
-    staged.sort();
-    assert_eq!(staged, ["a.txt", "sub"]);
+    // The staged text edit is parked in the stash; the submodule pointer is not,
+    // because `git stash` leaves gitlinks alone. It stays staged across the fold
+    // instead, which is the same answer the snapshot reached by carrying the
+    // index's pointers through untouched.
+    let staged = row_paths(git_repo.staged_diff(3).unwrap());
+    assert_eq!(staged, ["sub"]);
     assert_eq!(
         std::fs::read(test.repo.workdir().unwrap().join("bin.dat")).unwrap(),
         [0u8, 9, 9, 0, 7]
@@ -563,17 +583,30 @@ fn discarding_the_journal_discards_the_snapshot() {
         "a cleared journal must not still offer the snapshot for recovery"
     );
 
-    // The guard on uncommitted changes must be back in force.
+    // The snapshot is gone, but the work it used to describe is not: clearing
+    // the journal deliberately leaves the auto-stash record alone, so what the
+    // lift set aside is still in `git stash list` and still recorded.
+    //
+    // The guard on uncommitted changes no longer has anything to fire on — the
+    // working tree really is clean — so a rewrite proceeds. That is the point:
+    // there is no on-disk dirt left to protect, and the protection moved into
+    // the stash rather than disappearing.
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "clearing the journal must not discard the parked work"
+    );
     let head = git_repo.head_oid().unwrap();
     let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[0]
         .oid
         .expect_real_oid();
-    let err = git_repo
+    git_repo
         .drop_commit(&victim, &head)
-        .expect_err("a dirty working tree must still refuse a rewrite");
-    assert!(
-        format!("{err:#}").contains("staged or unstaged changes"),
-        "got: {err:#}"
+        .expect("a clean working tree has nothing for the guard to refuse");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and the rewrite must not have consumed it either"
     );
 }
 
