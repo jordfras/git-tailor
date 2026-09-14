@@ -272,6 +272,13 @@ This matters when splitting a commit:
   hunk spanning two columns still becomes one commit here — use per hunk
   group if you want it divided by column.
 
+### The `gt` command line is the stable interface
+
+git-tailor ships as a crate so that `cargo install git-tailor` works, but the
+library inside it is an implementation detail. Version numbers describe the
+command line and the TUI; `git_tailor::*` can change shape in any release,
+including a minor one. Pin an exact version if you depend on it anyway.
+
 ## Attribution
 
 Git-tailor is inspired by [tig](https://github.com/jonas/tig) and
