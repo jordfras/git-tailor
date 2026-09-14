@@ -60,6 +60,10 @@ impl TestRepo {
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Test User").unwrap();
         config.set_str("user.email", "test@example.com").unwrap();
+        // Git for Windows sets `core.autocrlf=true` globally at install time,
+        // and a repo's config inherits it. Fixtures assert on exact bytes, so
+        // let nothing rewrite their line endings underneath them.
+        config.set_bool("core.autocrlf", false).unwrap();
 
         Self {
             _temp_dir: temp_dir,
