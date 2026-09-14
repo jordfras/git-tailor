@@ -158,6 +158,23 @@ impl Git2Repo {
         journal::set_autostash(self, None)
     }
 
+    /// Drop work set aside without putting it back, and forget the record.
+    ///
+    /// For an operation being abandoned rather than finished or unwound, where
+    /// the content has already been preserved somewhere else. Nothing else may
+    /// use this: a stash dropped without a copy elsewhere is work destroyed.
+    pub(super) fn discard_work_aside(&mut self) -> Result<()> {
+        let Some(record) = journal::autostash(self)? else {
+            return Ok(());
+        };
+        if let Some(index) = self.stash_index_of(git2::Oid::from(&record.stash))? {
+            self.inner
+                .stash_drop(index)
+                .context("failed to drop the set-aside changes")?;
+        }
+        journal::set_autostash(self, None)
+    }
+
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
     /// split. Returns [`AutostashRestore::Done`] when nothing is recorded or it
     /// reapplies cleanly.

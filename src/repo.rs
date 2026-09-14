@@ -806,9 +806,17 @@ pub trait RepoWrite {
     /// and clear the journal record. Untracked files are left alone.
     fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
 
-    /// Keep the working tree `lifted` recorded reachable under a ref, for a
-    /// record that is about to be discarded because the branch has moved past
-    /// it.
+    /// Consolidate an abandoned fold into one object: keep the working tree
+    /// `lifted` recorded reachable under a ref, and drop the changes the lift
+    /// set aside — for a record about to be discarded because the branch has
+    /// moved past it.
+    ///
+    /// Both halves, because the recorded tree holds *both* rows and so already
+    /// contains everything the set-aside copy does. Leaving that copy behind is
+    /// not harmless: discarding a journal spares the auto-stash record, and
+    /// startup reapplies a leftover one — which for a fold nobody is finishing
+    /// means pasting it onto a branch that has moved away from the temporary
+    /// commit it was based on.
     ///
     /// Returns the ref's name, or `None` when the recorded tree is what HEAD
     /// already holds and there is nothing to lose. The ref lives under the

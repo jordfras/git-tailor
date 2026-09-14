@@ -380,6 +380,9 @@ fn unstaged_only_tree(
 /// [`super::Git2Repo::rescue_lifted_row`] for the contract.
 pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<String>> {
     if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
+        // Nothing uncommitted to keep, so nothing was set aside either — but
+        // discard on the way out regardless, so no path leaves a stash behind.
+        repo.discard_work_aside()?;
         return Ok(None);
     }
     let name = journal::rescue_ref(&lifted.worktree_tree);
@@ -391,6 +394,16 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
             "git-tailor: kept the working tree of a discarded fold",
         )
         .context("failed to keep the recorded working tree")?;
+
+    // Only once the tree is under a ref: the recorded tree holds both rows, so
+    // it already contains everything the stash does, and until it is reachable
+    // the stash is the only copy of half of it.
+    //
+    // Dropping it is the point. `discard_in_flight` spares the auto-stash
+    // record, and startup reapplies a leftover one — which for a fold nobody is
+    // finishing means pasting it onto a branch that has moved away from the
+    // temporary commit it was based on.
+    repo.discard_work_aside()?;
     Ok(Some(name))
 }
 
