@@ -59,7 +59,7 @@ fn conflict_records_journal_and_recovers_after_reopen() {
 /// proving the path round-trips through the on-disk journal file byte for
 /// byte, not just through serde in isolation.
 #[test]
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn conflict_with_a_non_utf8_path_recovers_after_reopen() {
     let test = common::TestRepo::new();
     let path = common::non_utf8_path("bad", ".txt");

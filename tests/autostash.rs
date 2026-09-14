@@ -401,6 +401,7 @@ fn autostash_conflict_continue_stays_when_unresolved() {
 /// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
 /// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
 #[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Path) -> git2::Oid {
     test.write_file(path, "AAAA\nBBBB\nCCCC\n");
     let mut index = test.repo.index().unwrap();
@@ -422,7 +423,7 @@ fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Pa
 /// resolved?" check, or an unresolved conflict reads as clean and the stash
 /// holding the user's only copy of their work gets dropped.
 #[test]
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn autostash_conflict_continue_stays_when_unresolved_with_a_non_utf8_path() {
     let test = common::TestRepo::new();
     let path = common::non_utf8_path("bad", ".txt");
