@@ -578,7 +578,7 @@ fn rebase_abort_does_not_clobber_a_colliding_untracked_file() {
 /// as UTF-8 and dropped what failed, so the conflict write — the one route that
 /// uses it — went straight over them.
 #[test]
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn a_non_utf8_untracked_file_is_guarded_on_the_conflict_path() {
     let test = common::TestRepo::new();
     let odd = common::non_utf8_path("notes", ".txt");
