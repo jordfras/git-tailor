@@ -202,6 +202,11 @@ Guidelines:
   red first run as the task working rather than as a reason to abandon it.
   Blocks verifying the Windows half of T242: the rename retry there is a
   `#[cfg(windows)]` path that nothing currently compiles, let alone exercises.
+  **In progress.** The workflow is written (`ci: Run the test suite on Windows
+  and macOS too`) and two fixtures that would not have compiled on Windows are
+  gated. What remains is the part no one can do locally: push, read the first
+  Windows and macOS runs, and fix what they turn up. Not done until all three
+  legs are green.
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
   automatically on each `v*` tag, so `brew install` works for people without a
   Rust toolchain. Create `jordfras/homebrew-tap` (the `homebrew-` prefix is what
