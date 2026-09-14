@@ -40,7 +40,7 @@ shell-words = "1"
 # proxy signs with a private CA that only ever lands in the system store, so
 # the Mozilla roots reject it and the update check dies with `UnknownIssuer`.
 ureq = { version = "3", features = ["json", "platform-verifier"] }
-etcetera = "0.10"
+etcetera = "0.11"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
