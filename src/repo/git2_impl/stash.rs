@@ -111,12 +111,18 @@ impl Git2Repo {
     /// split. Returns [`AutostashRestore::Done`] when nothing is recorded or it
     /// reapplies cleanly.
     ///
-    /// `libgit2`'s `stash_apply` does not report a content conflict as an error
-    /// — it returns `Ok` after writing conflict markers into the working tree and
-    /// leaving unmerged entries in the index — so the conflict is detected
-    /// explicitly via the index. On conflict the stash is **kept** and the
-    /// journal record is flagged `applied_with_conflict`, so the user's changes
-    /// are never lost and startup recovery does not reapply it a second time.
+    /// A content clash is detected through the index rather than the return
+    /// value: `stash_apply` writes conflict markers and leaves unmerged entries
+    /// behind, reporting either `Ok` or `Conflict` depending on whether the
+    /// staged/unstaged split could be reinstantiated. On conflict the stash is
+    /// **kept** and the journal record is flagged `applied_with_conflict`, so the
+    /// user's changes are never lost and startup recovery does not reapply it a
+    /// second time.
+    ///
+    /// A path an untracked file occupies is refused first. It raises the same
+    /// `Conflict` code as a content clash but has nothing to resolve: the
+    /// checkout cannot land at all, so the fallback below would retry something
+    /// that cannot succeed and report it as a generic failure.
     pub(super) fn restore_autostash(&mut self) -> Result<AutostashRestore> {
         let Some(record) = journal::autostash(self)? else {
             return Ok(AutostashRestore::Done);
@@ -137,6 +143,15 @@ impl Git2Repo {
                 record.stash.short()
             )
         })?;
+
+        // The stash holds what was tracked when it was taken, which includes
+        // paths that exist in no commit. Nothing else puts those back on disk,
+        // so an untracked file can be sitting on one by the time the reapply
+        // runs. Checked before the apply, where the stash is still intact and
+        // the user can clear the path and retry.
+        let stash_tree = self.commit_tree_id(git_oid)?;
+        let current_tree = self.commit_tree_id(git2::Oid::from(&reads::head_oid(self)?))?;
+        self.refuse_untracked_collisions(current_tree, stash_tree)?;
 
         // `reinstantiate_index` asks libgit2 to restore the staged/unstaged
         // split as well as the contents. It cannot do both when the reapply
