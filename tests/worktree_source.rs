@@ -497,6 +497,96 @@ fn abandoning_a_stale_fold_takes_its_stash_with_it() {
     );
 }
 
+/// The journal holds one set-aside slot, and `--autostash` and the fold both
+/// want it. A fold must not take it while someone else's work is parked there.
+///
+/// Reachable whenever a reapply left its record behind — which the untracked
+/// collision refusal does deliberately, keeping the stash so the user can clear
+/// the path and retry. Overwriting the record strands that work: nothing names
+/// the stash any more, so no undo, recovery or abort will ever find it again.
+#[test]
+fn a_fold_refuses_to_park_over_work_already_set_aside() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+
+    test.write_file("a.txt", "AUTOSTASHED\n");
+    test.stage_file("a.txt");
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert_eq!(stash_count(test.repo.path()), 1);
+
+    // The user carries on and folds a row while that record is still live.
+    test.write_file("b.txt", "STAGED\n");
+    test.stage_file("b.txt");
+    test.write_file("a.txt", "UNSTAGED\n");
+
+    let err = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .expect_err("a fold must not park over work already set aside");
+    assert!(
+        format!("{err:#}").contains("set aside"),
+        "the refusal must say what is in the way, got: {err:#}"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and must not have taken a second stash"
+    );
+}
+
+/// A fold that sets nothing aside must not put back what it never took.
+///
+/// `finish` reapplies the set-aside slot unconditionally, so a fold whose
+/// counterpart row is clean will reapply whatever was already parked there —
+/// pulling unrelated changes into its result and recording them as the fold's
+/// own index tree, which undo would then put back too.
+#[test]
+fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "base");
+    let target = test.commit_file("t.txt", "t1\n", "target commit");
+
+    test.write_file("a.txt", "AUTOSTASHED\n");
+    test.stage_file("a.txt");
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+
+    // Only the staged row is dirty, so the lift parks nothing of its own.
+    test.write_file("t.txt", "FOLDED\n");
+    test.stage_file("t.txt");
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the fold had nothing of its own to set aside"
+    );
+
+    git_repo
+        .squash_commits(
+            &lifted.temp_oid,
+            &Oid::from(target),
+            b"target commit",
+            &lifted.temp_oid,
+        )
+        .unwrap();
+
+    assert_eq!(
+        workdir(&test, "a.txt"),
+        "a1\n",
+        "the fold must not reapply a stash it did not take"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and must leave it parked for whoever did"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
