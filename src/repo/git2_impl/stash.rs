@@ -131,6 +131,14 @@ impl Git2Repo {
         // checked it out to.
         let record = journal::autostash(self)?;
 
+        // The reset below moves whatever branch HEAD resolves to now, so it has
+        // to still be the one this was parked on. Comparing tips cannot catch a
+        // branch made while sitting on the temporary commit: it names the same
+        // commit the caller checked against.
+        if let Some(record) = &record {
+            self.refuse_if_branch_switched(&record.branch_refname)?;
+        }
+
         // Scoped so the commit's borrow ends before the stash mutations below.
         {
             let base_oid = git2::Oid::from(base);
