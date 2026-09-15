@@ -68,9 +68,10 @@ impl Git2Repo {
     /// for it. A no-op when there is nothing to set aside.
     ///
     /// Separate from [`Self::save_autostash`] so that "did the user ask for a
-    /// stash" and "take one" are two questions. Only auto-stash asks today; the
-    /// working-tree fold keeps its own tree objects (see `lift_op`), and
-    /// unifying the two onto this is what a later change would do.
+    /// stash" and "take one" are two questions. Both callers come through here —
+    /// auto-stash, and the working-tree fold parking the row it did not take —
+    /// so `fold` records which, since the slot holds one and they are put back
+    /// at different moments.
     pub(super) fn set_work_aside(&mut self, message: &str, fold: Option<&Oid>) -> Result<()> {
         if !self.is_worktree_dirty()? {
             return Ok(());

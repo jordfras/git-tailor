@@ -174,20 +174,15 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     journal::clear_in_progress(repo)
 }
 
-/// Put the other row's changes back after the squash reached `tip_after`, and
-/// report the resulting index tree so the undo record can restore it — or the
-/// merge that says they have nowhere to go.
+/// Put the other row's changes back once the squash has landed, and report the
+/// index tree that leaves behind so the undo record can restore it — or the
+/// paths that say they have nowhere to go.
 ///
-/// Nothing needs merging in the ordinary case: the squash committed exactly the
-/// temporary commit's tree, so the working tree goes back to what it was. It is
-/// only when the user resolved a conflict along the way that the new tip differs
-/// from what was folded in — and then the other row's changes have to be carried
-/// onto the resolution rather than reverting it, which is a three-way merge with
-/// the temporary commit's tree as the base.
-///
-/// What ends up in the index differs by row: the staged row's changes are now
-/// committed, so the index matches the new tip, while the unstaged row's are
-/// committed and the staged ones stay staged, which is the whole working tree.
+/// The stash's base is the temporary commit, so the reapply merges against
+/// exactly what was folded in: unchanged in the ordinary case, and carried onto
+/// the resolution rather than reverting it when the user settled a conflict
+/// along the way. The staged/unstaged split comes back from the stash rather
+/// than being reconstructed here.
 pub(super) fn finish(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<Settled> {
     // Only what this fold set aside. A fold whose counterpart row was clean
     // parks nothing, and reapplying whatever happened to be in the slot would
