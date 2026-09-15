@@ -140,6 +140,22 @@ fn place_temp_commit(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// Unwind back to `snapshot`. See
 /// [`super::Git2Repo::restore_lifted_row`] for the contract.
 pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
+    // The snapshot records the whole pre-fold working tree, which differs from
+    // the temporary commit's tree exactly when there was a leftover row to park.
+    // If one was parked and the slot no longer names it — a crash between taking
+    // the stash and recording it — resetting would take that row off disk, so
+    // say where it still is instead.
+    let parked_something = git2::Oid::from(&snapshot.worktree_tree)
+        != repo.commit_tree_id(git2::Oid::from(&snapshot.temp_oid))?;
+    if parked_something && !repo.work_aside_is_fold(&snapshot.temp_oid)? {
+        anyhow::bail!(
+            "This fold set changes aside, but nothing in the journal names them \
+             any more. They are still in `git stash list`, and the working tree \
+             they came from is kept at {}. Recover them before unwinding.",
+            journal::rescue_ref(&snapshot.worktree_tree)
+        );
+    }
+
     // Put the other row back first, while HEAD is still the commit the stash was
     // taken on — its own base, so this cannot conflict. Refuses before it moves
     // anything, leaving the fold in progress and re-abortable.
