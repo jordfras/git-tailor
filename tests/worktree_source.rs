@@ -738,6 +738,57 @@ fn unwinding_a_fold_names_an_untracked_file_in_the_parked_rows_way() {
     );
 }
 
+/// `set_work_aside` takes the stash and *then* records it, so a crash between
+/// the two leaves the parked row in an unlabeled stash with nothing pointing at
+/// it. Unwinding must not then reset the working tree and report success, which
+/// would take that row off disk without a word.
+///
+/// The snapshot is enough to notice: it records the whole pre-fold working tree,
+/// and that differs from the temporary commit's tree exactly when there was a
+/// leftover to park.
+#[test]
+fn unwinding_refuses_when_the_parked_row_cannot_be_found() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(stash_count(test.repo.path()), 1);
+
+    // Exactly the crash window: the stash exists, the record naming it does not.
+    let journal = test.repo.path().join("git-tailor").join("journal.json");
+    let mut doc: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
+    doc["autostash"] = serde_json::Value::Null;
+    std::fs::write(&journal, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
+
+    let head_before = git_repo.head_oid().unwrap();
+    let err = git_repo
+        .restore_lifted_row(&lifted)
+        .expect_err("work that cannot be found must not be silently dropped");
+
+    assert!(
+        format!("{err:#}").contains("stash"),
+        "the refusal must point at where the work still is, got: {err:#}"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_before,
+        "and must leave the fold where it was"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the parked row must still be there to recover"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
