@@ -104,7 +104,7 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         // stash captures exactly it — including the staged/unstaged split, which
         // restoring from trees could only reconstruct by assuming the fold
         // emptied one of the two rows.
-        repo.set_work_aside(TEMP_MESSAGE)
+        repo.set_work_aside(TEMP_MESSAGE, Some(&snapshot.temp_oid))
     });
     match placed {
         Ok(()) => Ok(Some(snapshot)),
@@ -172,19 +172,19 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// What ends up in the index differs by row: the staged row's changes are now
 /// committed, so the index matches the new tip, while the unstaged row's are
 /// committed and the staged ones stay staged, which is the whole working tree.
-pub(super) fn finish(
-    repo: &mut Git2Repo,
-    snapshot: &LiftedRow,
-    tip_after: &Oid,
-) -> Result<Settled> {
-    let _ = (snapshot, tip_after);
-    // The stash's base is the temporary commit, so reapplying it onto the
-    // rewrite's result three-way merges against exactly what was folded in — a
-    // fold the user resolved a conflict in carries the other row onto that
-    // resolution rather than reverting it.
-    match repo.restore_autostash()? {
-        crate::repo::AutostashRestore::Done => {}
-        crate::repo::AutostashRestore::Conflict { files } => return Ok(Settled::Clash(files)),
+pub(super) fn finish(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<Settled> {
+    // Only what this fold set aside. A fold whose counterpart row was clean
+    // parks nothing, and reapplying whatever happened to be in the slot would
+    // pull unrelated work into its result and record it as the fold's own.
+    if repo.work_aside_is_fold(&snapshot.temp_oid)? {
+        // The stash's base is the temporary commit, so reapplying it onto the
+        // rewrite's result three-way merges against exactly what was folded in —
+        // a fold the user resolved a conflict in carries the other row onto that
+        // resolution rather than reverting it.
+        match repo.restore_autostash()? {
+            crate::repo::AutostashRestore::Done => {}
+            crate::repo::AutostashRestore::Conflict { files } => return Ok(Settled::Clash(files)),
+        }
     }
 
     // The undo record puts the index back alongside the branch, so it needs the
@@ -382,7 +382,7 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
     if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
         // Nothing uncommitted to keep, so nothing was set aside either — but
         // discard on the way out regardless, so no path leaves a stash behind.
-        repo.discard_work_aside()?;
+        repo.discard_work_aside(&lifted.temp_oid)?;
         return Ok(None);
     }
     let name = journal::rescue_ref(&lifted.worktree_tree);
@@ -403,7 +403,7 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
     // record, and startup reapplies a leftover one — which for a fold nobody is
     // finishing means pasting it onto a branch that has moved away from the
     // temporary commit it was based on.
-    repo.discard_work_aside()?;
+    repo.discard_work_aside(&lifted.temp_oid)?;
     Ok(Some(name))
 }
 
