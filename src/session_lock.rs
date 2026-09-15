@@ -117,11 +117,23 @@ mod tests {
     /// This one stops at the directory; the next reaches the lock file itself.
     /// Mutation testing showed why both are needed — with only this one, every
     /// misclassification past `create_dir_all` went undetected.
+    ///
+    /// The unwritable place is a path whose parent is a regular file: no OS
+    /// creates a directory under one, whatever the kernel or the test user's
+    /// privileges.
     #[test]
     fn an_unavailable_lock_is_reported_as_such_not_as_busy() {
-        let missing = std::path::Path::new("/proc/self/no/such/place");
-        match SessionLock::acquire(missing) {
-            Err(LockRefusal::Unavailable(_)) => {}
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("a-file-not-a-directory");
+        std::fs::write(&blocker, b"").unwrap();
+
+        match SessionLock::acquire(&blocker) {
+            // Which step produced it, not just the variant: `Unavailable` alone
+            // would pass if the directory were created and the error came later.
+            Err(LockRefusal::Unavailable(e)) => assert!(
+                format!("{e:#}").contains("failed to create"),
+                "must fail creating the directory, got: {e:#}"
+            ),
             Err(LockRefusal::Busy) => {
                 panic!("a directory we cannot write is not another git-tailor")
             }

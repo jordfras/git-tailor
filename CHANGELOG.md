@@ -6,6 +6,24 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Changed
+
+- Squashing the Staged or Unstaged row now sets your *other* uncommitted
+  changes aside in the stash while it works, instead of leaving them in your
+  files. They come back when the fold finishes, and `git stash list` holds them
+  if anything goes wrong — but a fold paused on a conflict will show an editor
+  without them
+- The journal format is now version 3. A fold left in flight by 3.1.0 is handed
+  back to that version to finish rather than being resumed here
+
+### Fixed
+
+- `--autostash` now names the untracked file standing in the way when it cannot
+  put your changes back, instead of reporting a generic failure. Nothing was at
+  risk — the reapply was already stopped — but clearing the path was guesswork
+
 ## [3.1.0] - 2026-09-12
 
 ### Added

@@ -137,10 +137,6 @@ pub struct LiftedRow {
     /// The working tree (tracked paths) as a tree object. Unchanged by the
     /// operation — it only moves content between committed, staged and unstaged.
     pub worktree_tree: Oid,
-    /// The temporary commit's tree: the working tree with the row's changes
-    /// taken out of it. The merge base for putting the other row's changes back
-    /// on top of wherever the squash ended up.
-    pub source_tree: Oid,
     /// The temporary commit itself, which the fold left the branch on. Its diff
     /// against its parent is exactly the row's diff, so it serves as both
     /// `source_oid` and `head_oid` for the squash built on it. Also identifies
@@ -810,9 +806,17 @@ pub trait RepoWrite {
     /// and clear the journal record. Untracked files are left alone.
     fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
 
-    /// Keep the working tree `lifted` recorded reachable under a ref, for a
-    /// record that is about to be discarded because the branch has moved past
-    /// it.
+    /// Consolidate an abandoned fold into one object: keep the working tree
+    /// `lifted` recorded reachable under a ref, and drop the changes the lift
+    /// set aside — for a record about to be discarded because the branch has
+    /// moved past it.
+    ///
+    /// Both halves, because the recorded tree holds *both* rows and so already
+    /// contains everything the set-aside copy does. Leaving that copy behind is
+    /// not harmless: discarding a journal spares the auto-stash record, and
+    /// startup reapplies a leftover one — which for a fold nobody is finishing
+    /// means pasting it onto a branch that has moved away from the temporary
+    /// commit it was based on.
     ///
     /// Returns the ref's name, or `None` when the recorded tree is what HEAD
     /// already holds and there is nothing to lose. The ref lives under the

@@ -32,37 +32,14 @@
 
 use anyhow::{Context, Result};
 
+use super::Git2Repo;
 use super::journal;
-use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
 use crate::repo::{ConflictState, InProgress, LiftedRow, RebaseOutcome, WorktreeSource};
 
 /// Message on the temporary commit. Only ever visible if git-tailor dies
 /// between creating it and folding it away, where naming it plainly helps.
 const TEMP_MESSAGE: &str = "git-tailor: working-tree changes";
-
-/// Whether a fold is in flight over a working tree the snapshot still accounts
-/// for.
-///
-/// The snapshot is what makes it safe to run a squash over a dirty working tree,
-/// so it only excuses the dirt it actually recorded. A snapshot stranded by an
-/// earlier run describes a working tree that is long gone, and must not keep the
-/// guard on uncommitted changes switched off.
-pub(super) fn covers_working_tree(repo: &mut Git2Repo) -> Result<bool> {
-    let Some(snapshot) = journal::worktree_source(repo)? else {
-        return Ok(false);
-    };
-    // Only while the fold is running: the branch sits on the temporary commit
-    // from the lift until the squash settles, which is exactly when the guard
-    // has to be lenient. A record left behind by a fold that failed part-way
-    // describes the same working tree and would go on excusing it — the same
-    // provenance the other two readers of this record insist on.
-    if super::reads::head_oid(repo)? != snapshot.temp_oid {
-        return Ok(false);
-    }
-    let (_, worktree_tree) = snapshot_trees(repo)?;
-    Ok(worktree_tree == git2::Oid::from(&snapshot.worktree_tree))
-}
 
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
 /// changes. See [`super::Git2Repo::lift_worktree_row`] for the contract.
@@ -115,14 +92,21 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         tip_before: Oid::from(head_oid),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
-        source_tree: Oid::from(temp_tree_oid),
         temp_oid: Oid::from(temp_oid),
     };
     // Write-ahead: the branch is about to move onto the temporary commit, so the
     // record has to be on disk before it does.
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
 
-    match place_temp_commit(repo, &snapshot) {
+    let placed = place_temp_commit(repo, &snapshot).and_then(|()| {
+        // The row the user did *not* target is all that is left uncommitted, and
+        // the lift arranged it to be expressible as index-versus-HEAD, so the
+        // stash captures exactly it — including the staged/unstaged split, which
+        // restoring from trees could only reconstruct by assuming the fold
+        // emptied one of the two rows.
+        repo.set_work_aside(TEMP_MESSAGE)
+    });
+    match placed {
         Ok(()) => Ok(Some(snapshot)),
         Err(e) => {
             // Never leave the caller a half-made operation to reason about: the
@@ -156,24 +140,20 @@ fn place_temp_commit(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// Unwind back to `snapshot`. See
 /// [`super::Git2Repo::restore_lifted_row`] for the contract.
 pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
-    // Captured before the ref moves: this is the tree the working tree reflects
-    // right now, whether that is the temporary commit or a half-built rewrite.
-    let current = head_tree_id(repo)?;
-    let worktree_tree = git2::Oid::from(&snapshot.worktree_tree);
+    // Put the other row back first, while HEAD is still the commit the stash was
+    // taken on — its own base, so this cannot conflict. Refuses before it moves
+    // anything, leaving the fold in progress and re-abortable.
+    repo.abort_work_aside(&snapshot.temp_oid)?;
 
-    // Before the ref moves, so a refusal leaves the fold in progress and
-    // re-abortable rather than half-unwound.
-    repo.refuse_untracked_collisions(current, worktree_tree)?;
-
+    // Then move the branch back without touching the files. The temporary
+    // commit's content becomes uncommitted again, and pointing the index at what
+    // was staged before splits it across the staged/unstaged line as it was.
     repo.advance_branch_ref(
         git2::Oid::from(&snapshot.tip_before),
         "git-tailor: abort working-tree squash",
     )?;
-    repo.reset_worktree(WorktreeReset {
-        from_tree: current,
-        worktree_tree,
-        index_tree: git2::Oid::from(&snapshot.index_tree_before),
-    })?;
+    repo.set_index_tree(git2::Oid::from(&snapshot.index_tree_before))?;
+
     journal::set_worktree_source(repo, None)?;
     journal::clear_in_progress(repo)
 }
@@ -197,24 +177,23 @@ pub(super) fn finish(
     snapshot: &LiftedRow,
     tip_after: &Oid,
 ) -> Result<Settled> {
-    let tip_tree = repo
-        .inner
-        .find_commit(git2::Oid::from(tip_after))
-        .context("failed to read the new branch tip")?
-        .tree_id();
-    let worktree_tree = match carry_onto(repo, snapshot, tip_tree)? {
-        Carried::Tree(tree) => tree,
-        Carried::Clash(merged) => return Ok(Settled::Clash(merged)),
-    };
-    let index_tree = match snapshot.source {
-        WorktreeSource::Staged => tip_tree,
-        WorktreeSource::Unstaged => worktree_tree,
-    };
-    repo.reset_worktree(WorktreeReset {
-        from_tree: head_tree_id(repo)?,
-        worktree_tree,
-        index_tree,
-    })?;
+    let _ = (snapshot, tip_after);
+    // The stash's base is the temporary commit, so reapplying it onto the
+    // rewrite's result three-way merges against exactly what was folded in — a
+    // fold the user resolved a conflict in carries the other row onto that
+    // resolution rather than reverting it.
+    match repo.restore_autostash()? {
+        crate::repo::AutostashRestore::Done => {}
+        crate::repo::AutostashRestore::Conflict { files } => return Ok(Settled::Clash(files)),
+    }
+
+    // The undo record puts the index back alongside the branch, so it needs the
+    // tree the index ended up holding — which the stash, not this code, decided.
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index.read(true).context("failed to refresh index")?;
+    let index_tree = index
+        .write_tree()
+        .context("failed to write the restored index tree")?;
     Ok(Settled::Done(Oid::from(index_tree)))
 }
 
@@ -223,37 +202,9 @@ pub(super) enum Settled {
     /// They are back where they came from; the index tree the undo record needs.
     Done(Oid),
     /// They cannot go back as they are: the user resolved the fold's conflict
-    /// into something they clash with. The merge that says so, for
-    /// [`write_clash`] to put in front of the user.
-    Clash(git2::Index),
-}
-
-/// Put a clashing carry in front of the user: the merge into the index, and its
-/// conflict markers into the files.
-///
-/// The caller journals the conflict first — a crash between the two would
-/// otherwise leave markers on disk with nothing recording why they are there.
-pub(super) fn write_clash(repo: &mut Git2Repo, merged: &git2::Index) -> Result<()> {
-    // Before the index is touched, for the same reason the chain's conflict
-    // write checks first: this ends in a checkout over the working tree.
-    repo.refuse_index_collisions(merged)?;
-
-    let mut index = repo.inner.index().context("failed to open index")?;
-    index.clear().context("failed to clear the index")?;
-    for entry in merged.iter() {
-        index
-            .add(&entry)
-            .context("failed to write the clash into the index")?;
-    }
-    index.write().context("failed to write the index")?;
-
-    let mut checkout = git2::build::CheckoutBuilder::new();
-    checkout.force();
-    checkout.allow_conflicts(true);
-    repo.inner
-        .checkout_index(Some(&mut index), Some(&mut checkout))
-        .context("failed to write the clash into the working tree")?;
-    Ok(())
+    /// into something they clash with. The reapply has already written the
+    /// markers; these are the paths carrying them.
+    Clash(Vec<std::path::PathBuf>),
 }
 
 /// Finish a fold whose carry clashed, once the user has resolved it.
@@ -267,20 +218,25 @@ pub(super) fn continue_carry(
     lifted: &LiftedRow,
     state: &ConflictState,
 ) -> Result<RebaseOutcome> {
-    let mut index = repo.inner.index().context("failed to open index")?;
-    index.read(true).context("failed to refresh index")?;
-    if index.has_conflicts() {
+    // The clash is a conflicted stash reapply, so settling it is the auto-stash's
+    // own continue: it stages what the user resolved, and drops the stash once
+    // nothing is left unmerged. Going through it is what stops the entry being
+    // left behind — the fold has no second cleanup path to forget.
+    if let crate::repo::AutostashContinue::StillUnresolved { files } = repo.continue_autostash()? {
         // Journaled as well as returned: the chain path gets this from the
         // `journaled` wrapper, which a carry does not go through, and a crash
         // here should recover the dialog the user is looking at.
         let unresolved = ConflictState {
-            conflicting_files: super::conflict::collect_conflict_files_from_index(&index),
+            conflicting_files: files,
             still_unresolved: true,
             ..state.clone()
         };
         journal::set_in_progress(repo, &InProgress::Conflict(Box::new(unresolved.clone())))?;
         return Ok(RebaseOutcome::Conflict(Box::new(unresolved)));
     }
+
+    let mut index = repo.inner.index().context("failed to open index")?;
+    index.read(true).context("failed to refresh index")?;
     let worktree_tree = index
         .write_tree()
         .context("failed to write the resolved working tree")?;
@@ -312,38 +268,6 @@ pub(super) fn continue_carry(
     journal::set_worktree_source(repo, None)?;
     journal::clear_in_progress(repo)?;
     Ok(RebaseOutcome::Complete)
-}
-
-/// The recorded working tree carried onto `tip_tree`.
-///
-/// Identical to the recorded tree whenever the squash committed what it was
-/// given, which is every run that did not stop at a conflict. When the merge
-/// itself conflicts the user resolved the fold into something the other row
-/// cannot sit on, and that is theirs to settle: the merge comes back for
-/// [`write_clash`] rather than being quietly dropped in favour of content that
-/// would revert half the resolution.
-fn carry_onto(repo: &mut Git2Repo, snapshot: &LiftedRow, tip_tree: git2::Oid) -> Result<Carried> {
-    let recorded = git2::Oid::from(&snapshot.worktree_tree);
-    let base = git2::Oid::from(&snapshot.source_tree);
-    if tip_tree == base {
-        return Ok(Carried::Tree(recorded));
-    }
-    let mut merged = repo.inner.merge_trees(
-        &repo.inner.find_tree(base)?,
-        &repo.inner.find_tree(tip_tree)?,
-        &repo.inner.find_tree(recorded)?,
-        None,
-    )?;
-    if merged.has_conflicts() {
-        return Ok(Carried::Clash(merged));
-    }
-    Ok(Carried::Tree(merged.write_tree_to(&repo.inner)?))
-}
-
-/// The result of carrying the other row's changes onto the new tip.
-enum Carried {
-    Tree(git2::Oid),
-    Clash(git2::Index),
 }
 
 /// The index tree and the working tree (tracked paths only) as tree objects.
@@ -456,6 +380,9 @@ fn unstaged_only_tree(
 /// [`super::Git2Repo::rescue_lifted_row`] for the contract.
 pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<String>> {
     if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
+        // Nothing uncommitted to keep, so nothing was set aside either — but
+        // discard on the way out regardless, so no path leaves a stash behind.
+        repo.discard_work_aside()?;
         return Ok(None);
     }
     let name = journal::rescue_ref(&lifted.worktree_tree);
@@ -467,6 +394,16 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
             "git-tailor: kept the working tree of a discarded fold",
         )
         .context("failed to keep the recorded working tree")?;
+
+    // Only once the tree is under a ref: the recorded tree holds both rows, so
+    // it already contains everything the stash does, and until it is reachable
+    // the stash is the only copy of half of it.
+    //
+    // Dropping it is the point. `discard_in_flight` spares the auto-stash
+    // record, and startup reapplies a leftover one — which for a fold nobody is
+    // finishing means pasting it onto a branch that has moved away from the
+    // temporary commit it was based on.
+    repo.discard_work_aside()?;
     Ok(Some(name))
 }
 

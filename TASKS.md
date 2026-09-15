@@ -76,6 +76,112 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
+- [ ] T242 P1 fix - Make the journal durable: `write_doc`
+  (`src/repo/git2_impl/journal.rs`) renames a temp file into place, which is
+  atomic, but nothing is fsynced — not the temp file before the rename, not the
+  containing directory after it. A power cut or kernel panic between the journal
+  write and the ref move can leave the two disagreeing: a journal naming an
+  operation the refs do not reflect, or refs that moved with no record saying
+  what to undo. **The one open item that can still lose work** — everything the
+  journal protects (undo/redo, the in-progress record that recovers a paused
+  conflict, the auto-stash record naming a stash) depends on it being on disk
+  when the process dies.
+  Note which failure is worse. A journal that is **corrupt but present** comes
+  back as `JournalStatus::Corrupt` and tells the user. A journal that is
+  **missing** comes back from `load_doc` as `JournalDoc::default()` — "nothing
+  was in progress" — so the refs have moved and nothing records what to undo.
+  The silent one is the one to design for.
+  Scope, in portability order:
+  * `sync_all()` on the temp file before the rename. Portable — `fsync` on Unix,
+    `FlushFileBuffers` on Windows — and it is what stops a half-written journal
+    becoming visible.
+  * fsync the containing directory after the rename, under `#[cfg(unix)]`. This
+    is what makes the rename itself durable, and it has no portable form: a
+    directory cannot be opened by `std::fs::File::open` on Windows at all
+    (`CreateFile` needs `FILE_FLAG_BACKUP_SEMANTICS`, which std does not set).
+  * Decide `F_FULLFSYNC` on macOS deliberately rather than by accident: plain
+    `fsync` there does not flush the drive's own cache, so `sync_all()` means
+    something weaker on macOS than on Linux.
+  * Do **not** add a `windows-sys` dependency for `MOVEFILE_WRITE_THROUGH` (the
+    Windows equivalent of the directory fsync, which `std::fs::rename` does not
+    expose) on spec. Record the gap and revisit only with evidence.
+  **Handle the Windows rename failure as part of this task**, not as a
+  follow-up. `std::fs::rename` over an existing file fails on Windows when
+  anything holds a handle to the destination, and antivirus and the search
+  indexer take transient handles constantly. This is far more likely in practice
+  than power loss, and nobody will report it — it surfaces as an occasional
+  "failed to finalize journal" that looks like a fluke. The session lock keeps
+  another git-tailor out; it does nothing about a scanner.
+  Retry the rename with a short backoff, `#[cfg(windows)]`. Match on
+  `raw_os_error()` — `ERROR_ACCESS_DENIED` (5) and `ERROR_SHARING_VIOLATION`
+  (32) — rather than on `io::ErrorKind`, which does not distinguish these
+  reliably across Rust versions. Cap the total wait low enough that a genuine
+  permission error still fails promptly rather than hanging the TUI.
+  **Measure the fsync cost first** — it sits on the path of every operation, and
+  a sync per write may be noticeable on spinning disks or a network filesystem.
+  If so, restrict it to the writes that immediately precede a ref move.
+  Testing is the hard part and is honest to state: a crash between two writes is
+  not reachable in-process. The `#[cfg(windows)]` retry will at least be
+  compiled, linted and run now that CI covers all three targets (T247), which it
+  would not have been before — but CI cannot manufacture a scanner holding a
+  handle, so the retry's own behavior needs the helper exercised with an
+  injected error. The rest is an audit that every write preceding a ref move is
+  synced, recorded in the commit message.
+- [ ] T243 P2 fix - Decide whether the dirty-state guard should know about
+  *parked* work. `check_no_dirty_state` (`src/repo/git2_impl.rs`) refuses a
+  rewrite when the tree has staged or unstaged changes. It no longer exempts a
+  fold in flight — that was `covers_working_tree`, removed once the fold began
+  setting the other row aside in the stash, because the tree a lift leaves is
+  then genuinely clean.
+  But "clean" has become ambiguous: it can mean nothing is uncommitted, or that
+  the uncommitted work is parked in a stash nobody is finishing. Clear the
+  journal mid-fold (`--clean-journal`, or startup discarding a stale record) and
+  the branch is left on a temporary commit with a stash still recorded, and a
+  rewrite proceeds over it. Nothing is lost — `discard_in_flight` deliberately
+  spares the auto-stash record — but the rewrite runs on a history containing a
+  synthetic commit the user never made.
+  The same shape has always been true for `--autostash`.
+  The naive fix (refuse whenever an auto-stash record exists) breaks
+  `--autostash` outright, because its flow is save-then-operate and the guard
+  would fire on its own stash. A correct version needs a notion of *which
+  operation owns the parked work* — which is what `covers_working_tree` supplied
+  for the fold before it was deleted.
+  Decide first whether this deserves a mechanism at all: the parked work is
+  recorded and recoverable either way, so this is about not surprising the user
+  rather than about losing anything.
+- [ ] T244 P2 idea - Decide whether `--autostash` should invert to an opt-out
+  `--strict` (Flags: HUMAN INPUT). The question that prompted the whole
+  uncommitted-work-safety round, still unanswered. Squash/fixup on the Staged
+  and Unstaged rows works on a dirty tree with no flag, while every other
+  history rewrite refuses unless `--autostash` is passed.
+  It is a cleaner decision than when it was first raised: both paths now park
+  work the same way — a stash, tracked changes only, untracked files left where
+  the user put them — so this is a choice about one behavior rather than a
+  reconciliation of two. A product decision about defaults, not a mechanical
+  one, which is why it carries HUMAN INPUT.
+- [ ] T245 P3 bug - Work out what grafts and `refs/replace` do to the
+  rewrite engine. 3.1.0 fixed a shallow clone's graft boundary being mistaken
+  for a true root — rewriting it built a parentless commit and cut the branch
+  off from everything upstream, and pushed, it would truncate shared history.
+  Grafts (`.git/info/grafts`) and `refs/replace` have the same shape: a commit
+  whose parentage is not what the object says. But `is_shallow()` does not
+  report them, and libgit2's replace handling differs from git's own.
+  Deliberately not chased at the time, because a guard written without
+  understanding that difference would be guessing.
+  Scope: first establish what libgit2 actually does — does `parent_ids()` follow
+  a replacement? — then decide whether a guard is warranted and what it refuses.
+  The answer may be that nothing is needed, which is a fine outcome to record.
+- [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
+  The default range is HEAD back to the merge-base with the upstream default
+  branch, auto-detected via `origin/HEAD` and falling back to `main` when that
+  ref is not set. A missing or wrong `origin/HEAD` makes the visible range
+  wrong, so an operation can span more history than the user believes it does.
+  Not a mechanical bug — the code does what it documents — but a "what does the
+  user think they are operating on" question, which is the kind that makes a
+  correct rewrite feel like a destructive one.
+  Scope: decide whether the chosen base and how it was found belong on screen,
+  and whether an unresolvable `origin/HEAD` should be surfaced rather than
+  silently falling back to `main`.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

@@ -107,16 +107,90 @@ impl Git2Repo {
         Ok(())
     }
 
+    /// Put work set aside back at `base`, the commit it was taken on, and drop
+    /// it. Cannot conflict: applying a stash onto its own base is a no-op merge.
+    ///
+    /// The abort half of [`Self::set_work_aside`], for a caller that will move
+    /// the branch itself afterwards — the fold rewinds past `base` to the tip it
+    /// started from, which [`Self::abort_autostash`] has no reason to do.
+    pub(super) fn abort_work_aside(&mut self, base: &Oid) -> Result<()> {
+        // Read before the reset, but the reset happens either way: a row whose
+        // counterpart was clean leaves nothing to set aside, and the working
+        // tree still has to come back to `base` from wherever the operation
+        // checked it out to.
+        let record = journal::autostash(self)?;
+
+        // Scoped so the commit's borrow ends before the stash mutations below.
+        {
+            let base_oid = git2::Oid::from(base);
+            let base_commit = self.inner.find_commit(base_oid)?;
+
+            // The reset writes the whole of `base`'s tree out, reintroducing
+            // every path currently missing from disk — checked before anything
+            // moves, exactly as `abort_autostash` does.
+            let base_tree = base_commit
+                .tree()
+                .context("failed to read the tree being restored")?
+                .id();
+            self.refuse_tree_collisions(base_tree)?;
+
+            self.inner
+                .reset(base_commit.as_object(), git2::ResetType::Hard, None)?;
+        }
+
+        let Some(record) = record else {
+            self.inner.index()?.read(true)?;
+            return Ok(());
+        };
+
+        let git_oid = git2::Oid::from(&record.stash);
+        if let Some(index) = self.stash_index_of(git_oid)? {
+            let mut opts = StashApplyOptions::new();
+            opts.reinstantiate_index();
+            self.inner
+                .stash_apply(index, Some(&mut opts))
+                .context("failed to put the working-tree changes back")?;
+            if let Some(index) = self.stash_index_of(git_oid)? {
+                self.inner.stash_drop(index)?;
+            }
+        }
+        self.inner.index()?.read(true)?;
+        journal::set_autostash(self, None)
+    }
+
+    /// Drop work set aside without putting it back, and forget the record.
+    ///
+    /// For an operation being abandoned rather than finished or unwound, where
+    /// the content has already been preserved somewhere else. Nothing else may
+    /// use this: a stash dropped without a copy elsewhere is work destroyed.
+    pub(super) fn discard_work_aside(&mut self) -> Result<()> {
+        let Some(record) = journal::autostash(self)? else {
+            return Ok(());
+        };
+        if let Some(index) = self.stash_index_of(git2::Oid::from(&record.stash))? {
+            self.inner
+                .stash_drop(index)
+                .context("failed to drop the set-aside changes")?;
+        }
+        journal::set_autostash(self, None)
+    }
+
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
     /// split. Returns [`AutostashRestore::Done`] when nothing is recorded or it
     /// reapplies cleanly.
     ///
-    /// `libgit2`'s `stash_apply` does not report a content conflict as an error
-    /// — it returns `Ok` after writing conflict markers into the working tree and
-    /// leaving unmerged entries in the index — so the conflict is detected
-    /// explicitly via the index. On conflict the stash is **kept** and the
-    /// journal record is flagged `applied_with_conflict`, so the user's changes
-    /// are never lost and startup recovery does not reapply it a second time.
+    /// A content clash is detected through the index rather than the return
+    /// value: `stash_apply` writes conflict markers and leaves unmerged entries
+    /// behind, reporting either `Ok` or `Conflict` depending on whether the
+    /// staged/unstaged split could be reinstantiated. On conflict the stash is
+    /// **kept** and the journal record is flagged `applied_with_conflict`, so the
+    /// user's changes are never lost and startup recovery does not reapply it a
+    /// second time.
+    ///
+    /// A path an untracked file occupies is refused first. It raises the same
+    /// `Conflict` code as a content clash but has nothing to resolve: the
+    /// checkout cannot land at all, so the fallback below would retry something
+    /// that cannot succeed and report it as a generic failure.
     pub(super) fn restore_autostash(&mut self) -> Result<AutostashRestore> {
         let Some(record) = journal::autostash(self)? else {
             return Ok(AutostashRestore::Done);
@@ -137,6 +211,15 @@ impl Git2Repo {
                 record.stash.short()
             )
         })?;
+
+        // The stash holds what was tracked when it was taken, which includes
+        // paths that exist in no commit. Nothing else puts those back on disk,
+        // so an untracked file can be sitting on one by the time the reapply
+        // runs. Checked before the apply, where the stash is still intact and
+        // the user can clear the path and retry.
+        let stash_tree = self.commit_tree_id(git_oid)?;
+        let current_tree = self.commit_tree_id(git2::Oid::from(&reads::head_oid(self)?))?;
+        self.refuse_untracked_collisions(current_tree, stash_tree)?;
 
         // `reinstantiate_index` asks libgit2 to restore the staged/unstaged
         // split as well as the contents. It cannot do both when the reapply
