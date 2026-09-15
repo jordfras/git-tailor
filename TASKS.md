@@ -121,10 +121,12 @@ Guidelines:
   a sync per write may be noticeable on spinning disks or a network filesystem.
   If so, restrict it to the writes that immediately precede a ref move.
   Testing is the hard part and is honest to state: a crash between two writes is
-  not reachable in-process, and the Windows path cannot be exercised by CI at
-  all while `rust.yml` runs only on `ubuntu-latest` (see T247). What is testable
-  is the retry helper itself, given an injected error. The rest is an audit that
-  every write preceding a ref move is synced, recorded in the commit message.
+  not reachable in-process. The `#[cfg(windows)]` retry will at least be
+  compiled, linted and run now that CI covers all three targets (T247), which it
+  would not have been before — but CI cannot manufacture a scanner holding a
+  handle, so the retry's own behavior needs the helper exercised with an
+  injected error. The rest is an audit that every write preceding a ref move is
+  synced, recorded in the commit message.
 - [ ] T243 P2 fix - Decide whether the dirty-state guard should know about
   *parked* work. `check_no_dirty_state` (`src/repo/git2_impl.rs`) refuses a
   rewrite when the tree has staged or unstaged changes. It no longer exempts a
@@ -182,31 +184,6 @@ Guidelines:
   silently falling back to `main`.
 
 ## Build & CI
-- [ ] T247 P2 fix - Run the test suite on Windows and macOS in CI.
-  `.github/workflows/rust.yml` is a single job on `ubuntu-latest`, while
-  `release.yml` ships `x86_64-pc-windows-msvc` and `universal-apple-darwin`.
-  So two of the three released binaries are *built* on their own runners but
-  have never had a test executed on them — and the things that differ between
-  these platforms are exactly what git-tailor leans on: path handling
-  (non-UTF-8 paths are handled deliberately, and Windows paths are UTF-16),
-  file locking (`File::try_lock` for the session lock, which is what sets the
-  MSRV), rename-over-existing semantics, and `fsync` meaning three different
-  things across the three targets.
-  Concretely: give the `build` job a matrix over `ubuntu-latest`,
-  `windows-latest` and `macos-14`, keeping fmt/clippy/cargo-deny on Linux only
-  (they are platform-independent and would just triple the runtime) and running
-  build + test everywhere.
-  Expect failures on the first run rather than a clean pass — 887 tests written
-  and only ever run on Linux, against a tempdir-and-real-git fixture suite, will
-  turn up path and permission assumptions. Budget for fixing those, and treat a
-  red first run as the task working rather than as a reason to abandon it.
-  Blocks verifying the Windows half of T242: the rename retry there is a
-  `#[cfg(windows)]` path that nothing currently compiles, let alone exercises.
-  **In progress.** The workflow is written (`ci: Run the test suite on Windows
-  and macOS too`) and two fixtures that would not have compiled on Windows are
-  gated. What remains is the part no one can do locally: push, read the first
-  Windows and macOS runs, and fix what they turn up. Not done until all three
-  legs are green.
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
   automatically on each `v*` tag, so `brew install` works for people without a
   Rust toolchain. Create `jordfras/homebrew-tap` (the `homebrew-` prefix is what
