@@ -431,7 +431,14 @@ fn a_discarded_record_keeps_the_working_tree_it_recorded() {
         "and hold the edit that was about to be discarded"
     );
 
-    git_repo.restore_lifted_row(&lifted).unwrap();
+    // Rescuing and unwinding are alternatives, not a sequence: `recovery.rs`
+    // rescues precisely because the branch moved and unwinding is unsafe, then
+    // clears the journal. Unwinding afterwards would reset the working tree
+    // without the row the rescue just took into safekeeping, so it is refused.
+    assert!(
+        git_repo.restore_lifted_row(&lifted).is_err(),
+        "unwinding after a rescue must not drop the rescued row"
+    );
 }
 
 /// Abandoning a fold must take its stash with it: `discard_in_flight` spares
