@@ -636,14 +636,10 @@ fn discarding_the_journal_discards_the_snapshot() {
         "a cleared journal must not still offer the snapshot for recovery"
     );
 
-    // The snapshot is gone, but the work it used to describe is not: clearing
-    // the journal deliberately leaves the auto-stash record alone, so what the
-    // lift set aside is still in `git stash list` and still recorded.
-    //
-    // The guard on uncommitted changes no longer has anything to fire on — the
-    // working tree really is clean — so a rewrite proceeds. That is the point:
-    // there is no on-disk dirt left to protect, and the protection moved into
-    // the stash rather than disappearing.
+    // Clearing the journal leaves the auto-stash record alone, so what the lift
+    // set aside is still recorded. The guard has nothing to fire on — the tree
+    // really is clean — so the rewrite proceeds, and the work is protected by
+    // the stash rather than by refusing.
     assert_eq!(
         stash_count(test.repo.path()),
         1,
