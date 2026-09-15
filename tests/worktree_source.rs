@@ -20,7 +20,7 @@
 mod common;
 
 use common::prelude::*;
-use git_tailor::repo::WorktreeSource;
+use git_tailor::repo::{AutostashRestore, WorktreeSource};
 
 /// Paths touched by one of the synthetic working-tree rows.
 fn row_paths(diff: Option<git_tailor::CommitDiff>) -> Vec<String> {
@@ -575,6 +575,58 @@ fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
         1,
         "and must leave it parked for whoever did"
     );
+}
+
+/// Startup reapplies a leftover auto-stash — work parked by an operation that
+/// finished without putting it back. A fold's leftover is not that, and must be
+/// left for the fold to settle.
+///
+/// The damage if it is not: the reapply opens the stash dialog, whose abort
+/// hard-resets to the record's `pre_op_tip`. For a fold that tip is the *temporary
+/// commit*, because `lift` parks the leftover after moving the branch onto it —
+/// so aborting rewinds the branch onto a synthetic commit and takes any real
+/// commits made since with it.
+#[test]
+fn the_leftover_autostash_restore_leaves_a_folds_work_alone() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the fold parked the unstaged row"
+    );
+
+    // What startup runs once it has dealt with (or discarded) the journal.
+    let restored = git_repo.autostash_restore().unwrap();
+
+    assert!(
+        matches!(restored, AutostashRestore::Done),
+        "a fold's leftover is not a leftover auto-stash, got {restored:?}"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and must still be parked for the fold to settle"
+    );
+    assert_eq!(
+        workdir(&test, "b.txt"),
+        "b1\n",
+        "nothing should have been put back into the working tree"
+    );
+
+    // The fold can still finish normally afterwards.
+    git_repo.restore_lifted_row(&lifted).unwrap();
+    assert_eq!(workdir(&test, "b.txt"), "UNSTAGED\n");
+    assert_eq!(stash_count(test.repo.path()), 0);
 }
 
 /// Nothing to keep when the record's working tree is what HEAD already holds:
