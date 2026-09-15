@@ -300,6 +300,16 @@ pub(super) struct AutostashRecord {
     /// Branch the stash was taken on. An empty name means the record predates
     /// this being tracked, so the check it enables stands aside.
     pub branch_refname: String,
+    /// The temporary commit of the fold that set this aside, or `None` when
+    /// `--autostash` did.
+    ///
+    /// There is one slot and two callers with different lifecycles: an
+    /// auto-stash is put back when the operation around it finishes, a fold's
+    /// leftover when that particular fold does. Without this, each consumer acts
+    /// on whatever it finds — a fold reapplies an auto-stash it never took, and
+    /// the stash dialog's abort rewinds to a `pre_op_tip` that is a fold's
+    /// temporary commit rather than a real branch tip.
+    pub fold_temp_oid: Option<Oid>,
 }
 
 /// The full journal document.

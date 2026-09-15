@@ -61,7 +61,7 @@ impl Git2Repo {
         if journal::autostash(self)?.is_some() {
             return Ok(());
         }
-        self.set_work_aside("git-tailor: autostash")
+        self.set_work_aside("git-tailor: autostash", None)
     }
 
     /// Put whatever is uncommitted into a stash and record it, whatever asked
@@ -71,9 +71,19 @@ impl Git2Repo {
     /// stash" and "take one" are two questions. Only auto-stash asks today; the
     /// working-tree fold keeps its own tree objects (see `lift_op`), and
     /// unifying the two onto this is what a later change would do.
-    pub(super) fn set_work_aside(&mut self, message: &str) -> Result<()> {
+    pub(super) fn set_work_aside(&mut self, message: &str, fold: Option<&Oid>) -> Result<()> {
         if !self.is_worktree_dirty()? {
             return Ok(());
+        }
+
+        // One slot, two callers. Displacing a record leaves its stash named by
+        // nothing: no undo, recovery or abort would find that work again.
+        if let Some(existing) = journal::autostash(self)? {
+            anyhow::bail!(
+                "Work is already set aside in stash {} and has not been put back. \
+                 Restore or drop it before running this operation.",
+                existing.stash.short()
+            );
         }
 
         // Without this, `stash_save2` would serialize the stale blob for a
@@ -102,6 +112,7 @@ impl Git2Repo {
                 pre_op_tip,
                 applied_with_conflict: false,
                 branch_refname,
+                fold_temp_oid: fold.cloned(),
             }),
         )?;
         Ok(())
@@ -138,7 +149,9 @@ impl Git2Repo {
                 .reset(base_commit.as_object(), git2::ResetType::Hard, None)?;
         }
 
-        let Some(record) = record else {
+        // Reset regardless of who owns the slot — the working tree has to come
+        // back either way — but put back only what this fold parked.
+        let Some(record) = record.filter(|r| r.fold_temp_oid.as_ref() == Some(base)) else {
             self.inner.index()?.read(true)?;
             return Ok(());
         };
@@ -163,8 +176,10 @@ impl Git2Repo {
     /// For an operation being abandoned rather than finished or unwound, where
     /// the content has already been preserved somewhere else. Nothing else may
     /// use this: a stash dropped without a copy elsewhere is work destroyed.
-    pub(super) fn discard_work_aside(&mut self) -> Result<()> {
-        let Some(record) = journal::autostash(self)? else {
+    pub(super) fn discard_work_aside(&mut self, fold: &Oid) -> Result<()> {
+        let Some(record) =
+            journal::autostash(self)?.filter(|r| r.fold_temp_oid.as_ref() == Some(fold))
+        else {
             return Ok(());
         };
         if let Some(index) = self.stash_index_of(git2::Oid::from(&record.stash))? {
@@ -173,6 +188,11 @@ impl Git2Repo {
                 .context("failed to drop the set-aside changes")?;
         }
         journal::set_autostash(self, None)
+    }
+
+    /// Whether the work in the slot was set aside by the fold on `temp_oid`.
+    pub(super) fn work_aside_is_fold(&mut self, temp_oid: &Oid) -> Result<bool> {
+        Ok(journal::autostash(self)?.is_some_and(|r| r.fold_temp_oid.as_ref() == Some(temp_oid)))
     }
 
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged

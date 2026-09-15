@@ -159,7 +159,7 @@ impl Git2Repo {
         snapshot: &super::LiftedRow,
     ) -> Result<Option<super::ConflictState>> {
         let tip_after = reads::head_oid(self)?;
-        let index_tree_after = match lift_op::finish(self, snapshot, &tip_after)? {
+        let index_tree_after = match lift_op::finish(self, snapshot)? {
             lift_op::Settled::Done(index_tree) => index_tree,
             lift_op::Settled::Clash(files) => {
                 let state = super::ConflictState {
