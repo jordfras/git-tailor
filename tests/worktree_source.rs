@@ -686,6 +686,58 @@ fn unwinding_a_fold_refuses_after_head_moved_to_another_branch() {
     );
 }
 
+/// Unwinding a fold puts the parked row back, which writes every path that row
+/// holds — including one that exists in no commit. If an untracked file is
+/// sitting there, say so by name, and before anything moves.
+///
+/// Checking the temporary commit's tree cannot see this: by construction that
+/// tree is the fold's own row, and a newly staged file belongs to the other one.
+#[test]
+fn unwinding_a_fold_names_an_untracked_file_in_the_parked_rows_way() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "base");
+
+    // Staged: a file in no commit, so only the reapply puts it back on disk.
+    test.write_file("new.txt", "from the fold\n");
+    test.stage_file("new.txt");
+    // Unstaged: what the fold takes, leaving the staged file as the leftover.
+    test.write_file("a.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Unstaged)
+        .unwrap()
+        .expect("the unstaged row has changes");
+    assert!(
+        !test.repo.workdir().unwrap().join("new.txt").exists(),
+        "the lift parked the staged file"
+    );
+    let head_before = git_repo.head_oid().unwrap();
+
+    // The user writes their own file at that path while the fold is paused.
+    test.write_file("new.txt", "my own scratch\n");
+
+    let err = git_repo
+        .restore_lifted_row(&lifted)
+        .expect_err("a path an untracked file occupies must be refused");
+    let message = format!("{err:#}");
+
+    assert!(
+        message.contains("new.txt"),
+        "the refusal must name the file in the way, got: {message}"
+    );
+    assert_eq!(
+        workdir(&test, "new.txt"),
+        "my own scratch\n",
+        "and must not have overwritten it"
+    );
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_before,
+        "a refusal must land before anything moves, leaving the fold re-abortable"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
