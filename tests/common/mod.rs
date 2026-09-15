@@ -397,14 +397,9 @@ impl TuiTestHarness {
 /// a valid UTF-8 lead or continuation byte. `prefix` and `suffix` bracket it
 /// so callers can still give the fixture a readable, distinct name.
 ///
-/// Not `#[cfg(unix)]`, because macOS is Unix and cannot hold one of these: APFS
-/// and HFS+ enforce UTF-8 in filenames, so creating the file fails outright with
-/// `EILSEQ` rather than the test finding out anything. The axis that matters is
-/// whether the filesystem takes arbitrary bytes, which Linux and the BSDs do and
-/// macOS does not — and neither does NTFS, whose names are UTF-16.
-///
-/// Everything that only *constructs* such a path in memory stays `#[cfg(unix)]`:
-/// `OsStr::from_bytes` is fine on macOS, it is touching the disk that is not.
+/// Gated on the filesystem taking arbitrary bytes in a name rather than on Unix:
+/// APFS and HFS+ enforce UTF-8, so macOS cannot create one. Building such a path
+/// in memory works everywhere, and stays `#[cfg(unix)]`.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn non_utf8_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
     use std::os::unix::ffi::OsStrExt;
