@@ -400,7 +400,6 @@ fn autostash_conflict_continue_stays_when_unresolved() {
 /// Same shape as [`setup_restore_conflict`], but the conflicting file's name
 /// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
 /// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
-#[cfg(unix)]
 #[cfg(all(unix, not(target_os = "macos")))]
 fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Path) -> git2::Oid {
     test.write_file(path, "AAAA\nBBBB\nCCCC\n");
