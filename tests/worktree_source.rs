@@ -639,6 +639,53 @@ fn the_leftover_autostash_restore_leaves_a_folds_work_alone() {
     assert_eq!(stash_count(test.repo.path()), 0);
 }
 
+/// HEAD moved to another branch while a fold was in flight. Unwinding it
+/// hard-resets whatever HEAD resolves to now, so it has to still be the branch
+/// the fold started on.
+///
+/// The tip check `restore_lifted_row` already makes cannot see this: a branch
+/// created while sitting on the temporary commit points at exactly the commit
+/// the snapshot names, so it passes, and the rewind lands on the wrong branch
+/// while the real one is left on the temporary commit.
+#[test]
+fn unwinding_a_fold_refuses_after_head_moved_to_another_branch() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+
+    // A branch made while sitting on the temporary commit: same tip, different
+    // branch, which is exactly what the tip check cannot tell apart.
+    let temp = test
+        .repo
+        .find_commit(git2::Oid::from(&lifted.temp_oid))
+        .unwrap();
+    test.repo.branch("side", &temp, false).unwrap();
+    test.repo.set_head("refs/heads/side").unwrap();
+
+    let result = git_repo.restore_lifted_row(&lifted);
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    let side_after = test
+        .repo
+        .find_branch("side", git2::BranchType::Local)
+        .unwrap()
+        .get()
+        .target();
+    assert_eq!(
+        side_after,
+        Some(git2::Oid::from(&lifted.temp_oid)),
+        "the unrelated branch must not have been rewound"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
