@@ -119,7 +119,9 @@ impl Git2Repo {
     }
 
     /// Put work set aside back at `base`, the commit it was taken on, and drop
-    /// it. Cannot conflict: applying a stash onto its own base is a no-op merge.
+    /// it. The merge cannot conflict — a stash applied onto its own base is a
+    /// no-op — but an untracked file sitting on one of its paths can still be in
+    /// the way, which is refused by name before anything moves.
     ///
     /// The abort half of [`Self::set_work_aside`], for a caller that will move
     /// the branch itself afterwards — the fold rewinds past `base` to the tip it
@@ -139,27 +141,29 @@ impl Git2Repo {
             self.refuse_if_branch_switched(&record.branch_refname)?;
         }
 
+        let mine = record.filter(|r| r.fold_temp_oid.as_ref() == Some(base));
+
+        let base_oid = git2::Oid::from(base);
+        let base_tree = self.commit_tree_id(base_oid)?;
+
+        // Both writes checked before either happens, so a refusal leaves the fold
+        // re-abortable rather than half-unwound. The reapply needs its own check:
+        // a file the parked row newly staged is in no commit at all, so `base`'s
+        // tree cannot account for it.
+        self.refuse_tree_collisions(base_tree)?;
+        if let Some(record) = &mine {
+            let stash_tree = self.commit_tree_id(git2::Oid::from(&record.stash))?;
+            self.refuse_untracked_collisions(base_tree, stash_tree)?;
+        }
+
         // Scoped so the commit's borrow ends before the stash mutations below.
         {
-            let base_oid = git2::Oid::from(base);
             let base_commit = self.inner.find_commit(base_oid)?;
-
-            // The reset writes the whole of `base`'s tree out, reintroducing
-            // every path currently missing from disk — checked before anything
-            // moves, exactly as `abort_autostash` does.
-            let base_tree = base_commit
-                .tree()
-                .context("failed to read the tree being restored")?
-                .id();
-            self.refuse_tree_collisions(base_tree)?;
-
             self.inner
                 .reset(base_commit.as_object(), git2::ResetType::Hard, None)?;
         }
 
-        // Reset regardless of who owns the slot — the working tree has to come
-        // back either way — but put back only what this fold parked.
-        let Some(record) = record.filter(|r| r.fold_temp_oid.as_ref() == Some(base)) else {
+        let Some(record) = mine else {
             self.inner.index()?.read(true)?;
             return Ok(());
         };
