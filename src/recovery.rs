@@ -170,9 +170,12 @@ fn discard_stale(
         None => Ok(None),
     };
     match rescued {
+        // Deliberately vague about which step failed: the ref may well have been
+        // written before the failure, and claiming otherwise would send the user
+        // looking for work that is actually safe.
         Err(e) => app.set_error_message(format!(
-            "A stale interrupted-operation journal (branch has moved) is being kept: \
-             the working tree it recorded could not be kept under a ref: {e:#}"
+            "A stale interrupted-operation journal (branch has moved) is being kept \
+             because preserving the fold it recorded failed: {e:#}"
         )),
         Ok(kept) => {
             let _ = git_repo.clear_journal();
@@ -357,7 +360,7 @@ mod tests {
         );
         let message = app.status.message.as_deref().unwrap_or_default();
         assert!(
-            message.contains("could not be kept"),
+            message.contains("is being kept") && message.contains("failed"),
             "the failure must be reported, got: {message}"
         );
     }
@@ -407,7 +410,7 @@ mod tests {
         );
         let message = app.status.message.as_deref().unwrap_or_default();
         assert!(
-            message.contains("could not be kept") || message.contains("failed"),
+            message.contains("is being kept") && message.contains("failed"),
             "the failure must be reported, got: {message}"
         );
     }

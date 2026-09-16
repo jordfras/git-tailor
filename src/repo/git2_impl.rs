@@ -128,8 +128,27 @@ impl Git2Repo {
                             // nowhere to land: that is a conflict of its own,
                             // and the operation is not complete until it is
                             // resolved.
-                            if let Some(state) = self.finish_worktree_source(label, &snapshot)? {
-                                return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                            match self.finish_worktree_source(label, &snapshot) {
+                                Ok(Some(state)) => {
+                                    return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                                }
+                                Ok(None) => {}
+                                // The branch has already moved. Propagating bare
+                                // would report a landed rewrite as a failure, with
+                                // no undo entry and no reload — so record the move
+                                // first, then say which half failed.
+                                Err(e) => {
+                                    // Not `record_undo_if_changed`: `tip_before`
+                                    // here is the temporary commit the fold made,
+                                    // so undoing to it would leave the branch on a
+                                    // synthetic commit. The fold's own snapshot
+                                    // names where the user actually started.
+                                    self.record_failed_fold_undo(label, &snapshot)?;
+                                    return Err(e).context(
+                                        "the rewrite landed, but putting your other \
+                                         uncommitted changes back failed",
+                                    );
+                                }
                             }
                         }
                         _ => self.record_undo_if_changed(label, tip_before)?,
@@ -138,6 +157,31 @@ impl Git2Repo {
             }
         }
         outcome
+    }
+
+    /// Record the undo entry for a fold whose carry-back failed.
+    ///
+    /// The rewrite has landed, so it has to be undoable — reporting a failure
+    /// and recording nothing would leave the user with history they cannot get
+    /// back from. The index tree is read as it stands rather than as the carry
+    /// intended, because that is what undo would be putting back.
+    fn record_failed_fold_undo(&mut self, label: &str, snapshot: &super::LiftedRow) -> Result<()> {
+        let tip_after = reads::head_oid(self)?;
+        let index_tree_after = {
+            let mut index = self.inner.index().context("failed to open index")?;
+            index.read(true).context("failed to refresh index")?;
+            Oid::from(index.write_tree().context("failed to write index tree")?)
+        };
+        journal::record_mixed_undo(
+            self,
+            label,
+            journal::MixedUndo {
+                tip_before: &snapshot.tip_before,
+                tip_after: &tip_after,
+                index_tree_before: &snapshot.index_tree_before,
+                index_tree_after: &index_tree_after,
+            },
+        )
     }
 
     /// Complete a squash whose source was a working-tree row: put the other
