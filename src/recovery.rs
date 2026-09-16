@@ -326,6 +326,56 @@ mod tests {
         );
     }
 
+    /// A fold that conflicts during the squash carries `Resume::Squash`, not
+    /// `Resume::CarryRow` — the snapshot is still in the journal alongside it.
+    /// Keying the rescue off the resume variant misses those, which is most of
+    /// them.
+    #[test]
+    fn a_discarded_conflict_keeps_its_folds_work_whatever_the_resume_kind() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(make_conflict_state()))),
+            recorded_lifted: Some(mock_lifted_row()),
+            rescued_ref: Some("refs/git-tailor/rescue/eeeeeeee".to_string()),
+            ..Default::default()
+        };
+
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some(
+                "Discarded a stale interrupted-operation journal (branch has moved); \
+                 the working tree it recorded is kept at refs/git-tailor/rescue/eeeeeeee"
+            ),
+            "a fold behind the conflict must be kept, whatever its resume kind"
+        );
+    }
+
+    /// A rescue that fails must not be reported as nothing to keep, and must not
+    /// be followed by discarding the record that pins the tree.
+    #[test]
+    fn a_failed_rescue_keeps_the_journal_and_says_so() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(make_conflict_state()))),
+            recorded_lifted: Some(mock_lifted_row()),
+            rescue_ok: false,
+            ..Default::default()
+        };
+
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.clear_journal_calls.get(),
+            0,
+            "the record pinning the tree must survive a failed rescue"
+        );
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("could not be kept") || message.contains("failed"),
+            "the failure must be reported, got: {message}"
+        );
+    }
+
     /// An ordinary stale conflict has no fold behind it and nothing to rescue.
     #[test]
     fn a_discarded_plain_conflict_has_no_working_tree_to_keep() {

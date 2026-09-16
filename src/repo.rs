@@ -819,6 +819,15 @@ pub trait RepoWrite {
     /// telling the user where that work went.
     fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<Option<String>>;
 
+    /// The working-tree fold the journal still records, if any — whatever phase
+    /// it has reached.
+    ///
+    /// A fold that conflicts becomes a paused *conflict* record, and the
+    /// snapshot stays alongside it. Reading the snapshot directly is the only
+    /// way to ask "is there a fold behind this?" without enumerating every
+    /// resume variant a fold can produce.
+    fn recorded_lifted_row(&mut self) -> Result<Option<LiftedRow>>;
+
     /// Consolidate an abandoned fold into one object: keep the working tree
     /// `lifted` recorded reachable under a ref, and drop the changes the lift
     /// set aside — for a record about to be discarded because the branch has
