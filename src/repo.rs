@@ -804,7 +804,13 @@ pub trait RepoWrite {
     /// Unwind [`lift_worktree_row`](Self::lift_worktree_row): put the branch,
     /// the index and the working tree back exactly as `lifted` recorded them,
     /// and clear the journal record. Untracked files are left alone.
-    fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
+    ///
+    /// Returns the name of a ref the parked row had to be kept under, when the
+    /// journal no longer named it and the unwind would otherwise have taken it
+    /// off disk. `None` is the ordinary case, where the row went back where it
+    /// came from. Report the name when there is one: it is the only thing
+    /// telling the user where that work went.
+    fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<Option<String>>;
 
     /// Consolidate an abandoned fold into one object: keep the working tree
     /// `lifted` recorded reachable under a ref, and drop the changes the lift

@@ -371,11 +371,14 @@ impl RepoWrite for MockRepo {
             LiftOutcome::Lifted => Ok(Some(mock_lifted_row())),
         }
     }
-    fn restore_lifted_row(&mut self, _: &git_tailor::repo::LiftedRow) -> anyhow::Result<()> {
+    fn restore_lifted_row(
+        &mut self,
+        _: &git_tailor::repo::LiftedRow,
+    ) -> anyhow::Result<Option<String>> {
         self.restore_lifted_calls
             .set(self.restore_lifted_calls.get() + 1);
         if self.restore_lifted_ok {
-            Ok(())
+            Ok(self.rescued_ref.clone())
         } else {
             Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))
         }

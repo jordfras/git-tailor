@@ -431,14 +431,13 @@ fn a_discarded_record_keeps_the_working_tree_it_recorded() {
         "and hold the edit that was about to be discarded"
     );
 
-    // Rescuing and unwinding are alternatives, not a sequence: `recovery.rs`
-    // rescues precisely because the branch moved and unwinding is unsafe, then
-    // clears the journal. Unwinding afterwards would reset the working tree
-    // without the row the rescue just took into safekeeping, so it is refused.
-    assert!(
-        git_repo.restore_lifted_row(&lifted).is_err(),
-        "unwinding after a rescue must not drop the rescued row"
-    );
+    // Unwinding after a rescue no longer has the row in the slot to put back,
+    // so it keeps it under a ref again rather than resetting over it.
+    let kept_again = git_repo
+        .restore_lifted_row(&lifted)
+        .unwrap()
+        .expect("the row must be kept, not silently dropped");
+    assert!(test.repo.find_reference(&kept_again).is_ok());
 }
 
 /// Abandoning a fold must take its stash with it: `discard_in_flight` spares
@@ -740,11 +739,13 @@ fn unwinding_a_fold_names_an_untracked_file_in_the_parked_rows_way() {
 /// it. Unwinding must not then reset the working tree and report success, which
 /// would take that row off disk without a word.
 ///
-/// The snapshot is enough to notice: it records the whole pre-fold working tree,
-/// and that differs from the temporary commit's tree exactly when there was a
-/// leftover to park.
+/// Keeping it under a ref and finishing the unwind beats refusing: refusing
+/// leaves the branch on the temporary commit with no way back, since nothing can
+/// put the record into the slot again. The snapshot is enough to notice — it
+/// records the whole pre-fold working tree, which differs from the temporary
+/// commit's tree exactly when there was a leftover to park.
 #[test]
-fn unwinding_refuses_when_the_parked_row_cannot_be_found() {
+fn unwinding_keeps_a_parked_row_it_cannot_find() {
     let test = common::TestRepo::new();
     test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
     test.write_file("a.txt", "STAGED\n");
@@ -752,6 +753,7 @@ fn unwinding_refuses_when_the_parked_row_cannot_be_found() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
+    let tip_before = git_repo.head_oid().unwrap();
     let lifted = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
@@ -765,24 +767,26 @@ fn unwinding_refuses_when_the_parked_row_cannot_be_found() {
     doc["autostash"] = serde_json::Value::Null;
     std::fs::write(&journal, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
 
-    let head_before = git_repo.head_oid().unwrap();
-    let err = git_repo
+    let kept = git_repo
         .restore_lifted_row(&lifted)
-        .expect_err("work that cannot be found must not be silently dropped");
+        .expect("the unwind must finish rather than strand the branch")
+        .expect("and say where the row it could not find was kept");
 
-    assert!(
-        format!("{err:#}").contains("stash"),
-        "the refusal must point at where the work still is, got: {err:#}"
+    // The name is a real ref, and it holds the row that would otherwise be gone.
+    let reference = test.repo.find_reference(&kept).unwrap();
+    let tree = test.repo.find_tree(reference.target().unwrap()).unwrap();
+    let entry = tree.get_path(std::path::Path::new("b.txt")).unwrap();
+    let blob = test.repo.find_blob(entry.id()).unwrap();
+    assert_eq!(
+        std::str::from_utf8(blob.content()).unwrap(),
+        "UNSTAGED\n",
+        "the kept tree must hold the row the unwind could not put back"
     );
+
     assert_eq!(
         git_repo.head_oid().unwrap(),
-        head_before,
-        "and must leave the fold where it was"
-    );
-    assert_eq!(
-        stash_count(test.repo.path()),
-        1,
-        "the parked row must still be there to recover"
+        tip_before,
+        "and the branch must be off the temporary commit"
     );
 }
 
