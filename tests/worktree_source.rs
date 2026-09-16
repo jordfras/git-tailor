@@ -20,7 +20,7 @@
 mod common;
 
 use common::prelude::*;
-use git_tailor::repo::{AutostashRestore, WorktreeSource};
+use git_tailor::repo::{AutostashRestore, UndoOutcome, WorktreeSource};
 
 /// Paths touched by one of the synthetic working-tree rows.
 fn row_paths(diff: Option<git_tailor::CommitDiff>) -> Vec<String> {
@@ -787,6 +787,91 @@ fn unwinding_restores_a_parked_row_it_cannot_find() {
         tip_before,
         "and the branch off the temporary commit"
     );
+}
+
+/// One fold at a time. The record is the only thing that unwinds one, so a
+/// second lift must not overwrite it — the first fold's branch move and parked
+/// row would be left with nothing to settle them, and the new record's
+/// `tip_before` would be the previous fold's temporary commit, so unwinding
+/// would rewind onto a synthetic commit.
+#[test]
+fn a_second_lift_is_refused_while_a_fold_is_in_progress() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let first = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+
+    test.write_file("b.txt", "MORE\n");
+    let err = git_repo
+        .lift_worktree_row(WorktreeSource::Unstaged)
+        .expect_err("a second fold must be refused while one is in progress");
+    assert!(
+        format!("{err:#}").contains("already in progress"),
+        "got: {err:#}"
+    );
+
+    // The first fold is untouched and still unwinds.
+    assert_eq!(git_repo.head_oid().unwrap(), first.temp_oid);
+    git_repo.restore_lifted_row(&first).unwrap();
+    assert_eq!(git_repo.head_oid().unwrap(), first.tip_before);
+}
+
+/// A carry-back that fails leaves a rewrite that has already landed. Reporting
+/// it as a plain failure loses it: no undo entry is recorded, and the caller
+/// does not reload, so the commit list still shows history the branch has moved
+/// off.
+#[test]
+fn a_failed_carry_back_still_records_the_rewrite_it_landed() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a1\n", "base");
+    let target = test.commit_file("t.txt", "t1\n", "target commit");
+    test.write_file("t.txt", "FOLDED\n");
+    test.stage_file("t.txt");
+    test.write_file("a.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    let tip_before = lifted.tip_before.clone();
+
+    // The stash goes out from under the fold — another terminal, or a linked
+    // worktree clearing it.
+    let mut other = git2::Repository::open(test.repo.workdir().unwrap()).unwrap();
+    let mut found = None;
+    other
+        .stash_foreach(|i, _, _| {
+            found = Some(i);
+            false
+        })
+        .unwrap();
+    other.stash_drop(found.unwrap()).unwrap();
+
+    let err = git_repo
+        .squash_commits(
+            &lifted.temp_oid,
+            &Oid::from(target),
+            b"target commit",
+            &lifted.temp_oid,
+        )
+        .expect_err("the carry-back cannot find its stash");
+    assert!(
+        format!("{err:#}").contains("rewrite landed"),
+        "the failure must say the rewrite stands, got: {err:#}"
+    );
+
+    // And it must be undoable, since it really did happen.
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+    assert_eq!(git_repo.head_oid().unwrap(), tip_before);
+    let _ = base;
 }
 
 /// The stash dialog's abort must refuse a fold's parked work.

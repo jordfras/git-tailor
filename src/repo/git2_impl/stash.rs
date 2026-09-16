@@ -81,10 +81,10 @@ impl Git2Repo {
         // nothing: no undo, recovery or abort would find that work again.
         if let Some(existing) = journal::autostash(self)? {
             anyhow::bail!(
-                "Work is already set aside in stash {} and has not been put back. \
-                 Recover it with `git stash pop`, or drop it with `git stash drop`, \
-                 then try again.",
-                existing.stash.short()
+                "Work is already set aside in stash {0} and has not been put back. \
+                 Recover it with `git stash apply {0}` — `git stash pop` would act \
+                 on whatever is at stash@{{0}}, which may be something else.",
+                existing.stash
             );
         }
 
@@ -302,7 +302,13 @@ impl Git2Repo {
             return Ok(AutostashRestore::Conflict { files });
         }
 
-        self.inner.stash_drop(index)?;
+        // Re-resolved rather than reusing the index from before the apply:
+        // `refs/stash` is repository-wide and the session lock is per working
+        // tree, so a push from a linked worktree shifts every position and the
+        // drop would take someone else's entry.
+        if let Some(index) = self.stash_index_of(git_oid)? {
+            self.inner.stash_drop(index)?;
+        }
         self.inner.index()?.read(true)?;
         journal::set_autostash(self, None)?;
         Ok(AutostashRestore::Done)

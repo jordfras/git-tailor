@@ -95,6 +95,19 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         worktree_tree: Oid::from(worktree_tree),
         temp_oid: Oid::from(temp_oid),
     };
+    // One fold at a time. The record is the only thing that unwinds one, so
+    // overwriting a live record leaves the first fold's branch move and parked
+    // row with nothing to settle them — and the new record's `tip_before` would
+    // be the *previous* fold's temporary commit, so unwinding would rewind onto
+    // a synthetic commit.
+    if let Some(existing) = journal::worktree_source(repo)? {
+        anyhow::bail!(
+            "A working-tree squash is already in progress on {}. Finish or abort \
+             it before starting another.",
+            existing.temp_oid.short()
+        );
+    }
+
     // Write-ahead: the branch is about to move onto the temporary commit, so the
     // record has to be on disk before it does.
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
@@ -427,7 +440,10 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
     // record, and startup reapplies a leftover one — which for a fold nobody is
     // finishing means pasting it onto a branch that has moved away from the
     // temporary commit it was based on.
-    repo.discard_work_aside(&lifted.temp_oid)?;
+    // The ref is already written, so say so: a failure here leaves the tree kept
+    // and only the stash undropped.
+    repo.discard_work_aside(&lifted.temp_oid)
+        .with_context(|| format!("the working tree was kept at {name}, but"))?;
     Ok(Some(name))
 }
 
