@@ -21,7 +21,9 @@
 //! take that work with it.
 
 use git_tailor::app::{AppMode, AppState};
-use git_tailor::repo::{AutostashRestore, GitRepo, InProgress, JournalStatus, StashConflictState};
+use git_tailor::repo::{
+    AutostashRestore, GitRepo, InProgress, JournalStatus, Resume, StashConflictState,
+};
 
 /// On startup, detect an operation a previous run was killed in the middle of
 /// (from the persisted journal) and surface a recovery prompt — or inform the
@@ -111,10 +113,26 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 if head_matches {
                     app.enter_recover_confirm(*state);
                 } else {
+                    // A carry clash is a fold's conflict, and its lift set the
+                    // other row aside. Discarding the journal spares the record
+                    // naming that stash, so keep the tree it came from and drop
+                    // the stash with it — the same pair the fold's own arm does.
+                    let rescued = match &state.resume {
+                        Resume::CarryRow(lifted) => {
+                            git_repo.rescue_lifted_row(lifted).ok().flatten()
+                        }
+                        _ => None,
+                    };
                     let _ = git_repo.clear_journal();
-                    app.set_error_message(
-                        "Discarded a stale interrupted-operation journal (branch has moved)",
-                    );
+                    app.set_error_message(match rescued {
+                        Some(kept) => format!(
+                            "Discarded a stale interrupted-operation journal (branch has \
+                             moved); the working tree it recorded is kept at {kept}"
+                        ),
+                        None => "Discarded a stale interrupted-operation journal (branch has \
+                                 moved)"
+                            .to_string(),
+                    });
                 }
             }
         },
