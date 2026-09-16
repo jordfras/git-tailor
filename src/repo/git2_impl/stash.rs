@@ -82,8 +82,8 @@ impl Git2Repo {
         if let Some(existing) = journal::autostash(self)? {
             anyhow::bail!(
                 "Work is already set aside in stash {} and has not been put back. \
-                 Recover it with `git stash pop`, or clear the record with \
-                 `gt --clean-journal` if it is stale.",
+                 Recover it with `git stash pop`, or drop it with `git stash drop`, \
+                 then try again.",
                 existing.stash.short()
             );
         }

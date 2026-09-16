@@ -75,19 +75,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 if !head_matches {
                     // The changes this record describes are not on disk — the
                     // fold had not put them back yet — so discarding it silently
-                    // would take uncommitted work with it. Keep the tree it
-                    // named, before the journal that pins it goes away.
-                    let rescued = git_repo.rescue_lifted_row(&snapshot).ok().flatten();
-                    let _ = git_repo.clear_journal();
-                    app.set_error_message(match rescued {
-                        Some(kept) => format!(
-                            "Discarded a stale interrupted-operation journal (branch has \
-                             moved); the working tree it recorded is kept at {kept}"
-                        ),
-                        None => "Discarded a stale interrupted-operation journal (branch has \
-                                 moved)"
-                            .to_string(),
-                    });
+                    // would take uncommitted work with it.
+                    discard_stale(git_repo, app, Some(&snapshot));
                 } else {
                     match git_repo.restore_lifted_row(&snapshot) {
                         Ok(()) => app.set_error_message(format!(
@@ -112,38 +101,12 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                     app.enter_recover_confirm(*state);
                 } else {
                     // A conflict can have a fold behind it — the snapshot stays
-                    // in the journal through every phase — and discarding the
-                    // journal spares the record naming what its lift set aside.
-                    // Ask the journal rather than the resume variant: a fold
-                    // conflicting during the squash carries `Resume::Squash`,
-                    // and one replaying descendants `Resume::Chain`.
+                    // in the journal through every phase — so ask the journal
+                    // rather than the resume variant: a fold conflicting during
+                    // the squash carries `Resume::Squash`, and one replaying
+                    // descendants `Resume::Chain`.
                     let fold = git_repo.recorded_lifted_row().ok().flatten();
-                    let rescued = match &fold {
-                        Some(lifted) => git_repo.rescue_lifted_row(lifted),
-                        None => Ok(None),
-                    };
-                    match rescued {
-                        // Keep the journal: the record is what pins the tree the
-                        // rescue failed to name, so discarding it now would take
-                        // the only remaining reference with it.
-                        Err(e) => app.set_error_message(format!(
-                            "A stale interrupted-operation journal (branch has moved) is \
-                             being kept: the working tree it recorded could not be kept \
-                             under a ref: {e:#}"
-                        )),
-                        Ok(kept) => {
-                            let _ = git_repo.clear_journal();
-                            app.set_error_message(match kept {
-                                Some(kept) => format!(
-                                    "Discarded a stale interrupted-operation journal (branch \
-                                     has moved); the working tree it recorded is kept at {kept}"
-                                ),
-                                None => "Discarded a stale interrupted-operation journal \
-                                         (branch has moved)"
-                                    .to_string(),
-                            });
-                        }
-                    }
+                    discard_stale(git_repo, app, fold.as_ref());
                 }
             }
         },
@@ -185,6 +148,43 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                      They remain in `git stash list`"
                 ));
             }
+        }
+    }
+}
+
+/// Discard a journal that no longer describes the repository, keeping whatever
+/// uncommitted work the fold behind it recorded.
+///
+/// Shared by both stale paths — an interrupted fold, and a paused conflict with
+/// a fold behind it. `fold` is `None` for a conflict with no fold.
+///
+/// A rescue that fails keeps the journal: the record is the last thing pinning
+/// the tree the rescue could not name.
+fn discard_stale(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    fold: Option<&git_tailor::repo::LiftedRow>,
+) {
+    let rescued = match fold {
+        Some(lifted) => git_repo.rescue_lifted_row(lifted),
+        None => Ok(None),
+    };
+    match rescued {
+        Err(e) => app.set_error_message(format!(
+            "A stale interrupted-operation journal (branch has moved) is being kept: \
+             the working tree it recorded could not be kept under a ref: {e:#}"
+        )),
+        Ok(kept) => {
+            let _ = git_repo.clear_journal();
+            app.set_error_message(match kept {
+                Some(kept) => format!(
+                    "Discarded a stale interrupted-operation journal (branch has moved); \
+                     the working tree it recorded is kept at {kept}"
+                ),
+                None => {
+                    "Discarded a stale interrupted-operation journal (branch has moved)".to_string()
+                }
+            });
         }
     }
 }
