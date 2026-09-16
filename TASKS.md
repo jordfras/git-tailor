@@ -182,6 +182,30 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
+- [ ] T248 P2 fix - Stop `--clean-journal` quietly discarding uncommitted work.
+  `journal::clean` scopes undo pins to this working tree but sweeps
+  `refs/git-tailor/rescue/*` **repository-wide**, deliberately — rescue refs are
+  content-addressed and have no other cleanup path. Those refs are the only
+  thing keeping rescued uncommitted work reachable, and `run_clean_journal`
+  reports just "removed N ref(s)". The CLI help (`cli.rs`) mentions only "undo
+  pins and the in-progress pin", so nothing tells the user what they are about
+  to lose.
+  Two concrete ways this bites:
+  * `main.rs` tells the user to run `gt --clean-journal` after an
+    `UpgradeInterrupted`, which `migrate_v2` raises for any v2 fold — so
+    following the tool's own advice unpins every rescued tree in the repository.
+  * A second working tree running it deletes this one's rescue pins mid-run.
+    The session lock is per working tree and does not prevent it.
+  Scope, in order of how much it settles: say what is being removed (count the
+  rescue refs separately, and name them, since each one is somebody's
+  uncommitted work); decide whether rescue refs should be swept by this flag at
+  all, or need their own opt-in; and fix the `UpgradeInterrupted` advice, which
+  wants the journal discarded but not the rescues.
+  Related: the fold's set-aside record has no in-app release either. Once a
+  carry-back fails, `autostash_restore` steps aside, `abort_autostash` bails and
+  `set_work_aside` refuses, so every later fold is refused with only a
+  `git stash apply <oid>` to go on. Worth solving together — both are "the tool
+  put work somewhere safe and gave the user no supported way to get it back".
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
