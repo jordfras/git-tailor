@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use crate::mock_repo::{MockRepo, make_conflict_state, mock_lifted_row};
     use git_tailor::Oid;
-    use git_tailor::repo::{ConflictState, EditInProgress, LiftedRow, WorktreeSource};
+    use git_tailor::repo::{ConflictState, EditInProgress, LiftedRow, Resume, WorktreeSource};
 
     /// The OID `MockRepo::head_oid` reports.
     fn mock_head() -> Oid {
@@ -272,6 +272,52 @@ mod tests {
                 "Discarded a stale interrupted-operation journal (branch has moved); \
                  the working tree it recorded is kept at refs/git-tailor/rescue/eeeeeeee"
             )
+        );
+    }
+
+    /// A stale *carry* conflict belongs to a fold too. Its lift set the other
+    /// row aside, and discarding the journal spares the record naming that
+    /// stash — so without rescuing here the work sits in `git stash list` with
+    /// nothing left that would ever settle it, and the next fold is refused
+    /// because the slot is occupied.
+    #[test]
+    fn a_discarded_carry_conflict_keeps_what_its_fold_set_aside() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(ConflictState {
+                resume: Resume::CarryRow(mock_lifted_row()),
+                ..make_conflict_state()
+            }))),
+            rescued_ref: Some("refs/git-tailor/rescue/eeeeeeee".to_string()),
+            ..Default::default()
+        };
+
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.clear_journal_calls.get(), 1);
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some(
+                "Discarded a stale interrupted-operation journal (branch has moved); \
+                 the working tree it recorded is kept at refs/git-tailor/rescue/eeeeeeee"
+            ),
+            "the report must say where the fold's work was kept"
+        );
+    }
+
+    /// An ordinary stale conflict has no fold behind it and nothing to rescue.
+    #[test]
+    fn a_discarded_plain_conflict_has_no_working_tree_to_keep() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(make_conflict_state()))),
+            rescued_ref: Some("refs/git-tailor/rescue/eeeeeeee".to_string()),
+            ..Default::default()
+        };
+
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            app.status.message.as_deref(),
+            Some("Discarded a stale interrupted-operation journal (branch has moved)")
         );
     }
 
