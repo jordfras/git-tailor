@@ -508,7 +508,7 @@ impl RepoWrite for Git2Repo {
         if let Some(snapshot) = journal::worktree_source(self)?
             && state.original_branch_oid == snapshot.temp_oid
         {
-            return lift_op::restore(self, &snapshot).map(|_| ());
+            return lift_op::restore(self, &snapshot);
         }
         conflict::rebase_abort(self, state)?;
         journal::clear_in_progress(self)
@@ -564,7 +564,7 @@ impl RepoWrite for Git2Repo {
         lift_op::lift(self, source)
     }
 
-    fn restore_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<Option<String>> {
+    fn restore_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<()> {
         lift_op::restore(self, lifted)
     }
 

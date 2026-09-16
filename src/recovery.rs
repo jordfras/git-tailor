@@ -90,12 +90,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                     });
                 } else {
                     match git_repo.restore_lifted_row(&snapshot) {
-                        Ok(None) => app.set_error_message(format!(
+                        Ok(()) => app.set_error_message(format!(
                             "Recovered an interrupted squash of {label} — restored the branch"
-                        )),
-                        Ok(Some(kept)) => app.set_error_message(format!(
-                            "Recovered an interrupted squash of {label} — restored the branch; \
-                             the changes it had set aside are kept at {kept}"
                         )),
                         Err(e) => app.set_error_message(format!(
                             "Failed to recover an interrupted squash of {label}: {e:#}"
