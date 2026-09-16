@@ -107,7 +107,12 @@ const RESCUE_REF_LEAF: &str = "rescue/";
 /// Full name of the rescue ref holding `tree`. Named after the tree so rescuing
 /// the same content twice is one ref rather than two.
 pub(super) fn rescue_ref(tree: &Oid) -> String {
-    format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{}", tree.short())
+    // The whole oid, not `short()`. These are written with `force`, so two
+    // different rescued trees sharing a 32-bit prefix would silently overwrite
+    // each other — and what is lost is the only pin on someone's uncommitted
+    // work. Content-addressed by the full name, re-rescuing the same tree stays
+    // idempotent.
+    format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}{tree}")
 }
 
 /// Prefix of every pin belonging to this working tree.
