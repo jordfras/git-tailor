@@ -812,12 +812,10 @@ pub trait RepoWrite {
     /// the index and the working tree back exactly as `lifted` recorded them,
     /// and clear the journal record. Untracked files are left alone.
     ///
-    /// Returns the name of a ref the parked row had to be kept under, when the
-    /// journal no longer named it and the unwind would otherwise have taken it
-    /// off disk. `None` is the ordinary case, where the row went back where it
-    /// came from. Report the name when there is one: it is the only thing
-    /// telling the user where that work went.
-    fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<Option<String>>;
+    /// The parked row comes back from the stash when the slot still names it,
+    /// and from the recorded trees when it does not — either way it ends up
+    /// where it came from, so there is nothing for the caller to report.
+    fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
 
     /// The working-tree fold the journal still records, if any — whatever phase
     /// it has reached.

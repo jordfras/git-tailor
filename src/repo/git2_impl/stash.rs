@@ -135,13 +135,10 @@ impl Git2Repo {
         // checked it out to.
         let record = journal::autostash(self)?;
 
-        // The reset below moves whatever branch HEAD resolves to now, so it has
-        // to still be the one this was parked on. Comparing tips cannot catch a
-        // branch made while sitting on the temporary commit: it names the same
-        // commit the caller checked against.
-        if let Some(record) = &record {
-            self.refuse_if_branch_switched(&record.branch_refname)?;
-        }
+        // No branch check here. The only caller is the fold's `restore`, which
+        // has already checked against the fold's *own* recorded branch — and the
+        // name on this record may belong to someone else's `--autostash`, which
+        // would refuse an unwind that is perfectly in order.
 
         // Put back only what this fold parked, but reset either way: a row whose
         // counterpart was clean leaves nothing set aside, and the working tree

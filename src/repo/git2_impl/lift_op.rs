@@ -32,8 +32,8 @@
 
 use anyhow::{Context, Result};
 
-use super::Git2Repo;
 use super::journal;
+use super::{Git2Repo, WorktreeReset};
 use crate::Oid;
 use crate::repo::{ConflictState, InProgress, LiftedRow, RebaseOutcome, WorktreeSource};
 
@@ -140,48 +140,51 @@ fn place_temp_commit(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 
 /// Unwind back to `snapshot`. See
 /// [`super::Git2Repo::restore_lifted_row`] for the contract.
-pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<Option<String>> {
-    // The snapshot records the whole pre-fold working tree, which differs from
-    // the temporary commit's tree exactly when there was a leftover row to park.
-    // If one was parked and the slot no longer names it — a crash between taking
-    // the stash and recording it, or a lift whose `set_work_aside` failed — the
-    // unwind below would take that row off disk.
-    //
-    // Keeping it under a ref and carrying on beats refusing. A refusal here
-    // leaves the branch on the temporary commit with no way back: nothing can
-    // put the record into the slot again, so every later run refuses the same
-    // way. The content is safe either way, so the unwind should finish and the
-    // caller should say where it went.
-    let parked_something = git2::Oid::from(&snapshot.worktree_tree)
-        != repo.commit_tree_id(git2::Oid::from(&snapshot.temp_oid))?;
-    let kept = if parked_something && !repo.work_aside_is_fold(&snapshot.temp_oid)? {
-        rescue(repo, snapshot)?
-    } else {
-        None
-    };
-
-    // Everything below moves a ref or the working tree, so check first that they
-    // are the ones this fold started on. The fold's own record answers that
-    // whether or not it had anything to set aside.
+pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
+    // One authority for the fold's branch: its own record. Everything below
+    // moves a ref or the working tree, and it has to be the branch the fold
+    // started on — which comparing tips cannot establish, since a branch made
+    // while sitting on the temporary commit names the same commit.
     repo.refuse_if_branch_switched(&snapshot.branch_refname)?;
 
-    // Put the other row back first, while HEAD is still the commit the stash was
-    // taken on — its own base, so this cannot conflict. Refuses before it moves
-    // anything, leaving the fold in progress and re-abortable.
-    repo.abort_work_aside(&snapshot.temp_oid)?;
+    // Captured before the ref moves: the tree the working tree reflects right
+    // now, whether that is the temporary commit or a half-built rewrite.
+    let current = head_tree_id(repo)?;
+    let worktree_tree = git2::Oid::from(&snapshot.worktree_tree);
+    let index_tree = git2::Oid::from(&snapshot.index_tree_before);
 
-    // Then move the branch back without touching the files. The temporary
-    // commit's content becomes uncommitted again, and pointing the index at what
-    // was staged before splits it across the staged/unstaged line as it was.
-    repo.advance_branch_ref(
-        git2::Oid::from(&snapshot.tip_before),
-        "git-tailor: abort working-tree squash",
-    )?;
-    repo.set_index_tree(git2::Oid::from(&snapshot.index_tree_before))?;
+    if repo.work_aside_is_fold(&snapshot.temp_oid)? {
+        // The stash carries the staged/unstaged split, so it puts the row back
+        // on the right side of the line without this having to work it out.
+        repo.abort_work_aside(&snapshot.temp_oid)?;
+        repo.advance_branch_ref(
+            git2::Oid::from(&snapshot.tip_before),
+            "git-tailor: abort working-tree squash",
+        )?;
+        repo.set_index_tree(index_tree)?;
+    } else {
+        // Nothing of this fold's is in the slot: either it parked nothing, or
+        // the record was lost between taking the stash and writing it. The
+        // snapshot describes the same state either way — `worktree_tree` is the
+        // whole pre-fold working tree — so restore from that and leave any
+        // orphaned stash alone rather than guessing at it.
+        //
+        // Checked before the ref moves, so a refusal leaves the fold in progress
+        // and re-abortable rather than half-unwound.
+        repo.refuse_untracked_collisions(current, worktree_tree)?;
+        repo.advance_branch_ref(
+            git2::Oid::from(&snapshot.tip_before),
+            "git-tailor: abort working-tree squash",
+        )?;
+        repo.reset_worktree(WorktreeReset {
+            from_tree: current,
+            worktree_tree,
+            index_tree,
+        })?;
+    }
 
     journal::set_worktree_source(repo, None)?;
-    journal::clear_in_progress(repo)?;
-    Ok(kept)
+    journal::clear_in_progress(repo)
 }
 
 /// Put the other row's changes back once the squash has landed, and report the
