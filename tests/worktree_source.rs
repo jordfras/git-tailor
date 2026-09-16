@@ -786,6 +786,40 @@ fn unwinding_refuses_when_the_parked_row_cannot_be_found() {
     );
 }
 
+/// A lift that fails after moving the branch must unwind it. The branch is
+/// already on the temporary commit at that point, and the write-ahead record is
+/// the only thing that would ever bring it back — so the rollback cannot be
+/// allowed to fail and then erase that record.
+#[test]
+fn a_lift_that_fails_after_moving_the_branch_puts_it_back() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+
+    // Occupy the slot, so the lift's own `set_work_aside` fails — after
+    // `place_temp_commit` has already moved the branch.
+    test.write_file("a.txt", "AUTOSTASHED\n");
+    test.stage_file("a.txt");
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+
+    let tip_before = git_repo.head_oid().unwrap();
+    test.write_file("b.txt", "STAGED\n");
+    test.stage_file("b.txt");
+    test.write_file("a.txt", "UNSTAGED\n");
+
+    let err = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .expect_err("the occupied slot must fail the lift");
+    assert!(format!("{err:#}").contains("set aside"), "got: {err:#}");
+
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        tip_before,
+        "a failed lift must not leave the branch on its temporary commit"
+    );
+}
+
 /// Nothing to keep when the record's working tree is what HEAD already holds:
 /// a ref there would be noise, and the message that names one would be a lie.
 #[test]
