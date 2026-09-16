@@ -296,8 +296,14 @@ impl Prepared {
                 done
             }
             PreparedKind::Lifted(lifted) => match git_repo.restore_lifted_row(lifted) {
-                Ok(()) => {
+                Ok(None) => {
                     app.set_error_message(message);
+                    done
+                }
+                Ok(Some(kept)) => {
+                    app.set_error_message(format!(
+                        "{message}; the changes it had set aside are kept at {kept}"
+                    ));
                     done
                 }
                 Err(e) => {
