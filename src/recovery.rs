@@ -21,9 +21,7 @@
 //! take that work with it.
 
 use git_tailor::app::{AppMode, AppState};
-use git_tailor::repo::{
-    AutostashRestore, GitRepo, InProgress, JournalStatus, Resume, StashConflictState,
-};
+use git_tailor::repo::{AutostashRestore, GitRepo, InProgress, JournalStatus, StashConflictState};
 
 /// On startup, detect an operation a previous run was killed in the middle of
 /// (from the persisted journal) and surface a recovery prompt — or inform the
@@ -117,26 +115,39 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 if head_matches {
                     app.enter_recover_confirm(*state);
                 } else {
-                    // A carry clash is a fold's conflict, and its lift set the
-                    // other row aside. Discarding the journal spares the record
-                    // naming that stash, so keep the tree it came from and drop
-                    // the stash with it — the same pair the fold's own arm does.
-                    let rescued = match &state.resume {
-                        Resume::CarryRow(lifted) => {
-                            git_repo.rescue_lifted_row(lifted).ok().flatten()
-                        }
-                        _ => None,
+                    // A conflict can have a fold behind it — the snapshot stays
+                    // in the journal through every phase — and discarding the
+                    // journal spares the record naming what its lift set aside.
+                    // Ask the journal rather than the resume variant: a fold
+                    // conflicting during the squash carries `Resume::Squash`,
+                    // and one replaying descendants `Resume::Chain`.
+                    let fold = git_repo.recorded_lifted_row().ok().flatten();
+                    let rescued = match &fold {
+                        Some(lifted) => git_repo.rescue_lifted_row(lifted),
+                        None => Ok(None),
                     };
-                    let _ = git_repo.clear_journal();
-                    app.set_error_message(match rescued {
-                        Some(kept) => format!(
-                            "Discarded a stale interrupted-operation journal (branch has \
-                             moved); the working tree it recorded is kept at {kept}"
-                        ),
-                        None => "Discarded a stale interrupted-operation journal (branch has \
-                                 moved)"
-                            .to_string(),
-                    });
+                    match rescued {
+                        // Keep the journal: the record is what pins the tree the
+                        // rescue failed to name, so discarding it now would take
+                        // the only remaining reference with it.
+                        Err(e) => app.set_error_message(format!(
+                            "A stale interrupted-operation journal (branch has moved) is \
+                             being kept: the working tree it recorded could not be kept \
+                             under a ref: {e:#}"
+                        )),
+                        Ok(kept) => {
+                            let _ = git_repo.clear_journal();
+                            app.set_error_message(match kept {
+                                Some(kept) => format!(
+                                    "Discarded a stale interrupted-operation journal (branch \
+                                     has moved); the working tree it recorded is kept at {kept}"
+                                ),
+                                None => "Discarded a stale interrupted-operation journal \
+                                         (branch has moved)"
+                                    .to_string(),
+                            });
+                        }
+                    }
                 }
             }
         },
@@ -309,6 +320,9 @@ mod tests {
                 resume: Resume::CarryRow(mock_lifted_row()),
                 ..make_conflict_state()
             }))),
+            // The journal holds both: the paused conflict, and the snapshot of
+            // the fold it belongs to.
+            recorded_lifted: Some(mock_lifted_row()),
             rescued_ref: Some("refs/git-tailor/rescue/eeeeeeee".to_string()),
             ..Default::default()
         };
