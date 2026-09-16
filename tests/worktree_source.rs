@@ -835,6 +835,41 @@ fn unwinding_a_fold_that_parked_nothing_still_refuses_another_branch() {
     );
 }
 
+/// The stash dialog's abort must refuse a fold's parked work.
+///
+/// For a fold, `pre_op_tip` is the *temporary commit* — the lift parks the row
+/// after moving the branch onto it — so the hard reset `abort_autostash` does
+/// would rewind the branch onto a synthetic commit and record an undo entry
+/// against it. Every route into that dialog is guarded today, which makes this
+/// unreachable by construction rather than by check; the destructive operation
+/// is the one that should hold the invariant.
+#[test]
+fn the_stash_abort_refuses_work_a_fold_parked() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    let on_temp = git_repo.head_oid().unwrap();
+    assert_eq!(on_temp, lifted.temp_oid);
+
+    let result = git_repo.autostash_conflict_abort();
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        on_temp,
+        "and must not have reset anything"
+    );
+    assert_eq!(stash_count(test.repo.path()), 1, "nor dropped the row");
+}
+
 /// A lift that fails after moving the branch must unwind it. The branch is
 /// already on the temporary commit at that point, and the write-ahead record is
 /// the only thing that would ever bring it back — so the rollback cannot be
