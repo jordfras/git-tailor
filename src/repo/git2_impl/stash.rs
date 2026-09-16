@@ -82,7 +82,8 @@ impl Git2Repo {
         if let Some(existing) = journal::autostash(self)? {
             anyhow::bail!(
                 "Work is already set aside in stash {} and has not been put back. \
-                 Restore or drop it before running this operation.",
+                 Recover it with `git stash pop`, or clear the record with \
+                 `gt --clean-journal` if it is stale.",
                 existing.stash.short()
             );
         }
@@ -340,6 +341,18 @@ impl Git2Repo {
         let Some(record) = journal::autostash(self)? else {
             return Ok(());
         };
+        // A fold's leftover is not the stash dialog's to abort: its `pre_op_tip`
+        // is the temporary commit, so the reset below would rewind the branch
+        // onto a synthetic commit and record an undo entry against it. Every
+        // route here is guarded already, but the invariant belongs next to the
+        // operation that would break it.
+        if record.fold_temp_oid.is_some() {
+            anyhow::bail!(
+                "These changes were set aside by a working-tree squash, not by \
+                 --autostash. Finish or abort that operation instead."
+            );
+        }
+
         // The hard reset below moves whatever branch HEAD resolves to now; that
         // has to still be the branch this stash was taken on.
         self.refuse_if_branch_switched(&record.branch_refname)?;
