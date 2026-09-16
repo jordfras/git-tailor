@@ -336,6 +336,32 @@ mod tests {
         );
     }
 
+    /// The same for a fold that never reached a conflict: a failed rescue must
+    /// not be reported as nothing to keep and then followed by discarding the
+    /// record, which is the last thing pinning the tree the rescue failed to
+    /// name.
+    #[test]
+    fn a_failed_rescue_of_an_interrupted_fold_keeps_the_journal() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::WorktreeSquash(mock_lifted_row())),
+            rescue_ok: false,
+            ..Default::default()
+        };
+
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.clear_journal_calls.get(),
+            0,
+            "the record pinning the tree must survive a failed rescue"
+        );
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("could not be kept"),
+            "the failure must be reported, got: {message}"
+        );
+    }
+
     /// A fold that conflicts during the squash carries `Resume::Squash`, not
     /// `Resume::CarryRow` — the snapshot is still in the journal alongside it.
     /// Keying the rescue off the resume variant misses those, which is most of
