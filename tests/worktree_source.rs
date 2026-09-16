@@ -800,6 +800,51 @@ fn unwinding_keeps_a_parked_row_it_cannot_find() {
     );
 }
 
+/// The same refusal, for a fold that set nothing aside.
+///
+/// A fold whose counterpart row is clean parks nothing, so there is no stash
+/// record to read a branch name from — and the unwind still moves a ref. The
+/// fold has to know its own branch rather than borrow one from the slot.
+#[test]
+fn unwinding_a_fold_that_parked_nothing_still_refuses_another_branch() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "base");
+    // Staged only: nothing is left unstaged, so the lift parks nothing.
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        0,
+        "nothing to set aside, so no stash and no record to read a branch from"
+    );
+
+    let temp = test
+        .repo
+        .find_commit(git2::Oid::from(&lifted.temp_oid))
+        .unwrap();
+    test.repo.branch("side", &temp, false).unwrap();
+    test.repo.set_head("refs/heads/side").unwrap();
+
+    let result = git_repo.restore_lifted_row(&lifted);
+
+    assert!(result.is_err(), "must be refused: {result:?}");
+    assert_eq!(
+        test.repo
+            .find_branch("side", git2::BranchType::Local)
+            .unwrap()
+            .get()
+            .target(),
+        Some(git2::Oid::from(&lifted.temp_oid)),
+        "the unrelated branch must not have been rewound"
+    );
+}
+
 /// A lift that fails after moving the branch must unwind it. The branch is
 /// already on the temporary commit at that point, and the write-ahead record is
 /// the only thing that would ever bring it back — so the rollback cannot be
