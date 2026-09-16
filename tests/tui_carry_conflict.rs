@@ -41,6 +41,7 @@ fn make_app_in_carry_conflict(source: WorktreeSource) -> AppState {
         conflicting_files: vec![std::path::PathBuf::from("src/parser.rs")],
         resume: Resume::CarryRow(LiftedRow {
             source,
+            branch_refname: "refs/heads/main".to_string(),
             tip_before: Oid::from("a".repeat(40)),
             index_tree_before: Oid::from("d".repeat(40)),
             worktree_tree: Oid::from("e".repeat(40)),

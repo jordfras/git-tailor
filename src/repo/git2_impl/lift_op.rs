@@ -89,6 +89,7 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
 
     let snapshot = LiftedRow {
         source,
+        branch_refname: repo.current_branch_refname().unwrap_or_default(),
         tip_before: Oid::from(head_oid),
         index_tree_before: Oid::from(index_tree_before),
         worktree_tree: Oid::from(worktree_tree),
@@ -158,6 +159,11 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<Optio
     } else {
         None
     };
+
+    // Everything below moves a ref or the working tree, so check first that they
+    // are the ones this fold started on. The fold's own record answers that
+    // whether or not it had anything to set aside.
+    repo.refuse_if_branch_switched(&snapshot.branch_refname)?;
 
     // Put the other row back first, while HEAD is still the commit the stash was
     // taken on — its own base, so this cannot conflict. Refuses before it moves
