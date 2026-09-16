@@ -137,6 +137,13 @@ pub struct LiftedRow {
     /// The working tree (tracked paths) as a tree object. Unchanged by the
     /// operation — it only moves content between committed, staged and unstaged.
     pub worktree_tree: Oid,
+    /// Branch the fold started on. The unwind moves a ref, and it has to be
+    /// this one: a branch made while sitting on the temporary commit names the
+    /// same commit `temp_oid` does, so comparing tips cannot tell them apart.
+    /// Recorded here rather than read off the set-aside record, which a fold
+    /// with nothing to park never writes. Empty means the record predates this
+    /// being tracked, so the check stands aside.
+    pub branch_refname: String,
     /// The temporary commit itself, which the fold left the branch on. Its diff
     /// against its parent is exactly the row's diff, so it serves as both
     /// `source_oid` and `head_oid` for the squash built on it. Also identifies
