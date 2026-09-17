@@ -20,6 +20,10 @@ The format is based on
 
 ### Fixed
 
+- Resuming an operation after resolving a conflict no longer refuses with
+  "This would overwrite untracked files" about a file the operation itself left
+  on disk. Pausing at a conflict rewinds to an older commit, and any file added
+  after that commit was being left behind and then mistaken for yours
 - An edited fixup or squash message that is not valid UTF-8 is committed
   exactly as typed. Bulk autofixup used to decode it lossily, replacing
   anything outside UTF-8 with a placeholder character
