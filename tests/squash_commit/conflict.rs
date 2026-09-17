@@ -324,11 +324,15 @@ fn a_resumed_squash_does_not_refuse_its_own_leftover_file() {
     let mut outcome = git_repo
         .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
         .unwrap();
-    // Replay the descendants, resolving nothing further.
-    loop {
+    // Replay the descendants. Bounded: continuing without touching the markers
+    // legitimately re-reports the same conflict, so an unbounded loop spins.
+    for _ in 0..16 {
         match outcome {
             git_tailor::repo::RebaseOutcome::Complete => break,
             git_tailor::repo::RebaseOutcome::Conflict(s) => {
+                for path in &s.conflicting_files {
+                    test.write_file(path, "resolved\n");
+                }
                 git_repo
                     .auto_stage_resolved_conflicts(&s.conflicting_files)
                     .unwrap();
@@ -336,5 +340,6 @@ fn a_resumed_squash_does_not_refuse_its_own_leftover_file() {
             }
         }
     }
+    assert_rebase_complete!(outcome);
     let _ = base;
 }

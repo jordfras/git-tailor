@@ -271,6 +271,10 @@ pub(super) fn write_conflicts_to_workdir(
     // resolves to now is what the ref moves below, and resuming or aborting has
     // to come back to the same one.
     state.branch_refname = repo.current_branch_refname().unwrap_or_default();
+    // Read before the ref moves: what the working tree reflects right now.
+    let before_tree = super::reads::head_oid(repo)
+        .ok()
+        .and_then(|oid| repo.commit_tree_id(git2::Oid::from(&oid)).ok());
     // Before the write-ahead record and the ref move: a conflict is still a
     // checkout over the working tree, and refusing here leaves the branch, the
     // index and the files exactly as they were. The merge is recomputed on the
@@ -305,6 +309,49 @@ pub(super) fn write_conflicts_to_workdir(
     checkout.allow_conflicts(true);
     repo.inner
         .checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
+    drop(repo_index);
 
+    if let Some(before_tree) = before_tree {
+        remove_paths_the_conflict_drops(repo, before_tree, cherry_index)?;
+    }
+
+    Ok(())
+}
+
+/// Delete working-tree files the conflict state does not account for.
+///
+/// The cherry-pick index is rooted in the commit being replayed onto, so a path
+/// added *after* it is simply absent — and `checkout_index` has no opinion about
+/// a file the index does not mention, so it stays on disk. From that moment git
+/// calls it untracked, and when the replay re-adds the path the collision guard
+/// refuses, naming a file this operation left there.
+///
+/// Scoped by diffing the pre-conflict tree against the index rather than by
+/// asking what is untracked: everything removed here is a path the operation is
+/// dropping, still reachable from the commit it came from. Never
+/// `remove_untracked`, which would take the user's own files with it.
+fn remove_paths_the_conflict_drops(
+    repo: &Git2Repo,
+    before_tree: git2::Oid,
+    cherry_index: &git2::Index,
+) -> Result<()> {
+    let Some(workdir) = repo.inner.workdir() else {
+        return Ok(());
+    };
+    let before = repo
+        .inner
+        .find_tree(before_tree)
+        .context("failed to read the tree the working tree reflects")?;
+    let diff = repo
+        .inner
+        .diff_tree_to_index(Some(&before), Some(cherry_index), None)
+        .context("failed to diff for paths the conflict drops")?;
+    for delta in diff.deltas() {
+        if delta.status() == git2::Delta::Deleted
+            && let Some(path) = delta.old_file().path()
+        {
+            super::remove_written_path(workdir, path)?;
+        }
+    }
     Ok(())
 }
