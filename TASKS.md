@@ -206,6 +206,48 @@ Guidelines:
   `set_work_aside` refuses, so every later fold is refused with only a
   `git stash apply <oid>` to go on. Worth solving together — both are "the tool
   put work somewhere safe and gave the user no supported way to get it back".
+- [ ] T249 P2 refactor - Give byte-valued domain data a type that refuses to be
+  decoded by accident. Commit messages and repository paths are bytes to git,
+  and the 3.1.0 work moved them to `&[u8]` at the trait boundary — correctly.
+  Every bug found since has been a `String` reappearing at an *internal*
+  boundary, because `Vec<u8>` -> `String` is one cheap call away and nothing in
+  the type system objects: the autofixup editor decode (fixed), the lossy path
+  key in T250, the lossy worktree-name hash in T251.
+  `OsString` is not the answer and is worth recording as rejected: it models
+  *platform* string semantics, so on Windows it is WTF-16 with no `from_vec` —
+  a Latin-1 commit message has no representation there at all. Paths are the
+  exception, and `PathBuf` is already the domain type for them (`domain.rs`
+  `path_to_bytes` / `bytes_to_path`, exact on Unix, UTF-8-by-construction
+  elsewhere). That half is settled.
+  Proposal: a hand-rolled newtype, following `Oid(String)`'s precedent —
+  `Message(Vec<u8>)` with `as_bytes()`, an explicit and greppable
+  `to_string_lossy()`, `Hash + Eq` on the bytes, and deliberately **no
+  `Display`**, so `format!("{msg}")` does not compile. A `RepoPath` over bytes
+  does the same for path keys.
+  `bstr` is the off-the-shelf alternative (`BString`/`BStr`, lossy `Display`,
+  escaped `Debug`, str-like byte APIs). Rejected for now: a new dependency to
+  carry through `cargo-deny`, and a large API where a small deliberate one is
+  wanted. The newtype is ~50 lines. Revisit if the hand-rolled version starts
+  growing str-like methods.
+  Subsumes T250 and T251 — do those individually only if this is not done,
+  since fixing them one at a time is waiting for the fourth instance.
+- [ ] T250 P3 bug - Split assigns hunks through a lossy path key.
+  `fragmap.rs` keys `by_file: HashMap<String, Vec<HunkAssignment>>`, and
+  `split_op.rs` builds those keys with `to_string_lossy()`. Every invalid byte
+  becomes U+FFFD, so two distinct non-UTF-8 paths collapse to one key and split
+  applies one file's hunk assignments to another — writing content to the wrong
+  path, silently, since split does real tree surgery.
+  Same shape as the index-path bug fixed in 3.1.0, where entries were decoded
+  with `String::from_utf8` and what failed was dropped.
+  Needs two non-UTF-8 paths differing only in their invalid bytes, so it is
+  rare; the consequence is bad enough to fix anyway. Entangled with fragmap's
+  `String`-keyed model throughout, which is why T249 is the better route.
+- [ ] T251 P3 bug - The per-working-tree journal prefix hashes a lossy name.
+  `journal.rs` hashes `name.to_string_lossy()` to build `wt/<id>/`. Two linked
+  worktrees whose names differ only in invalid bytes hash the same, so they
+  share journal pins — quietly undoing the per-working-tree isolation added in
+  3.1.0, whose whole point was that one tree's run must not unpin another's
+  interrupted work. Hash the bytes instead.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
