@@ -349,7 +349,17 @@ fn remove_paths_the_conflict_drops(
     };
     let keep: std::collections::HashSet<Vec<u8>> =
         cherry_index.iter().map(|e| e.path.clone()).collect();
+    // Compared ignoring case as well, because a case-only rename gives the old
+    // and new names the same file on macOS and Windows: removing `Foo.txt`
+    // there would delete the `foo.txt` the checkout just wrote. Leaving a
+    // leftover behind is the recoverable direction; deleting a file the
+    // operation just created is not.
+    let keep_folded: std::collections::HashSet<Vec<u8>> =
+        keep.iter().map(|p| p.to_ascii_lowercase()).collect();
     for path in checked_out.difference(&keep) {
+        if keep_folded.contains(&path.to_ascii_lowercase()) {
+            continue;
+        }
         let _ = super::remove_written_path(workdir, &super::bytes_to_path(path));
     }
 }
