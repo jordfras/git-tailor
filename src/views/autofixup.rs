@@ -179,7 +179,7 @@ fn target_line(
     app: &AppState,
     group: &AutofixupGroup,
     selected: bool,
-    overrides: &std::collections::HashMap<String, String>,
+    overrides: &std::collections::HashMap<String, Vec<u8>>,
     width: usize,
 ) -> Line<'static> {
     const EDITED: &str = " (edited)";

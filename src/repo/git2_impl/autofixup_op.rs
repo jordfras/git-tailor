@@ -36,7 +36,7 @@ pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, String>,
+    message_overrides: &HashMap<String, Vec<u8>>,
 ) -> Result<RebaseOutcome> {
     run_batch(
         repo,
@@ -116,7 +116,7 @@ fn run_batch(
     mut current_tip: Oid,
     batch_original_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, String>,
+    message_overrides: &HashMap<String, Vec<u8>>,
 ) -> Result<RebaseOutcome> {
     loop {
         let commits = reads::list_commits(repo, &current_tip, reference_oid)?;
@@ -173,12 +173,12 @@ fn pair_message(
     repo: &Git2Repo,
     pair: &AutofixupPair,
     more_pending_for_target: bool,
-    message_overrides: &HashMap<String, String>,
+    message_overrides: &HashMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>> {
     if !more_pending_for_target
         && let Some(overridden) = message_overrides.get(&pair.target_summary)
     {
-        return Ok(overridden.clone().into_bytes());
+        return Ok(overridden.clone());
     }
     let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;
     match pair.mode {

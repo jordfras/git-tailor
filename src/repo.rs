@@ -318,7 +318,7 @@ pub struct AutofixupContext {
     /// to the last pair squashed into a given target — so an intermediate
     /// step in a multi-fixup group never renames the target before the
     /// remaining fixups in that group have had a chance to match it.
-    pub message_overrides: std::collections::HashMap<String, String>,
+    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -951,7 +951,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, String>,
+        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.

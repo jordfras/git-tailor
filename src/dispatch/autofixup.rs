@@ -86,7 +86,6 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
         edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bytes());
     match editor_result {
         Ok(edited) => {
-            let edited = String::from_utf8_lossy(&edited).into_owned();
             let message = git_tailor::autofixup::strip_comment_lines(&edited);
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
@@ -94,7 +93,7 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
                 } else {
                     pending
                         .message_overrides
-                        .insert(target_summary, message + "\n");
+                        .insert(target_summary, [message, b"\n".to_vec()].concat());
                 }
             }
         }
@@ -110,7 +109,7 @@ pub(crate) fn handle_execute_autofixup(
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
-    message_overrides: std::collections::HashMap<String, String>,
+    message_overrides: std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);

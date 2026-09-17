@@ -103,13 +103,16 @@ pub fn edit_template(group: &AutofixupGroup) -> String {
 /// Strip `#`-prefixed comment lines and trim surrounding blank lines — mirrors
 /// git's own `commit.cleanup=strip` handling of the combination template
 /// above, so leaving the commented-out sources untouched discards them.
-pub fn strip_comment_lines(text: &str) -> String {
-    text.lines()
-        .filter(|line| !line.starts_with('#'))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
+pub fn strip_comment_lines(text: &[u8]) -> Vec<u8> {
+    // Bytes throughout: a commit message is bytes to git, and the editor hands
+    // back whatever the user typed. Decoding to `String` first would replace
+    // anything that is not UTF-8 with U+FFFD — silently rewriting their text.
+    let kept: Vec<&[u8]> = text
+        .split(|&b| b == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+        .filter(|line| !line.starts_with(b"#"))
+        .collect();
+    kept.join(&b'\n').trim_ascii().to_vec()
 }
 
 /// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest-first,
@@ -285,7 +288,7 @@ mod tests {
         let group = &group_by_target(&pairs)[0];
 
         let template = edit_template(group);
-        assert_eq!(strip_comment_lines(&template), "Add parser");
+        assert_eq!(strip_comment_lines(template.as_bytes()), b"Add parser");
     }
 
     #[test]
@@ -295,21 +298,34 @@ mod tests {
         // edit should clear any existing override rather than store a blank
         // message.
         let text = "# Add parser\n# fixup! Add parser";
-        assert_eq!(strip_comment_lines(text), "");
+        assert_eq!(strip_comment_lines(text.as_bytes()), b"");
     }
 
     #[test]
     fn strip_comment_lines_keeps_uncommented_additions() {
         let text = "Add parser\n\n# comment\nExtra detail the user typed\n# more comment";
         assert_eq!(
+            strip_comment_lines(text.as_bytes()),
+            b"Add parser\n\nExtra detail the user typed"
+        );
+    }
+
+    /// Bytes in, bytes out. Routing this through `String` would replace
+    /// anything that is not UTF-8 with U+FFFD, silently rewriting a message the
+    /// user typed — which is what git stores verbatim.
+    #[test]
+    fn strip_comment_lines_keeps_bytes_that_are_not_utf8() {
+        // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
+        let text: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n# a comment\n";
+        assert_eq!(
             strip_comment_lines(text),
-            "Add parser\n\nExtra detail the user typed"
+            b"Fix f\xf6r \xe5\xe4\xf6 handling".to_vec()
         );
     }
 
     #[test]
     fn strip_comment_lines_preserves_internal_blank_lines_in_a_multi_paragraph_message() {
         let text = "Summary\n\nBody paragraph one.\n\nBody paragraph two.";
-        assert_eq!(strip_comment_lines(text), text);
+        assert_eq!(strip_comment_lines(text.as_bytes()), text.as_bytes());
     }
 }
