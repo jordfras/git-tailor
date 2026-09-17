@@ -22,7 +22,7 @@ use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
-    LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_rebase_outcome,
+    LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_resume_outcome,
     is_blank_message, settle_autostash,
 };
 use crate::external_tool::with_tui_suspended;
@@ -115,7 +115,7 @@ pub(crate) fn handle_rebase_continue(
             &original_oid,
             state.autofixup_context.as_ref(),
         );
-        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", &success_msg);
+        let result = handle_resume_outcome(git_repo, app, outcome, "Squash", &success_msg, &state);
         return Ok(apply_pending_autofixup_selection(
             pending,
             is_autofixup,
@@ -131,7 +131,7 @@ pub(crate) fn handle_rebase_continue(
         format!("Commit {} complete", state.operation_label.to_lowercase())
     };
     let outcome = git_repo.rebase_continue(&state);
-    let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
+    let result = handle_resume_outcome(git_repo, app, outcome, "Continue", &success_msg, &state);
     Ok(apply_pending_autofixup_selection(
         pending,
         is_autofixup,

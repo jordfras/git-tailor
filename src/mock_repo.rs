@@ -48,6 +48,9 @@ pub(crate) struct MockRepo {
     /// Counts `autostash_restore` invocations, so a test can assert it was
     /// *not* called when the branch was never rewound back to its base.
     pub(crate) autostash_restore_calls: std::cell::Cell<usize>,
+    /// When set, `rebase_continue` fails — a resume that cannot finish while
+    /// the conflict it belongs to is still paused.
+    pub(crate) rebase_continue_err: bool,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
@@ -150,6 +153,7 @@ impl Default for MockRepo {
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
             autostash_restore_calls: std::cell::Cell::new(0),
+            rebase_continue_err: false,
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
@@ -452,7 +456,10 @@ impl RepoWrite for MockRepo {
         unimplemented!()
     }
     fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
+        if self.rebase_continue_err {
+            anyhow::bail!("This would overwrite untracked files: later.rs");
+        }
+        Ok(RebaseOutcome::Complete)
     }
     fn squash_commits(
         &mut self,
