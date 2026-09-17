@@ -216,3 +216,27 @@ fn split_root_per_file_last_piece_has_original_tree() {
         "the last split piece must reproduce the original root commit's tree"
     );
 }
+
+/// Counting the pieces must work wherever the split itself does.
+///
+/// The count and the split each build the fragmap from the branch's commits,
+/// and the split keeps `commit_oid` even when it is the reference — which in
+/// `--all` mode the root commit is. The count did not, so the root fell out of
+/// the list it then looked itself up in, and the dialog that offers the split
+/// failed before the split could be attempted.
+#[test]
+fn counting_hunk_groups_works_on_the_root_commit() {
+    let test = common::TestRepo::new();
+    let root = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "root commit");
+    test.commit_file("a.txt", "A2\n", "commit A");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let reference_oid = Oid::from(root);
+
+    let count = git_repo
+        .count_split_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid)
+        .expect("counting must not fail where the split succeeds");
+
+    assert_eq!(count, 2, "the same two groups the split produces");
+}
