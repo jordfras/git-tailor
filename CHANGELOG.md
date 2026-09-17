@@ -20,6 +20,9 @@ The format is based on
 
 ### Fixed
 
+- An edited fixup or squash message that is not valid UTF-8 is committed
+  exactly as typed. Bulk autofixup used to decode it lossily, replacing
+  anything outside UTF-8 with a placeholder character
 - A commit summary containing a non-ASCII character no longer crashes the
   squash and move footers, and such summaries are no longer shortened earlier
   than they need to be
