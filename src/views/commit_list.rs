@@ -887,8 +887,13 @@ fn render_action_footer(
         .saturating_sub(3 + after_summary.len())
         .saturating_sub(hints_len);
 
-    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
-        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
+    // Counted and cut in characters, not bytes. `max_summary_len` is a budget of
+    // terminal columns, so measuring a summary in bytes both truncates accented
+    // text earlier than it needs to and cuts inside a multi-byte character,
+    // which panics.
+    let summary = if source.summary.chars().count() > max_summary_len && max_summary_len > 3 {
+        let kept: String = source.summary.chars().take(max_summary_len - 1).collect();
+        format!("{kept}\u{2026}")
     } else {
         source.summary.clone()
     };
