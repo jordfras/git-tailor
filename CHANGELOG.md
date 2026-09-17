@@ -36,6 +36,13 @@ The format is based on
   squash and move footers, and such summaries are no longer shortened earlier
   than they need to be
 - A terminal too narrow to show both panes no longer crashes the split view
+- Splitting a commit per hunk removes a deleted file instead of leaving an
+  empty one behind in the piece that deletes it. The final result was always
+  right; the commit in the middle was not
+- Splitting the root commit by hunk group works when browsing with `--all`.
+  The split itself was fine — the count in front of it was what failed
+- Retrying a squash after a failed resume keeps the commit message you wrote,
+  instead of reopening the editor on the computed default
 - `--autostash` now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
