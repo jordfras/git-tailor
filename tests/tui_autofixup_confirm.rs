@@ -46,7 +46,7 @@ fn pair(
 fn make_app_in_autofixup_confirm(
     pairs: Vec<AutofixupPair>,
     selected_group: usize,
-    message_overrides: std::collections::HashMap<String, String>,
+    message_overrides: std::collections::HashMap<String, Vec<u8>>,
 ) -> AppState {
     let mut app = AppState::new();
     app.list.commits = vec![
@@ -139,7 +139,7 @@ fn test_autofixup_confirm_dialog_shows_edited_indicator() {
         0,
         std::collections::HashMap::from([(
             "Add parser".to_string(),
-            "Add parser (with a fix)\n".to_string(),
+            b"Add parser (with a fix)\n".to_vec(),
         )]),
     );
 
@@ -183,7 +183,7 @@ fn test_autofixup_confirm_dialog_long_target_summary() {
     let mut overrides = std::collections::HashMap::new();
     overrides.insert(
         "Refactor the entire parser module to use trait-based dispatching".to_string(),
-        "edited\n".to_string(),
+        b"edited\n".to_vec(),
     );
 
     let mut app = make_app_in_autofixup_confirm(
@@ -319,10 +319,8 @@ fn test_autofixup_confirm_reword_targets_the_selected_group() {
 
 #[test]
 fn test_autofixup_confirm_enter_executes_the_whole_batch_with_overrides() {
-    let overrides = std::collections::HashMap::from([(
-        "Add parser".to_string(),
-        "Custom message\n".to_string(),
-    )]);
+    let overrides =
+        std::collections::HashMap::from([("Add parser".to_string(), b"Custom message\n".to_vec())]);
     let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, overrides.clone());
 
     let result = views::autofixup::handle_confirm_key(KeyCommand::Confirm, &mut app);

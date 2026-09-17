@@ -495,7 +495,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &std::collections::HashMap<String, String>,
+        _: &std::collections::HashMap<String, Vec<u8>>,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {

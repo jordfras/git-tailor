@@ -738,7 +738,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, String>,
+        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);

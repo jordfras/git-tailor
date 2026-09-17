@@ -162,7 +162,7 @@ pub enum AppAction {
         head_oid: Oid,
         reference_oid: Oid,
         pairs: Vec<AutofixupPair>,
-        message_overrides: std::collections::HashMap<String, String>,
+        message_overrides: std::collections::HashMap<String, Vec<u8>>,
     },
 }
 
@@ -424,5 +424,5 @@ pub struct PendingAutofixup {
     pub selected_group: usize,
     /// User-edited final messages, keyed by the target's original summary
     /// text (see `AutofixupContext::message_overrides`).
-    pub message_overrides: std::collections::HashMap<String, String>,
+    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
 }
