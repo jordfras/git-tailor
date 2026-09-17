@@ -879,12 +879,18 @@ fn render_action_footer(
 
     let short_oid = source.oid.short();
 
-    let hints_len: usize =
-        " \u{b7} ".len() + hints.iter().map(|(k, d)| k.len() + d.len()).sum::<usize>();
+    // Counted in characters, like the summary below: the separator and the
+    // arrow keys in the hints are multi-byte, so a byte length over-counts a
+    // budget that is really terminal columns and truncates earlier than needed.
+    let hints_len: usize = " \u{b7} ".chars().count()
+        + hints
+            .iter()
+            .map(|(k, d)| k.chars().count() + d.chars().count())
+            .sum::<usize>();
     let max_summary_len = (area.width as usize)
-        .saturating_sub(label.len() + 2)
-        .saturating_sub(short_oid.len())
-        .saturating_sub(3 + after_summary.len())
+        .saturating_sub(label.chars().count() + 2)
+        .saturating_sub(short_oid.chars().count())
+        .saturating_sub(3 + after_summary.chars().count())
         .saturating_sub(hints_len);
 
     // Counted and cut in characters, not bytes. `max_summary_len` is a budget of
