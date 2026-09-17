@@ -50,8 +50,14 @@ pub(crate) fn handle_rebase_abort(
             ))
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e:#}"));
-            Ok(LoopAction::Proceed)
+            // Same reasoning as a failed resume: the abort refused, so the
+            // conflict is still journaled and the branch is still parked on the
+            // commit it paused at. `handle_conflict_key` already replaced the
+            // mode with `CommitList` on the way here, so without this the user
+            // is left on history the branch has moved off with no way back into
+            // the dialog — which is how they end up quitting mid-operation.
+            app.reenter_rebase_conflict_after_failure(state, format!("Abort failed: {e:#}"), None);
+            Ok(LoopAction::Continue)
         }
     }
 }

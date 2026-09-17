@@ -298,6 +298,11 @@ pub(super) fn write_conflicts_to_workdir(
     // (the resolution the user staged). HEAD's tree does not — the ref is not
     // advanced between steps of a chain, so by the second conflict it names a
     // commit the working tree moved past.
+    // Refreshed first, as every other index-dependent read in this crate does:
+    // `repo.inner.index()` hands back a cached handle, and a path staged from
+    // another terminal since it was loaded would be missing from the snapshot —
+    // leaving exactly the leftover file this scan exists to remove.
+    repo_index.read(true)?;
     let checked_out: std::collections::HashSet<Vec<u8>> =
         repo_index.iter().map(|e| e.path.clone()).collect();
 
@@ -349,15 +354,23 @@ fn remove_paths_the_conflict_drops(
     };
     let keep: std::collections::HashSet<Vec<u8>> =
         cherry_index.iter().map(|e| e.path.clone()).collect();
-    // Compared ignoring case as well, because a case-only rename gives the old
-    // and new names the same file on macOS and Windows: removing `Foo.txt`
-    // there would delete the `foo.txt` the checkout just wrote. Leaving a
-    // leftover behind is the recoverable direction; deleting a file the
-    // operation just created is not.
-    let keep_folded: std::collections::HashSet<Vec<u8>> =
-        keep.iter().map(|p| p.to_ascii_lowercase()).collect();
+    // Only where the filesystem actually folds case. There a case-only rename
+    // gives the old and new names the same file, so removing `Foo.txt` would
+    // delete the `foo.txt` the checkout just wrote. On a case-sensitive
+    // filesystem they are two files, and skipping the removal would leave a
+    // genuine leftover behind — the very thing this scan exists to prevent.
+    let ignore_case = repo
+        .inner
+        .config()
+        .and_then(|c| c.get_bool("core.ignorecase"))
+        .unwrap_or(false);
+    let keep_folded: std::collections::HashSet<Vec<u8>> = if ignore_case {
+        keep.iter().map(|p| p.to_ascii_lowercase()).collect()
+    } else {
+        std::collections::HashSet::new()
+    };
     for path in checked_out.difference(&keep) {
-        if keep_folded.contains(&path.to_ascii_lowercase()) {
+        if ignore_case && keep_folded.contains(&path.to_ascii_lowercase()) {
             continue;
         }
         let _ = super::remove_written_path(workdir, &super::bytes_to_path(path));

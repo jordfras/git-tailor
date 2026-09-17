@@ -196,8 +196,7 @@ pub(super) fn split_commit_per_hunk_group(
     // this commit interacts with its neighbors in the branch.  In --all mode
     // the root commit IS the reference point, so the commit being split must
     // be kept even when it equals `reference_oid`.
-    let assignment =
-        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, true)?;
+    let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
 
     // Build a 0-context full diff (parent_tree → commit_tree) for tree
     // manipulation; hunk indices here correspond to those in `assignment`.
@@ -338,11 +337,7 @@ pub(super) fn count_split_per_hunk_group(
     head_oid: &Oid,
     reference_oid: &Oid,
 ) -> Result<usize> {
-    let assignment =
-        // `true`, matching the split this counts for: in `--all` mode the
-        // reference is the root commit, and dropping it here would take the
-        // commit being counted out of the list it is then looked up in.
-        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, true)?;
+    let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
     Ok(assignment.touched_groups().len())
 }
 
@@ -692,16 +687,20 @@ fn hunk_selection_for_prefix(
 }
 
 /// Run the fragmap hunk-group clustering for the branch `head_oid..reference_oid`
-/// and return the per-file group assignment for `commit_oid`.  When
-/// `keep_self_when_reference` is set, `commit_oid` is included even if it
-/// equals `reference_oid` (needed by the per-hunk-group split, which must
-/// treat the root commit as a normal commit in --all mode).
+/// and return the per-file group assignment for `commit_oid`.
+///
+/// `commit_oid` is kept even when it equals `reference_oid`, which in `--all`
+/// mode it does for the root commit: dropping it would take the commit being
+/// assigned out of the list it is then looked up in. This used to be a
+/// parameter, with the split passing `true` and the count in front of it
+/// passing `false` — so counting the root commit's groups failed while
+/// splitting them worked. Where the two differ the predicate is identical
+/// anyway, so there was never a caller that wanted the other behaviour.
 fn compute_hunk_group_assignment(
     repo: &Git2Repo,
     commit_oid: &Oid,
     head_oid: &Oid,
     reference_oid: &Oid,
-    keep_self_when_reference: bool,
 ) -> Result<fragmap::HunkGroupAssignment> {
     let branch_commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let branch_diffs: Vec<crate::CommitDiff> = branch_commits
@@ -709,12 +708,7 @@ fn compute_hunk_group_assignment(
         .filter(|c| {
             let is_reference = c.oid.as_oid() == Some(reference_oid);
             let is_split_commit = c.oid.as_oid() == Some(commit_oid);
-            let keep = if keep_self_when_reference {
-                !is_reference || is_split_commit
-            } else {
-                !is_reference
-            };
-            keep && !c.oid.is_synthetic()
+            (!is_reference || is_split_commit) && !c.oid.is_synthetic()
         })
         .map(|c| {
             c.oid
