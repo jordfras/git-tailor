@@ -248,6 +248,44 @@ Guidelines:
   share journal pins — quietly undoing the per-working-tree isolation added in
   3.1.0, whose whole point was that one tree's run must not unpin another's
   interrupted work. Hash the bytes instead.
+- [ ] T252 P2 fix - Bound the span-propagation graph's path enumeration.
+  `spg_enumerate_paths` (`src/fragmap/spg.rs`) enumerates every path through the
+  graph eagerly and recursively with no cap. Measured: 34 commits produce
+  149,931 deduped clusters in 4.1s release; a 2,000-commit disjoint file takes
+  104s. `assign_hunk_groups` hardwires its `poll` closure to `|| true`, so none
+  of it is interruptible — the event loop is simply gone for the duration, with
+  no way to cancel and no progress shown.
+  Two halves, and the second is worth doing even if the first is hard: cap or
+  restructure the enumeration (the consumer only needs cluster membership, not
+  the paths themselves, so a reachability computation may replace the
+  enumeration outright), and thread a real `poll` through so a user can abort.
+  Not a patch — the enumeration is the algorithm, which is why this is filed
+  rather than fixed.
+- [ ] T253 P2 bug - Two files in one commit can collide onto one fragmap key.
+  `collect_file_commits` (`src/fragmap.rs`) keys by canonical path, and merges
+  hunks when the last entry for a key is the same commit. That merge exists for
+  a file appearing twice in one commit — which only happens when a rename chain
+  maps two *different* paths in the same commit to the same canonical name.
+  Their hunks are then concatenated into one list whose line numbers refer to
+  two different files, so it is out of order and the hunk-group assignments
+  indexed off it are wrong.
+  The fix needs a semantic decision rather than a patch: either keep the two
+  files apart at that commit (losing the rename link there, since the canonical
+  key is what carries it), or carry the source path alongside so entries can be
+  distinguished without collapsing. Both change what the matrix shows, which is
+  why this is not a quiet fix.
+- [ ] T254 P3 bug - Binary and mode-only changes slip past split-out-hunks.
+  `split_commit_out_hunks` (`src/repo/git2_impl/split_op.rs`) builds
+  `hunk_counts` from `Patch::num_hunks`, which is 0 for a binary delta and for a
+  mode-only change. Two consequences: `total_hunks` excludes them, so the
+  "every hunk is selected — nothing would remain" guard fires when something
+  *would* remain; and the delta gets an empty selection in the `rest` map, so
+  the change is carried into the peeled commit rather than staying with the
+  rest.
+  Needs a decision on what splitting even means for a change with no hunks. The
+  defensible answer is that it cannot be split and belongs with the remainder,
+  with `total_hunks` counting it so the guard stops misfiring — but that is a
+  behaviour choice, not an obvious correction.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
