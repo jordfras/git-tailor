@@ -658,13 +658,15 @@ fn determine_touch_kind(
                 .map(|p| canonical_path(p, rename_map) == cluster_canonical)
                 .unwrap_or(false);
             if matches {
-                if file.old_path.is_none() && file.new_path.is_some() {
-                    return TouchKind::Added;
-                } else if file.old_path.is_some() && file.new_path.is_none() {
-                    return TouchKind::Deleted;
-                } else {
-                    return TouchKind::Modified;
-                }
+                // From the delta's own status, not from which paths are set:
+                // libgit2 fills in *both* `old_file` and `new_file` for an add
+                // and for a delete, so inferring from a missing path made both
+                // of those unreachable and rendered every touch as `Modified`.
+                return match file.status {
+                    crate::DeltaStatus::Added | crate::DeltaStatus::Untracked => TouchKind::Added,
+                    crate::DeltaStatus::Deleted => TouchKind::Deleted,
+                    _ => TouchKind::Modified,
+                };
             }
         }
     }
