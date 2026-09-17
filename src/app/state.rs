@@ -96,6 +96,10 @@ pub struct AppState {
     /// operation, where this describes one attempt at finishing it. Cleared
     /// whenever the dialog is entered for any other reason.
     pub resume_failure: Option<String>,
+    /// A commit message the user wrote for a resume that then failed, so the
+    /// retry can seed the editor with it rather than throwing it away and
+    /// starting from the computed default again.
+    pub resume_message: Option<Vec<u8>>,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -210,9 +214,15 @@ impl AppState {
 
     /// Re-enter the conflict dialog after an attempt to finish it failed,
     /// carrying why so the dialog can say what happened and what is left to try.
-    pub fn reenter_rebase_conflict_after_failure(&mut self, state: ConflictState, why: String) {
+    pub fn reenter_rebase_conflict_after_failure(
+        &mut self,
+        state: ConflictState,
+        why: String,
+        retry_message: Option<Vec<u8>>,
+    ) {
         self.enter_rebase_conflict(state);
         self.resume_failure = Some(why);
+        self.resume_message = retry_message;
     }
 
     /// Enter the auto-stash conflict resolution dialog.
@@ -470,12 +480,14 @@ impl AppState {
         // opening means that attempt is no longer what the user is looking at.
         // `reenter_rebase_conflict_after_failure` sets it back afterwards.
         self.resume_failure = None;
+        self.resume_message = None;
         self.mode = mode;
         self.dialog.offset = 0;
     }
 
     fn exit_dialog(&mut self) {
         self.resume_failure = None;
+        self.resume_message = None;
         // MoveSelect navigation can leave the selection as a scroll anchor
         // pointing past the last commit; clamp it so CommitList consumers
         // (footer, fragmap highlight) never index out of bounds.
