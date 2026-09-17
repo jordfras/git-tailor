@@ -78,3 +78,25 @@ fn carry_conflict_dialog_from_the_unstaged_row() {
         views::conflict::render_conflict(&mut app, frame);
     }));
 }
+
+/// A resume that failed shows why inside the dialog, and what is left to try.
+///
+/// Snapshotted because the failure was a formatting one: the guidance wrapped
+/// with runs of spaces in the middle of sentences and ran flush against the
+/// right border, which no behavioral test would have noticed.
+#[test]
+fn conflict_dialog_after_a_failed_resume() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_carry_conflict(WorktreeSource::Staged);
+    app.resume_failure = Some(
+        "This would overwrite untracked files: device/limits/src/monkey_tests.rs. \
+         Move, delete, or commit them first."
+            .to_string(),
+    );
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&mut app, frame);
+    }));
+}

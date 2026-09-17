@@ -271,10 +271,6 @@ pub(super) fn write_conflicts_to_workdir(
     // resolves to now is what the ref moves below, and resuming or aborting has
     // to come back to the same one.
     state.branch_refname = repo.current_branch_refname().unwrap_or_default();
-    // Read before the ref moves: what the working tree reflects right now.
-    let before_tree = super::reads::head_oid(repo)
-        .ok()
-        .and_then(|oid| repo.commit_tree_id(git2::Oid::from(&oid)).ok());
     // Before the write-ahead record and the ref move: a conflict is still a
     // checkout over the working tree, and refusing here leaves the branch, the
     // index and the files exactly as they were. The merge is recomputed on the
@@ -296,6 +292,15 @@ pub(super) fn write_conflicts_to_workdir(
     // result.  Without this, leftover files from the previous index state
     // (typically HEAD) leak into the written index and end up in trees
     // created by rebase_continue / squash_finalize.
+    // Read before the clear: the index is what git currently believes is
+    // checked out, which is the only thing that answers "what is on disk" at
+    // both the first conflict (HEAD's index) and a later one during a replay
+    // (the resolution the user staged). HEAD's tree does not — the ref is not
+    // advanced between steps of a chain, so by the second conflict it names a
+    // commit the working tree moved past.
+    let checked_out: std::collections::HashSet<Vec<u8>> =
+        repo_index.iter().map(|e| e.path.clone()).collect();
+
     repo_index.clear()?;
     for entry in cherry_index.iter() {
         repo_index.add(&entry)?;
@@ -311,47 +316,31 @@ pub(super) fn write_conflicts_to_workdir(
         .checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
     drop(repo_index);
 
-    if let Some(before_tree) = before_tree {
-        remove_paths_the_conflict_drops(repo, before_tree, cherry_index)?;
-    }
+    remove_paths_the_conflict_drops(repo, &checked_out, cherry_index);
 
     Ok(())
 }
 
 /// Delete working-tree files the conflict state does not account for.
 ///
-/// The cherry-pick index is rooted in the commit being replayed onto, so a path
-/// added *after* it is simply absent — and `checkout_index` has no opinion about
-/// a file the index does not mention, so it stays on disk. From that moment git
-/// calls it untracked, and when the replay re-adds the path the collision guard
-/// refuses, naming a file this operation left there.
+/// A path added after the commit being replayed onto is absent from the
+/// cherry-pick index, so `checkout_index` leaves it on disk — and the collision
+/// guard later refuses a file this operation itself left there.
 ///
-/// Scoped by diffing the pre-conflict tree against the index rather than by
-/// asking what is untracked: everything removed here is a path the operation is
-/// dropping, still reachable from the commit it came from. Never
-/// `remove_untracked`, which would take the user's own files with it.
+/// Scoped to paths that were in the index a moment ago, never
+/// `remove_untracked`. Best-effort: a leftover costs a spurious refusal later,
+/// failing here would cost the conflict pause.
 fn remove_paths_the_conflict_drops(
     repo: &Git2Repo,
-    before_tree: git2::Oid,
+    checked_out: &std::collections::HashSet<Vec<u8>>,
     cherry_index: &git2::Index,
-) -> Result<()> {
+) {
     let Some(workdir) = repo.inner.workdir() else {
-        return Ok(());
+        return;
     };
-    let before = repo
-        .inner
-        .find_tree(before_tree)
-        .context("failed to read the tree the working tree reflects")?;
-    let diff = repo
-        .inner
-        .diff_tree_to_index(Some(&before), Some(cherry_index), None)
-        .context("failed to diff for paths the conflict drops")?;
-    for delta in diff.deltas() {
-        if delta.status() == git2::Delta::Deleted
-            && let Some(path) = delta.old_file().path()
-        {
-            super::remove_written_path(workdir, path)?;
-        }
+    let keep: std::collections::HashSet<Vec<u8>> =
+        cherry_index.iter().map(|e| e.path.clone()).collect();
+    for path in checked_out.difference(&keep) {
+        let _ = super::remove_written_path(workdir, &super::bytes_to_path(path));
     }
-    Ok(())
 }

@@ -89,6 +89,10 @@ pub struct AppState {
     /// Scroll state for the current dialog (e.g. help). Offset is reset when a
     /// dialog opens; bounds are updated during render.
     pub dialog: ScrollState,
+    /// Why the last attempt to resume a paused conflict failed, shown inside the
+    /// conflict dialog. Not in `ConflictState`, which is journaled and describes
+    /// the operation rather than one attempt at it.
+    pub resume_failure: Option<String>,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -199,6 +203,13 @@ impl AppState {
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
+    }
+
+    /// Re-enter the conflict dialog after an attempt to finish it failed,
+    /// carrying why so the dialog can say what happened and what is left to try.
+    pub fn reenter_rebase_conflict_after_failure(&mut self, state: ConflictState, why: String) {
+        self.enter_rebase_conflict(state);
+        self.resume_failure = Some(why);
     }
 
     /// Enter the auto-stash conflict resolution dialog.
@@ -451,11 +462,15 @@ impl AppState {
     }
 
     fn enter_dialog(&mut self, mode: AppMode) {
+        // Wiped on every dialog entry, including the re-entry after a failed
+        // resume — which sets it again on the line after.
+        self.resume_failure = None;
         self.mode = mode;
         self.dialog.offset = 0;
     }
 
     fn exit_dialog(&mut self) {
+        self.resume_failure = None;
         // MoveSelect navigation can leave the selection as a scroll anchor
         // pointing past the last commit; clamp it so CommitList consumers
         // (footer, fragmap highlight) never index out of bounds.

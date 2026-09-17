@@ -20,6 +20,11 @@ The format is based on
 
 ### Fixed
 
+- When resuming an operation after a conflict fails, the conflict dialog stays
+  up and says what happened, that nothing was lost, and that the branch is still
+  on the commit it paused at — with Enter to try again and Esc to abort. It used
+  to drop back to the commit list with only a line in the status bar, showing
+  history the branch had already moved off and no way back into the dialog
 - Resuming an operation after resolving a conflict no longer refuses with
   "This would overwrite untracked files" about a file the operation itself left
   on disk. Pausing at a conflict rewinds to an older commit, and any file added

@@ -571,6 +571,52 @@ fn only_key_events_dismiss_transient_status() {
 }
 
 #[test]
+fn a_resume_that_fails_stays_in_the_conflict_dialog() {
+    // The conflict is still journaled and the branch is still parked on the
+    // commit it paused at, so dropping to the commit list shows history the
+    // branch has moved off with no way back into the dialog — which is how a
+    // user ends up quitting with an operation still in progress.
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let action = handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(anyhow::anyhow!(
+            "This would overwrite untracked files: later.rs"
+        )),
+        "Continue",
+        "Commit squash complete",
+        &make_conflict_state(),
+    );
+
+    assert!(
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "the dialog must stay up, got {:?}",
+        app.mode
+    );
+    // Not a reload: `load_with_progress` ends by setting `AppMode::CommitList`,
+    // so reloading here would throw the dialog straight back away — which is
+    // exactly what the first attempt at this fix did.
+    assert!(
+        matches!(action, LoopAction::Continue),
+        "a reload would discard the dialog this just restored"
+    );
+    assert!(
+        app.resume_failure
+            .as_deref()
+            .unwrap_or_default()
+            .contains("overwrite untracked"),
+        "the dialog needs the reason, not just the status bar"
+    );
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        0,
+        "the auto-stash belongs to an operation that has not finished"
+    );
+}
+
+#[test]
 fn conflict_tool_finished_refreshes_rebase_dialog() {
     // After a tool resolved (some) files, the rebase-conflict dialog is rebuilt
     // with the still-conflicting files and a success banner naming the tool.

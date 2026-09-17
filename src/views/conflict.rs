@@ -15,7 +15,8 @@
 // Rebase conflict resolution dialog, shared by drop/squash/etc.
 
 use super::dialog::{
-    Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width, render_conflict_dialog,
+    ConflictView, Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width,
+    push_resume_failure, render_conflict_dialog,
 };
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use crate::repo::Resume;
@@ -38,6 +39,11 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             }
         }
         KeyCommand::Mergetool => {
+            if app.resume_failure.is_some() {
+                // Nothing to open: a resume only runs once the markers are
+                // resolved, which is why the instruction row hides this.
+                return AppAction::Handled;
+            }
             if let AppMode::RebaseConflict(ref state) = app.mode {
                 AppAction::RunMergetool {
                     files: state.conflicting_files.clone(),
@@ -48,6 +54,9 @@ pub fn handle_conflict_key(action: KeyCommand, app: &mut AppState) -> AppAction 
             }
         }
         KeyCommand::OpenEditor => {
+            if app.resume_failure.is_some() {
+                return AppAction::Handled;
+            }
             if let AppMode::RebaseConflict(ref state) = app.mode {
                 AppAction::RunEditor {
                     files: state.conflicting_files.clone(),
@@ -116,12 +125,23 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         let note = format!(
             "The {label_lower} itself is done. Your {other} could not be put back on top of what you resolved it to. Resolve the markers below, then continue to keep them — or abort to undo the whole {label_lower} and get your changes back unchanged."
         );
-        let dialog = Dialog::new(DialogKind::Danger, app.colors)
-            .heading(
-                format!("Working-tree conflict after {label_lower}"),
-                TextRole::Danger,
-            )
-            .wrapped(&note, iw);
+        let dialog = Dialog::new(DialogKind::Danger, app.colors).heading(
+            format!("Working-tree conflict after {label_lower}"),
+            TextRole::Danger,
+        );
+        // The operation's own prose describes a conflict waiting to be
+        // resolved. After a failed resume the markers are already gone and the
+        // note above supersedes it — and dropping it keeps the instructions
+        // that say how to get out on screen rather than below the fold.
+        let left = format!(
+            "The {label_lower} itself is done and your {other} are still set aside. Clear what is named above, then press Enter to try again — or press Esc to unwind the whole {label_lower} and get your changes back unchanged."
+        );
+        let dialog = push_resume_failure(dialog, app, iw, &left);
+        let dialog = if app.resume_failure.is_some() {
+            dialog
+        } else {
+            dialog.wrapped(&note, iw)
+        };
         let files = state.conflicting_files.clone();
         let still_unresolved = state.still_unresolved;
         let title = format!("{label} Conflict");
@@ -129,17 +149,26 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
             app,
             frame,
             dialog,
-            &files,
-            still_unresolved,
+            ConflictView {
+                files: &files,
+                still_unresolved,
+                resume_failed: app.resume_failure.is_some(),
+            },
             PREFERRED_WIDTH,
             &title,
         );
         return;
     }
 
-    let mut dialog = Dialog::new(DialogKind::Danger, app.colors).heading(
+    let dialog = Dialog::new(DialogKind::Danger, app.colors).heading(
         format!("Merge conflict during {label_lower}"),
         TextRole::Danger,
+    );
+    let mut dialog = push_resume_failure(
+        dialog,
+        app,
+        iw,
+        "Still in progress: your branch is on the commit it paused at. Clear what is named above, then press Enter to try again — or press Esc to abort and put the branch back where it started.",
     );
 
     dialog = dialog.push_line(Line::from(vec![
@@ -162,7 +191,9 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         } => moved_commit_oid.as_ref(),
         Resume::Squash(_) | Resume::CarryRow(_) => None,
     };
-    if let Some(moved_oid) = moved_commit_oid {
+    if app.resume_failure.is_some() {
+        // Stale after a failed resume, as above.
+    } else if let Some(moved_oid) = moved_commit_oid {
         let note = if state.conflicting_commit_oid == *moved_oid {
             " The moved commit itself caused the conflict."
         } else {
@@ -192,8 +223,11 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         app,
         frame,
         dialog,
-        &files,
-        still_unresolved,
+        ConflictView {
+            files: &files,
+            still_unresolved,
+            resume_failed: app.resume_failure.is_some(),
+        },
         PREFERRED_WIDTH,
         &title,
     );

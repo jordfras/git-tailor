@@ -449,6 +449,34 @@ pub(crate) fn edit_message_suspended(
     })?
 }
 
+/// Like [`handle_rebase_outcome`], but for an outcome that came from *resuming*
+/// a paused conflict.
+///
+/// Only the failure arm differs: a resume that fails leaves the conflict
+/// journaled and the branch parked, so falling back to the commit list would
+/// show history the branch has moved off, with no way back into the dialog. The
+/// auto-stash stays deferred for the same reason.
+pub(crate) fn handle_resume_outcome(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    outcome: anyhow::Result<RebaseOutcome>,
+    op_label: &str,
+    success_msg: &str,
+    state: &git_tailor::repo::ConflictState,
+) -> LoopAction {
+    match outcome {
+        Err(e) => {
+            // `Continue`, not a reload: `load_with_progress` ends by setting
+            // `AppMode::CommitList`, so reloading here would throw away the
+            // dialog this just put back. The list behind it is refreshed when
+            // the operation resolves or aborts, both of which reload.
+            app.reenter_rebase_conflict_after_failure(state.clone(), format!("{e:#}"));
+            LoopAction::Continue
+        }
+        ok => handle_rebase_outcome(git_repo, app, ok, op_label, success_msg),
+    }
+}
+
 /// Reduce a rebase result to its UI side effect.
 ///
 /// On success, sets a status message and returns `LoopAction::ReloadPreserving`
