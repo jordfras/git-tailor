@@ -159,11 +159,21 @@ pub(super) fn apply_single_hunk_to_tree(
         let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
             .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
 
-        let new_blob_oid = repo.blob(&new_content)?;
-
         // Load base_tree into an in-memory index, update the one file, write tree.
         let mut idx = git2::Index::new()?;
         idx.read_tree(base_tree)?;
+
+        // A deletion's hunk removes every line, so applying it leaves nothing.
+        // The path has to go with it: writing the empty result back as a blob
+        // produces a piece that truncates the file rather than deleting it, and
+        // the pieces still sum to the original commit so nothing downstream
+        // notices.
+        if delta.status() == git2::Delta::Deleted {
+            idx.remove_path(&file_path)?;
+            return idx.write_tree_to(repo).map_err(Into::into);
+        }
+
+        let new_blob_oid = repo.blob(&new_content)?;
 
         let path_bytes = file_path
             .to_str()
