@@ -20,6 +20,10 @@ The format is based on
 
 ### Fixed
 
+- A commit summary containing a non-ASCII character no longer crashes the
+  squash and move footers, and such summaries are no longer shortened earlier
+  than they need to be
+- A terminal too narrow to show both panes no longer crashes the split view
 - `--autostash` now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
