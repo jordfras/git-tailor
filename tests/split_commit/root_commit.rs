@@ -230,7 +230,7 @@ fn counting_hunk_groups_works_on_the_root_commit() {
     let root = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "root commit");
     test.commit_file("a.txt", "A2\n", "commit A");
 
-    let mut git_repo = test.git_repo();
+    let git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let reference_oid = Oid::from(root);
 

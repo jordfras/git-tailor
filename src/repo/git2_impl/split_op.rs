@@ -339,7 +339,10 @@ pub(super) fn count_split_per_hunk_group(
     reference_oid: &Oid,
 ) -> Result<usize> {
     let assignment =
-        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, false)?;
+        // `true`, matching the split this counts for: in `--all` mode the
+        // reference is the root commit, and dropping it here would take the
+        // commit being counted out of the list it is then looked up in.
+        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, true)?;
     Ok(assignment.touched_groups().len())
 }
 
