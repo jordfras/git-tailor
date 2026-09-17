@@ -75,7 +75,9 @@ pub fn render(app: &mut AppState, frame: &mut ratatui::Frame) {
             .map(|_| Line::from(Span::styled("│", sep_style)))
             .collect();
         let sep_area = Rect {
-            x: left_area.x + left_width - 1,
+            // Saturating like the panel width above: `left_width` is 0 once the
+            // terminal is too narrow to hold both panes.
+            x: left_area.x + left_width.saturating_sub(1),
             y: area.y,
             width: 1,
             height: sep_height,
