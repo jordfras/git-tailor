@@ -270,3 +270,19 @@ fn test_commit_detail_shown_on_narrow_terminal() {
         "narrow terminal in CommitDetail mode: right panel (col 59) should show first char of commit detail header; got: {right_panel_char:?}"
     );
 }
+
+/// A pane too narrow to hold the separator must not panic.
+///
+/// `left_width` reaches 0 in a narrow terminal, and the separator's `x` was
+/// computed with a bare `left_width - 1` — a `u16` underflow. The panel width a
+/// few lines above already guards the same value with `saturating_sub`, so only
+/// one of the two uses was ever protected.
+#[test]
+fn a_narrow_terminal_does_not_panic_in_the_split_view() {
+    for width in 1u16..=30 {
+        let mut harness = TuiTestHarness::new(width, 24);
+        let mut app = app_with_commits();
+        app.mode = git_tailor::app::AppMode::CommitDetail;
+        harness.render(|frame| views::main_view::render(&mut app, frame));
+    }
+}
