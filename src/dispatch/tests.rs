@@ -588,6 +588,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         "Continue",
         "Commit squash complete",
         &make_conflict_state(),
+        Some(b"the message the user typed\n".to_vec()),
     );
 
     assert!(
@@ -614,6 +615,17 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         0,
         "the auto-stash belongs to an operation that has not finished"
     );
+    assert_eq!(
+        app.resume_message.as_deref(),
+        Some(b"the message the user typed\n".as_slice()),
+        "a retry must not throw away what the user wrote"
+    );
+
+    // And any other dialog opening drops both, so neither can leak into an
+    // unrelated conflict later in the session.
+    app.enter_stash_conflict(git_tailor::repo::StashConflictState::default());
+    assert!(app.resume_failure.is_none());
+    assert!(app.resume_message.is_none());
 }
 
 #[test]

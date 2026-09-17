@@ -85,7 +85,13 @@ pub(crate) fn handle_rebase_continue(
         let final_msg = if ctx.squash_mode.keeps_target_message() || is_autofixup {
             ctx.combined_message.clone()
         } else {
-            let combined = ctx.combined_message.clone();
+            // Seeded from what the user wrote last time when a previous attempt
+            // failed: the retry the dialog invites should not silently discard
+            // the message and start from the computed default again.
+            let combined = app
+                .resume_message
+                .clone()
+                .unwrap_or_else(|| ctx.combined_message.clone());
             let editor_result =
                 edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
             match editor_result {
@@ -115,7 +121,15 @@ pub(crate) fn handle_rebase_continue(
             &original_oid,
             state.autofixup_context.as_ref(),
         );
-        let result = handle_resume_outcome(git_repo, app, outcome, "Squash", &success_msg, &state);
+        let result = handle_resume_outcome(
+            git_repo,
+            app,
+            outcome,
+            "Squash",
+            &success_msg,
+            &state,
+            Some(final_msg),
+        );
         return Ok(apply_pending_autofixup_selection(
             pending,
             is_autofixup,
@@ -131,7 +145,15 @@ pub(crate) fn handle_rebase_continue(
         format!("Commit {} complete", state.operation_label.to_lowercase())
     };
     let outcome = git_repo.rebase_continue(&state);
-    let result = handle_resume_outcome(git_repo, app, outcome, "Continue", &success_msg, &state);
+    let result = handle_resume_outcome(
+        git_repo,
+        app,
+        outcome,
+        "Continue",
+        &success_msg,
+        &state,
+        None,
+    );
     Ok(apply_pending_autofixup_selection(
         pending,
         is_autofixup,

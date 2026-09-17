@@ -463,6 +463,7 @@ pub(crate) fn handle_resume_outcome(
     op_label: &str,
     success_msg: &str,
     state: &git_tailor::repo::ConflictState,
+    retry_message: Option<Vec<u8>>,
 ) -> LoopAction {
     match outcome {
         Err(e) => {
@@ -470,7 +471,11 @@ pub(crate) fn handle_resume_outcome(
             // `AppMode::CommitList`, so reloading here would throw away the
             // dialog this just put back. The list behind it is refreshed when
             // the operation resolves or aborts, both of which reload.
-            app.reenter_rebase_conflict_after_failure(state.clone(), format!("{e:#}"));
+            app.reenter_rebase_conflict_after_failure(
+                state.clone(),
+                format!("{e:#}"),
+                retry_message,
+            );
             LoopAction::Continue
         }
         ok => handle_rebase_outcome(git_repo, app, ok, op_label, success_msg),
