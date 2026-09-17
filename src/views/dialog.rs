@@ -150,13 +150,6 @@ pub fn truncate_summary(text: &str, width: usize) -> String {
     format!("{head}\u{2026}")
 }
 
-/// Append the shared conflict-dialog tail to `dialog` — the list of conflicting
-/// files, the "still unresolved" warning, and the `Enter`/`m`/`e`/`Esc`
-/// instructions — then render it under `title`.
-///
-/// Shared by the rebase-conflict and auto-stash-conflict dialogs so the two look
-/// and behave identically; only the heading and body (already built into
-/// `dialog` by the caller) differ.
 /// Lead a conflict dialog with why the last attempt to finish it failed.
 ///
 /// Placed directly under the heading, above the operation's own prose: it has
@@ -198,6 +191,13 @@ pub struct ConflictView<'a> {
     pub resume_failed: bool,
 }
 
+/// Append the shared conflict-dialog tail to `dialog` — the list of conflicting
+/// files, the "still unresolved" warning, and the `Enter`/`m`/`e`/`Esc`
+/// instructions — then render it under `title`.
+///
+/// Shared by the rebase-conflict and auto-stash-conflict dialogs so the two look
+/// and behave identically; only the heading and body (already built into
+/// `dialog` by the caller) differ.
 pub fn render_conflict_dialog(
     app: &mut AppState,
     frame: &mut Frame,

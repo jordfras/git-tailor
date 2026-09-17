@@ -50,8 +50,11 @@ pub(crate) fn handle_rebase_abort(
             ))
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e:#}"));
-            Ok(LoopAction::Proceed)
+            // The abort refused, so the conflict is still journaled — but
+            // `handle_conflict_key` already dropped the mode to `CommitList` on
+            // the way here, leaving no way back into the dialog.
+            app.reenter_rebase_conflict_after_failure(state, format!("Abort failed: {e:#}"), None);
+            Ok(LoopAction::Continue)
         }
     }
 }

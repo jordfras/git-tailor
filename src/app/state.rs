@@ -217,6 +217,14 @@ impl AppState {
         why: String,
         retry_message: Option<Vec<u8>>,
     ) {
+        // The attempt only ran because the markers were resolved, so a
+        // `still_unresolved` carried over from an earlier press of Enter is
+        // stale — and its warning ("fix all conflicts above") would print above
+        // a file list this state deliberately hides.
+        let state = ConflictState {
+            still_unresolved: false,
+            ..state
+        };
         self.enter_rebase_conflict(state);
         self.resume_failure = Some(why);
         self.resume_message = retry_message;

@@ -137,7 +137,7 @@ fn rebase_abort_success_sets_success_message() {
 }
 
 #[test]
-fn rebase_abort_error_sets_error_message() {
+fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     let mut repo = MockRepo {
         abort_ok: false,
         ..MockRepo::default()
@@ -150,13 +150,17 @@ fn rebase_abort_error_sets_error_message() {
         &mut PendingAutofixupSelection::default(),
         state,
     );
-    assert!(app.status.is_error);
     assert!(
-        app.status
-            .message
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "a refused abort must not leave the dialog closed, got {:?}",
+        app.mode
+    );
+    assert!(
+        app.resume_failure
             .as_deref()
             .unwrap_or("")
-            .contains("Abort failed")
+            .contains("Abort failed"),
+        "and must say why"
     );
 }
 
