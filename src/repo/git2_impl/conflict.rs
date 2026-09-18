@@ -292,6 +292,20 @@ pub(super) fn write_conflicts_to_workdir(
     // result.  Without this, leftover files from the previous index state
     // (typically HEAD) leak into the written index and end up in trees
     // created by rebase_continue / squash_finalize.
+    // Read before the clear: the index is what git currently believes is
+    // checked out, which is the only thing that answers "what is on disk" at
+    // both the first conflict (HEAD's index) and a later one during a replay
+    // (the resolution the user staged). HEAD's tree does not — the ref is not
+    // advanced between steps of a chain, so by the second conflict it names a
+    // commit the working tree moved past.
+    // Refreshed first, as every other index-dependent read in this crate does:
+    // `repo.inner.index()` hands back a cached handle, and a path staged from
+    // another terminal since it was loaded would be missing from the snapshot —
+    // leaving exactly the leftover file this scan exists to remove.
+    repo_index.read(true)?;
+    let checked_out: std::collections::HashSet<Vec<u8>> =
+        repo_index.iter().map(|e| e.path.clone()).collect();
+
     repo_index.clear()?;
     for entry in cherry_index.iter() {
         repo_index.add(&entry)?;
@@ -305,6 +319,60 @@ pub(super) fn write_conflicts_to_workdir(
     checkout.allow_conflicts(true);
     repo.inner
         .checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
+    drop(repo_index);
+
+    remove_paths_the_conflict_drops(repo, &checked_out, cherry_index);
 
     Ok(())
+}
+
+/// Delete working-tree files the conflict state does not account for.
+///
+/// The cherry-pick index is rooted in the commit being replayed onto, so a path
+/// added *after* it is simply absent — and `checkout_index` has no opinion about
+/// a file the index does not mention, so it stays on disk. From that moment git
+/// calls it untracked, and when the replay re-adds the path the collision guard
+/// refuses, naming a file this operation left there.
+///
+/// Scoped to paths that were in the index a moment ago, so everything removed
+/// was tracked and is still reachable from the commit it came from. Never
+/// `remove_untracked`, which libgit2 does not scope to what the operation wrote
+/// and which would take the user's own files.
+///
+/// Best-effort by design: this runs after the journal write, the ref move and
+/// the checkout, so returning `Err` here would turn a recoverable conflict pause
+/// into a failed operation over a file that could not be unlinked. A leftover
+/// costs a spurious refusal later, which is recoverable; failing the pause is
+/// not.
+fn remove_paths_the_conflict_drops(
+    repo: &Git2Repo,
+    checked_out: &std::collections::HashSet<Vec<u8>>,
+    cherry_index: &git2::Index,
+) {
+    let Some(workdir) = repo.inner.workdir() else {
+        return;
+    };
+    let keep: std::collections::HashSet<Vec<u8>> =
+        cherry_index.iter().map(|e| e.path.clone()).collect();
+    // Only where the filesystem actually folds case. There a case-only rename
+    // gives the old and new names the same file, so removing `Foo.txt` would
+    // delete the `foo.txt` the checkout just wrote. On a case-sensitive
+    // filesystem they are two files, and skipping the removal would leave a
+    // genuine leftover behind — the very thing this scan exists to prevent.
+    let ignore_case = repo
+        .inner
+        .config()
+        .and_then(|c| c.get_bool("core.ignorecase"))
+        .unwrap_or(false);
+    let keep_folded: std::collections::HashSet<Vec<u8>> = if ignore_case {
+        keep.iter().map(|p| p.to_ascii_lowercase()).collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+    for path in checked_out.difference(&keep) {
+        if ignore_case && keep_folded.contains(&path.to_ascii_lowercase()) {
+            continue;
+        }
+        let _ = super::remove_written_path(workdir, &super::bytes_to_path(path));
+    }
 }

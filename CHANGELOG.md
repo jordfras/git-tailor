@@ -6,6 +6,47 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
+## [Unreleased]
+
+### Changed
+
+- Squashing the Staged or Unstaged row now sets your *other* uncommitted
+  changes aside in the stash while it works, instead of leaving them in your
+  files. They come back when the fold finishes, and `git stash list` holds them
+  if anything goes wrong — but a fold paused on a conflict will show an editor
+  without them
+- The journal format is now version 3. A fold left in flight by 3.1.0 is handed
+  back to that version to finish rather than being resumed here
+
+### Fixed
+
+- When resuming an operation after a conflict fails, the conflict dialog stays
+  up and says what happened, that nothing was lost, and that the branch is still
+  on the commit it paused at — with Enter to try again and Esc to abort. It used
+  to drop back to the commit list with only a line in the status bar, showing
+  history the branch had already moved off and no way back into the dialog
+- Resuming an operation after resolving a conflict no longer refuses with
+  "This would overwrite untracked files" about a file the operation itself left
+  on disk. Pausing at a conflict rewinds to an older commit, and any file added
+  after that commit was being left behind and then mistaken for yours
+- An edited fixup or squash message that is not valid UTF-8 is committed
+  exactly as typed. Bulk autofixup used to decode it lossily, replacing
+  anything outside UTF-8 with a placeholder character
+- A commit summary containing a non-ASCII character no longer crashes the
+  squash and move footers, and such summaries are no longer shortened earlier
+  than they need to be
+- A terminal too narrow to show both panes no longer crashes the split view
+- Splitting a commit per hunk removes a deleted file instead of leaving an
+  empty one behind in the piece that deletes it. The final result was always
+  right; the commit in the middle was not
+- Splitting the root commit by hunk group works when browsing with `--all`.
+  The split itself was fine — the count in front of it was what failed
+- Retrying a squash after a failed resume keeps the commit message you wrote,
+  instead of reopening the editor on the computed default
+- `--autostash` now names the untracked file standing in the way when it cannot
+  put your changes back, instead of reporting a generic failure. Nothing was at
+  risk — the reapply was already stopped — but clearing the path was guesswork
+
 ## [3.1.0] - 2026-09-12
 
 ### Added

@@ -128,8 +128,27 @@ impl Git2Repo {
                             // nowhere to land: that is a conflict of its own,
                             // and the operation is not complete until it is
                             // resolved.
-                            if let Some(state) = self.finish_worktree_source(label, &snapshot)? {
-                                return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                            match self.finish_worktree_source(label, &snapshot) {
+                                Ok(Some(state)) => {
+                                    return Ok(super::RebaseOutcome::Conflict(Box::new(state)));
+                                }
+                                Ok(None) => {}
+                                // The branch has already moved. Propagating bare
+                                // would report a landed rewrite as a failure, with
+                                // no undo entry and no reload — so record the move
+                                // first, then say which half failed.
+                                Err(e) => {
+                                    // Not `record_undo_if_changed`: `tip_before`
+                                    // here is the temporary commit the fold made,
+                                    // so undoing to it would leave the branch on a
+                                    // synthetic commit. The fold's own snapshot
+                                    // names where the user actually started.
+                                    self.record_failed_fold_undo(label, &snapshot)?;
+                                    return Err(e).context(
+                                        "the rewrite landed, but putting your other \
+                                         uncommitted changes back failed",
+                                    );
+                                }
                             }
                         }
                         _ => self.record_undo_if_changed(label, tip_before)?,
@@ -138,6 +157,31 @@ impl Git2Repo {
             }
         }
         outcome
+    }
+
+    /// Record the undo entry for a fold whose carry-back failed.
+    ///
+    /// The rewrite has landed, so it has to be undoable — reporting a failure
+    /// and recording nothing would leave the user with history they cannot get
+    /// back from. The index tree is read as it stands rather than as the carry
+    /// intended, because that is what undo would be putting back.
+    fn record_failed_fold_undo(&mut self, label: &str, snapshot: &super::LiftedRow) -> Result<()> {
+        let tip_after = reads::head_oid(self)?;
+        let index_tree_after = {
+            let mut index = self.inner.index().context("failed to open index")?;
+            index.read(true).context("failed to refresh index")?;
+            Oid::from(index.write_tree().context("failed to write index tree")?)
+        };
+        journal::record_mixed_undo(
+            self,
+            label,
+            journal::MixedUndo {
+                tip_before: &snapshot.tip_before,
+                tip_after: &tip_after,
+                index_tree_before: &snapshot.index_tree_before,
+                index_tree_after: &index_tree_after,
+            },
+        )
     }
 
     /// Complete a squash whose source was a working-tree row: put the other
@@ -159,9 +203,9 @@ impl Git2Repo {
         snapshot: &super::LiftedRow,
     ) -> Result<Option<super::ConflictState>> {
         let tip_after = reads::head_oid(self)?;
-        let index_tree_after = match lift_op::finish(self, snapshot, &tip_after)? {
+        let index_tree_after = match lift_op::finish(self, snapshot)? {
             lift_op::Settled::Done(index_tree) => index_tree,
-            lift_op::Settled::Clash(merged) => {
+            lift_op::Settled::Clash(files) => {
                 let state = super::ConflictState {
                     operation_label: label.to_string(),
                     // The lift is what an abort rewinds to, which unwinds the
@@ -169,19 +213,18 @@ impl Git2Repo {
                     original_branch_oid: snapshot.temp_oid.clone(),
                     new_tip_oid: tip_after.clone(),
                     conflicting_commit_oid: tip_after,
-                    conflicting_files: conflict::collect_conflict_files_from_index(&merged),
+                    conflicting_files: files,
                     still_unresolved: false,
                     resume: super::Resume::CarryRow(snapshot.clone()),
                     autofixup_context: None,
                     branch_refname: self.current_branch_refname().unwrap_or_default(),
                 };
-                // Write-ahead: the markers are about to go on disk, and a crash
-                // between the two would leave them there unexplained.
+                // The reapply already wrote the markers, so this records why
+                // they are there rather than getting ahead of them.
                 journal::set_in_progress(
                     self,
                     &super::InProgress::Conflict(Box::new(state.clone())),
                 )?;
-                lift_op::write_clash(self, &merged)?;
                 return Ok(Some(state));
             }
         };
@@ -569,6 +612,10 @@ impl RepoWrite for Git2Repo {
         lift_op::restore(self, lifted)
     }
 
+    fn recorded_lifted_row(&mut self) -> Result<Option<super::LiftedRow>> {
+        journal::worktree_source(self)
+    }
+
     fn rescue_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<Option<String>> {
         lift_op::rescue(self, lifted)
     }
@@ -578,6 +625,14 @@ impl RepoWrite for Git2Repo {
     }
 
     fn autostash_restore(&mut self) -> Result<crate::repo::AutostashRestore> {
+        // Only a leftover *auto-stash*. A fold's leftover sits in the same slot
+        // and is not the same thing: the fold has not finished, and `finish` is
+        // what knows where that work belongs. Putting it back here would also
+        // hand the stash dialog a `pre_op_tip` that is the fold's temporary
+        // commit, and its abort hard-resets to whatever that names.
+        if journal::autostash(self)?.is_some_and(|r| r.fold_temp_oid.is_some()) {
+            return Ok(super::AutostashRestore::Done);
+        }
         self.restore_autostash()
     }
 
@@ -683,7 +738,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, String>,
+        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
@@ -738,14 +793,9 @@ impl Git2Repo {
     /// would silently discard any dirty state.  The user should stash or
     /// commit their changes before running such operations.
     fn check_no_dirty_state(&mut self) -> Result<()> {
-        // A working-tree-sourced squash deliberately leaves the *other* row's
-        // changes in place. They are recorded in the snapshot and restored when
-        // the operation finishes, so they are not the unexpected dirt this guard
-        // is here to catch — as long as the snapshot still describes what is
-        // actually there.
-        if lift_op::covers_working_tree(self)? {
-            return Ok(());
-        }
+        // No exemption for a fold in flight: the lift sets the other row's
+        // changes aside in the stash, so the working tree it leaves behind is
+        // genuinely clean and there is nothing here to excuse.
         if self.is_worktree_dirty()? {
             anyhow::bail!(
                 "You have staged or unstaged changes. \

@@ -105,8 +105,16 @@ git-tailor/
 
 The project combines a **library** (src/lib.rs) containing all git logic, domain
 types, and the rebase engine with a **binary** (src/main.rs) providing the TUI
-interface. The library is independently testable and can be used for future
-non-TUI frontends (CLI batch mode, CI tooling, etc.).
+interface. The split is what keeps the git logic testable without a terminal.
+
+**The library is not a public API.** The `gt` command line is the stable
+interface; `git_tailor::*` is an implementation detail, and the version number
+describes only the former. The library may change shape in any release — 3.1.0
+moved `RepoWrite` to `&mut self`, moved methods between traits, and switched
+message parameters from `&str` to `&[u8]`, in a minor bump. Never preserve a
+library signature, re-export, or type for compatibility's sake: there is nobody
+to be compatible with, and pretending otherwise is how the awkward parts of an
+API calcify.
 
 ### Module Organization Convention
 

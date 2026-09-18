@@ -10,21 +10,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  # Genuinely platform-independent: the same bytes get the same answer on every
+  # runner, so checking them three times would only triple the wall clock.
+  lint:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v5
     - name: Format
       run: cargo fmt --all -- --check --verbose
-    - name: Clippy
-      run: cargo clippy --all-targets -- -D warnings --verbose
     - name: Licenses
       uses: EmbarkStudios/cargo-deny-action@v2
       with:
         command: check licenses
-    - name: Build
-      run: cargo build --all-targets --verbose
+
+  # Every target release.yml ships a binary for. Path handling, file locking and
+  # rename-over-existing semantics all differ across them, and those are exactly
+  # what the rewrite engine leans on — so a suite that only ever runs on Linux
+  # says nothing about two thirds of what users install.
+  #
+  # Clippy runs here rather than in `lint` because it lints what it compiles,
+  # and `#[cfg(unix)]` / `#[cfg(windows)]` branches are different code on each
+  # runner. `--all-targets` builds the test binaries too, so there is no
+  # separate build step.
+  test:
+    strategy:
+      # One platform failing must not cancel the others: when a platform-
+      # specific assumption breaks, the useful information is which platforms
+      # agree with it.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings --verbose
     - name: Run tests
       run: cargo test --verbose

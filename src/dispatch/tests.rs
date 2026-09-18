@@ -137,7 +137,7 @@ fn rebase_abort_success_sets_success_message() {
 }
 
 #[test]
-fn rebase_abort_error_sets_error_message() {
+fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     let mut repo = MockRepo {
         abort_ok: false,
         ..MockRepo::default()
@@ -150,13 +150,21 @@ fn rebase_abort_error_sets_error_message() {
         &mut PendingAutofixupSelection::default(),
         state,
     );
-    assert!(app.status.is_error);
+    // The abort refused, so the conflict is still journaled and the branch is
+    // still parked on the commit it paused at. `handle_conflict_key` already
+    // dropped the mode to `CommitList` on the way here, so the dialog has to be
+    // put back or the user is left on history the branch has moved off.
     assert!(
-        app.status
-            .message
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "a refused abort must not leave the dialog closed, got {:?}",
+        app.mode
+    );
+    assert!(
+        app.resume_failure
             .as_deref()
             .unwrap_or("")
-            .contains("Abort failed")
+            .contains("Abort failed"),
+        "and must say why"
     );
 }
 
@@ -568,6 +576,64 @@ fn only_key_events_dismiss_transient_status() {
     assert!(!crate::event_dismisses_status(&Event::Resize(80, 24)));
     assert!(!crate::event_dismisses_status(&Event::FocusGained));
     assert!(!crate::event_dismisses_status(&Event::FocusLost));
+}
+
+#[test]
+fn a_resume_that_fails_stays_in_the_conflict_dialog() {
+    // The conflict is still journaled and the branch is still parked on the
+    // commit it paused at, so dropping to the commit list shows history the
+    // branch has moved off with no way back into the dialog — which is how a
+    // user ends up quitting with an operation still in progress.
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let action = handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(anyhow::anyhow!(
+            "This would overwrite untracked files: later.rs"
+        )),
+        "Continue",
+        "Commit squash complete",
+        &make_conflict_state(),
+        Some(b"the message the user typed\n".to_vec()),
+    );
+
+    assert!(
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "the dialog must stay up, got {:?}",
+        app.mode
+    );
+    // Not a reload: `load_with_progress` ends by setting `AppMode::CommitList`,
+    // so reloading here would throw the dialog straight back away — which is
+    // exactly what the first attempt at this fix did.
+    assert!(
+        matches!(action, LoopAction::Continue),
+        "a reload would discard the dialog this just restored"
+    );
+    assert!(
+        app.resume_failure
+            .as_deref()
+            .unwrap_or_default()
+            .contains("overwrite untracked"),
+        "the dialog needs the reason, not just the status bar"
+    );
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        0,
+        "the auto-stash belongs to an operation that has not finished"
+    );
+    assert_eq!(
+        app.resume_message.as_deref(),
+        Some(b"the message the user typed\n".as_slice()),
+        "a retry must not throw away what the user wrote"
+    );
+
+    // And any other dialog opening drops both, so neither can leak into an
+    // unrelated conflict later in the session.
+    app.enter_stash_conflict(git_tailor::repo::StashConflictState::default());
+    assert!(app.resume_failure.is_none());
+    assert!(app.resume_message.is_none());
 }
 
 #[test]

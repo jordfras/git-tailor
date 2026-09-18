@@ -341,8 +341,8 @@ impl Drop for Prepared {
 ///
 /// A commit source needs the ordinary auto-stash. A working-tree row is lifted
 /// into a temporary commit instead, which both makes it a source *and* leaves
-/// only the other row's changes behind — recorded exactly, so no stash is
-/// needed. Returns `None` when the caller should give up (the error message is
+/// only the other row's changes behind, for the lift to set aside in the same
+/// stash. Returns `None` when the caller should give up (the error message is
 /// already set).
 pub(super) fn prepare_source(
     git_repo: &mut impl GitRepo,

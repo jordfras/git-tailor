@@ -48,6 +48,9 @@ pub(crate) struct MockRepo {
     /// Counts `autostash_restore` invocations, so a test can assert it was
     /// *not* called when the branch was never rewound back to its base.
     pub(crate) autostash_restore_calls: std::cell::Cell<usize>,
+    /// When set, `rebase_continue` fails — a resume that cannot finish while
+    /// the conflict it belongs to is still paused.
+    pub(crate) rebase_continue_err: bool,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
@@ -63,6 +66,10 @@ pub(crate) struct MockRepo {
     /// What `rescue_lifted_row` answers: the ref it kept the working tree under,
     /// or `None` for a record with nothing worth keeping.
     pub(crate) rescued_ref: Option<String>,
+    /// What `recorded_lifted_row` answers: the fold the journal still records.
+    pub(crate) recorded_lifted: Option<git_tailor::repo::LiftedRow>,
+    /// Whether `rescue_lifted_row` succeeds.
+    pub(crate) rescue_ok: bool,
     /// What `read_journal` answers, for the startup-recovery tests.
     pub(crate) journal: Option<git_tailor::repo::InProgress>,
     /// Counts `clear_journal` invocations, so a test can tell a discarded
@@ -119,10 +126,10 @@ pub(crate) fn mock_temp_oid() -> Oid {
 pub(crate) fn mock_lifted_row() -> git_tailor::repo::LiftedRow {
     git_tailor::repo::LiftedRow {
         source: git_tailor::repo::WorktreeSource::Staged,
+        branch_refname: "refs/heads/main".to_string(),
         tip_before: Oid::from("a".repeat(40)),
         index_tree_before: Oid::from("d".repeat(40)),
         worktree_tree: Oid::from("e".repeat(40)),
-        source_tree: Oid::from("f".repeat(40)),
         temp_oid: mock_temp_oid(),
     }
 }
@@ -146,12 +153,15 @@ impl Default for MockRepo {
             redo_skips_autostash: false,
             autostash_save_calls: std::cell::Cell::new(0),
             autostash_restore_calls: std::cell::Cell::new(0),
+            rebase_continue_err: false,
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
             restore_lifted_ok: true,
             restore_lifted_calls: std::cell::Cell::new(0),
             rescued_ref: None,
+            recorded_lifted: None,
+            rescue_ok: true,
             journal: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
@@ -381,10 +391,17 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("ref is locked").context("failed to move the branch back"))
         }
     }
+    fn recorded_lifted_row(&mut self) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
+        Ok(self.recorded_lifted.clone())
+    }
+
     fn rescue_lifted_row(
         &mut self,
         _: &git_tailor::repo::LiftedRow,
     ) -> anyhow::Result<Option<String>> {
+        if !self.rescue_ok {
+            anyhow::bail!("failed to keep the recorded working tree");
+        }
         Ok(self.rescued_ref.clone())
     }
     fn autostash_save(&mut self) -> anyhow::Result<()> {
@@ -439,7 +456,10 @@ impl RepoWrite for MockRepo {
         unimplemented!()
     }
     fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
-        unimplemented!()
+        if self.rebase_continue_err {
+            anyhow::bail!("This would overwrite untracked files: later.rs");
+        }
+        Ok(RebaseOutcome::Complete)
     }
     fn squash_commits(
         &mut self,
@@ -482,7 +502,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &std::collections::HashMap<String, String>,
+        _: &std::collections::HashMap<String, Vec<u8>>,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {

@@ -260,3 +260,48 @@ fn split_multi_path_last_piece_has_original_tree() {
         "the last split piece must reproduce the original commit's tree"
     );
 }
+
+/// Splitting a commit that deletes a file must produce a piece that *deletes*
+/// it, not one that empties it.
+///
+/// `apply_single_hunk_to_tree` matched `Added` and then a catch-all that reads
+/// the base blob and applies the hunk. For a deletion that leaves no content,
+/// so it wrote a zero-byte blob at the path instead of removing the entry — a
+/// plausible-looking commit rather than an error.
+#[test]
+fn splitting_a_deletion_removes_the_file_rather_than_emptying_it() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("keep.txt", "k1\n"), ("gone.txt", "gone\n")], "base");
+    test.write_file("keep.txt", "k1\nk2\n");
+    test.stage_file("keep.txt");
+    let target = test.delete_file("gone.txt", "edit one file and delete another");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk(&Oid::from(target), &head)
+        .unwrap();
+
+    // The tip is not the interesting part — the pieces sum back to the original
+    // either way. Each piece has to be a commit someone could read.
+    let tip = git_repo.head_oid().unwrap();
+    let mut walk = test.repo.revwalk().unwrap();
+    walk.push(git2::Oid::from(&tip)).unwrap();
+    walk.hide(base).unwrap();
+    for oid in walk {
+        let commit = test.repo.find_commit(oid.unwrap()).unwrap();
+        if let Ok(entry) = commit
+            .tree()
+            .unwrap()
+            .get_path(std::path::Path::new("gone.txt"))
+        {
+            let blob = test.repo.find_blob(entry.id()).unwrap();
+            assert!(
+                !blob.content().is_empty(),
+                "piece {} emptied gone.txt instead of deleting it",
+                commit.id()
+            );
+        }
+    }
+    let _ = base;
+}

@@ -400,7 +400,7 @@ fn autostash_conflict_continue_stays_when_unresolved() {
 /// Same shape as [`setup_restore_conflict`], but the conflicting file's name
 /// is not valid UTF-8. Bypasses the `&str`-based test helpers (`commit_file`,
 /// `stage_file`) since a non-UTF-8 path cannot be spelled as one.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Path) -> git2::Oid {
     test.write_file(path, "AAAA\nBBBB\nCCCC\n");
     let mut index = test.repo.index().unwrap();
@@ -422,7 +422,7 @@ fn setup_restore_conflict_non_utf8(test: &common::TestRepo, path: &std::path::Pa
 /// resolved?" check, or an unresolved conflict reads as clean and the stash
 /// holding the user's only copy of their work gets dropped.
 #[test]
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn autostash_conflict_continue_stays_when_unresolved_with_a_non_utf8_path() {
     let test = common::TestRepo::new();
     let path = common::non_utf8_path("bad", ".txt");
@@ -769,5 +769,77 @@ fn autostash_abort_does_not_clobber_a_colliding_untracked_file() {
         read_workdir(&test, "notes.txt"),
         "my local scratch\n",
         "the abort's hard reset must refuse rather than overwrite (result: {result:?})"
+    );
+}
+
+/// The reapply refuses a path an untracked file is sitting on, and names it.
+///
+/// A newly staged file exists in no commit, so nothing puts it back on disk
+/// except the reapply — and the user can recreate one by hand while the
+/// operation sits paused on a conflict. libgit2 does stop the checkout, so the
+/// file survives, but the error it raises is `Conflict`, the same code a
+/// *content* clash raises. [`Git2Repo::restore_autostash`] reads that code as
+/// "fall back to a plain apply", retries something that cannot succeed, and
+/// reports a generic failure — where the abort path refuses up front and says
+/// which file is in the way.
+#[test]
+fn autostash_restore_refuses_a_colliding_untracked_file_by_name() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "0\n", "base");
+    let c1 = test.commit_file("a.txt", "0\n1\n", "add 1");
+    let c2 = test.commit_file("a.txt", "0\n1\n2\n", "add 2");
+
+    // Staged, so the stash takes it; in no commit, so only the reapply brings
+    // it back.
+    test.write_file("scratch.txt", "from the stash\n");
+    test.stage_file("scratch.txt");
+    test.write_file("a.txt", "0\n1\nSTAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(true);
+    git_repo.autostash_save().unwrap();
+    assert!(
+        !test.repo.workdir().unwrap().join("scratch.txt").exists(),
+        "the stash must have taken the staged file off disk"
+    );
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(c2))
+            .unwrap()
+    );
+
+    // Paused on the conflict, the user writes their own file at that path.
+    test.write_file("scratch.txt", "my local scratch\n");
+
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    index.conflict_remove(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("a.txt")).unwrap();
+    index.write().unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    let err = git_repo
+        .autostash_restore()
+        .expect_err("a path an untracked file occupies must be refused");
+    let message = format!("{err:#}");
+
+    assert!(
+        message.contains("scratch.txt"),
+        "the refusal must name the file in the way, got: {message}"
+    );
+    assert!(
+        message.contains("untracked"),
+        "and say why it is in the way, got: {message}"
+    );
+
+    // Nothing was lost on either side of the refusal.
+    assert_eq!(read_workdir(&test, "scratch.txt"), "my local scratch\n");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the stash is kept so the user can retry once the path is clear"
     );
 }

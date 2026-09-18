@@ -1837,3 +1837,43 @@
   the GitHub Release automatically; the musl target should produce a zero
   shared-library binary (add `RUSTFLAGS=-C target-feature=+crt-static` if
   needed) so no system libs beyond the kernel are required
+- [X] T247 P2 fix - Run the test suite on Windows and macOS in CI.
+  `.github/workflows/rust.yml` was a single job on `ubuntu-latest`, while
+  `release.yml` ships `x86_64-pc-windows-msvc` and `universal-apple-darwin`.
+  Two of the three released binaries were *built* on their own runners but had
+  never had a test executed on them — and the things that differ between these
+  platforms are exactly what git-tailor leans on: path handling, file locking
+  (`File::try_lock` for the session lock, which is what sets the MSRV),
+  rename-over-existing semantics, and `fsync` meaning three different things
+  across the three targets.
+  Done — all three legs green. Two deviations and two findings worth keeping.
+  Clippy went into the matrix rather than staying on Linux as planned: it lints
+  what it compiles, and the `#[cfg(unix)]` / `#[cfg(not(unix))]` halves in
+  `domain.rs` and `mergetool.rs` are different code per runner, so the non-Unix
+  branches had never been linted at all. `--all-targets` builds the test
+  binaries, so the separate build step went away. Split into `lint` (fmt,
+  cargo-deny — genuinely platform-independent) and `test` (the matrix), with
+  `fail-fast: false` so one platform breaking does not hide the others.
+  The red first run was as predicted, and both failures were the same mistake in
+  different clothes — a platform *assumed* rather than tested:
+  * **macOS**, `EILSEQ` creating a non-UTF-8 filename. `#[cfg(unix)]` was the
+    wrong axis: macOS is Unix, but APFS and HFS+ enforce UTF-8 in names. The
+    axis that matters is whether the filesystem takes arbitrary bytes. Now
+    `#[cfg(all(unix, not(target_os = "macos")))]` on the four tests that put
+    such a path on disk; the in-memory round-trip tests stayed `#[cfg(unix)]`,
+    because constructing one is fine there.
+  * **Windows**, the session lock.
+    `an_unavailable_lock_is_reported_as_such_not_as_busy` named
+    `/proc/self/no/such/place`, relying on procfs refusing a directory. On
+    Windows that is an ordinary relative path `create_dir_all` creates without
+    complaint, so the lock was granted and the test fell through to `Ok`.
+    Replaced with a path whose parent is a regular file, which no OS will create
+    under. **macOS had been passing it by accident** — no procfs, `/` not
+    writable — and would have started failing under a root CI container.
+  Both were strengthened past the immediate fix: the lock test now asserts
+  *which* step failed rather than only the refusal variant, since the variant
+  alone would pass just as well if the directory were created and the error came
+  from somewhere later.
+  Also pinned `core.autocrlf=false` in `TestRepo::new`: Git for Windows sets it
+  true globally at install and a repo inherits it, which would rewrite line
+  endings under fixtures that assert on exact bytes.

@@ -258,7 +258,7 @@ fn run_for_all_files_stages_file_and_clears_conflict() {
 /// which cannot match the exact bytes the index holds — so every stage came
 /// back empty and the tool ran against blank files.
 #[test]
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn run_for_all_files_finds_content_at_a_non_utf8_path() {
     use std::os::unix::ffi::OsStrExt;
     let path = common::non_utf8_path("ba", "d.txt");

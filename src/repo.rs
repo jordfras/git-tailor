@@ -137,10 +137,13 @@ pub struct LiftedRow {
     /// The working tree (tracked paths) as a tree object. Unchanged by the
     /// operation — it only moves content between committed, staged and unstaged.
     pub worktree_tree: Oid,
-    /// The temporary commit's tree: the working tree with the row's changes
-    /// taken out of it. The merge base for putting the other row's changes back
-    /// on top of wherever the squash ended up.
-    pub source_tree: Oid,
+    /// Branch the fold started on. The unwind moves a ref, and it has to be
+    /// this one: a branch made while sitting on the temporary commit names the
+    /// same commit `temp_oid` does, so comparing tips cannot tell them apart.
+    /// Recorded here rather than read off the set-aside record, which a fold
+    /// with nothing to park never writes. Empty means the record predates this
+    /// being tracked, so the check stands aside.
+    pub branch_refname: String,
     /// The temporary commit itself, which the fold left the branch on. Its diff
     /// against its parent is exactly the row's diff, so it serves as both
     /// `source_oid` and `head_oid` for the squash built on it. Also identifies
@@ -315,7 +318,7 @@ pub struct AutofixupContext {
     /// to the last pair squashed into a given target — so an intermediate
     /// step in a multi-fixup group never renames the target before the
     /// remaining fixups in that group have had a chance to match it.
-    pub message_overrides: std::collections::HashMap<String, String>,
+    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -808,11 +811,32 @@ pub trait RepoWrite {
     /// Unwind [`lift_worktree_row`](Self::lift_worktree_row): put the branch,
     /// the index and the working tree back exactly as `lifted` recorded them,
     /// and clear the journal record. Untracked files are left alone.
+    ///
+    /// The parked row comes back from the stash when the slot still names it,
+    /// and from the recorded trees when it does not — either way it ends up
+    /// where it came from, so there is nothing for the caller to report.
     fn restore_lifted_row(&mut self, lifted: &LiftedRow) -> Result<()>;
 
-    /// Keep the working tree `lifted` recorded reachable under a ref, for a
-    /// record that is about to be discarded because the branch has moved past
-    /// it.
+    /// The working-tree fold the journal still records, if any — whatever phase
+    /// it has reached.
+    ///
+    /// A fold that conflicts becomes a paused *conflict* record, and the
+    /// snapshot stays alongside it. Reading the snapshot directly is the only
+    /// way to ask "is there a fold behind this?" without enumerating every
+    /// resume variant a fold can produce.
+    fn recorded_lifted_row(&mut self) -> Result<Option<LiftedRow>>;
+
+    /// Consolidate an abandoned fold into one object: keep the working tree
+    /// `lifted` recorded reachable under a ref, and drop the changes the lift
+    /// set aside — for a record about to be discarded because the branch has
+    /// moved past it.
+    ///
+    /// Both halves, because the recorded tree holds *both* rows and so already
+    /// contains everything the set-aside copy does. Leaving that copy behind is
+    /// not harmless: discarding a journal spares the auto-stash record, and
+    /// startup reapplies a leftover one — which for a fold nobody is finishing
+    /// means pasting it onto a branch that has moved away from the temporary
+    /// commit it was based on.
     ///
     /// Returns the ref's name, or `None` when the recorded tree is what HEAD
     /// already holds and there is nothing to lose. The ref lives under the
@@ -927,7 +951,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, String>,
+        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.

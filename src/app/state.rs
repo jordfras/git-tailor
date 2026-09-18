@@ -89,6 +89,17 @@ pub struct AppState {
     /// Scroll state for the current dialog (e.g. help). Offset is reset when a
     /// dialog opens; bounds are updated during render.
     pub dialog: ScrollState,
+    /// Why the last attempt to resume a paused conflict failed, shown inside
+    /// the conflict dialog.
+    ///
+    /// Not part of `ConflictState`: that is journaled and describes the
+    /// operation, where this describes one attempt at finishing it. Cleared
+    /// whenever the dialog is entered for any other reason.
+    pub resume_failure: Option<String>,
+    /// A commit message the user wrote for a resume that then failed, so the
+    /// retry can seed the editor with it rather than throwing it away and
+    /// starting from the computed default again.
+    pub resume_message: Option<Vec<u8>>,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -199,6 +210,27 @@ impl AppState {
     /// Enter the rebase-conflict resolution dialog.
     pub fn enter_rebase_conflict(&mut self, state: ConflictState) {
         self.enter_dialog(AppMode::RebaseConflict(Box::new(state)));
+    }
+
+    /// Re-enter the conflict dialog after an attempt to finish it failed,
+    /// carrying why so the dialog can say what happened and what is left to try.
+    pub fn reenter_rebase_conflict_after_failure(
+        &mut self,
+        state: ConflictState,
+        why: String,
+        retry_message: Option<Vec<u8>>,
+    ) {
+        // The attempt only ran because the markers were resolved, so a
+        // `still_unresolved` carried over from an earlier press of Enter is
+        // stale — and its warning ("fix all conflicts above") would print above
+        // a file list this state deliberately hides.
+        let state = ConflictState {
+            still_unresolved: false,
+            ..state
+        };
+        self.enter_rebase_conflict(state);
+        self.resume_failure = Some(why);
+        self.resume_message = retry_message;
     }
 
     /// Enter the auto-stash conflict resolution dialog.
@@ -451,11 +483,19 @@ impl AppState {
     }
 
     fn enter_dialog(&mut self, mode: AppMode) {
+        // Cleared here rather than in each entry point: this describes one
+        // failed attempt at finishing one conflict, and any other dialog
+        // opening means that attempt is no longer what the user is looking at.
+        // `reenter_rebase_conflict_after_failure` sets it back afterwards.
+        self.resume_failure = None;
+        self.resume_message = None;
         self.mode = mode;
         self.dialog.offset = 0;
     }
 
     fn exit_dialog(&mut self) {
+        self.resume_failure = None;
+        self.resume_message = None;
         // MoveSelect navigation can leave the selection as a scroll anchor
         // pointing past the last commit; clamp it so CommitList consumers
         // (footer, fragmap highlight) never index out of bounds.
