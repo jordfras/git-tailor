@@ -670,9 +670,11 @@ fn delete_orig_ref(repo: &mut Git2Repo) {
 /// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
 /// another working tree's pin may be the only thing keeping a paused conflict
 /// or interrupted fold of its own reachable, and this tree's journal knows
-/// nothing about it. Rescue refs are content-addressed, not tied to whichever
-/// working tree wrote them, and have no other cleanup path, so they are still
-/// swept globally.
+/// nothing about it.
+///
+/// Rescue refs are left alone and only counted. They are repository-wide, and
+/// each is uncommitted work with no other copy — a per-working-tree cleanup has
+/// no business destroying it, least of all silently.
 pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     let mine = worktree_prefix(repo);
     let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
@@ -680,12 +682,16 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
         .inner
         .references()
         .context("failed to enumerate references")?;
+    let mut rescue_refs_kept = 0;
     let names: Vec<String> = refs
         .names()
         .filter_map(|n| n.ok())
         .filter(|name| {
+            if name.starts_with(&rescue_prefix) {
+                rescue_refs_kept += 1;
+                return false;
+            }
             name.starts_with(&mine)
-                || name.starts_with(&rescue_prefix)
                 || LEGACY_PIN_PREFIXES
                     .iter()
                     .any(|legacy| name.starts_with(legacy))
@@ -717,6 +723,7 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     Ok(JournalCleanSummary {
         refs_removed,
         journal_removed,
+        rescue_refs_kept,
     })
 }
 

@@ -333,6 +333,7 @@ impl RepoWrite for MockRepo {
         Ok(git_tailor::repo::JournalCleanSummary {
             refs_removed: 0,
             journal_removed: false,
+            rescue_refs_kept: 0,
         })
     }
     fn undo(&mut self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {

@@ -132,11 +132,15 @@ pub struct Cli {
 
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
-    /// Deletes the journal file (`.git/git-tailor/journal.json`) and every ref
-    /// git-tailor writes under `refs/git-tailor/*` (undo pins and the
-    /// in-progress pin), found by namespace so stray refs are removed even if the
-    /// journal is missing or out of sync. A manual escape hatch for when recovery
-    /// state gets stuck.
+    /// Deletes the journal file (`.git/git-tailor/journal.json`) and this
+    /// working tree's undo pins and in-progress pin under `refs/git-tailor/*`,
+    /// found by namespace so stray refs are removed even if the journal is
+    /// missing or out of sync. A manual escape hatch for when recovery state
+    /// gets stuck.
+    ///
+    /// Rescued working trees (`refs/git-tailor/rescue/*`) are kept — each is
+    /// uncommitted work with no other copy, and they belong to the repository
+    /// rather than to this working tree.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
 

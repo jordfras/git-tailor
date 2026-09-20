@@ -56,6 +56,9 @@ pub struct JournalCleanSummary {
     pub refs_removed: usize,
     /// Whether an on-disk journal file was present and removed.
     pub journal_removed: bool,
+    /// Rescued working trees left in place. Each is uncommitted work with no
+    /// other copy, so removing one is asked for separately.
+    pub rescue_refs_kept: usize,
 }
 
 /// Result of an undo or redo request.
@@ -748,11 +751,14 @@ pub trait RepoWrite {
     /// stack is preserved so undo/redo survives across restarts.
     fn prune_stale_journal(&mut self) -> Result<()>;
 
-    /// Remove **all** git-tailor recovery state: every ref under
+    /// Remove this working tree's git-tailor recovery state: its own pins under
     /// `refs/git-tailor/` and the on-disk journal file. Refs are found by
     /// namespace rather than from the journal, so stray refs are removed even if
     /// the journal is missing or out of sync. A manual escape hatch (the
     /// `--clean-journal` CLI flag); returns a summary of what was removed.
+    ///
+    /// Rescued working trees are kept and counted, not removed — see
+    /// [`Self::drop_rescued_trees`].
     fn clean_journal(&mut self) -> Result<JournalCleanSummary>;
 
     /// Undo the most recent history-rewriting operation by restoring the branch

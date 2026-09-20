@@ -73,7 +73,7 @@ fn clean_removes_journal_file_and_all_refs_including_stray() {
 /// tree's recovery state; these are repository-wide and are the only copy, so
 /// removing them has to be asked for separately.
 #[test]
-fn clean_keeps_rescued_working_trees() {
+fn clean_keeps_rescued_working_trees_and_says_how_many() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "a\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "add b");
@@ -90,8 +90,12 @@ fn clean_keeps_rescued_working_trees() {
         .reference(&rescue, base, true, "rescued working tree")
         .unwrap();
 
-    git_repo.clean_journal().unwrap();
+    let summary = git_repo.clean_journal().unwrap();
 
+    assert_eq!(
+        summary.rescue_refs_kept, 1,
+        "the user has to be told what was left behind"
+    );
     assert!(
         test.repo.find_reference(&rescue).is_ok(),
         "the rescued working tree must survive"

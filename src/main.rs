@@ -332,6 +332,13 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
         "Cleaned git-tailor state: removed {} ref(s){journal_note}.",
         summary.refs_removed
     );
+    if summary.rescue_refs_kept > 0 {
+        println!(
+            "Kept {} rescued working tree(s) — uncommitted work git-tailor saved when \
+             it had to discard a record.",
+            summary.rescue_refs_kept
+        );
+    }
     Ok(())
 }
 
