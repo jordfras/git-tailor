@@ -28,7 +28,7 @@
 //!
 //! * **readme** — one shot of the commit list, on a synthetic history built
 //!   in-process (see `common/synthetic_repo.rs`), whose entangled commits make
-//!   the matrix show both connector colours.
+//!   the matrix show both connector colors.
 //! * **gallery** — one shot per mode worth showing, filmed on one of the demo
 //!   fixtures under `demo/`, so the stills and the videos tell one story. All
 //!   at one size, so they can be laid out in a grid without letterboxing.

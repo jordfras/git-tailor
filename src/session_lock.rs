@@ -112,7 +112,7 @@ mod tests {
 
     /// A place that cannot hold a lock file must not stop git-tailor: a
     /// read-only `.git`, or a filesystem without locking, degrades to the
-    /// behaviour from before the lock existed rather than to no tool at all.
+    /// behavior from before the lock existed rather than to no tool at all.
     ///
     /// This one stops at the directory; the next reaches the lock file itself.
     /// Mutation testing showed why both are needed — with only this one, every

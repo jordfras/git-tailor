@@ -17,7 +17,7 @@
 //! Kept as a fixture in its own right rather than replaced by one of the demo
 //! repositories under `demo/`, because the two are built for opposite ends: the
 //! history here deliberately entangles commits so the matrix shows *both*
-//! connector colours, while the promo fixture is engineered so nothing
+//! connector colors, while the promo fixture is engineered so nothing
 //! conflicts (see `demo/promo/make-repo.sh`). Filming the README image on that
 //! one would quietly drop the red connectors it exists to demonstrate.
 //!

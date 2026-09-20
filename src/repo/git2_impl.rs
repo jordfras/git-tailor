@@ -1124,7 +1124,7 @@ impl Git2Repo {
     /// writes that back as the truth.
     ///
     /// So: let libgit2 build the object with an empty message — it knows how to
-    /// format signatures, order parents and canonicalise the rest — then put the
+    /// format signatures, order parents and canonicalize the rest — then put the
     /// real bytes where the empty message was. The header block ends at the
     /// first blank line, which is also where `encoding` belongs if the original
     /// carried one. Nothing else is hand-serialized.

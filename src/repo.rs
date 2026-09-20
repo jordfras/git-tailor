@@ -185,7 +185,7 @@ pub struct ConflictState {
     /// passes that test and is then rewritten to a history it never had.
     ///
     /// `serde(default)` so a journal written before this field existed still
-    /// loads; an empty name simply skips the check, which is the behaviour that
+    /// loads; an empty name simply skips the check, which is the behavior that
     /// journal was written under.
     #[serde(default)]
     pub branch_refname: String,

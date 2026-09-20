@@ -385,7 +385,7 @@ fn an_untracked_symlink_at_a_reintroduced_path_is_refused() {
 ///
 /// That is the conservative direction and the one to keep: the user is asked
 /// about a file rather than quietly relieved of it. Pinned here so the
-/// behaviour is a decision rather than a surprise.
+/// behavior is a decision rather than a surprise.
 #[test]
 fn a_crlf_file_matching_only_after_filtering_is_still_refused() {
     let test = common::TestRepo::new();
