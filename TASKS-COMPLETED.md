@@ -1877,3 +1877,61 @@
   Also pinned `core.autocrlf=false` in `TestRepo::new`: Git for Windows sets it
   true globally at install and a repo inherits it, which would rewrite line
   endings under fixtures that assert on exact bytes.
+- [X] T248 P2 fix - Stop `--clean-journal` quietly discarding uncommitted work.
+  `journal::clean` scopes undo pins to this working tree but sweeps
+  `refs/git-tailor/rescue/*` **repository-wide**, deliberately — rescue refs are
+  content-addressed and have no other cleanup path. Those refs are the only
+  thing keeping rescued uncommitted work reachable, and `run_clean_journal`
+  reports just "removed N ref(s)". The CLI help (`cli.rs`) mentions only "undo
+  pins and the in-progress pin", so nothing tells the user what they are about
+  to lose.
+  Two concrete ways this bites:
+  * `main.rs` tells the user to run `gt --clean-journal` after an
+    `UpgradeInterrupted`, which `migrate_v2` raises for any v2 fold — so
+    following the tool's own advice unpins every rescued tree in the repository.
+  * A second working tree running it deletes this one's rescue pins mid-run.
+    The session lock is per working tree and does not prevent it.
+  Scope, in order of how much it settles: say what is being removed (count the
+  rescue refs separately, and name them, since each one is somebody's
+  uncommitted work); decide whether rescue refs should be swept by this flag at
+  all, or need their own opt-in; and fix the `UpgradeInterrupted` advice, which
+  wants the journal discarded but not the rescues.
+  Related: the fold's set-aside record has no in-app release either. Once a
+  carry-back fails, `autostash_restore` steps aside, `abort_autostash` bails and
+  `set_work_aside` refuses, so every later fold is refused with only a
+  `git stash apply <oid>` to go on. Worth solving together — both are "the tool
+  put work somewhere safe and gave the user no supported way to get it back".
+  Done: rescue refs are kept by `--clean-journal` and counted, an
+  in-flight fold is rescued before its pins go, and `--drop-rescued`
+  lists each tree with the command that restores it.
+- [X] T256 P2 refactor - Let the set-aside record say which lifecycle it has.
+  One journal slot, `JournalDoc::autostash`, holds two things: an operation's
+  `--autostash`, and the row a working-tree fold parked. `fold_temp_oid`
+  discriminates them. Only one is ever live — `set_work_aside` refuses when the
+  slot is taken, and the two writers are exclusive match arms in
+  `dispatch/rewrite.rs` — so one slot is right; the discriminator is not.
+  `pre_op_tip` is what breaks. For an auto-stash it is a real branch tip and
+  `abort_autostash` hard-resets to it; for a fold it is the temporary commit,
+  which must never be reset to. One field, two meanings, opposite safety
+  properties — and four sites exist only to keep each consumer off the other's
+  record: `autostash_restore` in `git2_impl.rs`, `abort_autostash` and
+  `abort_work_aside` in `stash.rs`, and `finish` in `lift_op.rs`.
+  The last one is the argument for doing this at all. `abort_work_aside` cannot
+  check the branch its record names, because that name may belong to someone
+  else's `--autostash` and would refuse an unwind that is perfectly in order.
+  Sharing the slot cost a safety check rather than adding one.
+  Replace `fold_temp_oid: Option<Oid>` with a sum type in the record —
+  `Autostash { pre_op_tip }` / `FoldLeftover { temp_oid }` — keeping `stash`,
+  `branch_refname` and `applied_with_conflict` alongside, which mean the same
+  either way. `pre_op_tip` then exists only where it means a branch tip, the
+  three "not mine" guards become match arms, and `abort_work_aside` can check
+  the branch again.
+  Two slots would be worse: two `Option`s of which at most one is ever `Some`
+  states the invariant more weakly than one field does, makes every consumer
+  check both, and still costs a journal migration — see `migrate_v2` for what
+  those cost here.
+  Do it with T248, whose "Related" paragraph is this slot getting stuck after a
+  failed carry-back: the same record wanting a clearer owner.
+  Done as a third journal slot rather than a sum type: `parked` is a
+  sibling of `autostash`, so the six discrimination sites went instead
+  of becoming match arms.

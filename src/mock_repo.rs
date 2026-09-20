@@ -333,7 +333,14 @@ impl RepoWrite for MockRepo {
         Ok(git_tailor::repo::JournalCleanSummary {
             refs_removed: 0,
             journal_removed: false,
+            rescue_refs_kept: 0,
         })
+    }
+    fn rescued_trees(&self) -> anyhow::Result<Vec<git_tailor::repo::RescuedTree>> {
+        Ok(Vec::new())
+    }
+    fn drop_rescued_trees(&mut self, _refnames: &[String]) -> anyhow::Result<usize> {
+        Ok(0)
     }
     fn undo(&mut self) -> anyhow::Result<git_tailor::repo::UndoOutcome> {
         if self.undo_skips_autostash {

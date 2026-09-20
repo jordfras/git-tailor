@@ -225,8 +225,12 @@ and redone, and an interrupted run is recovered the next time you start `gt`.
 Operations also refuse to run on a dirty working tree unless you ask for
 `--autostash`. As with any history rewriting, having the branch pushed to a
 remote is still a good extra safety net. Should the recovery state ever get
-stuck, `gt --clean-journal` discards the journal and the refs git-tailor keeps,
-then exits without opening the TUI. The third tutorial in the
+stuck, `gt --clean-journal` discards the journal and this working tree's
+git-tailor refs, then exits without opening the TUI. It keeps any uncommitted
+work it finds, saving it under `refs/git-tailor/rescue/*`; `gt --list-rescued`
+shows those with the command that restores each, and `gt --drop-rescued`
+removes them. The third
+tutorial in the
 [playlist](https://www.youtube.com/playlist?list=PLbaTpyhikKGE) shows what an
 interrupted run looks like and how it is picked back up.
 

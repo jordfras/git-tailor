@@ -68,6 +68,113 @@ fn clean_removes_journal_file_and_all_refs_including_stray() {
     );
 }
 
+/// Rescue refs are somebody's uncommitted work, kept when git-tailor had to
+/// discard the record that named it. `--clean-journal` clears this working
+/// tree's recovery state; these are repository-wide and are the only copy, so
+/// removing them has to be asked for separately.
+#[test]
+fn clean_keeps_rescued_working_trees_and_says_how_many() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    test.commit_file("c.txt", "c\n", "add c");
+    let mut git_repo = test.git_repo();
+
+    git_repo
+        .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+        .unwrap();
+
+    let tree = test.repo.find_commit(base).unwrap().tree().unwrap().id();
+    let rescue = format!("refs/git-tailor/rescue/{tree}");
+    test.repo
+        .reference(&rescue, base, true, "rescued working tree")
+        .unwrap();
+
+    let summary = git_repo.clean_journal().unwrap();
+
+    assert_eq!(
+        summary.rescue_refs_kept, 1,
+        "the user has to be told what was left behind"
+    );
+    assert!(
+        test.repo.find_reference(&rescue).is_ok(),
+        "the rescued working tree must survive"
+    );
+    assert_eq!(
+        git_tailor_ref_count(&test),
+        1,
+        "and nothing else may survive"
+    );
+}
+
+/// The pins and the journal are the only things naming the tree a lift recorded,
+/// and `--clean-journal` removes both — while being what main.rs recommends
+/// after an interrupted upgrade, which is raised for exactly a fold.
+#[test]
+fn clean_rescues_an_in_flight_folds_working_tree() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+
+    let summary = git_repo.clean_journal().unwrap();
+
+    let rescue = format!("refs/git-tailor/rescue/{}", lifted.worktree_tree);
+    assert!(
+        test.repo.find_reference(&rescue).is_ok(),
+        "the fold's working tree must be kept, not left as garbage"
+    );
+    assert_eq!(
+        summary.rescue_refs_kept, 1,
+        "and be counted once, not once for rescuing and again for skipping it"
+    );
+}
+
+/// What `--drop-rescued` is for: the rescued trees are listed with enough to
+/// get them back, and only then removed.
+#[test]
+fn rescued_trees_are_listed_with_their_size_and_can_be_dropped() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    git_repo.clean_journal().unwrap();
+
+    let rescued = git_repo.rescued_trees().unwrap();
+    assert_eq!(rescued.len(), 1, "the fold's tree was kept");
+    assert_eq!(
+        rescued[0].file_count,
+        Some(2),
+        "the listing must say how much is at stake"
+    );
+    assert!(
+        rescued[0].tree.is_some(),
+        "and resolve the tree the restore command needs"
+    );
+
+    let refnames: Vec<String> = rescued.iter().map(|t| t.refname.clone()).collect();
+    assert_eq!(git_repo.drop_rescued_trees(&refnames).unwrap(), 1);
+    assert_eq!(
+        git_tailor_ref_count(&test),
+        0,
+        "and nothing of git-tailor's is left"
+    );
+}
+
 #[test]
 fn clean_on_a_pristine_repo_is_a_noop() {
     let test = common::TestRepo::new();

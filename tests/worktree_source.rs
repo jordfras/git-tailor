@@ -490,15 +490,11 @@ fn abandoning_a_stale_fold_takes_its_stash_with_it() {
     );
 }
 
-/// The journal holds one set-aside slot, and `--autostash` and the fold both
-/// want it. A fold must not take it while someone else's work is parked there.
-///
-/// Reachable whenever a reapply left its record behind — which the untracked
-/// collision refusal does deliberately, keeping the stash so the user can clear
-/// the path and retry. Overwriting the record strands that work: nothing names
-/// the stash any more, so no undo, recovery or abort will ever find it again.
+/// The ordinary case, with a row of its own to park; the variant below parks
+/// nothing. A policy rather than a slot conflict — see
+/// `Git2Repo::refuse_if_work_set_aside` for what the two together cost.
 #[test]
-fn a_fold_refuses_to_park_over_work_already_set_aside() {
+fn a_fold_is_refused_while_an_autostash_is_out() {
     let test = common::TestRepo::new();
     test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
 
@@ -528,17 +524,13 @@ fn a_fold_refuses_to_park_over_work_already_set_aside() {
     );
 }
 
-/// A fold that sets nothing aside must not put back what it never took.
-///
-/// `finish` reapplies the set-aside slot unconditionally, so a fold whose
-/// counterpart row is clean will reapply whatever was already parked there —
-/// pulling unrelated changes into its result and recording them as the fold's
-/// own index tree, which undo would then put back too.
+/// The same refusal when the fold parks nothing — the case that slipped past a
+/// check living in the parking step.
 #[test]
-fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
+fn a_fold_is_refused_while_an_autostash_is_out_even_parking_nothing() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a1\n", "base");
-    let target = test.commit_file("t.txt", "t1\n", "target commit");
+    test.commit_file("t.txt", "t1\n", "target commit");
 
     test.write_file("a.txt", "AUTOSTASHED\n");
     test.stage_file("a.txt");
@@ -546,37 +538,64 @@ fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
     git_repo.set_autostash(true);
     git_repo.autostash_save().unwrap();
 
-    // Only the staged row is dirty, so the lift parks nothing of its own.
+    // Only the staged row is dirty, so the lift would park nothing of its own.
     test.write_file("t.txt", "FOLDED\n");
     test.stage_file("t.txt");
-    let lifted = git_repo
+
+    let err = git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .expect_err("a fold must not start while an auto-stash is out");
+    assert!(
+        format!("{err:#}").contains("set aside"),
+        "the refusal must say what is in the way, got: {err:#}"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and must not have taken a stash of its own"
+    );
+}
+
+/// Refused, not silently skipped: skipping runs the operation against a tree it
+/// believes was put away, and taking one would record the fold's temporary
+/// commit as the tip to rewind to.
+#[test]
+fn an_autostash_is_refused_while_a_folds_row_is_parked() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+
+    git_repo
         .lift_worktree_row(WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     assert_eq!(
         stash_count(test.repo.path()),
         1,
-        "the fold had nothing of its own to set aside"
+        "the fold parked the unstaged row"
     );
 
-    git_repo
-        .squash_commits(
-            &lifted.temp_oid,
-            &Oid::from(target),
-            b"target commit",
-            &lifted.temp_oid,
-        )
-        .unwrap();
+    // Uncommitted work that arrives after the fold parked its row, with
+    // auto-stash asked for.
+    test.write_file("b.txt", "LATER\n");
+    test.stage_file("b.txt");
+    git_repo.set_autostash(true);
 
-    assert_eq!(
-        workdir(&test, "a.txt"),
-        "a1\n",
-        "the fold must not reapply a stash it did not take"
+    let err = git_repo
+        .autostash_save()
+        .expect_err("an auto-stash must not be taken on top of a fold in flight");
+    assert!(
+        format!("{err:#}").contains("working-tree squash"),
+        "the refusal must say what is in the way, got: {err:#}"
     );
     assert_eq!(
         stash_count(test.repo.path()),
         1,
-        "and must leave it parked for whoever did"
+        "and must not have taken a second stash"
+    );
+    assert_eq!(
+        workdir(&test, "b.txt"),
+        "LATER\n",
+        "nor moved the work it refused to stash"
     );
 }
 
@@ -584,11 +603,8 @@ fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
 /// finished without putting it back. A fold's leftover is not that, and must be
 /// left for the fold to settle.
 ///
-/// The damage if it is not: the reapply opens the stash dialog, whose abort
-/// hard-resets to the record's `pre_op_tip`. For a fold that tip is the *temporary
-/// commit*, because `lift` parks the leftover after moving the branch onto it —
-/// so aborting rewinds the branch onto a synthetic commit and takes any real
-/// commits made since with it.
+/// Holds structurally now that the slots are separate, and fails the moment
+/// anything reaches the parked row through the auto-stash accessor.
 #[test]
 fn the_leftover_autostash_restore_leaves_a_folds_work_alone() {
     let test = common::TestRepo::new();
@@ -731,9 +747,9 @@ fn unwinding_a_fold_names_an_untracked_file_in_the_parked_rows_way() {
     );
 }
 
-/// `set_work_aside` takes the stash and *then* records it, so a crash between
-/// the two leaves the parked row in an unlabeled stash with nothing pointing at
-/// it. Unwinding must still put that row back.
+/// `park_row` takes the stash and *then* records it, so a crash between the two
+/// leaves the parked row in an unlabeled stash with nothing pointing at it.
+/// Unwinding must still put that row back.
 ///
 /// It can: the snapshot records the whole pre-fold working tree, which is the
 /// same state the stash holds. Falling back to those trees restores the row to
@@ -760,7 +776,7 @@ fn unwinding_restores_a_parked_row_it_cannot_find() {
     let journal = test.repo.path().join("git-tailor").join("journal.json");
     let mut doc: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
-    doc["autostash"] = serde_json::Value::Null;
+    doc["parked"] = serde_json::Value::Null;
     std::fs::write(&journal, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
 
     git_repo
@@ -864,16 +880,10 @@ fn a_failed_carry_back_still_records_the_rewrite_it_landed() {
     let _ = base;
 }
 
-/// The stash dialog's abort must refuse a fold's parked work.
-///
-/// For a fold, `pre_op_tip` is the *temporary commit* — the lift parks the row
-/// after moving the branch onto it — so the hard reset `abort_autostash` does
-/// would rewind the branch onto a synthetic commit and record an undo entry
-/// against it. Every route into that dialog is guarded today, which makes this
-/// unreachable by construction rather than by check; the destructive operation
-/// is the one that should hold the invariant.
+/// The dialog resets to the auto-stash record's `pre_op_tip`. A fold's row is in
+/// its own slot, so there is nothing here for it to see or reset to.
 #[test]
-fn the_stash_abort_refuses_work_a_fold_parked() {
+fn the_stash_abort_leaves_work_a_fold_parked_alone() {
     let test = common::TestRepo::new();
     test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
     test.write_file("a.txt", "STAGED\n");
@@ -890,7 +900,10 @@ fn the_stash_abort_refuses_work_a_fold_parked() {
 
     let result = git_repo.autostash_conflict_abort();
 
-    assert!(result.is_err(), "must be refused: {result:?}");
+    assert!(
+        result.is_ok(),
+        "nothing of the dialog's to abort: {result:?}"
+    );
     assert_eq!(
         git_repo.head_oid().unwrap(),
         on_temp,
@@ -908,14 +921,26 @@ fn a_lift_that_fails_after_moving_the_branch_puts_it_back() {
     let test = common::TestRepo::new();
     test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
 
-    // Occupy the slot, so the lift's own `set_work_aside` fails — after
-    // `place_temp_commit` has already moved the branch.
-    test.write_file("a.txt", "AUTOSTASHED\n");
-    test.stage_file("a.txt");
-    let mut git_repo = test.git_repo();
-    git_repo.set_autostash(true);
-    git_repo.autostash_save().unwrap();
+    // A parked row belonging to some other fold, which `park_row` refuses — and
+    // it is asked *after* `place_temp_commit` has already moved the branch.
+    // Written straight to the journal because no supported sequence leaves one
+    // behind; that it is unreachable is what makes the rollback worth pinning.
+    let journal = test.repo.path().join("git-tailor");
+    std::fs::create_dir_all(&journal).unwrap();
+    std::fs::write(
+        journal.join("journal.json"),
+        r#"{
+            "version": 4,
+            "parked": {
+                "stash": "1111111111111111111111111111111111111111",
+                "temp_oid": "2222222222222222222222222222222222222222",
+                "applied_with_conflict": false
+            }
+        }"#,
+    )
+    .unwrap();
 
+    let mut git_repo = test.git_repo();
     let tip_before = git_repo.head_oid().unwrap();
     test.write_file("b.txt", "STAGED\n");
     test.stage_file("b.txt");
@@ -923,7 +948,7 @@ fn a_lift_that_fails_after_moving_the_branch_puts_it_back() {
 
     let err = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
-        .expect_err("the occupied slot must fail the lift");
+        .expect_err("the occupied parked slot must fail the lift");
     assert!(format!("{err:#}").contains("set aside"), "got: {err:#}");
 
     assert_eq!(

@@ -62,6 +62,13 @@ use crate::Oid;
 /// build resuming a v2 fold would find no stash and discard what is on disk.
 /// Neither is representable in the other, so the version is what keeps them
 /// apart — see [`migrate_v2`].
+///
+/// Which release shipped each version — a shape nobody released is free to
+/// change. A bump adds its line as `unreleased`; the release fills it in.
+///
+///   v1  2.0.0   journal introduced
+///   v2  3.0.0   (also 3.1.0)
+///   v3  unreleased
 const JOURNAL_VERSION: u32 = 3;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
@@ -302,16 +309,24 @@ pub(super) struct AutostashRecord {
     /// Branch the stash was taken on. An empty name means the record predates
     /// this being tracked, so the check it enables stands aside.
     pub branch_refname: String,
-    /// The temporary commit of the fold that set this aside, or `None` when
-    /// `--autostash` did.
-    ///
-    /// There is one slot and two callers with different lifecycles: an
-    /// auto-stash is put back when the operation around it finishes, a fold's
-    /// leftover when that particular fold does. Without this, each consumer acts
-    /// on whatever it finds — a fold reapplies an auto-stash it never took, and
-    /// the stash dialog's abort rewinds to a `pre_op_tip` that is a fold's
-    /// temporary commit rather than a real branch tip.
-    pub fold_temp_oid: Option<Oid>,
+}
+
+/// The row a working-tree fold set aside while it works.
+///
+/// Its own slot rather than the auto-stash's, because the two are put back at
+/// different moments: an auto-stash when the operation around it finishes, this
+/// when that particular fold does.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(super) struct ParkedRow {
+    /// OID of the stash commit holding the row.
+    pub stash: Oid,
+    /// Temporary commit of the fold that parked it. A record naming any other
+    /// belongs to a fold this one is not finishing.
+    pub temp_oid: Oid,
+    /// Set once the row has been put back and left conflict markers, so it is
+    /// not reapplied a second time.
+    pub applied_with_conflict: bool,
 }
 
 /// The full journal document.
@@ -334,6 +349,10 @@ struct JournalDoc {
     /// completes or aborts (survives a crash so recovery can restore the user's
     /// working-tree changes).
     autostash: Option<AutostashRecord>,
+    /// The row a working-tree fold set aside, a sibling of `autostash` for the
+    /// same reason the snapshot below is a sibling of `in_progress`: it outlives
+    /// the phase changes of the fold that owns it.
+    parked: Option<ParkedRow>,
     /// Pre-operation state of a squash whose source is a working-tree row. Like
     /// the auto-stash it is a sibling of `in_progress` rather than part of it,
     /// because it has to outlive the phase changes — `in_progress` becomes a
@@ -412,6 +431,7 @@ fn is_empty(doc: &JournalDoc) -> bool {
         && doc.undo.is_empty()
         && doc.redo.is_empty()
         && doc.autostash.is_none()
+        && doc.parked.is_none()
         && doc.worktree_source.is_none()
 }
 
@@ -437,6 +457,18 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.autostash = record;
+    save(repo, &mut doc)
+}
+
+/// Read the row a fold parked, if any.
+pub(super) fn parked(repo: &Git2Repo) -> Result<Option<ParkedRow>> {
+    Ok(load_doc(repo)?.parked)
+}
+
+/// Record (or clear, with `None`) the row a fold parked.
+pub(super) fn set_parked(repo: &mut Git2Repo, record: Option<ParkedRow>) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.parked = record;
     save(repo, &mut doc)
 }
 
@@ -638,9 +670,11 @@ fn delete_orig_ref(repo: &mut Git2Repo) {
 /// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
 /// another working tree's pin may be the only thing keeping a paused conflict
 /// or interrupted fold of its own reachable, and this tree's journal knows
-/// nothing about it. Rescue refs are content-addressed, not tied to whichever
-/// working tree wrote them, and have no other cleanup path, so they are still
-/// swept globally.
+/// nothing about it.
+///
+/// Rescue refs are left alone and only counted. They are repository-wide, and
+/// each is uncommitted work with no other copy — a per-working-tree cleanup has
+/// no business destroying it, least of all silently.
 pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     let mine = worktree_prefix(repo);
     let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
@@ -648,12 +682,16 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
         .inner
         .references()
         .context("failed to enumerate references")?;
+    let mut rescue_refs_kept = 0;
     let names: Vec<String> = refs
         .names()
         .filter_map(|n| n.ok())
         .filter(|name| {
+            if name.starts_with(&rescue_prefix) {
+                rescue_refs_kept += 1;
+                return false;
+            }
             name.starts_with(&mine)
-                || name.starts_with(&rescue_prefix)
                 || LEGACY_PIN_PREFIXES
                     .iter()
                     .any(|legacy| name.starts_with(legacy))
@@ -685,7 +723,87 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     Ok(JournalCleanSummary {
         refs_removed,
         journal_removed,
+        rescue_refs_kept,
     })
+}
+
+/// Every working tree kept under the rescue namespace.
+pub(super) fn rescued_trees(repo: &Git2Repo) -> Result<Vec<crate::repo::RescuedTree>> {
+    let prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
+    let mut refs = repo
+        .inner
+        .references()
+        .context("failed to enumerate references")?;
+    let names: Vec<String> = refs
+        .names()
+        .filter_map(|n| n.ok())
+        .filter(|name| name.starts_with(&prefix))
+        .map(|name| name.to_string())
+        .collect();
+
+    let mut out = Vec::with_capacity(names.len());
+    for refname in names {
+        let Ok(reference) = repo.inner.find_reference(&refname) else {
+            continue;
+        };
+        // Peeled rather than read straight off the ref: git-tailor writes these
+        // pointing at a tree, but the namespace is swept by prefix. A stray ref
+        // that does not peel is still listed, or nothing could remove it.
+        let tree = reference
+            .peel(git2::ObjectType::Tree)
+            .and_then(|obj| obj.peel_to_tree())
+            .ok();
+
+        // What the user is deciding about is the files, not the oid — so a walk
+        // that fails reports nothing rather than an undercount.
+        let file_count = tree.as_ref().and_then(|tree| {
+            let mut n = 0;
+            tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
+                if entry.kind() == Some(git2::ObjectType::Blob) {
+                    n += 1;
+                }
+                git2::TreeWalkResult::Ok
+            })
+            .ok()
+            .map(|()| n)
+        });
+
+        out.push(crate::repo::RescuedTree {
+            refname,
+            tree: tree.map(|t| Oid::from(t.id())),
+            file_count,
+        });
+    }
+    Ok(out)
+}
+
+/// Delete the rescue refs named, reporting how many went.
+///
+/// A ref that will not delete is named rather than quietly missing from the
+/// count — this is the one command whose job is destroying the last copy of
+/// somebody's work, so "did it actually go" has to be answerable.
+pub(super) fn drop_rescued_trees(repo: &mut Git2Repo, refnames: &[String]) -> Result<usize> {
+    let mut removed = 0;
+    let mut failed = Vec::new();
+    for name in refnames {
+        let deleted = repo
+            .inner
+            .find_reference(name)
+            .and_then(|mut r| r.delete())
+            .is_ok();
+        if deleted {
+            removed += 1;
+        } else {
+            failed.push(name.as_str());
+        }
+    }
+    if !failed.is_empty() {
+        anyhow::bail!(
+            "removed {removed} ref(s), but could not remove: {}",
+            failed.join(", ")
+        );
+    }
+    Ok(removed)
 }
 
 /// Push a completed history-rewriting operation onto the undo stack.
@@ -1131,6 +1249,15 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         }
     }
 
+    // An earlier build of this version parked a fold's row in the auto-stash
+    // slot, which this one would reapply as an `--autostash`. Probed untyped
+    // because the field telling them apart is gone; left untouched.
+    if parked_in_the_autostash_slot(&bytes) {
+        return JournalStatus::UpgradeInterrupted {
+            op: "a working-tree squash".to_string(),
+        };
+    }
+
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
         Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
@@ -1208,6 +1335,18 @@ fn migrate_v2(old: JournalDoc) -> std::result::Result<JournalDoc, JournalStatus>
     })
 }
 
+/// Whether a document has a fold's row in the auto-stash slot, the way an
+/// earlier build of this version wrote it.
+///
+/// Untyped on purpose: `fold_temp_oid` is gone from the current record, so the
+/// only way to see it is in the raw JSON.
+fn parked_in_the_autostash_slot(bytes: &[u8]) -> bool {
+    let Ok(doc) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    !doc["autostash"]["fold_temp_oid"].is_null()
+}
+
 /// Upgrade a v1 document to the current schema, dropping any in-progress record.
 fn migrate_v1(old: JournalDocV1) -> JournalDoc {
     JournalDoc {
@@ -1216,6 +1355,7 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         undo: old.undo,
         redo: old.redo,
         autostash: old.autostash,
+        parked: None,
         worktree_source: None,
     }
 }
