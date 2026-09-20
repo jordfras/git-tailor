@@ -288,10 +288,17 @@ pub(super) fn write_conflicts_to_workdir(
     // Write the conflicted index entries (including conflict markers) into
     // the repo's index so `git status` and the user's editor see them.
     let mut repo_index = repo.inner.index()?;
-    // Clear stale entries before populating the index with the cherry-pick
-    // result.  Without this, leftover files from the previous index state
-    // (typically HEAD) leak into the written index and end up in trees
-    // created by rebase_continue / squash_finalize.
+
+    // A cached handle: refresh, or a path staged outside git-tailor is missing.
+    repo_index.read(true)?;
+
+    // The index, not HEAD's tree: the ref is not advanced between steps of a
+    // chain, so by the second conflict HEAD names a commit the tree moved past.
+    let checked_out: std::collections::HashSet<Vec<u8>> =
+        repo_index.iter().map(|e| e.path.clone()).collect();
+
+    // Or leftovers from the previous index state end up in the trees
+    // rebase_continue / squash_finalize build.
     repo_index.clear()?;
     for entry in cherry_index.iter() {
         repo_index.add(&entry)?;
@@ -305,6 +312,51 @@ pub(super) fn write_conflicts_to_workdir(
     checkout.allow_conflicts(true);
     repo.inner
         .checkout_index(Some(&mut repo_index), Some(&mut checkout))?;
+    drop(repo_index);
+
+    remove_paths_the_conflict_drops(repo, &checked_out, cherry_index);
 
     Ok(())
+}
+
+/// Delete working-tree files the conflict state does not account for.
+///
+/// A path added after the commit being replayed onto is absent from the
+/// cherry-pick index, so `checkout_index` leaves it on disk — and the collision
+/// guard later refuses a file this operation itself left there.
+///
+/// Scoped to paths that were in the index a moment ago, never
+/// `remove_untracked`. Best-effort: a leftover costs a spurious refusal later,
+/// failing here would cost the conflict pause.
+fn remove_paths_the_conflict_drops(
+    repo: &Git2Repo,
+    checked_out: &std::collections::HashSet<Vec<u8>>,
+    cherry_index: &git2::Index,
+) {
+    let Some(workdir) = repo.inner.workdir() else {
+        return;
+    };
+    let keep: std::collections::HashSet<Vec<u8>> =
+        cherry_index.iter().map(|e| e.path.clone()).collect();
+    // Only where the filesystem actually folds case. There a case-only rename
+    // gives the old and new names the same file, so removing `Foo.txt` would
+    // delete the `foo.txt` the checkout just wrote. On a case-sensitive
+    // filesystem they are two files, and skipping the removal would leave a
+    // genuine leftover behind — the very thing this scan exists to prevent.
+    let ignore_case = repo
+        .inner
+        .config()
+        .and_then(|c| c.get_bool("core.ignorecase"))
+        .unwrap_or(false);
+    let keep_folded: std::collections::HashSet<Vec<u8>> = if ignore_case {
+        keep.iter().map(|p| p.to_ascii_lowercase()).collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+    for path in checked_out.difference(&keep) {
+        if ignore_case && keep_folded.contains(&path.to_ascii_lowercase()) {
+            continue;
+        }
+        let _ = super::remove_written_path(workdir, &super::bytes_to_path(path));
+    }
 }

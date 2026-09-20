@@ -236,7 +236,7 @@ fn a_message_override_applies_to_the_final_message_of_a_single_fixup() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        "Custom final message\n".to_string(),
+        b"Custom final message\n".to_vec(),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -260,7 +260,7 @@ fn a_message_override_replaces_the_auto_combined_squash_text() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        "Custom final message\n".to_string(),
+        b"Custom final message\n".to_vec(),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -291,7 +291,7 @@ fn a_message_override_only_applies_once_every_fixup_for_the_target_has_folded_in
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        "Custom final message\n".to_string(),
+        b"Custom final message\n".to_vec(),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -322,7 +322,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        "Custom final message\n".to_string(),
+        b"Custom final message\n".to_vec(),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -338,8 +338,8 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     assert_eq!(
         ctx.message_overrides
             .get("Add target line")
-            .map(String::as_str),
-        Some("Custom final message\n")
+            .map(Vec::as_slice),
+        Some(b"Custom final message\n".as_slice())
     );
 
     // The single fixup for this target was the *last* (only) one queued, so
@@ -386,4 +386,41 @@ fn nothing_to_autofixup_is_a_clean_no_op() {
         .unwrap();
     assert_rebase_complete!(outcome);
     assert_history!(&test, base, &["Add target line"]);
+}
+
+/// An edited autofixup message that is not valid UTF-8 must reach the commit
+/// byte for byte.
+///
+/// The override used to be carried as a `String`, so the editor's bytes were
+/// decoded lossily on the way in — a Latin-1 message came back with U+FFFD
+/// where the user's characters had been. `String` could not even express this
+/// input, which is why the bug had no test until the type changed.
+#[test]
+fn a_non_utf8_message_override_reaches_the_commit_unchanged() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("a.txt", "base\ntarget\n", "Add target line");
+    test.commit_file("a.txt", "base\ntarget\nfix1\n", "fixup! Add target line");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
+    let message: Vec<u8> = b"Fix f\xf6r \xe5\xe4\xf6 handling\n".to_vec();
+    let overrides =
+        std::collections::HashMap::from([("Add target line".to_string(), message.clone())]);
+
+    assert_rebase_complete!(
+        git_repo
+            .autofixup(&head_oid, &Oid::from(base), &overrides)
+            .unwrap()
+    );
+
+    let head = git_repo.head_oid().unwrap();
+    assert_eq!(
+        git_repo.commit_message_bytes(&head).unwrap(),
+        message,
+        "the bytes the user typed must be the bytes committed"
+    );
 }

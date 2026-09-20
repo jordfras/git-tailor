@@ -22,7 +22,7 @@ use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
-    LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_rebase_outcome,
+    LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_resume_outcome,
     is_blank_message, settle_autostash,
 };
 use crate::external_tool::with_tui_suspended;
@@ -50,8 +50,11 @@ pub(crate) fn handle_rebase_abort(
             ))
         }
         Err(e) => {
-            app.set_error_message(format!("Abort failed: {e:#}"));
-            Ok(LoopAction::Proceed)
+            // The abort refused, so the conflict is still journaled — but
+            // `handle_conflict_key` already dropped the mode to `CommitList` on
+            // the way here, leaving no way back into the dialog.
+            app.reenter_rebase_conflict_after_failure(state, format!("Abort failed: {e:#}"), None);
+            Ok(LoopAction::Continue)
         }
     }
 }
@@ -85,7 +88,13 @@ pub(crate) fn handle_rebase_continue(
         let final_msg = if ctx.squash_mode.keeps_target_message() || is_autofixup {
             ctx.combined_message.clone()
         } else {
-            let combined = ctx.combined_message.clone();
+            // Seeded from what the user wrote last time when a previous attempt
+            // failed: the retry the dialog invites should not silently discard
+            // the message and start from the computed default again.
+            let combined = app
+                .resume_message
+                .clone()
+                .unwrap_or_else(|| ctx.combined_message.clone());
             let editor_result =
                 edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
             match editor_result {
@@ -115,7 +124,15 @@ pub(crate) fn handle_rebase_continue(
             &original_oid,
             state.autofixup_context.as_ref(),
         );
-        let result = handle_rebase_outcome(git_repo, app, outcome, "Squash", &success_msg);
+        let result = handle_resume_outcome(
+            git_repo,
+            app,
+            outcome,
+            "Squash",
+            &success_msg,
+            &state,
+            Some(final_msg),
+        );
         return Ok(apply_pending_autofixup_selection(
             pending,
             is_autofixup,
@@ -131,7 +148,15 @@ pub(crate) fn handle_rebase_continue(
         format!("Commit {} complete", state.operation_label.to_lowercase())
     };
     let outcome = git_repo.rebase_continue(&state);
-    let result = handle_rebase_outcome(git_repo, app, outcome, "Continue", &success_msg);
+    let result = handle_resume_outcome(
+        git_repo,
+        app,
+        outcome,
+        "Continue",
+        &success_msg,
+        &state,
+        None,
+    );
     Ok(apply_pending_autofixup_selection(
         pending,
         is_autofixup,

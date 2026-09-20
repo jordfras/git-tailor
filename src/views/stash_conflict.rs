@@ -18,7 +18,8 @@
 //! semantics — but "continue" drops the stash instead of resuming a cherry-pick.
 
 use super::dialog::{
-    Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width, render_conflict_dialog,
+    ConflictView, Dialog, DialogKind, TextRole, handle_dialog_scroll, inner_width,
+    render_conflict_dialog,
 };
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
 use ratatui::Frame;
@@ -83,8 +84,12 @@ pub fn render_stash_conflict(app: &mut AppState, frame: &mut Frame) {
         app,
         frame,
         dialog,
-        &files,
-        still_unresolved,
+        ConflictView {
+            files: &files,
+            still_unresolved,
+            // Never: this dialog is the auto-stash's, not a resumed conflict's.
+            resume_failed: false,
+        },
         PREFERRED_WIDTH,
         "Auto-stash Conflict",
     );

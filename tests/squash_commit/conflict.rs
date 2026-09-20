@@ -277,3 +277,69 @@ fn squash_finalize_after_conflict_resolution() {
     // Squash commit's parent should be target's parent (the base commit)
     assert_eq!(head_commit.parent_count(), 1);
 }
+
+/// Reproduction of a real report: squashing into a much earlier commit fails
+/// with "This would overwrite untracked files: <a file the commit never
+/// touched>", after the user resolves an unrelated conflict.
+///
+/// Needs a target old enough that a file added after it is absent from its
+/// tree — see `remove_paths_the_conflict_drops` for why that strands the file.
+#[test]
+fn a_resumed_squash_does_not_refuse_its_own_leftover_file() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "0\n", "base");
+    // Old enough that `later.rs` does not exist in its tree.
+    let target = test.commit_file("a.txt", "0\nTARGET\n", "target commit");
+    // Added after the target, and changed again, so the version the re-add
+    // writes differs from what is left on disk.
+    test.commit_file("later.rs", "first\n", "add later.rs");
+    test.commit_file("a.txt", "0\nMID\n", "middle commit");
+    test.commit_file("later.rs", "second\n", "change later.rs");
+    // Conflicts with the target: its diff is MID -> SOURCE, which will not
+    // apply to the target's tree.
+    let source = test.commit_file("a.txt", "0\nSOURCE\n", "source commit");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+
+    let state = expect_rebase_conflict!(
+        git_repo
+            .squash_commits(
+                &Oid::from(source),
+                &Oid::from(target),
+                b"target commit",
+                &head
+            )
+            .unwrap()
+    );
+
+    test.write_file("a.txt", "0\nRESOLVED\n");
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let mut outcome = git_repo
+        .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
+        .unwrap();
+    // Replay the descendants. Bounded: continuing without touching the markers
+    // legitimately re-reports the same conflict, so an unbounded loop spins.
+    for _ in 0..16 {
+        match outcome {
+            git_tailor::repo::RebaseOutcome::Complete => break,
+            git_tailor::repo::RebaseOutcome::Conflict(s) => {
+                for path in &s.conflicting_files {
+                    test.write_file(path, "resolved\n");
+                }
+                git_repo
+                    .auto_stage_resolved_conflicts(&s.conflicting_files)
+                    .unwrap();
+                outcome = git_repo.rebase_continue(&s).unwrap();
+            }
+        }
+    }
+    assert_rebase_complete!(outcome);
+    let _ = base;
+}

@@ -60,6 +60,10 @@ impl TestRepo {
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Test User").unwrap();
         config.set_str("user.email", "test@example.com").unwrap();
+        // Git for Windows sets `core.autocrlf=true` globally at install time,
+        // and a repo's config inherits it. Fixtures assert on exact bytes, so
+        // let nothing rewrite their line endings underneath them.
+        config.set_bool("core.autocrlf", false).unwrap();
 
         Self {
             _temp_dir: temp_dir,
@@ -392,7 +396,11 @@ impl TuiTestHarness {
 /// A path that is not valid UTF-8 anywhere in its byte stream: `0xFF` is never
 /// a valid UTF-8 lead or continuation byte. `prefix` and `suffix` bracket it
 /// so callers can still give the fixture a readable, distinct name.
-#[cfg(unix)]
+///
+/// Gated on the filesystem taking arbitrary bytes in a name rather than on Unix:
+/// APFS and HFS+ enforce UTF-8, so macOS cannot create one. Building such a path
+/// in memory works everywhere, and stays `#[cfg(unix)]`.
+#[cfg(all(unix, not(target_os = "macos")))]
 pub fn non_utf8_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
     use std::os::unix::ffi::OsStrExt;
     let mut bytes = prefix.as_bytes().to_vec();

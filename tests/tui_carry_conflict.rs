@@ -41,10 +41,10 @@ fn make_app_in_carry_conflict(source: WorktreeSource) -> AppState {
         conflicting_files: vec![std::path::PathBuf::from("src/parser.rs")],
         resume: Resume::CarryRow(LiftedRow {
             source,
+            branch_refname: "refs/heads/main".to_string(),
             tip_before: Oid::from("a".repeat(40)),
             index_tree_before: Oid::from("d".repeat(40)),
             worktree_tree: Oid::from("e".repeat(40)),
-            source_tree: Oid::from("f".repeat(40)),
             temp_oid: Oid::from("c".repeat(40)),
         }),
         ..Default::default()
@@ -72,6 +72,28 @@ fn carry_conflict_dialog_from_the_unstaged_row() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = make_app_in_carry_conflict(WorktreeSource::Unstaged);
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::conflict::render_conflict(&mut app, frame);
+    }));
+}
+
+/// A resume that failed shows why inside the dialog, and what is left to try.
+///
+/// Snapshotted because the failure was a formatting one: the guidance wrapped
+/// with runs of spaces in the middle of sentences and ran flush against the
+/// right border, which no behavioral test would have noticed.
+#[test]
+fn conflict_dialog_after_a_failed_resume() {
+    let mut harness = TuiTestHarness::typical();
+
+    let mut app = make_app_in_carry_conflict(WorktreeSource::Staged);
+    app.resume_failure = Some(
+        "This would overwrite untracked files: device/limits/src/monkey_tests.rs. \
+         Move, delete, or commit them first."
+            .to_string(),
+    );
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);

@@ -150,6 +150,47 @@ pub fn truncate_summary(text: &str, width: usize) -> String {
     format!("{head}\u{2026}")
 }
 
+/// Lead a conflict dialog with why the last attempt to finish it failed.
+///
+/// Placed directly under the heading, above the operation's own prose: it has
+/// to be the first thing read, and anything below the file list can scroll out
+/// of view — taking the instructions that say how to get out with it.
+pub fn push_resume_failure(
+    mut dialog: Dialog,
+    app: &AppState,
+    iw: usize,
+    what_is_left: &str,
+) -> Dialog {
+    let Some(why) = app.resume_failure.clone() else {
+        return dialog;
+    };
+    // The operation is still paused and the branch is still on the commit it
+    // paused at, which is not obvious from a dialog that otherwise looks exactly
+    // as it did before the attempt.
+    dialog = dialog
+        .wrapped_styled_bold(
+            " ! Could not finish — nothing was lost",
+            iw.saturating_sub(1),
+            TextRole::Danger,
+        )
+        .wrapped(&why, iw.saturating_sub(1))
+        .blank()
+        .wrapped(what_is_left, iw.saturating_sub(1));
+    dialog
+}
+
+/// What the conflict dialog needs to know about the conflict it is showing,
+/// as opposed to how to draw it.
+pub struct ConflictView<'a> {
+    /// Paths still carrying markers.
+    pub files: &'a [std::path::PathBuf],
+    /// Markers remain after the user said they were done.
+    pub still_unresolved: bool,
+    /// An attempt to finish the conflict failed. The markers are already
+    /// resolved in this state, so a merge tool or editor has nothing to open.
+    pub resume_failed: bool,
+}
+
 /// Append the shared conflict-dialog tail to `dialog` — the list of conflicting
 /// files, the "still unresolved" warning, and the `Enter`/`m`/`e`/`Esc`
 /// instructions — then render it under `title`.
@@ -161,13 +202,17 @@ pub fn render_conflict_dialog(
     app: &mut AppState,
     frame: &mut Frame,
     mut dialog: Dialog,
-    conflicting_files: &[std::path::PathBuf],
-    still_unresolved: bool,
+    conflict: ConflictView<'_>,
     preferred_width: u16,
     title: &str,
 ) {
+    let ConflictView {
+        files: conflicting_files,
+        still_unresolved,
+        resume_failed,
+    } = conflict;
     let iw = inner_width(preferred_width, frame.area().width);
-    if !conflicting_files.is_empty() {
+    if !conflicting_files.is_empty() && !resume_failed {
         dialog = dialog
             .blank()
             .styled_line("Conflicting files:", TextRole::Highlight);
@@ -198,14 +243,24 @@ pub fn render_conflict_dialog(
             )
             .blank();
     }
-    dialog = dialog
-        .instructions(&[
+    // A failed resume got past the markers — `read_conflicting_files` was empty,
+    // which is why it tried to finish at all — so a merge tool or editor would
+    // open over nothing. What is left is retrying once whatever blocked it is
+    // cleared, or giving up.
+    let instructions: &[(&str, Color, &str)] = if resume_failed {
+        &[
+            ("Enter", Color::Green, "Try again"),
+            ("Esc", Color::Red, "Abort"),
+        ]
+    } else {
+        &[
             ("Enter", Color::Green, "Continue"),
             ("m", Color::Cyan, "Mergetool"),
             ("e", Color::Cyan, "Editor"),
             ("Esc", Color::Red, "Abort"),
-        ])
-        .blank();
+        ]
+    };
+    dialog = dialog.instructions(instructions).blank();
 
     let (max_scroll, visible_height) =
         dialog.render(frame, title, preferred_width, app.dialog.offset);

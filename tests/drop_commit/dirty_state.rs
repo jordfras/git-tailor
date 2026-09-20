@@ -351,6 +351,7 @@ fn a_collision_names_every_untracked_file_it_would_overwrite() {
 /// A symlink counts as a file: git tracked the path as one, and following the
 /// link would judge it by whatever it points at instead.
 #[test]
+#[cfg(unix)]
 fn an_untracked_symlink_at_a_reintroduced_path_is_refused() {
     let test = common::TestRepo::new();
 
@@ -384,7 +385,7 @@ fn an_untracked_symlink_at_a_reintroduced_path_is_refused() {
 ///
 /// That is the conservative direction and the one to keep: the user is asked
 /// about a file rather than quietly relieved of it. Pinned here so the
-/// behaviour is a decision rather than a surprise.
+/// behavior is a decision rather than a surprise.
 #[test]
 fn a_crlf_file_matching_only_after_filtering_is_still_refused() {
     let test = common::TestRepo::new();
@@ -577,6 +578,7 @@ fn rebase_abort_does_not_clobber_a_colliding_untracked_file() {
 /// as UTF-8 and dropped what failed, so the conflict write — the one route that
 /// uses it — went straight over them.
 #[test]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn a_non_utf8_untracked_file_is_guarded_on_the_conflict_path() {
     let test = common::TestRepo::new();
     let odd = common::non_utf8_path("notes", ".txt");

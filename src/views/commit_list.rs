@@ -879,16 +879,27 @@ fn render_action_footer(
 
     let short_oid = source.oid.short();
 
-    let hints_len: usize =
-        " \u{b7} ".len() + hints.iter().map(|(k, d)| k.len() + d.len()).sum::<usize>();
+    // Counted in characters, like the summary below: the separator and the
+    // arrow keys in the hints are multi-byte, so a byte length over-counts a
+    // budget that is really terminal columns and truncates earlier than needed.
+    let hints_len: usize = " \u{b7} ".chars().count()
+        + hints
+            .iter()
+            .map(|(k, d)| k.chars().count() + d.chars().count())
+            .sum::<usize>();
     let max_summary_len = (area.width as usize)
-        .saturating_sub(label.len() + 2)
-        .saturating_sub(short_oid.len())
-        .saturating_sub(3 + after_summary.len())
+        .saturating_sub(label.chars().count() + 2)
+        .saturating_sub(short_oid.chars().count())
+        .saturating_sub(3 + after_summary.chars().count())
         .saturating_sub(hints_len);
 
-    let summary = if source.summary.len() > max_summary_len && max_summary_len > 3 {
-        format!("{}\u{2026}", &source.summary[..max_summary_len - 1])
+    // Counted and cut in characters, not bytes. `max_summary_len` is a budget of
+    // terminal columns, so measuring a summary in bytes both truncates accented
+    // text earlier than it needs to and cuts inside a multi-byte character,
+    // which panics.
+    let summary = if source.summary.chars().count() > max_summary_len && max_summary_len > 3 {
+        let kept: String = source.summary.chars().take(max_summary_len - 1).collect();
+        format!("{kept}\u{2026}")
     } else {
         source.summary.clone()
     };

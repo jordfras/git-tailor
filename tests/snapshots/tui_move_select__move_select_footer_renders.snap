@@ -28,7 +28,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " Move 33333333 "Newest…" · ↑/↓ pick position · Enter confirm · Esc cancel       ",
+        " Move 33333333 "Newest commit…" · ↑/↓ pick position · Enter confirm · Esc cancel",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -42,11 +42,11 @@ Buffer {
         x: 0, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
         x: 6, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
         x: 14, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 27, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 30, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 47, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 52, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 63, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 66, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 34, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 37, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 54, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 59, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 70, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 73, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
     ]
 }

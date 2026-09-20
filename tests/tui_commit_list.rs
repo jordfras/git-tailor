@@ -526,3 +526,28 @@ fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
         );
     }
 }
+
+/// A commit summary with a non-ASCII character must not panic the footer.
+///
+/// The footer truncates to fit the terminal by slicing the summary at a byte
+/// offset derived from the width. Any multi-byte character straddling that
+/// offset is a panic, so an ordinary accented word plus an unlucky window size
+/// takes the whole TUI down.
+#[test]
+fn a_non_ascii_summary_does_not_panic_the_action_footer() {
+    use git_tailor::app::{AppMode, SquashMode};
+
+    for width in 20u16..=120 {
+        let mut harness = TuiTestHarness::new(width, 24);
+        let mut app = common::app_state_from_commit_summaries(&[
+            "Oldest commit on branch",
+            "Refactor the café configuration so naïve résumé parsing works",
+        ]);
+        app.list.selection_index = 1;
+        app.mode = AppMode::SquashSelect {
+            source_index: 1,
+            squash_mode: SquashMode::Squash,
+        };
+        harness.render(|frame| views::commit_list::render(&mut app, frame));
+    }
+}

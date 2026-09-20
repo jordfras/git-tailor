@@ -885,6 +885,37 @@ fn resolving_a_clashing_carry_from_the_unstaged_row_keeps_the_staged_changes() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
+/// A settled clash leaves nothing in `git stash list`.
+///
+/// The fold parks the other row with the auto-stash, so it has to be the
+/// auto-stash that drops it. Settling the clash through a second, fold-shaped
+/// cleanup path instead leaves the entry behind with its journal record still
+/// flagged — recoverable, but silently accumulating, and invisible to every
+/// other assertion here.
+#[test]
+fn a_settled_clash_leaves_no_stash_behind() {
+    let (test, _base, target) = clashing_repo(WorktreeSource::Unstaged);
+    let mut git_repo = test.git_repo();
+    let state =
+        fold_until_the_carry_clashes(&test, &mut git_repo, target, WorktreeSource::Unstaged);
+
+    test.write_file("a.txt", &by_row(WorktreeSource::Unstaged, "LATER", "BOTH"));
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    assert_rebase_complete!(git_repo.rebase_continue(&state).unwrap());
+
+    let mut probe = git2::Repository::open(test.repo.workdir().unwrap()).unwrap();
+    let mut left = 0;
+    probe
+        .stash_foreach(|_, _, _| {
+            left += 1;
+            true
+        })
+        .unwrap();
+    assert_eq!(left, 0, "the fold must drop the stash it took");
+}
+
 /// A clash settles the whole of the other row, not just the file it clashed
 /// on: a deletion the row carries has to come off disk too. Writing the merge
 /// out puts files in place, but nothing in that path takes one away, so this is

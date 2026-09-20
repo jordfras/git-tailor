@@ -443,7 +443,15 @@ fn make_file_diff(
     FileDiff {
         old_path: old_path.map(|s| s.to_string()),
         new_path: new_path.map(|s| s.to_string()),
-        status: crate::DeltaStatus::Modified,
+        // Derived, not hardcoded: `determine_touch_kind` reads the status, so a
+        // fixture that says `Modified` for every shape cannot exercise it. (A
+        // real libgit2 add sets both paths *and* `Added`; what matters here is
+        // that the two agree.)
+        status: match (old_path, new_path) {
+            (None, Some(_)) => crate::DeltaStatus::Added,
+            (Some(_), None) => crate::DeltaStatus::Deleted,
+            _ => crate::DeltaStatus::Modified,
+        },
         is_binary: false,
         hunks: vec![Hunk {
             old_start,
