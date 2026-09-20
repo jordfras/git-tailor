@@ -727,6 +727,85 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     })
 }
 
+/// Every working tree kept under the rescue namespace.
+pub(super) fn rescued_trees(repo: &Git2Repo) -> Result<Vec<crate::repo::RescuedTree>> {
+    let prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
+    let mut refs = repo
+        .inner
+        .references()
+        .context("failed to enumerate references")?;
+    let names: Vec<String> = refs
+        .names()
+        .filter_map(|n| n.ok())
+        .filter(|name| name.starts_with(&prefix))
+        .map(|name| name.to_string())
+        .collect();
+
+    let mut out = Vec::with_capacity(names.len());
+    for refname in names {
+        let Ok(reference) = repo.inner.find_reference(&refname) else {
+            continue;
+        };
+        // Peeled rather than read straight off the ref: git-tailor writes these
+        // pointing at a tree, but the namespace is swept by prefix. A stray ref
+        // that does not peel is still listed, or nothing could remove it.
+        let tree = reference
+            .peel(git2::ObjectType::Tree)
+            .and_then(|obj| obj.peel_to_tree())
+            .ok();
+
+        // What the user is deciding about is the files, not the oid — so a walk
+        // that fails reports nothing rather than an undercount.
+        let file_count = tree.as_ref().and_then(|tree| {
+            let mut n = 0;
+            tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
+                if entry.kind() == Some(git2::ObjectType::Blob) {
+                    n += 1;
+                }
+                git2::TreeWalkResult::Ok
+            })
+            .ok()
+            .map(|()| n)
+        });
+
+        out.push(crate::repo::RescuedTree {
+            refname,
+            tree: tree.map(|t| Oid::from(t.id())),
+            file_count,
+        });
+    }
+    Ok(out)
+}
+
+/// Delete the rescue refs named, reporting how many went.
+///
+/// A ref that will not delete is named rather than quietly missing from the
+/// count — this is the one command whose job is destroying the last copy of
+/// somebody's work, so "did it actually go" has to be answerable.
+pub(super) fn drop_rescued_trees(repo: &mut Git2Repo, refnames: &[String]) -> Result<usize> {
+    let mut removed = 0;
+    let mut failed = Vec::new();
+    for name in refnames {
+        let deleted = repo
+            .inner
+            .find_reference(name)
+            .and_then(|mut r| r.delete())
+            .is_ok();
+        if deleted {
+            removed += 1;
+        } else {
+            failed.push(name.as_str());
+        }
+    }
+    if !failed.is_empty() {
+        anyhow::bail!(
+            "removed {removed} ref(s), but could not remove: {}",
+            failed.join(", ")
+        );
+    }
+    Ok(removed)
+}
+
 /// Push a completed history-rewriting operation onto the undo stack.
 pub(super) fn record_undo(
     repo: &mut Git2Repo,

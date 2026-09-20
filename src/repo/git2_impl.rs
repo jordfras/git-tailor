@@ -581,6 +581,14 @@ impl RepoWrite for Git2Repo {
         journal::clean(self)
     }
 
+    fn rescued_trees(&self) -> Result<Vec<super::RescuedTree>> {
+        journal::rescued_trees(self)
+    }
+
+    fn drop_rescued_trees(&mut self, refnames: &[String]) -> Result<usize> {
+        journal::drop_rescued_trees(self, refnames)
+    }
+
     fn undo(&mut self) -> Result<super::UndoOutcome> {
         journal::apply_undo(self)
     }

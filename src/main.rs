@@ -86,6 +86,11 @@ fn main() -> Result<()> {
         return run_clean_journal(&mut git_repo);
     }
 
+    if cli.drop_rescued {
+        let _session = acquire_session_lock(&git_repo)?;
+        return run_drop_rescued(&mut git_repo);
+    }
+
     // Static output path: no TUI involved, load commits synchronously.
     if cli.static_output {
         let Some((commits, _reference_oid, _include_reference_oid)) =
@@ -339,6 +344,43 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
             summary.rescue_refs_kept
         );
     }
+    Ok(())
+}
+
+/// Remove every rescued working tree (`--drop-rescued`), listing each with the
+/// command that restores it first. No TUI is started.
+///
+/// Listed before removal rather than behind a prompt: this runs in scripts too,
+/// and what the user needs afterwards is the tree oid in their scrollback.
+fn run_drop_rescued(git_repo: &mut impl GitRepo) -> Result<()> {
+    let rescued = git_repo.rescued_trees()?;
+    if rescued.is_empty() {
+        println!("No rescued working trees.");
+        return Ok(());
+    }
+
+    println!(
+        "{} rescued working tree(s) to remove. Each holds uncommitted work \
+         git-tailor kept when it had to discard a record — this is the only copy.\n",
+        rescued.len()
+    );
+    for rescue in &rescued {
+        match rescue.file_count {
+            Some(n) => println!("  {}  {n} file(s)", rescue.refname),
+            None => println!("  {}  (contents unreadable)", rescue.refname),
+        }
+        // `:/` rather than `.`, which git scopes to the current directory —
+        // restoring only part of the tree, with the ref already gone.
+        match &rescue.tree {
+            Some(tree) => println!("    restore with: git checkout {tree} -- :/"),
+            None => println!("    does not resolve to a tree; nothing to restore"),
+        }
+    }
+    println!();
+
+    let refnames: Vec<String> = rescued.iter().map(|t| t.refname.clone()).collect();
+    let removed = git_repo.drop_rescued_trees(&refnames)?;
+    println!("Removed {removed} ref(s).");
     Ok(())
 }
 

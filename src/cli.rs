@@ -140,16 +140,28 @@ pub struct Cli {
     ///
     /// Rescued working trees (`refs/git-tailor/rescue/*`) are kept — each is
     /// uncommitted work with no other copy, and they belong to the repository
-    /// rather than to this working tree.
+    /// rather than to this working tree. See `--drop-rescued`.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+
+    /// Remove every rescued working tree and exit, without launching the TUI.
+    ///
+    /// A rescued working tree is uncommitted work git-tailor kept under
+    /// `refs/git-tailor/rescue/*` when it had to discard the record naming it.
+    /// Each is listed with the command that restores it before anything is
+    /// removed. This is the only copy — nothing else in git has it.
+    ///
+    /// Separate from `--clean-journal`, which clears this working tree's
+    /// recovery state; rescued trees belong to the repository.
+    #[arg(long = "drop-rescued", conflicts_with_all = ["base", "all", "static_output", "clean_journal"])]
+    pub drop_rescued: bool,
 
     /// Check crates.io for a newer release and exit, without launching the TUI.
     ///
     /// Reports the outcome, including why a check failed — the background check
     /// the TUI runs stays silent so an offline or firewalled machine is never
     /// nagged. Ignores the cached result and always asks crates.io.
-    #[arg(long = "check-update", conflicts_with_all = ["base", "all", "static_output", "clean_journal"])]
+    #[arg(long = "check-update", conflicts_with_all = ["base", "all", "static_output", "clean_journal", "drop_rescued"])]
     pub check_update: bool,
 }
 

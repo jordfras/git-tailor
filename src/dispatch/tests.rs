@@ -532,6 +532,31 @@ fn clean_journal_parses_on_its_own() {
 }
 
 #[test]
+fn drop_rescued_parses_on_its_own() {
+    use clap::Parser;
+    assert!(crate::cli::Cli::try_parse_from(["gt", "--drop-rescued"]).is_ok());
+}
+
+/// Removing rescued work and clearing this working tree's recovery state are
+/// separate decisions, so asking for both at once is a mistake worth naming.
+#[test]
+fn drop_rescued_conflicts_with_clean_journal_and_browse_args() {
+    use clap::Parser;
+    for extra in [
+        ["--drop-rescued", "--clean-journal"],
+        ["--drop-rescued", "somebase"],
+        ["--drop-rescued", "--all"],
+        ["--drop-rescued", "--static"],
+    ] {
+        let argv = std::iter::once("gt").chain(extra);
+        assert!(
+            crate::cli::Cli::try_parse_from(argv).is_err(),
+            "--drop-rescued must conflict with {extra:?}"
+        );
+    }
+}
+
+#[test]
 fn clean_journal_conflicts_with_browse_args() {
     use clap::Parser;
     for extra in [

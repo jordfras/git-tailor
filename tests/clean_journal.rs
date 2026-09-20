@@ -137,6 +137,44 @@ fn clean_rescues_an_in_flight_folds_working_tree() {
     );
 }
 
+/// What `--drop-rescued` is for: the rescued trees are listed with enough to
+/// get them back, and only then removed.
+#[test]
+fn rescued_trees_are_listed_with_their_size_and_can_be_dropped() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    git_repo.clean_journal().unwrap();
+
+    let rescued = git_repo.rescued_trees().unwrap();
+    assert_eq!(rescued.len(), 1, "the fold's tree was kept");
+    assert_eq!(
+        rescued[0].file_count,
+        Some(2),
+        "the listing must say how much is at stake"
+    );
+    assert!(
+        rescued[0].tree.is_some(),
+        "and resolve the tree the restore command needs"
+    );
+
+    let refnames: Vec<String> = rescued.iter().map(|t| t.refname.clone()).collect();
+    assert_eq!(git_repo.drop_rescued_trees(&refnames).unwrap(), 1);
+    assert_eq!(
+        git_tailor_ref_count(&test),
+        0,
+        "and nothing of git-tailor's is left"
+    );
+}
+
 #[test]
 fn clean_on_a_pristine_repo_is_a_noop() {
     let test = common::TestRepo::new();

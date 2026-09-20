@@ -61,6 +61,21 @@ pub struct JournalCleanSummary {
     pub rescue_refs_kept: usize,
 }
 
+/// A working tree git-tailor kept when it had to discard the record naming it.
+#[derive(Debug, Clone)]
+pub struct RescuedTree {
+    /// Full ref name, which is also how the user reaches it with plain git.
+    pub refname: String,
+    /// The tree object the ref resolves to, or `None` for a ref under the
+    /// namespace that does not peel to one. Still listed, so it stays
+    /// removable.
+    pub tree: Option<Oid>,
+    /// Paths it holds, so the listing can say how much is at stake. `None` when
+    /// the tree could not be walked — an understated count is worse than no
+    /// count when it is what an irreversible delete is argued from.
+    pub file_count: Option<usize>,
+}
+
 /// Result of an undo or redo request.
 #[derive(Debug)]
 pub enum UndoOutcome {
@@ -760,6 +775,18 @@ pub trait RepoWrite {
     /// Rescued working trees are kept and counted, not removed — see
     /// [`Self::drop_rescued_trees`].
     fn clean_journal(&mut self) -> Result<JournalCleanSummary>;
+
+    /// Every working tree kept under `refs/git-tailor/rescue/*`.
+    ///
+    /// Repository-wide, not scoped to this working tree: the refs are
+    /// content-addressed and record no owner.
+    fn rescued_trees(&self) -> Result<Vec<RescuedTree>>;
+
+    /// Delete the rescue refs named, and report how many went.
+    ///
+    /// Each is uncommitted work with no other copy, so this is only ever run
+    /// from an explicit request that has already listed them.
+    fn drop_rescued_trees(&mut self, refnames: &[String]) -> Result<usize>;
 
     /// Undo the most recent history-rewriting operation by restoring the branch
     /// to the tip recorded before it ran (and moving the record to the redo
