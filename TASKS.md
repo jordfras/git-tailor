@@ -206,6 +206,34 @@ Guidelines:
   `set_work_aside` refuses, so every later fold is refused with only a
   `git stash apply <oid>` to go on. Worth solving together — both are "the tool
   put work somewhere safe and gave the user no supported way to get it back".
+- [ ] T256 P2 refactor - Let the set-aside record say which lifecycle it has.
+  One journal slot, `JournalDoc::autostash`, holds two things: an operation's
+  `--autostash`, and the row a working-tree fold parked. `fold_temp_oid`
+  discriminates them. Only one is ever live — `set_work_aside` refuses when the
+  slot is taken, and the two writers are exclusive match arms in
+  `dispatch/rewrite.rs` — so one slot is right; the discriminator is not.
+  `pre_op_tip` is what breaks. For an auto-stash it is a real branch tip and
+  `abort_autostash` hard-resets to it; for a fold it is the temporary commit,
+  which must never be reset to. One field, two meanings, opposite safety
+  properties — and four sites exist only to keep each consumer off the other's
+  record: `autostash_restore` in `git2_impl.rs`, `abort_autostash` and
+  `abort_work_aside` in `stash.rs`, and `finish` in `lift_op.rs`.
+  The last one is the argument for doing this at all. `abort_work_aside` cannot
+  check the branch its record names, because that name may belong to someone
+  else's `--autostash` and would refuse an unwind that is perfectly in order.
+  Sharing the slot cost a safety check rather than adding one.
+  Replace `fold_temp_oid: Option<Oid>` with a sum type in the record —
+  `Autostash { pre_op_tip }` / `FoldLeftover { temp_oid }` — keeping `stash`,
+  `branch_refname` and `applied_with_conflict` alongside, which mean the same
+  either way. `pre_op_tip` then exists only where it means a branch tip, the
+  three "not mine" guards become match arms, and `abort_work_aside` can check
+  the branch again.
+  Two slots would be worse: two `Option`s of which at most one is ever `Some`
+  states the invariant more weakly than one field does, makes every consumer
+  check both, and still costs a journal migration — see `migrate_v2` for what
+  those cost here.
+  Do it with T248, whose "Related" paragraph is this slot getting stuck after a
+  failed carry-back: the same record wanting a clearer owner.
 - [ ] T249 P2 refactor - Give byte-valued domain data a type that refuses to be
   decoded by accident. Commit messages and repository paths are bytes to git,
   and the 3.1.0 work moved them to `&[u8]` at the trait boundary — correctly.
