@@ -69,6 +69,12 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         return Ok(None);
     }
 
+    // Before the fold commits or records anything — the trees above are already
+    // written, so a refusal costs those and nothing more. Below the empty-row
+    // check, which is about the row the user picked rather than what is in the
+    // way.
+    repo.refuse_if_work_set_aside()?;
+
     // Created before anything is recorded: an unreferenced commit is garbage the
     // next gc collects, where a record naming a commit that was never made
     // describes a state nothing can be recovered to.

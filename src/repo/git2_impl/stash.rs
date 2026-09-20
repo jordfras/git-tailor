@@ -65,11 +65,9 @@ impl Git2Repo {
             return Ok(());
         }
 
-        // Refused rather than taken. A fold parks its row with the branch
-        // already on the temporary commit, so a stash taken now would record
-        // that synthetic commit as its `pre_op_tip` — and aborting a conflicting
-        // reapply hard-resets the branch onto it. The mirror of the refusal in
-        // [`Self::park_row`]: the two never coexist, from either direction.
+        // A fold parks with the branch already on its temporary commit, so a
+        // stash taken now would record that as its `pre_op_tip`. The mirror of
+        // [`Self::refuse_if_work_set_aside`].
         if let Some(parked) = journal::parked(self)? {
             anyhow::bail!(
                 "A working-tree squash has set your other row aside in stash {0}. \
@@ -105,18 +103,6 @@ impl Git2Repo {
             return Ok(());
         }
 
-        // Refused rather than stacked. With both live the fold lands, the older
-        // auto-stash reapplies onto its result, and aborting that reapply
-        // rewinds to the older operation's tip — discarding the fold.
-        if let Some(existing) = journal::autostash(self)? {
-            anyhow::bail!(
-                "Work is already set aside in stash {0} and has not been put back. \
-                 Recover it with `git stash apply {0}` — `git stash pop` would act \
-                 on whatever is at stash@{{0}}, which may be something else.",
-                existing.stash
-            );
-        }
-
         // Its own slot, but still one record. `lift` refuses a second fold, so
         // an occupant here belongs to a fold that is over — and overwriting it
         // would leave its stash named by nothing.
@@ -140,6 +126,24 @@ impl Git2Repo {
                 applied_with_conflict: false,
             }),
         )
+    }
+
+    /// Refuse to start a fold while an auto-stash is still out.
+    ///
+    /// With both live the fold lands, the older auto-stash reapplies onto its
+    /// result, and aborting that reapply rewinds to the older operation's tip —
+    /// discarding the fold. Asked before the fold moves anything, so it holds
+    /// whether or not the fold has a row of its own to park.
+    pub(super) fn refuse_if_work_set_aside(&self) -> Result<()> {
+        if let Some(existing) = journal::autostash(self)? {
+            anyhow::bail!(
+                "Work is already set aside in stash {0} and has not been put back. \
+                 Recover it with `git stash apply {0}` — `git stash pop` would act \
+                 on whatever is at stash@{{0}}, which may be something else.",
+                existing.stash
+            );
+        }
+        Ok(())
     }
 
     /// The row this fold parked, or `None` when it parked nothing.
