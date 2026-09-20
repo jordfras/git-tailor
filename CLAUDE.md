@@ -130,13 +130,29 @@ point, making the layout unambiguous at a glance.
 
 ### Code Comments Convention
 
-**Avoid redundant comments.** Comments should explain *why* or provide context,
-not restate what the code already clearly expresses. Keep them short — a
-sentence or two of what a future reader needs, not a narrative of how the code
-came to be. Don't reference the current task, a review, or a PR discussion;
-that context is gone once the commit lands.
+**Prefer code that needs no comment.** A clearer function name, a named
+intermediate value, or a smaller function beats a paragraph explaining a long
+one. Reach for a comment only when the code cannot be made to say it.
 
-❌ Bad (comment restates the obvious):
+**Comments explain *why*, never *what*.** If it restates the line below it,
+delete it.
+
+**Keep it short enough that it gets read.** An inline comment is a line or two.
+A function's doc may run longer when its contract genuinely needs it, but never
+as narrative: state the fact, not the story. Keep what a reader cannot recover
+from the code; drop the alternatives weighed, the bug that motivated it, and how
+it was found — that belongs in the commit message or TASKS.md.
+
+**One fact, one place.** Don't repeat at the call site what the field's doc, the
+function's doc, or the test's name already says.
+
+**Put it on what it describes.** When adding a function or statement, check you
+haven't stranded an existing comment above the wrong thing.
+
+Don't reference the current task, a review, or a PR discussion; that context is
+gone once the commit lands.
+
+❌ Bad (restates the obvious):
 ```rust
 // Open repository from current directory
 let repo = git2::Repository::open(".")?;
@@ -146,6 +162,22 @@ let repo = git2::Repository::open(".")?;
 ```rust
 // HEAD might be detached, so target() can fail
 let head_oid = repo.head()?.target()?;
+```
+
+❌ Bad (true, and nobody will read it):
+```rust
+// A deletion's hunk removes every line, so applying it leaves nothing.
+// The path has to go with it: writing the empty result back as a blob
+// produces a piece that truncates the file rather than deleting it, and
+// the pieces still sum to the original commit so nothing downstream
+// notices.
+```
+
+✅ Good (same fact, one breath):
+```rust
+// A deletion's hunk removes every line, so the path has to go with it:
+// writing the empty result back as a blob truncates the file instead of
+// deleting it.
 ```
 
 ### Spelling Convention
