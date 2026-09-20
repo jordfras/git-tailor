@@ -134,25 +134,30 @@ pub struct Cli {
     ///
     /// Deletes the journal file (`.git/git-tailor/journal.json`) and this
     /// working tree's undo pins and in-progress pin under `refs/git-tailor/*`,
-    /// found by namespace so stray refs are removed even if the journal is
-    /// missing or out of sync. A manual escape hatch for when recovery state
-    /// gets stuck.
+    /// found by namespace so stray refs go even if the journal is missing. A
+    /// manual escape hatch for when recovery state gets stuck.
     ///
     /// Rescued working trees (`refs/git-tailor/rescue/*`) are kept — each is
-    /// uncommitted work with no other copy, and they belong to the repository
-    /// rather than to this working tree. See `--drop-rescued`.
+    /// uncommitted work with no other copy. See `--drop-rescued`.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
+
+    /// List every rescued working tree and exit, without launching the TUI.
+    ///
+    /// A rescued working tree is uncommitted work git-tailor kept under
+    /// `refs/git-tailor/rescue/*` when it had to discard the record naming it.
+    /// Shows each with the command that restores it. Read-only; see
+    /// `--drop-rescued` to remove them.
+    #[arg(long = "list-rescued", conflicts_with_all = ["base", "all", "static_output", "clean_journal", "drop_rescued"])]
+    pub list_rescued: bool,
 
     /// Remove every rescued working tree and exit, without launching the TUI.
     ///
     /// A rescued working tree is uncommitted work git-tailor kept under
     /// `refs/git-tailor/rescue/*` when it had to discard the record naming it.
-    /// Each is listed with the command that restores it before anything is
-    /// removed. This is the only copy — nothing else in git has it.
-    ///
-    /// Separate from `--clean-journal`, which clears this working tree's
-    /// recovery state; rescued trees belong to the repository.
+    /// Every one is removed without a prompt, and this is the only copy — use
+    /// `--list-rescued` first to look. Separate from `--clean-journal`, which
+    /// clears this working tree's recovery state.
     #[arg(long = "drop-rescued", conflicts_with_all = ["base", "all", "static_output", "clean_journal"])]
     pub drop_rescued: bool,
 
@@ -161,7 +166,7 @@ pub struct Cli {
     /// Reports the outcome, including why a check failed — the background check
     /// the TUI runs stays silent so an offline or firewalled machine is never
     /// nagged. Ignores the cached result and always asks crates.io.
-    #[arg(long = "check-update", conflicts_with_all = ["base", "all", "static_output", "clean_journal", "drop_rescued"])]
+    #[arg(long = "check-update", conflicts_with_all = ["base", "all", "static_output", "clean_journal", "drop_rescued", "list_rescued"])]
     pub check_update: bool,
 }
 

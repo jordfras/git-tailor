@@ -86,6 +86,13 @@ fn main() -> Result<()> {
         return run_clean_journal(&mut git_repo);
     }
 
+    // No session lock: reading what was rescued changes nothing, and should not
+    // be refused because a TUI happens to be open — least of all when the user
+    // is trying to find out what a running git-tailor kept.
+    if cli.list_rescued {
+        return run_list_rescued(&git_repo);
+    }
+
     if cli.drop_rescued {
         let _session = acquire_session_lock(&git_repo)?;
         return run_drop_rescued(&mut git_repo);
@@ -115,8 +122,8 @@ fn main() -> Result<()> {
             "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
              This version cannot resume it. Finish it with the previous git-tailor, \
              or run `gt --clean-journal` to discard it and start fresh — any \
-             uncommitted work it recorded is kept, and listed by \
-             `gt --drop-rescued`."
+             uncommitted work it recorded is kept, and `gt --list-rescued` \
+             shows it."
         );
         std::process::exit(1);
     }
@@ -342,18 +349,58 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
     if summary.rescue_refs_kept > 0 {
         println!(
             "Kept {} rescued working tree(s) — uncommitted work git-tailor saved when \
-             it had to discard a record.",
+             it had to discard a record. See them with `gt --list-rescued`.",
             summary.rescue_refs_kept
         );
     }
     Ok(())
 }
 
-/// Remove every rescued working tree (`--drop-rescued`), listing each with the
-/// command that restores it first. No TUI is started.
+/// Show every rescued working tree (`--list-rescued`) and return. Read-only.
+fn run_list_rescued(git_repo: &impl GitRepo) -> Result<()> {
+    let rescued = git_repo.rescued_trees()?;
+    if rescued.is_empty() {
+        println!("No rescued working trees.");
+        return Ok(());
+    }
+    println!(
+        "{} rescued working tree(s). Each holds uncommitted work git-tailor kept \
+         when it had to discard a record — this is the only copy.\n",
+        rescued.len()
+    );
+    print_rescued(&rescued);
+    println!("\nRemove them with `gt --drop-rescued`.");
+    Ok(())
+}
+
+fn print_rescued(rescued: &[git_tailor::repo::RescuedTree]) {
+    for rescue in rescued {
+        // Two different failures, so never both lines: a tree whose contents
+        // would not walk still has a tree to restore, where a ref that is not a
+        // tree at all has nothing and no count to give.
+        match (&rescue.tree, rescue.file_count) {
+            (Some(tree), Some(n)) => {
+                println!("  {}  {n} file(s)", rescue.refname);
+                // `:/` rather than `.`, which git scopes to the current
+                // directory — restoring part of the tree, with the ref gone.
+                println!("    restore with: git checkout {tree} -- :/");
+            }
+            (Some(tree), None) => {
+                println!("  {}  (contents unreadable)", rescue.refname);
+                println!("    restore with: git checkout {tree} -- :/");
+            }
+            (None, _) => {
+                println!("  {}", rescue.refname);
+                println!("    does not resolve to a tree; nothing to restore");
+            }
+        }
+    }
+}
+
+/// Remove every rescued working tree (`--drop-rescued`), listing each first.
 ///
-/// Listed before removal rather than behind a prompt: this runs in scripts too,
-/// and what the user needs afterwards is the tree oid in their scrollback.
+/// No prompt — `--list-rescued` is the read-only way to look first. Listed
+/// before anything goes, so the tree oids stay in the user's scrollback.
 fn run_drop_rescued(git_repo: &mut impl GitRepo) -> Result<()> {
     let rescued = git_repo.rescued_trees()?;
     if rescued.is_empty() {
@@ -366,18 +413,7 @@ fn run_drop_rescued(git_repo: &mut impl GitRepo) -> Result<()> {
          git-tailor kept when it had to discard a record — this is the only copy.\n",
         rescued.len()
     );
-    for rescue in &rescued {
-        match rescue.file_count {
-            Some(n) => println!("  {}  {n} file(s)", rescue.refname),
-            None => println!("  {}  (contents unreadable)", rescue.refname),
-        }
-        // `:/` rather than `.`, which git scopes to the current directory —
-        // restoring only part of the tree, with the ref already gone.
-        match &rescue.tree {
-            Some(tree) => println!("    restore with: git checkout {tree} -- :/"),
-            None => println!("    does not resolve to a tree; nothing to restore"),
-        }
-    }
+    print_rescued(&rescued);
     println!();
 
     let refnames: Vec<String> = rescued.iter().map(|t| t.refname.clone()).collect();

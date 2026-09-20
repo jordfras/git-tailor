@@ -24,10 +24,12 @@ The format is based on
 
 ### Added
 
-- `--drop-rescued` removes rescued working trees, listing each with how many
-  files it holds and the `git checkout <tree> -- .` that restores it. Until now
-  nothing in git-tailor could show you one, and the only thing that removed them
-  did so silently
+- `--list-rescued` shows the working trees git-tailor kept when it had to
+  discard the record naming them, each with how many files it holds and the
+  `git checkout <tree> -- :/` that restores it. Until now nothing in git-tailor
+  could show you one
+- `--drop-rescued` removes them, listing them first. This is the only copy, so
+  it is a separate command from both `--clean-journal` and `--list-rescued`
 
 ### Fixed
 
