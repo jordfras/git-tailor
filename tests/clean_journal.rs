@@ -107,6 +107,36 @@ fn clean_keeps_rescued_working_trees_and_says_how_many() {
     );
 }
 
+/// The pins and the journal are the only things naming the tree a lift recorded,
+/// and `--clean-journal` removes both — while being what main.rs recommends
+/// after an interrupted upgrade, which is raised for exactly a fold.
+#[test]
+fn clean_rescues_an_in_flight_folds_working_tree() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = git_repo
+        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+
+    let summary = git_repo.clean_journal().unwrap();
+
+    let rescue = format!("refs/git-tailor/rescue/{}", lifted.worktree_tree);
+    assert!(
+        test.repo.find_reference(&rescue).is_ok(),
+        "the fold's working tree must be kept, not left as garbage"
+    );
+    assert_eq!(
+        summary.rescue_refs_kept, 1,
+        "and be counted once, not once for rescuing and again for skipping it"
+    );
+}
+
 #[test]
 fn clean_on_a_pristine_repo_is_a_noop() {
     let test = common::TestRepo::new();
