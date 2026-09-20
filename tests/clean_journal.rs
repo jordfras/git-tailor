@@ -68,6 +68,41 @@ fn clean_removes_journal_file_and_all_refs_including_stray() {
     );
 }
 
+/// Rescue refs are somebody's uncommitted work, kept when git-tailor had to
+/// discard the record that named it. `--clean-journal` clears this working
+/// tree's recovery state; these are repository-wide and are the only copy, so
+/// removing them has to be asked for separately.
+#[test]
+fn clean_keeps_rescued_working_trees() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    test.commit_file("c.txt", "c\n", "add c");
+    let mut git_repo = test.git_repo();
+
+    git_repo
+        .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+        .unwrap();
+
+    let tree = test.repo.find_commit(base).unwrap().tree().unwrap().id();
+    let rescue = format!("refs/git-tailor/rescue/{tree}");
+    test.repo
+        .reference(&rescue, base, true, "rescued working tree")
+        .unwrap();
+
+    git_repo.clean_journal().unwrap();
+
+    assert!(
+        test.repo.find_reference(&rescue).is_ok(),
+        "the rescued working tree must survive"
+    );
+    assert_eq!(
+        git_tailor_ref_count(&test),
+        1,
+        "and nothing else may survive"
+    );
+}
+
 #[test]
 fn clean_on_a_pristine_repo_is_a_noop() {
     let test = common::TestRepo::new();
