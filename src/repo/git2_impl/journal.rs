@@ -62,6 +62,13 @@ use crate::Oid;
 /// build resuming a v2 fold would find no stash and discard what is on disk.
 /// Neither is representable in the other, so the version is what keeps them
 /// apart — see [`migrate_v2`].
+///
+/// Which release shipped each version — a shape nobody released is free to
+/// change. A bump adds its line as `unreleased`; the release fills it in.
+///
+///   v1  2.0.0   journal introduced
+///   v2  3.0.0   (also 3.1.0)
+///   v3  unreleased
 const JOURNAL_VERSION: u32 = 3;
 
 /// Common namespace for every ref git-tailor writes. Single source of truth:
