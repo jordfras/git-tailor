@@ -23,11 +23,11 @@
 use anyhow::{Context, Result};
 use git2::{Signature, StashApplyOptions};
 
-use super::super::{AutostashContinue, AutostashRestore};
+use super::super::{AutostashContinue, AutostashRestore, LiftedRow};
 use super::Git2Repo;
 use super::conflict;
 use super::journal;
-use super::journal::AutostashRecord;
+use super::journal::{AutostashRecord, ParkedRow};
 use super::reads;
 use crate::Oid;
 
@@ -61,30 +61,21 @@ impl Git2Repo {
         if journal::autostash(self)?.is_some() {
             return Ok(());
         }
-        self.set_work_aside("git-tailor: autostash", None)
-    }
-
-    /// Put whatever is uncommitted into a stash and record it, whatever asked
-    /// for it. A no-op when there is nothing to set aside.
-    ///
-    /// Separate from [`Self::save_autostash`] so that "did the user ask for a
-    /// stash" and "take one" are two questions. Both callers come through here —
-    /// auto-stash, and the working-tree fold parking the row it did not take —
-    /// so `fold` records which, since the slot holds one and they are put back
-    /// at different moments.
-    pub(super) fn set_work_aside(&mut self, message: &str, fold: Option<&Oid>) -> Result<()> {
         if !self.is_worktree_dirty()? {
             return Ok(());
         }
 
-        // One slot, two callers. Displacing a record leaves its stash named by
-        // nothing: no undo, recovery or abort would find that work again.
-        if let Some(existing) = journal::autostash(self)? {
+        // Refused rather than taken. A fold parks its row with the branch
+        // already on the temporary commit, so a stash taken now would record
+        // that synthetic commit as its `pre_op_tip` — and aborting a conflicting
+        // reapply hard-resets the branch onto it. The mirror of the refusal in
+        // [`Self::park_row`]: the two never coexist, from either direction.
+        if let Some(parked) = journal::parked(self)? {
             anyhow::bail!(
-                "Work is already set aside in stash {0} and has not been put back. \
-                 Recover it with `git stash apply {0}` — `git stash pop` would act \
-                 on whatever is at stash@{{0}}, which may be something else.",
-                existing.stash
+                "A working-tree squash has set your other row aside in stash {0}. \
+                 Finish or abort it before an operation that needs to stash. \
+                 Recover the row with `git stash apply {0}` if it is stranded.",
+                parked.stash
             );
         }
 
@@ -94,7 +85,7 @@ impl Git2Repo {
         let pre_op_tip = reads::head_oid(self)?;
         let branch_refname = self.current_branch_refname().unwrap_or_default();
 
-        let stash = self.take_stash(message)?;
+        let stash = self.take_stash("git-tailor: autostash")?;
         journal::set_autostash(
             self,
             Some(AutostashRecord {
@@ -102,10 +93,65 @@ impl Git2Repo {
                 pre_op_tip,
                 applied_with_conflict: false,
                 branch_refname,
-                fold_temp_oid: fold.cloned(),
             }),
         )?;
         Ok(())
+    }
+
+    /// Set the row `lifted` did not take aside for the duration of the fold.
+    /// A no-op when that row is clean.
+    pub(super) fn park_row(&mut self, lifted: &LiftedRow) -> Result<()> {
+        if !self.is_worktree_dirty()? {
+            return Ok(());
+        }
+
+        // Refused rather than stacked. With both live the fold lands, the older
+        // auto-stash reapplies onto its result, and aborting that reapply
+        // rewinds to the older operation's tip — discarding the fold.
+        if let Some(existing) = journal::autostash(self)? {
+            anyhow::bail!(
+                "Work is already set aside in stash {0} and has not been put back. \
+                 Recover it with `git stash apply {0}` — `git stash pop` would act \
+                 on whatever is at stash@{{0}}, which may be something else.",
+                existing.stash
+            );
+        }
+
+        // Its own slot, but still one record. `lift` refuses a second fold, so
+        // an occupant here belongs to a fold that is over — and overwriting it
+        // would leave its stash named by nothing.
+        if let Some(existing) = journal::parked(self)?
+            && existing.temp_oid != lifted.temp_oid
+        {
+            anyhow::bail!(
+                "A working-tree squash left changes set aside in stash {0}, and \
+                 nothing has put them back. Recover them with \
+                 `git stash apply {0}` before starting another.",
+                existing.stash
+            );
+        }
+
+        let stash = self.take_stash("git-tailor: working-tree changes")?;
+        journal::set_parked(
+            self,
+            Some(ParkedRow {
+                stash,
+                temp_oid: lifted.temp_oid.clone(),
+                applied_with_conflict: false,
+            }),
+        )
+    }
+
+    /// The row this fold parked, or `None` when it parked nothing.
+    fn parked_row(&self, lifted: &LiftedRow) -> Result<Option<ParkedRow>> {
+        Ok(journal::parked(self)?.filter(|p| p.temp_oid == lifted.temp_oid))
+    }
+
+    /// Whether this fold has a row parked. A fold whose counterpart was clean
+    /// has none, and neither has one whose record was lost before it was
+    /// written.
+    pub(super) fn has_parked_row(&self, lifted: &LiftedRow) -> Result<bool> {
+        Ok(self.parked_row(lifted)?.is_some())
     }
 
     /// Stash everything uncommitted under `message` and report where it went.
@@ -134,23 +180,21 @@ impl Git2Repo {
     /// no-op — but an untracked file sitting on one of its paths can still be in
     /// the way, which is refused by name before anything moves.
     ///
-    /// The abort half of [`Self::set_work_aside`], for a caller that will move
-    /// the branch itself afterwards — the fold rewinds past `base` to the tip it
+    /// The abort half of [`Self::park_row`], for a caller that will move the
+    /// branch itself afterwards — the fold rewinds past `base` to the tip it
     /// started from, which [`Self::abort_autostash`] has no reason to do.
-    pub(super) fn abort_work_aside(&mut self, base: &Oid) -> Result<()> {
+    pub(super) fn abort_work_aside(&mut self, lifted: &LiftedRow) -> Result<()> {
+        // The reset below moves whatever branch HEAD resolves to now, so it has
+        // to still be the one the fold started on.
+        self.refuse_if_branch_switched(&lifted.branch_refname)?;
+
         // Read before the reset, but the reset happens either way: a row whose
         // counterpart was clean leaves nothing to set aside, and the working
         // tree still has to come back to `base` from wherever the operation
         // checked it out to.
-        let record = journal::autostash(self)?;
+        let mine = self.parked_row(lifted)?;
 
-        // No branch check here. The only caller is the fold's `restore`, which
-        // has already checked against the fold's *own* recorded branch — and the
-        // name on this record may belong to someone else's `--autostash`, which
-        // would refuse an unwind that is perfectly in order.
-
-        let mine = record.filter(|r| r.fold_temp_oid.as_ref() == Some(base));
-
+        let base = &lifted.temp_oid;
         let base_oid = git2::Oid::from(base);
         let base_tree = self.commit_tree_id(base_oid)?;
 
@@ -188,18 +232,16 @@ impl Git2Repo {
             }
         }
         self.inner.index()?.read(true)?;
-        journal::set_autostash(self, None)
+        journal::set_parked(self, None)
     }
 
-    /// Drop work set aside without putting it back, and forget the record.
+    /// Drop the row this fold parked without putting it back, and forget it.
     ///
-    /// For an operation being abandoned rather than finished or unwound, where
-    /// the content has already been preserved somewhere else. Nothing else may
-    /// use this: a stash dropped without a copy elsewhere is work destroyed.
-    pub(super) fn discard_work_aside(&mut self, fold: &Oid) -> Result<()> {
-        let Some(record) =
-            journal::autostash(self)?.filter(|r| r.fold_temp_oid.as_ref() == Some(fold))
-        else {
+    /// For a fold being abandoned rather than finished or unwound, where the
+    /// content has already been preserved somewhere else. Nothing else may use
+    /// this: a stash dropped without a copy elsewhere is work destroyed.
+    pub(super) fn discard_work_aside(&mut self, lifted: &LiftedRow) -> Result<()> {
+        let Some(record) = self.parked_row(lifted)? else {
             return Ok(());
         };
         if let Some(index) = self.stash_index_of(git2::Oid::from(&record.stash))? {
@@ -207,12 +249,46 @@ impl Git2Repo {
                 .stash_drop(index)
                 .context("failed to drop the set-aside changes")?;
         }
-        journal::set_autostash(self, None)
+        journal::set_parked(self, None)
     }
 
-    /// Whether the work in the slot was set aside by the fold on `temp_oid`.
-    pub(super) fn work_aside_is_fold(&mut self, temp_oid: &Oid) -> Result<bool> {
-        Ok(journal::autostash(self)?.is_some_and(|r| r.fold_temp_oid.as_ref() == Some(temp_oid)))
+    /// Put the row this fold parked back, reporting whether it landed clean.
+    pub(super) fn restore_parked_row(&mut self, lifted: &LiftedRow) -> Result<AutostashRestore> {
+        let Some(record) = self.parked_row(lifted)? else {
+            return Ok(AutostashRestore::Done);
+        };
+
+        match self.reapply_stash(&record.stash, record.applied_with_conflict)? {
+            AutostashRestore::Conflict { files } => {
+                if !record.applied_with_conflict {
+                    journal::set_parked(
+                        self,
+                        Some(ParkedRow {
+                            applied_with_conflict: true,
+                            ..record
+                        }),
+                    )?;
+                }
+                Ok(AutostashRestore::Conflict { files })
+            }
+            AutostashRestore::Done => {
+                journal::set_parked(self, None)?;
+                Ok(AutostashRestore::Done)
+            }
+        }
+    }
+
+    /// Finish putting a parked row back once the user has resolved its clash.
+    pub(super) fn continue_parked_row(&mut self, lifted: &LiftedRow) -> Result<AutostashContinue> {
+        let Some(record) = self.parked_row(lifted)? else {
+            return Ok(AutostashContinue::Resolved);
+        };
+
+        let outcome = self.settle_resolved_stash(&record.stash)?;
+        if matches!(outcome, AutostashContinue::Resolved) {
+            journal::set_parked(self, None)?;
+        }
+        Ok(outcome)
     }
 
     /// Reapply and drop the recorded auto-stash, restoring the staged/unstaged
@@ -370,16 +446,6 @@ impl Git2Repo {
         let Some(record) = journal::autostash(self)? else {
             return Ok(());
         };
-        // A fold's leftover is not the stash dialog's to abort: its `pre_op_tip`
-        // is the fold's temporary commit, so the reset below would rewind the
-        // branch onto a synthetic commit.
-        if record.fold_temp_oid.is_some() {
-            anyhow::bail!(
-                "These changes were set aside by a working-tree squash, not by \
-                 --autostash. Finish or abort that operation instead."
-            );
-        }
-
         // The hard reset below moves whatever branch HEAD resolves to now; that
         // has to still be the branch this stash was taken on.
         self.refuse_if_branch_switched(&record.branch_refname)?;

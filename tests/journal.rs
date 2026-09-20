@@ -383,7 +383,12 @@ fn a_journal_pins_the_working_tree_fold_shapes() {
             }
         ],
         "redo": [],
-        "autostash": null
+        "autostash": null,
+        "parked": {
+            "stash": "8888",
+            "temp_oid": "5555",
+            "applied_with_conflict": false
+        }
     }"#;
     write_raw_journal(&test, current);
 
@@ -402,10 +407,13 @@ fn a_journal_pins_the_working_tree_fold_shapes() {
         other => panic!("expected Recovered, got {other:?}"),
     }
 
-    // The undo entry parsed alongside it, rather than failing the document.
+    // The undo entry and the parked row parsed alongside it, rather than
+    // failing the document.
     let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(doc["undo"][0]["kind"], "MixedReset");
+    assert_eq!(doc["parked"]["stash"], "8888");
+    assert_eq!(doc["parked"]["temp_oid"], "5555");
 }
 
 // Helpers --------------------------------------------------------------------

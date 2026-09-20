@@ -309,16 +309,24 @@ pub(super) struct AutostashRecord {
     /// Branch the stash was taken on. An empty name means the record predates
     /// this being tracked, so the check it enables stands aside.
     pub branch_refname: String,
-    /// The temporary commit of the fold that set this aside, or `None` when
-    /// `--autostash` did.
-    ///
-    /// There is one slot and two callers with different lifecycles: an
-    /// auto-stash is put back when the operation around it finishes, a fold's
-    /// leftover when that particular fold does. Without this, each consumer acts
-    /// on whatever it finds — a fold reapplies an auto-stash it never took, and
-    /// the stash dialog's abort rewinds to a `pre_op_tip` that is a fold's
-    /// temporary commit rather than a real branch tip.
-    pub fold_temp_oid: Option<Oid>,
+}
+
+/// The row a working-tree fold set aside while it works.
+///
+/// Its own slot rather than the auto-stash's, because the two are put back at
+/// different moments: an auto-stash when the operation around it finishes, this
+/// when that particular fold does.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub(super) struct ParkedRow {
+    /// OID of the stash commit holding the row.
+    pub stash: Oid,
+    /// Temporary commit of the fold that parked it. A record naming any other
+    /// belongs to a fold this one is not finishing.
+    pub temp_oid: Oid,
+    /// Set once the row has been put back and left conflict markers, so it is
+    /// not reapplied a second time.
+    pub applied_with_conflict: bool,
 }
 
 /// The full journal document.
@@ -341,6 +349,10 @@ struct JournalDoc {
     /// completes or aborts (survives a crash so recovery can restore the user's
     /// working-tree changes).
     autostash: Option<AutostashRecord>,
+    /// The row a working-tree fold set aside, a sibling of `autostash` for the
+    /// same reason the snapshot below is a sibling of `in_progress`: it outlives
+    /// the phase changes of the fold that owns it.
+    parked: Option<ParkedRow>,
     /// Pre-operation state of a squash whose source is a working-tree row. Like
     /// the auto-stash it is a sibling of `in_progress` rather than part of it,
     /// because it has to outlive the phase changes — `in_progress` becomes a
@@ -419,6 +431,7 @@ fn is_empty(doc: &JournalDoc) -> bool {
         && doc.undo.is_empty()
         && doc.redo.is_empty()
         && doc.autostash.is_none()
+        && doc.parked.is_none()
         && doc.worktree_source.is_none()
 }
 
@@ -444,6 +457,18 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
     let mut doc = load_doc(repo).unwrap_or_default();
     doc.autostash = record;
+    save(repo, &mut doc)
+}
+
+/// Read the row a fold parked, if any.
+pub(super) fn parked(repo: &Git2Repo) -> Result<Option<ParkedRow>> {
+    Ok(load_doc(repo)?.parked)
+}
+
+/// Record (or clear, with `None`) the row a fold parked.
+pub(super) fn set_parked(repo: &mut Git2Repo, record: Option<ParkedRow>) -> Result<()> {
+    let mut doc = load_doc(repo).unwrap_or_default();
+    doc.parked = record;
     save(repo, &mut doc)
 }
 
@@ -1223,6 +1248,7 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         undo: old.undo,
         redo: old.redo,
         autostash: old.autostash,
+        parked: None,
         worktree_source: None,
     }
 }

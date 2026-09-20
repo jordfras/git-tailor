@@ -118,7 +118,7 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         // stash captures exactly it — including the staged/unstaged split, which
         // restoring from trees could only reconstruct by assuming the fold
         // emptied one of the two rows.
-        repo.set_work_aside(TEMP_MESSAGE, Some(&snapshot.temp_oid))
+        repo.park_row(&snapshot)
     });
     match placed {
         Ok(()) => Ok(Some(snapshot)),
@@ -166,10 +166,10 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
     let worktree_tree = git2::Oid::from(&snapshot.worktree_tree);
     let index_tree = git2::Oid::from(&snapshot.index_tree_before);
 
-    if repo.work_aside_is_fold(&snapshot.temp_oid)? {
+    if repo.has_parked_row(snapshot)? {
         // The stash carries the staged/unstaged split, so it puts the row back
         // on the right side of the line without this having to work it out.
-        repo.abort_work_aside(&snapshot.temp_oid)?;
+        repo.abort_work_aside(snapshot)?;
         repo.advance_branch_ref(
             git2::Oid::from(&snapshot.tip_before),
             "git-tailor: abort working-tree squash",
@@ -210,18 +210,13 @@ pub(super) fn restore(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<()> {
 /// along the way. The staged/unstaged split comes back from the stash rather
 /// than being reconstructed here.
 pub(super) fn finish(repo: &mut Git2Repo, snapshot: &LiftedRow) -> Result<Settled> {
-    // Only what this fold set aside. A fold whose counterpart row was clean
-    // parks nothing, and reapplying whatever happened to be in the slot would
-    // pull unrelated work into its result and record it as the fold's own.
-    if repo.work_aside_is_fold(&snapshot.temp_oid)? {
-        // The stash's base is the temporary commit, so reapplying it onto the
-        // rewrite's result three-way merges against exactly what was folded in —
-        // a fold the user resolved a conflict in carries the other row onto that
-        // resolution rather than reverting it.
-        match repo.restore_autostash()? {
-            crate::repo::AutostashRestore::Done => {}
-            crate::repo::AutostashRestore::Conflict { files } => return Ok(Settled::Clash(files)),
-        }
+    // The stash's base is the temporary commit, so reapplying it onto the
+    // rewrite's result three-way merges against exactly what was folded in — a
+    // fold the user resolved a conflict in carries the other row onto that
+    // resolution rather than reverting it. A fold that parked nothing is `Done`.
+    match repo.restore_parked_row(snapshot)? {
+        crate::repo::AutostashRestore::Done => {}
+        crate::repo::AutostashRestore::Conflict { files } => return Ok(Settled::Clash(files)),
     }
 
     // The undo record puts the index back alongside the branch, so it needs the
@@ -255,11 +250,13 @@ pub(super) fn continue_carry(
     lifted: &LiftedRow,
     state: &ConflictState,
 ) -> Result<RebaseOutcome> {
-    // The clash is a conflicted stash reapply, so settling it is the auto-stash's
-    // own continue: it stages what the user resolved, and drops the stash once
-    // nothing is left unmerged. Going through it is what stops the entry being
-    // left behind — the fold has no second cleanup path to forget.
-    if let crate::repo::AutostashContinue::StillUnresolved { files } = repo.continue_autostash()? {
+    // The clash is a conflicted stash reapply, so settling it stages what the
+    // user resolved and drops the stash once nothing is left unmerged. Going
+    // through it is what stops the entry being left behind — the fold has no
+    // second cleanup path to forget.
+    if let crate::repo::AutostashContinue::StillUnresolved { files } =
+        repo.continue_parked_row(lifted)?
+    {
         // Journaled as well as returned: the chain path gets this from the
         // `journaled` wrapper, which a carry does not go through, and a crash
         // here should recover the dialog the user is looking at.
@@ -419,7 +416,7 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
     if head_tree_id(repo)? == git2::Oid::from(&lifted.worktree_tree) {
         // Nothing uncommitted to keep, so nothing was set aside either — but
         // discard on the way out regardless, so no path leaves a stash behind.
-        repo.discard_work_aside(&lifted.temp_oid)?;
+        repo.discard_work_aside(lifted)?;
         return Ok(None);
     }
     let name = journal::rescue_ref(&lifted.worktree_tree);
@@ -434,7 +431,7 @@ pub(super) fn rescue(repo: &mut Git2Repo, lifted: &LiftedRow) -> Result<Option<S
 
     // Only after the ref: until the tree is reachable, the stash is the only
     // copy of half of it.
-    repo.discard_work_aside(&lifted.temp_oid)
+    repo.discard_work_aside(lifted)
         .with_context(|| format!("the working tree was kept at {name}, but"))?;
     Ok(Some(name))
 }

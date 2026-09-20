@@ -625,14 +625,6 @@ impl RepoWrite for Git2Repo {
     }
 
     fn autostash_restore(&mut self) -> Result<crate::repo::AutostashRestore> {
-        // Only a leftover *auto-stash*. A fold's leftover sits in the same slot
-        // and is not the same thing: the fold has not finished, and `finish` is
-        // what knows where that work belongs. Putting it back here would also
-        // hand the stash dialog a `pre_op_tip` that is the fold's temporary
-        // commit, and its abort hard-resets to whatever that names.
-        if journal::autostash(self)?.is_some_and(|r| r.fold_temp_oid.is_some()) {
-            return Ok(super::AutostashRestore::Done);
-        }
         self.restore_autostash()
     }
 
