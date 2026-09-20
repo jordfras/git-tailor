@@ -1163,6 +1163,15 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         }
     }
 
+    // An earlier build of this version parked a fold's row in the auto-stash
+    // slot, which this one would reapply as an `--autostash`. Probed untyped
+    // because the field telling them apart is gone; left untouched.
+    if parked_in_the_autostash_slot(&bytes) {
+        return JournalStatus::UpgradeInterrupted {
+            op: "a working-tree squash".to_string(),
+        };
+    }
+
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
         Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
@@ -1238,6 +1247,18 @@ fn migrate_v2(old: JournalDoc) -> std::result::Result<JournalDoc, JournalStatus>
         version: JOURNAL_VERSION,
         ..old
     })
+}
+
+/// Whether a document has a fold's row in the auto-stash slot, the way an
+/// earlier build of this version wrote it.
+///
+/// Untyped on purpose: `fold_temp_oid` is gone from the current record, so the
+/// only way to see it is in the raw JSON.
+fn parked_in_the_autostash_slot(bytes: &[u8]) -> bool {
+    let Ok(doc) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    !doc["autostash"]["fold_temp_oid"].is_null()
 }
 
 /// Upgrade a v1 document to the current schema, dropping any in-progress record.
