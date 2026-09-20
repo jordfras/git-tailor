@@ -580,6 +580,49 @@ fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
     );
 }
 
+/// Refused, not silently skipped: skipping runs the operation against a tree it
+/// believes was put away, and taking one would record the fold's temporary
+/// commit as the tip to rewind to.
+#[test]
+fn an_autostash_is_refused_while_a_folds_row_is_parked() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+
+    git_repo
+        .lift_worktree_row(WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "the fold parked the unstaged row"
+    );
+
+    // Uncommitted work that arrives after the fold parked its row, with
+    // auto-stash asked for.
+    test.write_file("b.txt", "LATER\n");
+    test.stage_file("b.txt");
+    git_repo.set_autostash(true);
+
+    let err = git_repo
+        .autostash_save()
+        .expect_err("an auto-stash must not be taken on top of a fold in flight");
+    assert!(
+        format!("{err:#}").contains("working-tree squash"),
+        "the refusal must say what is in the way, got: {err:#}"
+    );
+    assert_eq!(
+        stash_count(test.repo.path()),
+        1,
+        "and must not have taken a second stash"
+    );
+    assert_eq!(
+        workdir(&test, "b.txt"),
+        "LATER\n",
+        "nor moved the work it refused to stash"
+    );
+}
+
 /// Startup reapplies a leftover auto-stash — work parked by an operation that
 /// finished without putting it back. A fold's leftover is not that, and must be
 /// left for the fold to settle.
