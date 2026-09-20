@@ -472,6 +472,50 @@ fn a_v2_journal_with_a_fold_in_flight_is_left_for_the_older_build() {
     assert_eq!(doc["version"], 2, "the file must not have been rewritten");
 }
 
+/// This build reads that slot as an `--autostash`, so the row would come back as
+/// if the operation around it had finished. No version separates them: v3 never
+/// shipped, so its shape changed under the same number.
+#[test]
+fn a_parked_row_in_the_autostash_slot_is_left_for_the_build_that_wrote_it() {
+    let test = common::TestRepo::new();
+    let v3 = r#"{
+        "version": 3,
+        "in_progress": null,
+        "worktree_source": {
+            "source": "Unstaged",
+            "tip_before": "1111",
+            "index_tree_before": "2222",
+            "worktree_tree": "3333",
+            "temp_oid": "5555"
+        },
+        "undo": [],
+        "redo": [],
+        "autostash": {
+            "stash": "8888",
+            "pre_op_tip": "5555",
+            "applied_with_conflict": false,
+            "branch_refname": "refs/heads/main",
+            "fold_temp_oid": "5555"
+        }
+    }"#;
+    write_raw_journal(&test, v3);
+
+    let mut git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::UpgradeInterrupted { op } => assert!(
+            op.contains("working-tree squash"),
+            "the refusal must name what is unfinished, got: {op}"
+        ),
+        other => panic!("expected UpgradeInterrupted, got {other:?}"),
+    }
+
+    // Untouched, so the build that wrote it can still finish the fold.
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 3, "the file must not have been rewritten");
+    assert_eq!(doc["autostash"]["fold_temp_oid"], "5555");
+}
+
 /// A v2 journal with nothing in flight means the same in v3 and upgrades
 /// losslessly, undo stack and all.
 #[test]
