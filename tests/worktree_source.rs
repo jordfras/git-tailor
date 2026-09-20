@@ -528,17 +528,20 @@ fn a_fold_refuses_to_park_over_work_already_set_aside() {
     );
 }
 
-/// A fold that sets nothing aside must not put back what it never took.
+/// A fold is refused while an auto-stash is out, even when it has nothing of
+/// its own to park.
 ///
-/// True by construction now that the two have their own slots — this is the
-/// regression test for that. Reapplying an auto-stash the fold never took would
-/// pull unrelated changes into its result and record them as the fold's own
-/// index tree, which undo would then put back too.
+/// The refusal used to sit in the parking step, which a fold whose counterpart
+/// row is clean never reaches. That fold then lands commits while a leftover
+/// auto-stash still records an older tip — and if reapplying that stash later
+/// conflicts, the dialog's abort rewinds to that tip and takes the fold's
+/// commits with it. Checked where the fold starts, so it holds whether or not
+/// there is anything to set aside.
 #[test]
-fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
+fn a_fold_is_refused_while_an_autostash_is_out_even_parking_nothing() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "a1\n", "base");
-    let target = test.commit_file("t.txt", "t1\n", "target commit");
+    test.commit_file("t.txt", "t1\n", "target commit");
 
     test.write_file("a.txt", "AUTOSTASHED\n");
     test.stage_file("a.txt");
@@ -546,37 +549,21 @@ fn a_fold_that_parks_nothing_leaves_the_slot_alone() {
     git_repo.set_autostash(true);
     git_repo.autostash_save().unwrap();
 
-    // Only the staged row is dirty, so the lift parks nothing of its own.
+    // Only the staged row is dirty, so the lift would park nothing of its own.
     test.write_file("t.txt", "FOLDED\n");
     test.stage_file("t.txt");
-    let lifted = git_repo
+
+    let err = git_repo
         .lift_worktree_row(WorktreeSource::Staged)
-        .unwrap()
-        .expect("the staged row has changes");
-    assert_eq!(
-        stash_count(test.repo.path()),
-        1,
-        "the fold had nothing of its own to set aside"
-    );
-
-    git_repo
-        .squash_commits(
-            &lifted.temp_oid,
-            &Oid::from(target),
-            b"target commit",
-            &lifted.temp_oid,
-        )
-        .unwrap();
-
-    assert_eq!(
-        workdir(&test, "a.txt"),
-        "a1\n",
-        "the fold must not reapply a stash it did not take"
+        .expect_err("a fold must not start while an auto-stash is out");
+    assert!(
+        format!("{err:#}").contains("set aside"),
+        "the refusal must say what is in the way, got: {err:#}"
     );
     assert_eq!(
         stash_count(test.repo.path()),
         1,
-        "and must leave it parked for whoever did"
+        "and must not have taken a stash of its own"
     );
 }
 
