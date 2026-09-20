@@ -114,7 +114,9 @@ fn main() -> Result<()> {
         eprintln!(
             "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
              This version cannot resume it. Finish it with the previous git-tailor, \
-             or run `gt --clean-journal` to discard it and start fresh."
+             or run `gt --clean-journal` to discard it and start fresh — any \
+             uncommitted work it recorded is kept, and listed by \
+             `gt --drop-rescued`."
         );
         std::process::exit(1);
     }

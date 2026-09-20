@@ -17,6 +17,17 @@ The format is based on
   without them
 - The journal format is now version 3. A fold left in flight by 3.1.0 is handed
   back to that version to finish rather than being resumed here
+- `--clean-journal` no longer removes rescued working trees. Those are
+  uncommitted work git-tailor kept when it had to discard the record naming it,
+  they belong to the whole repository rather than to one working tree, and this
+  is the only copy. It now says how many it kept
+
+### Added
+
+- `--drop-rescued` removes rescued working trees, listing each with how many
+  files it holds and the `git checkout <tree> -- .` that restores it. Until now
+  nothing in git-tailor could show you one, and the only thing that removed them
+  did so silently
 
 ### Fixed
 
