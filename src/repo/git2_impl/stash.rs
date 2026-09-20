@@ -88,15 +88,34 @@ impl Git2Repo {
             );
         }
 
-        // Without this, `stash_save2` would serialize the stale blob for a
-        // same-size edit and lose it.
-        self.refresh_index_stat_cache()?;
-
         // Captured before the operation advances the ref, so an aborted reapply
         // can rewind here — where the stash, whose base this tip is, re-applies
         // cleanly.
         let pre_op_tip = reads::head_oid(self)?;
         let branch_refname = self.current_branch_refname().unwrap_or_default();
+
+        let stash = self.take_stash(message)?;
+        journal::set_autostash(
+            self,
+            Some(AutostashRecord {
+                stash,
+                pre_op_tip,
+                applied_with_conflict: false,
+                branch_refname,
+                fold_temp_oid: fold.cloned(),
+            }),
+        )?;
+        Ok(())
+    }
+
+    /// Stash everything uncommitted under `message` and report where it went.
+    ///
+    /// The mechanics only — the caller has already established there is
+    /// something to take, and owns whatever record names the result.
+    fn take_stash(&mut self, message: &str) -> Result<Oid> {
+        // Without this, `stash_save2` would serialize the stale blob for a
+        // same-size edit and lose it.
+        self.refresh_index_stat_cache()?;
 
         let sig = self
             .inner
@@ -107,17 +126,7 @@ impl Git2Repo {
         // The stash reset the working tree and index; refresh the cached index
         // so subsequent reads on this handle see the clean state.
         self.inner.index()?.read(true)?;
-        journal::set_autostash(
-            self,
-            Some(AutostashRecord {
-                stash: Oid::from(oid),
-                pre_op_tip,
-                applied_with_conflict: false,
-                branch_refname,
-                fold_temp_oid: fold.cloned(),
-            }),
-        )?;
-        Ok(())
+        Ok(Oid::from(oid))
     }
 
     /// Put work set aside back at `base`, the commit it was taken on, and drop
@@ -227,20 +236,43 @@ impl Git2Repo {
             return Ok(AutostashRestore::Done);
         };
 
+        match self.reapply_stash(&record.stash, record.applied_with_conflict)? {
+            AutostashRestore::Conflict { files } => {
+                // Keep the stash and flag the record so we don't reapply it again.
+                if !record.applied_with_conflict {
+                    journal::set_autostash(
+                        self,
+                        Some(AutostashRecord {
+                            applied_with_conflict: true,
+                            ..record
+                        }),
+                    )?;
+                }
+                Ok(AutostashRestore::Conflict { files })
+            }
+            AutostashRestore::Done => {
+                journal::set_autostash(self, None)?;
+                Ok(AutostashRestore::Done)
+            }
+        }
+    }
+
+    /// Reapply `stash`, reporting whether it landed clean. Drops it when it did.
+    ///
+    /// The mechanics only: the caller owns the record naming `stash` and is what
+    /// persists the outcome.
+    fn reapply_stash(&mut self, stash: &Oid, already_conflicted: bool) -> Result<AutostashRestore> {
         // Already reapplied with conflicts in an earlier run (or earlier this
         // session): the markers are in the tree, so just report the conflict.
-        if record.applied_with_conflict {
+        if already_conflicted {
             return Ok(AutostashRestore::Conflict {
                 files: self.autostash_conflicting_files()?,
             });
         }
 
-        let git_oid = git2::Oid::from(&record.stash);
+        let git_oid = git2::Oid::from(stash);
         let index = self.stash_index_of(git_oid)?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "auto-stash {} not found in the stash list",
-                record.stash.short()
-            )
+            anyhow::anyhow!("auto-stash {} not found in the stash list", stash.short())
         })?;
 
         // The stash holds what was tracked when it was taken, which includes
@@ -284,14 +316,6 @@ impl Git2Repo {
 
         let files = self.autostash_conflicting_files()?;
         if !files.is_empty() {
-            // Keep the stash and flag the record so we don't reapply it again.
-            journal::set_autostash(
-                self,
-                Some(AutostashRecord {
-                    applied_with_conflict: true,
-                    ..record
-                }),
-            )?;
             return Ok(AutostashRestore::Conflict { files });
         }
 
@@ -302,7 +326,6 @@ impl Git2Repo {
             self.inner.stash_drop(index)?;
         }
         self.inner.index()?.read(true)?;
-        journal::set_autostash(self, None)?;
         Ok(AutostashRestore::Done)
     }
 
@@ -313,6 +336,18 @@ impl Git2Repo {
             return Ok(AutostashContinue::Resolved);
         };
 
+        let outcome = self.settle_resolved_stash(&record.stash)?;
+        if matches!(outcome, AutostashContinue::Resolved) {
+            journal::set_autostash(self, None)?;
+        }
+        Ok(outcome)
+    }
+
+    /// Stage what the user resolved and drop `stash` if nothing is left
+    /// conflicted.
+    ///
+    /// The mechanics only: the caller owns the record naming `stash`.
+    fn settle_resolved_stash(&mut self, stash: &Oid) -> Result<AutostashContinue> {
         let resolved = self.autostash_conflicting_files()?;
         conflict::auto_stage_resolved_conflicts(self, &resolved)?;
 
@@ -321,11 +356,10 @@ impl Git2Repo {
             return Ok(AutostashContinue::StillUnresolved { files });
         }
 
-        if let Some(index) = self.stash_index_of(git2::Oid::from(&record.stash))? {
+        if let Some(index) = self.stash_index_of(git2::Oid::from(stash))? {
             self.inner.stash_drop(index)?;
         }
         self.inner.index()?.read(true)?;
-        journal::set_autostash(self, None)?;
         Ok(AutostashContinue::Resolved)
     }
 
