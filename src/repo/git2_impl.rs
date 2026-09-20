@@ -571,6 +571,13 @@ impl RepoWrite for Git2Repo {
     }
 
     fn clean_journal(&mut self) -> Result<super::JournalCleanSummary> {
+        // Before the sweep, which removes the only things naming an in-flight
+        // fold's working tree. Best-effort: a failed rescue must not block the
+        // escape hatch. Not counted here — the sweep counts what it leaves.
+        if let Some(lifted) = journal::worktree_source(self).ok().flatten() {
+            let _ = lift_op::rescue(self, &lifted);
+        }
+
         journal::clean(self)
     }
 
