@@ -36,8 +36,8 @@ fn test_extract_spans_single_hunk() {
     let commit_diff = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("file.txt".to_string()),
-            new_path: Some("file.txt".to_string()),
+            old_path: Some("file.txt".into()),
+            new_path: Some("file.txt".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -53,7 +53,7 @@ fn test_extract_spans_single_hunk() {
     let spans = extract_spans(&commit_diff);
 
     assert_eq!(spans.len(), 1);
-    assert_eq!(spans[0].path, "file.txt");
+    assert_eq!(spans[0].path, Path::new("file.txt"));
     assert_eq!(spans[0].start_line, 10);
     assert_eq!(spans[0].end_line, 14); // 10 + 5 - 1
 }
@@ -63,8 +63,8 @@ fn test_extract_spans_multiple_hunks() {
     let commit_diff = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("file.txt".to_string()),
-            new_path: Some("file.txt".to_string()),
+            old_path: Some("file.txt".into()),
+            new_path: Some("file.txt".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![
@@ -89,11 +89,11 @@ fn test_extract_spans_multiple_hunks() {
     let spans = extract_spans(&commit_diff);
 
     assert_eq!(spans.len(), 2);
-    assert_eq!(spans[0].path, "file.txt");
+    assert_eq!(spans[0].path, Path::new("file.txt"));
     assert_eq!(spans[0].start_line, 5);
     assert_eq!(spans[0].end_line, 7); // 5 + 3 - 1
 
-    assert_eq!(spans[1].path, "file.txt");
+    assert_eq!(spans[1].path, Path::new("file.txt"));
     assert_eq!(spans[1].start_line, 21);
     assert_eq!(spans[1].end_line, 22); // 21 + 2 - 1
 }
@@ -104,8 +104,8 @@ fn test_extract_spans_multiple_files() {
         commit: make_commit_info(),
         files: vec![
             FileDiff {
-                old_path: Some("a.txt".to_string()),
-                new_path: Some("a.txt".to_string()),
+                old_path: Some("a.txt".into()),
+                new_path: Some("a.txt".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -117,8 +117,8 @@ fn test_extract_spans_multiple_files() {
                 }],
             },
             FileDiff {
-                old_path: Some("b.txt".to_string()),
-                new_path: Some("b.txt".to_string()),
+                old_path: Some("b.txt".into()),
+                new_path: Some("b.txt".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -135,11 +135,11 @@ fn test_extract_spans_multiple_files() {
     let spans = extract_spans(&commit_diff);
 
     assert_eq!(spans.len(), 2);
-    assert_eq!(spans[0].path, "a.txt");
+    assert_eq!(spans[0].path, Path::new("a.txt"));
     assert_eq!(spans[0].start_line, 1);
     assert_eq!(spans[0].end_line, 2);
 
-    assert_eq!(spans[1].path, "b.txt");
+    assert_eq!(spans[1].path, Path::new("b.txt"));
     assert_eq!(spans[1].start_line, 10);
     assert_eq!(spans[1].end_line, 13);
 }
@@ -150,8 +150,8 @@ fn test_extract_spans_skips_deleted_files() {
         commit: make_commit_info(),
         files: vec![
             FileDiff {
-                old_path: Some("file.txt".to_string()),
-                new_path: Some("file.txt".to_string()),
+                old_path: Some("file.txt".into()),
+                new_path: Some("file.txt".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -163,7 +163,7 @@ fn test_extract_spans_skips_deleted_files() {
                 }],
             },
             FileDiff {
-                old_path: Some("deleted.txt".to_string()),
+                old_path: Some("deleted.txt".into()),
                 new_path: None, // File was deleted
                 status: crate::DeltaStatus::Deleted,
                 is_binary: false,
@@ -182,7 +182,7 @@ fn test_extract_spans_skips_deleted_files() {
 
     // Should only have span from file.txt, not from deleted.txt
     assert_eq!(spans.len(), 1);
-    assert_eq!(spans[0].path, "file.txt");
+    assert_eq!(spans[0].path, Path::new("file.txt"));
 }
 
 #[test]
@@ -190,8 +190,8 @@ fn test_extract_spans_skips_empty_hunks() {
     let commit_diff = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("file.txt".to_string()),
-            new_path: Some("file.txt".to_string()),
+            old_path: Some("file.txt".into()),
+            new_path: Some("file.txt".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![
@@ -227,7 +227,7 @@ fn test_extract_spans_added_file() {
         commit: make_commit_info(),
         files: vec![FileDiff {
             old_path: None, // File was added
-            new_path: Some("new_file.txt".to_string()),
+            new_path: Some("new_file.txt".into()),
             status: crate::DeltaStatus::Added,
             is_binary: false,
             hunks: vec![Hunk {
@@ -243,7 +243,7 @@ fn test_extract_spans_added_file() {
     let spans = extract_spans(&commit_diff);
 
     assert_eq!(spans.len(), 1);
-    assert_eq!(spans[0].path, "new_file.txt");
+    assert_eq!(spans[0].path, Path::new("new_file.txt"));
     assert_eq!(spans[0].start_line, 1);
     assert_eq!(spans[0].end_line, 10);
 }
@@ -253,8 +253,8 @@ fn test_extract_spans_single_line_change() {
     let commit_diff = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("file.txt".to_string()),
-            new_path: Some("file.txt".to_string()),
+            old_path: Some("file.txt".into()),
+            new_path: Some("file.txt".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -294,8 +294,8 @@ fn test_propagation_sequential_commits_same_file() {
         CommitDiff {
             commit: make_commit_info_with_oid("c1"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -310,8 +310,8 @@ fn test_propagation_sequential_commits_same_file() {
         CommitDiff {
             commit: make_commit_info_with_oid("c2"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -337,8 +337,8 @@ fn test_propagation_overlapping_hunks_are_related() {
         CommitDiff {
             commit: make_commit_info_with_oid("c1"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -353,8 +353,8 @@ fn test_propagation_overlapping_hunks_are_related() {
         CommitDiff {
             commit: make_commit_info_with_oid("c2"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -379,8 +379,8 @@ fn test_propagation_distant_changes_not_related() {
         CommitDiff {
             commit: make_commit_info_with_oid("c1"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -395,8 +395,8 @@ fn test_propagation_distant_changes_not_related() {
         CommitDiff {
             commit: make_commit_info_with_oid("c2"),
             files: vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -441,8 +441,8 @@ fn make_file_diff(
     new_lines: u32,
 ) -> FileDiff {
     FileDiff {
-        old_path: old_path.map(|s| s.to_string()),
-        new_path: new_path.map(|s| s.to_string()),
+        old_path: old_path.map(PathBuf::from),
+        new_path: new_path.map(PathBuf::from),
         // Derived, not hardcoded: `determine_touch_kind` reads the status, so a
         // fixture that says `Modified` for every shape cannot exercise it. (A
         // real libgit2 add sets both paths *and* `Added`; what matters here is
@@ -503,7 +503,7 @@ fn test_build_fragmap_single_commit() {
     // Should have one cluster
     assert_eq!(fragmap.clusters.len(), 1);
     assert_eq!(fragmap.clusters[0].spans.len(), 1);
-    assert_eq!(fragmap.clusters[0].spans[0].path, "file.txt");
+    assert_eq!(fragmap.clusters[0].spans[0].path, Path::new("file.txt"));
     assert_eq!(
         fragmap.clusters[0].commit_oids,
         vec![VirtualOid::Real(Oid::from("c1"))]
@@ -1126,7 +1126,7 @@ fn test_cluster_relation_multiple_clusters() {
         .clusters
         .iter()
         .position(|c| {
-            c.spans[0].path == "a.txt"
+            c.spans[0].path == Path::new("a.txt")
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c2")))
         })
@@ -1135,7 +1135,7 @@ fn test_cluster_relation_multiple_clusters() {
         .clusters
         .iter()
         .position(|c| {
-            c.spans[0].path == "b.txt"
+            c.spans[0].path == Path::new("b.txt")
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c3")))
         })
@@ -1210,7 +1210,7 @@ fn test_cluster_relation_squashable_with_gap() {
         .clusters
         .iter()
         .position(|c| {
-            c.spans[0].path == "file.txt"
+            c.spans[0].path == Path::new("file.txt")
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c1")))
                 && c.commit_oids.contains(&VirtualOid::Real(Oid::from("c4")))
         })
@@ -1231,7 +1231,7 @@ fn make_fragmap(commit_ids: &[&str], n_clusters: usize, touches: &[(usize, usize
     let clusters = (0..n_clusters)
         .map(|_| SpanCluster {
             spans: vec![FileSpan {
-                path: "f.txt".to_string(),
+                path: "f.txt".into(),
                 start_line: 1,
                 end_line: 1,
             }],
@@ -1429,8 +1429,8 @@ fn build_fragmap_far_deletion_does_not_cluster_with_unrelated_modify() {
         make_commit_diff(
             "c2",
             vec![FileDiff {
-                old_path: Some("f.rs".to_string()),
-                new_path: Some("f.rs".to_string()),
+                old_path: Some("f.rs".into()),
+                new_path: Some("f.rs".into()),
                 status: crate::DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![Hunk {
@@ -1454,8 +1454,8 @@ fn build_fragmap_file_rename_cluster_uses_canonical_path() {
     let c1 = CommitDiff {
         commit: make_commit_info_with_oid("c1"),
         files: vec![FileDiff {
-            old_path: Some("foo.rs".to_string()),
-            new_path: Some("bar.rs".to_string()),
+            old_path: Some("foo.rs".into()),
+            new_path: Some("bar.rs".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -1469,7 +1469,7 @@ fn build_fragmap_file_rename_cluster_uses_canonical_path() {
     };
     let fm = build_fragmap(&[c1], true, &mut |_| true).unwrap();
     assert_eq!(fm.clusters.len(), 1);
-    assert_eq!(fm.clusters[0].spans[0].path, "foo.rs");
+    assert_eq!(fm.clusters[0].spans[0].path, Path::new("foo.rs"));
 }
 
 #[test]
@@ -1485,8 +1485,8 @@ fn build_fragmap_rename_groups_old_and_new_in_same_cluster() {
     let c1 = CommitDiff {
         commit: make_commit_info_with_oid("c1"),
         files: vec![FileDiff {
-            old_path: Some("foo.rs".to_string()),
-            new_path: Some("bar.rs".to_string()),
+            old_path: Some("foo.rs".into()),
+            new_path: Some("bar.rs".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -1624,7 +1624,7 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
         "c0",
         vec![FileDiff {
             old_path: None,
-            new_path: Some("f.rs".to_string()),
+            new_path: Some("f.rs".into()),
             status: crate::DeltaStatus::Added,
             is_binary: false,
             hunks: vec![Hunk {
@@ -1656,8 +1656,8 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
     commits.push(make_commit_diff(
         "c8",
         vec![FileDiff {
-            old_path: Some("f.rs".to_string()),
-            new_path: Some("f.rs".to_string()),
+            old_path: Some("f.rs".into()),
+            new_path: Some("f.rs".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -1689,8 +1689,8 @@ fn build_fragmap_adjacent_insertions_cluster_despite_generation_gap() {
     commits.push(make_commit_diff(
         "c22",
         vec![FileDiff {
-            old_path: Some("f.rs".to_string()),
-            new_path: Some("f.rs".to_string()),
+            old_path: Some("f.rs".into()),
+            new_path: Some("f.rs".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -1779,8 +1779,8 @@ fn test_hunkless_delta_contributes_no_cluster() {
     let hunkless = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("image.png".to_string()),
-            new_path: Some("image.png".to_string()),
+            old_path: Some("image.png".into()),
+            new_path: Some("image.png".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: true,
             hunks: vec![],
@@ -1789,8 +1789,8 @@ fn test_hunkless_delta_contributes_no_cluster() {
     let with_hunks = CommitDiff {
         commit: make_commit_info(),
         files: vec![FileDiff {
-            old_path: Some("file.txt".to_string()),
-            new_path: Some("file.txt".to_string()),
+            old_path: Some("file.txt".into()),
+            new_path: Some("file.txt".into()),
             status: crate::DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {

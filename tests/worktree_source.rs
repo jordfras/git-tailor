@@ -27,7 +27,8 @@ fn row_paths(diff: Option<git_tailor::CommitDiff>) -> Vec<String> {
     diff.map(|d| {
         d.files
             .iter()
-            .filter_map(|f| f.new_path.clone().or_else(|| f.old_path.clone()))
+            .filter_map(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+            .map(|p| p.display().to_string())
             .collect()
     })
     .unwrap_or_default()
@@ -337,7 +338,7 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
             .iter()
             .filter_map(|f| f.new_path.clone())
             .collect::<Vec<_>>(),
-        vec!["bin.dat".to_string()]
+        vec![std::path::PathBuf::from("bin.dat")]
     );
     // The staged text edit is parked in the stash; the submodule pointer is not,
     // because `git stash` leaves gitlinks alone. It stays staged across the fold

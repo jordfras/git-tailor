@@ -173,11 +173,7 @@ pub(super) fn apply_single_hunk_to_tree(
 
         let new_blob_oid = repo.blob(&new_content)?;
 
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
+        let path_bytes = crate::domain::path_to_bytes(&file_path);
         idx.add(&git2::IndexEntry {
             ctime: git2::IndexTime::new(0, 0),
             mtime: git2::IndexTime::new(0, 0),
@@ -254,11 +250,7 @@ pub(super) fn apply_selected_hunks_to_tree(
         let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
             .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
 
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
+        let path_bytes = crate::domain::path_to_bytes(&file_path);
 
         if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
             // All lines removed → delete the file from the intermediate tree.

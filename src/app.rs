@@ -35,6 +35,7 @@ use crate::{
     autofixup::AutofixupPair,
     repo::{ConflictState, StashConflictState, WorktreeSource},
 };
+use std::path::PathBuf;
 
 /// Result of a view module's `handle_key` function.
 ///
@@ -71,7 +72,7 @@ pub enum AppAction {
     /// follow-up commit together.
     ExecuteSplitOutFiles {
         commit_oid: Oid,
-        file_paths: Vec<String>,
+        file_paths: Vec<PathBuf>,
     },
     /// Open (or refresh, after a `+`/`-` context change) the hunk picker for
     /// the "split out hunk(s)" strategy: load the commit's diff at

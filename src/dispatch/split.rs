@@ -18,6 +18,7 @@ use anyhow::Result;
 use git_tailor::Oid;
 use git_tailor::app::{AppState, HunkPickerEntry, SplitStrategy};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
+use std::path::{Path, PathBuf};
 
 use crate::dispatch::{LoopAction, settle_autostash};
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
@@ -97,11 +98,15 @@ pub(crate) fn handle_prepare_split_out_hunks(
                 .iter()
                 .enumerate()
                 .flat_map(|(delta_idx, file)| {
+                    // The picker shows this and routes by delta index, so
+                    // the decode is at the render boundary where it belongs.
                     let file_path = file
                         .new_path
-                        .clone()
-                        .or_else(|| file.old_path.clone())
-                        .unwrap_or_default();
+                        .as_deref()
+                        .or(file.old_path.as_deref())
+                        .unwrap_or(Path::new(""))
+                        .display()
+                        .to_string();
                     file.hunks
                         .iter()
                         .enumerate()
@@ -127,7 +132,7 @@ pub(crate) fn handle_execute_split_out_files(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     commit_oid: Oid,
-    file_paths: Vec<String>,
+    file_paths: Vec<PathBuf>,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     autostash_save_or_bail!(git_repo, app);

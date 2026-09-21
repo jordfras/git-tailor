@@ -45,8 +45,8 @@ fn hunk(old_start: u32, old_text: &str, new_text: &str) -> Hunk {
 
 fn file_diff(path: &str, status: DeltaStatus, hunks: Vec<Hunk>) -> FileDiff {
     FileDiff {
-        old_path: Some(path.to_string()),
-        new_path: Some(path.to_string()),
+        old_path: Some(path.into()),
+        new_path: Some(path.into()),
         status,
         is_binary: false,
         hunks,
@@ -182,7 +182,7 @@ fn test_confirm_with_no_selection_falls_back_to_cursor() {
 fn test_confirm_resolves_deleted_file_to_old_path() {
     let mut app = make_app_in_files_select(0, &[]);
     let deleted = FileDiff {
-        old_path: Some("removed.txt".to_string()),
+        old_path: Some("removed.txt".into()),
         new_path: None,
         status: DeltaStatus::Deleted,
         is_binary: false,
@@ -501,8 +501,8 @@ fn test_preview_marks_a_hunkless_file() {
     ] {
         let files = vec![
             FileDiff {
-                old_path: Some("hunkless.bin".to_string()),
-                new_path: Some("hunkless.bin".to_string()),
+                old_path: Some("hunkless.bin".into()),
+                new_path: Some("hunkless.bin".into()),
                 status,
                 is_binary,
                 hunks: vec![],

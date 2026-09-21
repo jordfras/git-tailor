@@ -25,10 +25,11 @@ use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
+use std::path::PathBuf;
 
-/// Resolve a `FileDiff`'s display/identity path: the new path, falling back
-/// to the old path for a deleted file.
-fn file_path(file: &FileDiff) -> String {
+/// Resolve a `FileDiff`'s identity path: the new path, falling back to the old
+/// path for a deleted file.
+fn file_path(file: &FileDiff) -> PathBuf {
     file.new_path
         .clone()
         .or_else(|| file.old_path.clone())
@@ -94,7 +95,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             };
             // Nothing explicitly marked: fall back to just the file under the
             // cursor, so a single file can still be split out in one keypress.
-            let chosen: Vec<String> = if selected.is_empty() {
+            let chosen: Vec<PathBuf> = if selected.is_empty() {
                 files.get(file_index).map(file_path).into_iter().collect()
             } else {
                 selected
@@ -208,7 +209,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
             let path_budget = budget.saturating_sub(prefix.chars().count());
             format!(
                 "{prefix}{}",
-                two_pane_picker::elide_path(&file_path(file), path_budget)
+                two_pane_picker::elide_path(&file_path(file).display().to_string(), path_budget)
             )
         })
         .collect();
@@ -240,7 +241,7 @@ fn build_file_preview(app: &AppState, file: Option<&FileDiff>) -> Vec<Line<'stat
         return lines;
     };
     lines.push(Line::from(Span::styled(
-        format!("{}:", file_path(file)),
+        format!("{}:", file_path(file).display()),
         Style::default().fg(app.colors.resolve(Color::Yellow)),
     )));
     lines.push(Line::from(""));

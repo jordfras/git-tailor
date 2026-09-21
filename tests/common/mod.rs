@@ -450,8 +450,8 @@ pub fn create_test_commit_diff(
     CommitDiff {
         commit: create_test_commit(oid, summary),
         files: vec![FileDiff {
-            old_path: Some(path.to_string()),
-            new_path: Some(path.to_string()),
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -485,7 +485,7 @@ pub fn create_fragmap(
 pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
     SpanCluster {
         spans: vec![FileSpan {
-            path: path.to_string(),
+            path: path.into(),
             start_line: start,
             end_line: end,
         }],

@@ -414,14 +414,8 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
     for delta_idx in 0..diff.deltas().len() {
         let delta = diff.get_delta(delta_idx).expect("delta index in range");
 
-        let old_path = delta
-            .old_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let new_path = delta
-            .new_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
+        let old_path = delta.old_file().path().map(std::path::Path::to_path_buf);
+        let new_path = delta.new_file().path().map(std::path::Path::to_path_buf);
 
         let status = match delta.status() {
             git2::Delta::Unmodified => crate::DeltaStatus::Unmodified,

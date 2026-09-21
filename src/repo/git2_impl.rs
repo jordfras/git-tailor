@@ -460,7 +460,7 @@ impl RepoWrite for Git2Repo {
     fn split_commit_out_files(
         &mut self,
         commit_oid: &Oid,
-        file_paths: &[String],
+        file_paths: &[PathBuf],
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -855,32 +855,35 @@ impl Git2Repo {
     }
 
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
-    fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
-        let mut overlapping: Vec<String> = Vec::new();
+    fn check_dirty_overlap(&self, commit_paths: &HashSet<PathBuf>) -> Result<()> {
+        let mut overlapping: Vec<&Path> = Vec::new();
         // Context lines do not affect the file list this check inspects.
-        for synthetic_diff in [
+        let synthetic_diffs: Vec<_> = [
             self.staged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
             self.unstaged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
         ]
         .into_iter()
         .flatten()
-        {
+        .collect();
+        for synthetic_diff in &synthetic_diffs {
             for file in &synthetic_diff.files {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .unwrap_or("");
-                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
-                    overlapping.push(path.to_string());
+                let Some(path) = file.new_path.as_deref().or(file.old_path.as_deref()) else {
+                    continue;
+                };
+                if commit_paths.contains(path) && !overlapping.contains(&path) {
+                    overlapping.push(path);
                 }
             }
         }
         if !overlapping.is_empty() {
             overlapping.sort();
+            let names: Vec<String> = overlapping
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
             anyhow::bail!(
                 "Cannot split: staged/unstaged changes overlap with: {}",
-                overlapping.join(", ")
+                names.join(", ")
             );
         }
         Ok(())

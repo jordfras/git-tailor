@@ -18,6 +18,7 @@ use git_tailor::repo::RepoWrite;
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
+use std::path::Path;
 
 use crate::mock_repo::{MockRepo, make_conflict_state};
 
@@ -237,15 +238,15 @@ fn three_hunk_commit_diff() -> CommitDiff {
         },
         files: vec![
             FileDiff {
-                old_path: Some("a.txt".to_string()),
-                new_path: Some("a.txt".to_string()),
+                old_path: Some("a.txt".into()),
+                new_path: Some("a.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1), one_line_hunk(10)],
             },
             FileDiff {
-                old_path: Some("b.txt".to_string()),
-                new_path: Some("b.txt".to_string()),
+                old_path: Some("b.txt".into()),
+                new_path: Some("b.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
@@ -339,21 +340,21 @@ fn three_file_commit_diff() -> CommitDiff {
         },
         files: vec![
             FileDiff {
-                old_path: Some("a.txt".to_string()),
-                new_path: Some("a.txt".to_string()),
+                old_path: Some("a.txt".into()),
+                new_path: Some("a.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
-                old_path: Some("b.txt".to_string()),
-                new_path: Some("b.txt".to_string()),
+                old_path: Some("b.txt".into()),
+                new_path: Some("b.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
-                old_path: Some("c.txt".to_string()),
+                old_path: Some("c.txt".into()),
                 new_path: None,
                 status: DeltaStatus::Deleted,
                 is_binary: false,
@@ -379,11 +380,18 @@ fn prepare_split_out_files_loads_diff_into_picker_files() {
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
         AppMode::SplitFilesSelect { files, .. } => {
-            let paths: Vec<Option<&str>> = files
+            let paths: Vec<Option<&Path>> = files
                 .iter()
                 .map(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
                 .collect();
-            assert_eq!(paths, vec![Some("a.txt"), Some("b.txt"), Some("c.txt")]);
+            assert_eq!(
+                paths,
+                vec![
+                    Some(Path::new("a.txt")),
+                    Some(Path::new("b.txt")),
+                    Some(Path::new("c.txt"))
+                ]
+            );
         }
         other => panic!("expected SplitFilesSelect mode, got {other:?}"),
     }

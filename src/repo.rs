@@ -630,7 +630,7 @@ pub trait RepoWrite {
     fn split_commit_out_files(
         &mut self,
         commit_oid: &Oid,
-        file_paths: &[String],
+        file_paths: &[PathBuf],
         head_oid: &Oid,
     ) -> Result<()>;
 

@@ -19,6 +19,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use crate::{Oid, fragmap};
 
@@ -60,8 +61,7 @@ pub(super) fn split_commit_per_file(
                 .path()
                 .or_else(|| delta.old_file().path())
                 .expect("delta has a path")
-                .to_string_lossy()
-                .into_owned();
+                .to_path_buf();
 
             let base_tree = repo.inner.find_tree(current_tree_oid)?;
 
@@ -82,7 +82,7 @@ pub(super) fn split_commit_per_file(
                 )?;
                 let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
                 if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path);
+                    anyhow::bail!("Conflict applying changes for file: {}", path.display());
                 }
                 new_index.write_tree_to(&repo.inner)?
             }
@@ -221,12 +221,7 @@ pub(super) fn split_commit_per_hunk_group(
     let num_deltas = full_diff.deltas().len();
     for delta_idx in 0..num_deltas {
         let delta = full_diff.get_delta(delta_idx).context("delta index")?;
-        let path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let path = delta_path(&delta).unwrap_or_default();
         let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
         let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
         let file_assignments = assignment.by_file.get(&path);
@@ -348,7 +343,7 @@ pub(super) fn count_split_per_hunk_group(
 pub(super) fn split_commit_out_files(
     repo: &mut Git2Repo,
     commit_oid: &Oid,
-    file_paths: &[String],
+    file_paths: &[PathBuf],
     head_oid: &Oid,
 ) -> Result<()> {
     if file_paths.is_empty() {
@@ -362,7 +357,7 @@ pub(super) fn split_commit_out_files(
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
     let file_count = full_diff.deltas().len();
 
-    let selected: HashSet<&str> = file_paths.iter().map(String::as_str).collect();
+    let selected: HashSet<&Path> = file_paths.iter().map(PathBuf::as_path).collect();
     if selected.len() >= file_count {
         anyhow::bail!("Every file is selected — nothing would remain in the original commit");
     }
@@ -372,9 +367,11 @@ pub(super) fn split_commit_out_files(
         let delta = (0..file_count)
             .find_map(|i| {
                 let delta = full_diff.get_delta(i)?;
-                (delta_path(&delta).as_deref() == Some(path.as_str())).then_some(delta)
+                (delta_path(&delta).as_deref() == Some(path.as_path())).then_some(delta)
             })
-            .ok_or_else(|| anyhow::anyhow!("File not changed by this commit: {path}"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("File not changed by this commit: {}", path.display())
+            })?;
         chosen_deltas.push(delta);
     }
 
@@ -400,7 +397,7 @@ pub(super) fn split_commit_out_files(
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
     let suffix = if file_paths.len() == 1 {
-        file_paths[0].clone()
+        file_paths[0].display().to_string()
     } else {
         format!("{} files", file_paths.len())
     };
@@ -530,6 +527,9 @@ pub(super) fn split_commit_out_hunks(
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
 /// file's name when the selection is confined to one file (matching
 /// `split_commit_out_files`' style), or a hunk/file count otherwise.
+///
+/// This is where a path becomes text: a summary line is read by people, so a
+/// name git-tailor cannot decode is shown rather than carried.
 fn hunk_selection_suffix(
     full_diff: &git2::Diff,
     selected: &HashSet<(usize, usize)>,
@@ -541,7 +541,7 @@ fn hunk_selection_suffix(
         let delta = full_diff
             .get_delta(delta_idx)
             .context("delta index in range")?;
-        return Ok(delta_path(&delta).unwrap_or_default());
+        return Ok(delta_path(&delta).unwrap_or_default().display().to_string());
     }
     Ok(format!(
         "{} hunks across {} files",
@@ -613,7 +613,7 @@ fn initial_split_base(commit: &git2::Commit<'_>) -> Result<Option<git2::Oid>> {
 /// submodule-pointer deltas are skipped — used by the per-file split path
 /// which applies them via tree manipulation only and so cannot be tripped by
 /// a dirty submodule state.
-fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSet<String> {
+fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSet<PathBuf> {
     diff.deltas()
         .filter(|d| {
             !exclude_gitlinks
@@ -624,7 +624,7 @@ fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSe
             d.new_file()
                 .path()
                 .or_else(|| d.old_file().path())
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(Path::to_path_buf)
         })
         .collect()
 }
@@ -766,13 +766,13 @@ fn commit_with_message(
     )?)
 }
 
-/// New-or-old path of a delta as an owned `String`.
-fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<String> {
+/// New-or-old path of a delta, owned.
+fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<PathBuf> {
     delta
         .new_file()
         .path()
         .or_else(|| delta.old_file().path())
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(Path::to_path_buf)
 }
 
 /// Replay descendants of the split commit onto the last split piece and

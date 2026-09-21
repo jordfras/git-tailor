@@ -26,7 +26,7 @@ fn split_out_files_single_file_two_files() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid)
+        .split_commit_out_files(&Oid::from(to_split), &["b.txt".into()], &head_oid)
         .unwrap();
 
     let commits = test.commits_from_head(base);
@@ -65,7 +65,7 @@ fn split_out_files_multiple_files_combined_into_one_commit() {
     git_repo
         .split_commit_out_files(
             &Oid::from(to_split),
-            &["a.txt".to_string(), "c.txt".to_string()],
+            &["a.txt".into(), "c.txt".into()],
             &head_oid,
         )
         .unwrap();
@@ -101,7 +101,7 @@ fn split_out_files_rebases_descendants() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_out_files(&Oid::from(to_split), &["a.txt".to_string()], &head_oid)
+        .split_commit_out_files(&Oid::from(to_split), &["a.txt".into()], &head_oid)
         .unwrap();
 
     let commits = test.commits_from_head(base);
@@ -124,7 +124,7 @@ fn split_out_files_handles_added_file() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid)
+        .split_commit_out_files(&Oid::from(to_split), &["b.txt".into()], &head_oid)
         .unwrap();
 
     let commits = test.commits_from_head(base);
@@ -160,7 +160,7 @@ fn split_out_files_refuses_when_every_file_is_selected() {
 
     let result = git_repo.split_commit_out_files(
         &Oid::from(to_split),
-        &["a.txt".to_string(), "b.txt".to_string()],
+        &["a.txt".into(), "b.txt".into()],
         &head_oid,
     );
     assert!(
@@ -178,11 +178,8 @@ fn split_out_files_refuses_unknown_file() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.split_commit_out_files(
-        &Oid::from(to_split),
-        &["missing.txt".to_string()],
-        &head_oid,
-    );
+    let result =
+        git_repo.split_commit_out_files(&Oid::from(to_split), &["missing.txt".into()], &head_oid);
     assert!(result.is_err(), "should fail for a file not in the commit");
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -204,7 +201,7 @@ fn split_out_files_refuses_dirty_overlap() {
     let head_oid = git_repo.head_oid().unwrap();
 
     let result =
-        git_repo.split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid);
+        git_repo.split_commit_out_files(&Oid::from(to_split), &["b.txt".into()], &head_oid);
     assert!(result.is_err(), "should fail when staged changes overlap");
 }
 
@@ -219,7 +216,7 @@ fn split_out_files_last_piece_has_original_tree() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_out_files(&Oid::from(to_split), &["b.txt".to_string()], &head_oid)
+        .split_commit_out_files(&Oid::from(to_split), &["b.txt".into()], &head_oid)
         .unwrap();
 
     assert_eq!(

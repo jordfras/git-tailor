@@ -447,7 +447,12 @@ impl RepoWrite for MockRepo {
     fn split_commit_per_hunk_group(&mut self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_out_files(&mut self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_out_files(
+        &mut self,
+        _: &Oid,
+        _: &[std::path::PathBuf],
+        _: &Oid,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn split_commit_out_hunks(
