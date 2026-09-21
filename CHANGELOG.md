@@ -39,6 +39,9 @@ The format is based on
 - Two files whose paths differ only in bytes git-tailor cannot decode are now
   kept apart. They shared one entry in the fragmap, so splitting a commit that
   touched both refused to run, or routed one file's hunks by the other's
+- Splitting a commit whose message git-tailor cannot decode now works, and the
+  pieces keep the original bytes and its encoding header. It used to refuse and
+  tell you to reword first
 - When resuming an operation after a conflict fails, the conflict dialog stays
   up and says what happened, that nothing was lost, and that the branch is still
   on the commit it paused at — with Enter to try again and Esc to abort. It used

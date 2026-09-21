@@ -18,6 +18,7 @@
 //! applicable.
 
 use anyhow::{Context, Result};
+use bstr::{BStr, ByteSlice};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -393,7 +394,7 @@ pub(super) fn split_commit_out_files(
     let rest_tree_oid = builder.create_updated(&repo.inner, &target.commit_tree)?;
 
     let base = initial_split_base(&target.commit)?;
-    let original_message = target.commit.message().unwrap_or("split");
+    let original_message = target.commit.message_bytes().as_bstr();
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
     let suffix = if file_paths.len() == 1 {
@@ -407,7 +408,7 @@ pub(super) fn split_commit_out_files(
         &target.commit,
         target.commit_tree.id(),
         Some(first),
-        &peeled_message,
+        peeled_message.as_bstr(),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -496,7 +497,7 @@ pub(super) fn split_commit_out_hunks(
     // exactly those hunks' changes — no second apply_selected_hunks_to_tree
     // call needed (mirrors split_commit_out_files' own use of the same trick).
     let base = initial_split_base(&target.commit)?;
-    let original_message = target.commit.message().unwrap_or("split");
+    let original_message = target.commit.message_bytes().as_bstr();
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
     let suffix = hunk_selection_suffix(&full_diff, &selected)?;
@@ -506,7 +507,7 @@ pub(super) fn split_commit_out_hunks(
         &target.commit,
         target.commit_tree.id(),
         Some(first),
-        &peeled_message,
+        peeled_message.as_bstr(),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -572,18 +573,6 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
         // The first piece would become an orphan root, which behind a graft
         // severs the branch from the history that was never fetched.
         repo.refuse_shallow_root(oid)?;
-    }
-    // A split does not copy the message, it derives one — "summary (1/3)". That
-    // has to go through a `&str`, and the only one available for bytes we cannot
-    // read is the lossy rendering, which would bake replacement characters into
-    // every piece. Replaying is safe because the bytes pass through untouched
-    // (see `Git2Repo::commit_preserving_message`); deriving is not.
-    if commit.message().is_err() {
-        anyhow::bail!(
-            "Cannot split {}: its commit message is not valid UTF-8, and the \
-             pieces' messages are built from it. Reword it first.",
-            commit_oid.short()
-        );
     }
     let parent_tree = if commit.parent_count() == 0 {
         repo.empty_tree()?
@@ -732,12 +721,14 @@ fn commit_split_piece(
     piece_num: usize,
     total_pieces: usize,
 ) -> Result<git2::Oid> {
-    let message = hunks::split_message(
-        original.message().unwrap_or("split"),
-        piece_num,
-        total_pieces,
-    );
-    commit_with_message(repo, original, new_tree_oid, current_base, &message)
+    let message = hunks::split_message(original.message_bytes().as_bstr(), piece_num, total_pieces);
+    commit_with_message(
+        repo,
+        original,
+        new_tree_oid,
+        current_base,
+        message.as_bstr(),
+    )
 }
 
 /// Create a commit with the given tree and message, parented on `current_base`
@@ -748,7 +739,7 @@ fn commit_with_message(
     original: &git2::Commit<'_>,
     new_tree_oid: git2::Oid,
     current_base: Option<git2::Oid>,
-    message: &str,
+    message: &BStr,
 ) -> Result<git2::Oid> {
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
     let parents: Vec<git2::Commit> = match current_base {
@@ -756,14 +747,14 @@ fn commit_with_message(
         None => vec![],
     };
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-    Ok(repo.inner.commit(
-        None,
+    repo.commit_preserving_message(
         &original.author(),
         &original.committer(),
         message,
+        original.message_encoding().ok().flatten(),
         &new_tree,
         &parent_refs,
-    )?)
+    )
 }
 
 /// New-or-old path of a delta, owned.
