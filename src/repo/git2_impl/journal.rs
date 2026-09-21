@@ -1358,3 +1358,21 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         worktree_source: None,
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::worktree_id;
+
+    #[test]
+    fn worktree_names_differing_only_in_invalid_bytes_get_distinct_ids() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // Both decode to "wt<U+FFFD>", so a lossy id cannot tell them apart —
+        // and two working trees sharing a pin prefix unpin each other's work.
+        let one = OsStr::from_bytes(&[b'w', b't', 0xFE]);
+        let other = OsStr::from_bytes(&[b'w', b't', 0xFF]);
+
+        assert_ne!(worktree_id(one), worktree_id(other));
+    }
+}
