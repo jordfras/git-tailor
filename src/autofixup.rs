@@ -19,6 +19,7 @@
 use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
+use bstr::BString;
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +104,7 @@ pub fn edit_template(group: &AutofixupGroup) -> String {
 /// Strip `#`-prefixed comment lines and trim surrounding blank lines — mirrors
 /// git's own `commit.cleanup=strip` handling of the combination template
 /// above, so leaving the commented-out sources untouched discards them.
-pub fn strip_comment_lines(text: &[u8]) -> Vec<u8> {
+pub fn strip_comment_lines(text: &[u8]) -> BString {
     // Bytes throughout: a commit message is bytes to git, and the editor hands
     // back whatever the user typed. Decoding to `String` first would replace
     // anything that is not UTF-8 with U+FFFD — silently rewriting their text.
@@ -112,7 +113,7 @@ pub fn strip_comment_lines(text: &[u8]) -> Vec<u8> {
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
         .filter(|line| !line.starts_with(b"#"))
         .collect();
-    kept.join(&b'\n').trim_ascii().to_vec()
+    kept.join(&b'\n').trim_ascii().into()
 }
 
 /// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest-first,

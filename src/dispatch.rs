@@ -28,6 +28,7 @@ mod undo;
 mod tests;
 
 use anyhow::Result;
+use bstr::BString;
 use git_tailor::app::{AppAction, AppState};
 use git_tailor::editor;
 use git_tailor::repo::{
@@ -442,7 +443,7 @@ pub(crate) fn edit_message_suspended(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
     seed: &[u8],
-) -> Result<Vec<u8>> {
+) -> Result<BString> {
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
         editor::edit_message_in_editor(git_repo, seed)
@@ -463,7 +464,7 @@ pub(crate) fn handle_resume_outcome(
     op_label: &str,
     success_msg: &str,
     state: &git_tailor::repo::ConflictState,
-    retry_message: Option<Vec<u8>>,
+    retry_message: Option<BString>,
 ) -> LoopAction {
     match outcome {
         Err(e) => {

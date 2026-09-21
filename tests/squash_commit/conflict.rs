@@ -257,7 +257,7 @@ fn squash_finalize_after_conflict_resolution() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: b"combined".to_vec(),
+        combined_message: "combined".into(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };

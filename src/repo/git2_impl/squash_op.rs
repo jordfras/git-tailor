@@ -302,7 +302,7 @@ fn build_conflict_state(
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
             target_oid: inputs.target_oid.clone(),
-            combined_message: combined_message.to_vec(),
+            combined_message: combined_message.into(),
             descendant_oids,
             squash_mode,
         }),

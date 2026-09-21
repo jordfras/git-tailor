@@ -637,7 +637,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         "Continue",
         "Commit squash complete",
         &make_conflict_state(),
-        Some(b"the message the user typed\n".to_vec()),
+        Some("the message the user typed\n".into()),
     );
 
     assert!(
@@ -666,7 +666,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     );
     assert_eq!(
         app.resume_message.as_deref(),
-        Some(b"the message the user typed\n".as_slice()),
+        Some(&b"the message the user typed\n"[..].to_vec()),
         "a retry must not throw away what the user wrote"
     );
 
@@ -1235,12 +1235,12 @@ fn abandoning_a_commit_source_restores_the_autostash() {
 #[test]
 fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
     assert_eq!(
-        squash_editor_seed(Some(b"the source commit"), b"the target commit"),
-        b"the target commit\n\nthe source commit".to_vec()
+        squash_editor_seed(Some("the source commit".into()), "the target commit".into()),
+        "the target commit\n\nthe source commit"
     );
     assert_eq!(
-        squash_editor_seed(None, b"the target commit"),
-        b"the target commit".to_vec()
+        squash_editor_seed(None, "the target commit".into()),
+        "the target commit"
     );
 }
 

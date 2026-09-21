@@ -17,6 +17,7 @@
 // live in their own modules.)
 
 use anyhow::Result;
+use bstr::{BStr, BString, ByteSlice};
 use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
 use git_tailor::repo::{GitRepo, LiftedRow};
@@ -139,7 +140,10 @@ pub(crate) fn handle_prepare_squash(
         },
         SquashSource::Worktree(_) => None,
     };
-    let combined = squash_editor_seed(source_bytes.as_deref(), &target_bytes);
+    let combined = squash_editor_seed(
+        source_bytes.as_ref().map(|b| b.as_bstr()),
+        target_bytes.as_bstr(),
+    );
     let message_for_context = if squash_mode.keeps_target_message() {
         target_bytes.clone()
     } else {
@@ -384,7 +388,7 @@ pub(super) fn prepare_source(
 ///
 /// A working-tree row has no message of its own, so a squash from one starts
 /// from the target's alone rather than the two joined.
-pub(super) fn squash_editor_seed(source_message: Option<&[u8]>, target_message: &[u8]) -> Vec<u8> {
+pub(super) fn squash_editor_seed(source_message: Option<&BStr>, target_message: &BStr) -> BString {
     git_tailor::domain::combine_messages(target_message, source_message)
 }
 

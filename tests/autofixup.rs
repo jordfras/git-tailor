@@ -236,7 +236,7 @@ fn a_message_override_applies_to_the_final_message_of_a_single_fixup() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        b"Custom final message\n".to_vec(),
+        bstr::BString::from("Custom final message\n"),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -260,7 +260,7 @@ fn a_message_override_replaces_the_auto_combined_squash_text() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        b"Custom final message\n".to_vec(),
+        bstr::BString::from("Custom final message\n"),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -291,7 +291,7 @@ fn a_message_override_only_applies_once_every_fixup_for_the_target_has_folded_in
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        b"Custom final message\n".to_vec(),
+        bstr::BString::from("Custom final message\n"),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -322,7 +322,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
 
     let overrides = std::collections::HashMap::from([(
         "Add target line".to_string(),
-        b"Custom final message\n".to_vec(),
+        bstr::BString::from("Custom final message\n"),
     )]);
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
@@ -336,10 +336,8 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
         .as_ref()
         .expect("an autofixup batch conflict carries its context");
     assert_eq!(
-        ctx.message_overrides
-            .get("Add target line")
-            .map(Vec::as_slice),
-        Some(b"Custom final message\n".as_slice())
+        ctx.message_overrides.get("Add target line"),
+        Some(&bstr::BString::from("Custom final message\n"))
     );
 
     // The single fixup for this target was the *last* (only) one queued, so
@@ -407,7 +405,7 @@ fn a_non_utf8_message_override_reaches_the_commit_unchanged() {
     let head_oid = git_repo.head_oid().unwrap();
 
     // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
-    let message: Vec<u8> = b"Fix f\xf6r \xe5\xe4\xf6 handling\n".to_vec();
+    let message = bstr::BString::from(&b"Fix f\xf6r \xe5\xe4\xf6 handling\n"[..]);
     let overrides =
         std::collections::HashMap::from([("Add target line".to_string(), message.clone())]);
 

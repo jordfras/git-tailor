@@ -17,6 +17,7 @@ pub mod git2_impl;
 pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
+use bstr::BString;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -336,7 +337,8 @@ pub struct AutofixupContext {
     /// to the last pair squashed into a given target — so an intermediate
     /// step in a multi-fixup group never renames the target before the
     /// remaining fixups in that group have had a chance to match it.
-    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
+    #[serde(with = "crate::domain::message_map")]
+    pub message_overrides: std::collections::HashMap<String, BString>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -359,7 +361,7 @@ pub struct SquashContext {
     /// the journal readable and lets a v2 journal written before this load
     /// unchanged.
     #[serde(with = "crate::domain::message_bytes")]
-    pub combined_message: Vec<u8>,
+    pub combined_message: BString,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<Oid>,
     /// Whether this is a squash (editor shown) or fixup (target message kept as-is).
@@ -532,7 +534,7 @@ pub trait RepoRead {
     /// that will be written back — an editor seed, a reword, a squash — must
     /// come from here instead, or a message git-tailor cannot read is silently
     /// replaced by one it can.
-    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>>;
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<BString>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
@@ -984,7 +986,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
+        message_overrides: &std::collections::HashMap<String, bstr::BString>,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.

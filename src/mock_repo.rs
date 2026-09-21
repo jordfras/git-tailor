@@ -252,8 +252,8 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
 
-    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<Vec<u8>> {
-        Ok(b"mock message\n".to_vec())
+    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<bstr::BString> {
+        Ok("mock message\n".into())
     }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
@@ -514,7 +514,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &std::collections::HashMap<String, Vec<u8>>,
+        _: &std::collections::HashMap<String, bstr::BString>,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {

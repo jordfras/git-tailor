@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
+use bstr::BString;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -330,13 +331,13 @@ impl RepoRead for Git2Repo {
         reads::list_commits(self, from_oid, to_oid)
     }
 
-    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>> {
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<BString> {
         Ok(self
             .inner
             .find_commit(git2::Oid::from(commit_oid))
             .context("failed to read the commit")?
             .message_bytes()
-            .to_vec())
+            .into())
     }
 
     fn commit_diff(&self, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
@@ -745,7 +746,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
+        message_overrides: &std::collections::HashMap<String, bstr::BString>,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);

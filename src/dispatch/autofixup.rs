@@ -91,9 +91,9 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
                 if message.is_empty() {
                     pending.message_overrides.remove(&target_summary);
                 } else {
-                    pending
-                        .message_overrides
-                        .insert(target_summary, [message, b"\n".to_vec()].concat());
+                    let mut message = message;
+                    message.push(b'\n');
+                    pending.message_overrides.insert(target_summary, message);
                 }
             }
         }
@@ -109,7 +109,7 @@ pub(crate) fn handle_execute_autofixup(
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
-    message_overrides: std::collections::HashMap<String, Vec<u8>>,
+    message_overrides: std::collections::HashMap<String, bstr::BString>,
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);

@@ -219,7 +219,7 @@ fn finalizing_a_squash_refuses_after_head_moved_to_another_branch() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: b"combined".to_vec(),
+        combined_message: "combined".into(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
