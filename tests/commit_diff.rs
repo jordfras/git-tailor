@@ -344,3 +344,33 @@ fn test_staged_diff_is_none_when_nothing_is_staged() {
 
     assert!(test.git_repo().staged_diff(3).unwrap().is_none());
 }
+
+/// Two paths that differ only in a byte that is not valid UTF-8 are two files.
+/// Decoding maps every such byte to the same replacement character, and the
+/// fragmap and split key on what comes out.
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn paths_differing_only_in_invalid_bytes_stay_distinct() {
+    let test = common::TestRepo::new();
+    let one = common::non_utf8_path_with_byte("odd", 0xFE, ".txt");
+    let other = common::non_utf8_path_with_byte("odd", 0xFF, ".txt");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+
+    for path in [&one, &other] {
+        std::fs::write(workdir.join(path), "content\n").unwrap();
+        let mut index = test.repo.index().unwrap();
+        index.add_path(path).unwrap();
+        index.write().unwrap();
+    }
+    let commit = test.commit("two names a byte apart");
+
+    let diff = test.git_repo().commit_diff(&Oid::from(commit), 3).unwrap();
+
+    let paths: Vec<_> = diff
+        .files
+        .iter()
+        .filter_map(|f| f.new_path.clone())
+        .collect();
+    assert_eq!(paths.len(), 2, "both files are in the diff");
+    assert_ne!(paths[0], paths[1]);
+}

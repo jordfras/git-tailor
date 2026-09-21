@@ -625,3 +625,57 @@ fn split_per_hunk_group_refuses_insertions_sharing_one_column() {
         msg
     );
 }
+
+/// Two files whose names differ only in a byte git-tailor cannot decode get
+/// their own hunk-group assignments. Sharing one key routes one file's hunks
+/// by the other's groups, and the split then writes content to the wrong path.
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn split_per_hunk_group_keeps_paths_a_single_invalid_byte_apart_separate() {
+    let test = common::TestRepo::new();
+    let one = common::non_utf8_path_with_byte("odd", 0xFE, ".txt");
+    let other = common::non_utf8_path_with_byte("odd", 0xFF, ".txt");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+
+    let write = |path: &std::path::Path, content: &str| {
+        std::fs::write(workdir.join(path), content).unwrap();
+        let mut index = test.repo.index().unwrap();
+        index.read(true).unwrap();
+        index.add_path(path).unwrap();
+        index.write().unwrap();
+    };
+
+    write(&one, "A\n");
+    write(&other, "B\n");
+    let base = test.commit("base");
+
+    // Only `one`, so K's hunk in it lands in a different fragmap column than
+    // K's hunk in `other` — two groups, and therefore two split commits.
+    write(&one, "A2\n");
+    test.commit("commit A");
+
+    write(&one, "A3\n");
+    write(&other, "B2\n");
+    let to_split = test.commit("commit K");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .unwrap();
+
+    let commits_above_base = test.commits_from_head(base);
+    assert_eq!(
+        commits_above_base.len(),
+        3,
+        "expected commit A plus two split parts"
+    );
+
+    let first_part = commits_above_base[1];
+    assert_file_contents!(&test.repo, first_part, &one, "A3\n");
+    assert_file_contents!(&test.repo, first_part, &other, "B\n");
+
+    let tip = commits_above_base[2];
+    assert_file_contents!(&test.repo, tip, &one, "A3\n");
+    assert_file_contents!(&test.repo, tip, &other, "B2\n");
+}

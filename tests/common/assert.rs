@@ -70,10 +70,14 @@ macro_rules! assert_history {
 /// Read a file from a specific commit tree.
 ///
 /// Private helper for [`assert_file_contents!`].
-pub fn file_content_at(repo: &git2::Repository, commit_oid: git2::Oid, path: &str) -> String {
+pub fn file_content_at(
+    repo: &git2::Repository,
+    commit_oid: git2::Oid,
+    path: impl AsRef<std::path::Path>,
+) -> String {
     let commit = repo.find_commit(commit_oid).unwrap();
     let tree = commit.tree().unwrap();
-    let entry = tree.get_path(std::path::Path::new(path)).unwrap();
+    let entry = tree.get_path(path.as_ref()).unwrap();
     let blob = repo
         .find_blob(entry.id())
         .expect("tree entry should be a blob");
