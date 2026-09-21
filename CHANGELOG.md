@@ -33,6 +33,9 @@ The format is based on
 
 ### Fixed
 
+- Two linked working trees whose names differ only in bytes git-tailor cannot
+  decode no longer share undo pins. One tree's run could unpin another tree's
+  interrupted work
 - When resuming an operation after a conflict fails, the conflict dialog stays
   up and says what happened, that nothing was lost, and that the branch is still
   on the commit it paused at — with Enter to try again and Esc to abort. It used

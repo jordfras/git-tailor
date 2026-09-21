@@ -138,7 +138,9 @@ fn worktree_prefix(repo: &Git2Repo) -> String {
 /// Ref-name-safe id for a linked working tree's name.
 ///
 /// Hashed rather than used as-is because a working tree's name only has to be
-/// a valid directory name, while this has to be a valid ref name.
+/// a valid directory name, while this has to be a valid ref name. Hashed as
+/// bytes because a decoded name maps every invalid byte to the same character,
+/// and two trees sharing an id share their pins.
 ///
 /// Truncated to 12 hex chars (48 bits): two working trees landing on the same
 /// prefix needs on the order of 2^24 of them on one repository before it
@@ -148,7 +150,8 @@ fn worktree_prefix(repo: &Git2Repo) -> String {
 /// so it stays exactly this long rather than trading a theoretical collision
 /// for a real leak.
 fn worktree_id(name: &std::ffi::OsStr) -> String {
-    match git2::Oid::hash_object(git2::ObjectType::Blob, name.to_string_lossy().as_bytes()) {
+    let bytes = crate::domain::path_to_bytes(std::path::Path::new(name));
+    match git2::Oid::hash_object(git2::ObjectType::Blob, &bytes) {
         Ok(oid) => oid.to_string()[..12].to_string(),
         // Only if libgit2 cannot hash at all; sharing one bucket is still
         // better than failing an operation over a pin name.
