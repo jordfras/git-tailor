@@ -408,3 +408,39 @@ fn rewording_within_latin1_keeps_the_encoding_header() {
     assert_eq!(message_bytes(&test, new_head), edited.to_vec());
     assert_eq!(encoding(&test, new_head).as_deref(), Some("ISO-8859-1"));
 }
+
+/// The summary suffix a split writes names a file, and a file name is bytes.
+/// Decoding it to build the suffix puts replacement characters in the message
+/// — and now that a piece carries the original's `encoding` header, decoding
+/// would also re-encode the name into whatever that header declares.
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn splitting_out_a_non_utf8_file_name_keeps_its_bytes_in_the_summary() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    let odd = common::non_utf8_path("odd", ".txt");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::write(workdir.join(&odd), "c\n").unwrap();
+    test.write_file("plain.txt", "d\n");
+    {
+        let mut index = test.repo.index().unwrap();
+        index.add_path(&odd).unwrap();
+        index.add_path(std::path::Path::new("plain.txt")).unwrap();
+        index.write().unwrap();
+    }
+    let to_split = test.commit("add two files");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_files(&Oid::from(to_split), &[odd.clone()], &Oid::from(to_split))
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    let peeled = message_bytes(&test, *pieces.last().unwrap());
+    assert_eq!(
+        peeled, b"add two files (odd\xff.txt)",
+        "the file name's bytes, not a decode of them"
+    );
+}
