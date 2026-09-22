@@ -63,13 +63,15 @@ impl HunkSelection {
 /// If the original message has a body (text after the first line), it is
 /// appended unchanged so no information is lost.
 pub(super) fn split_message(original: &BStr, n: usize, total: usize) -> BString {
-    summary_suffix_message(original, &format!("{n}/{total}"))
+    summary_suffix_message(original, format!("{n}/{total}").as_bytes().as_bstr())
 }
 
 /// Append a parenthesised `suffix` to the summary line of `original`, keeping
-/// the body intact.  Used by the "split out file(s)"/"split out hunk(s)"
+/// the body intact. Bytes, not text: the suffix usually names a file, and a
+/// piece carries the original's `encoding` header, so decoding and re-encoding
+/// the name would be two chances to change it.  Used by the "split out file(s)"/"split out hunk(s)"
 /// operations to mark the peeled-out commit with what it contains.
-pub(super) fn summary_suffix_message(original: &BStr, suffix: &str) -> BString {
+pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString {
     let original: &[u8] = original.as_ref();
     let (first, rest) = match original.find_byte(b'\n') {
         Some(i) => (&original[..i], &original[i + 1..]),
@@ -77,7 +79,9 @@ pub(super) fn summary_suffix_message(original: &BStr, suffix: &str) -> BString {
     };
 
     let mut out = BString::from(first.trim_ascii_end());
-    out.extend_from_slice(format!(" ({suffix})").as_bytes());
+    out.extend_from_slice(b" (");
+    out.extend_from_slice(suffix);
+    out.push(b')');
     if !rest.trim_ascii().is_empty() {
         out.push(b'\n');
         out.extend_from_slice(rest);
@@ -578,7 +582,7 @@ mod tests {
     #[test]
     fn summary_suffix_message_summary_only() {
         assert_eq!(
-            summary_suffix_message("my fix".into(), "src/a.rs"),
+            summary_suffix_message("my fix".into(), "src/a.rs".into()),
             "my fix (src/a.rs)"
         );
     }
@@ -586,14 +590,14 @@ mod tests {
     #[test]
     fn summary_suffix_message_preserves_body() {
         let original = "my fix\n\nBody line 1.\nBody line 2.";
-        let result = summary_suffix_message(original.into(), "src/a.rs");
+        let result = summary_suffix_message(original.into(), "src/a.rs".into());
         assert_eq!(result, "my fix (src/a.rs)\n\nBody line 1.\nBody line 2.");
     }
 
     #[test]
     fn summary_suffix_message_trailing_newline_on_summary() {
         assert_eq!(
-            summary_suffix_message("my fix\n".into(), "src/a.rs"),
+            summary_suffix_message("my fix\n".into(), "src/a.rs".into()),
             "my fix (src/a.rs)"
         );
     }

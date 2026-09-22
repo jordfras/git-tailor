@@ -18,7 +18,7 @@
 //! applicable.
 
 use anyhow::{Context, Result};
-use bstr::{BStr, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -398,11 +398,11 @@ pub(super) fn split_commit_out_files(
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
     let suffix = if file_paths.len() == 1 {
-        file_paths[0].display().to_string()
+        BString::from(crate::domain::path_to_bytes(&file_paths[0]))
     } else {
-        format!("{} files", file_paths.len())
+        BString::from(format!("{} files", file_paths.len()))
     };
-    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
+    let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
         repo,
         &target.commit,
@@ -501,7 +501,7 @@ pub(super) fn split_commit_out_hunks(
     let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
 
     let suffix = hunk_selection_suffix(&full_diff, &selected)?;
-    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
+    let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
         repo,
         &target.commit,
@@ -528,13 +528,10 @@ pub(super) fn split_commit_out_hunks(
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
 /// file's name when the selection is confined to one file (matching
 /// `split_commit_out_files`' style), or a hunk/file count otherwise.
-///
-/// This is where a path becomes text: a summary line is read by people, so a
-/// name git-tailor cannot decode is shown rather than carried.
 fn hunk_selection_suffix(
     full_diff: &git2::Diff,
     selected: &HashSet<(usize, usize)>,
-) -> Result<String> {
+) -> Result<BString> {
     let touched_deltas: BTreeSet<usize> =
         selected.iter().map(|&(delta_idx, _)| delta_idx).collect();
     if touched_deltas.len() == 1 {
@@ -542,13 +539,15 @@ fn hunk_selection_suffix(
         let delta = full_diff
             .get_delta(delta_idx)
             .context("delta index in range")?;
-        return Ok(delta_path(&delta).unwrap_or_default().display().to_string());
+        return Ok(BString::from(crate::domain::path_to_bytes(
+            &delta_path(&delta).unwrap_or_default(),
+        )));
     }
-    Ok(format!(
+    Ok(BString::from(format!(
         "{} hunks across {} files",
         selected.len(),
         touched_deltas.len()
-    ))
+    )))
 }
 
 /// Resolved inputs to a split operation.  `commit_oid` is the parsed form of

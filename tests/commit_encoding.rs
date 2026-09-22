@@ -434,7 +434,11 @@ fn splitting_out_a_non_utf8_file_name_keeps_its_bytes_in_the_summary() {
 
     let mut git_repo = test.git_repo();
     git_repo
-        .split_commit_out_files(&Oid::from(to_split), &[odd.clone()], &Oid::from(to_split))
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            std::slice::from_ref(&odd),
+            &Oid::from(to_split),
+        )
         .unwrap();
 
     let pieces = test.commits_from_head(parent);
