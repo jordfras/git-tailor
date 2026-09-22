@@ -44,6 +44,9 @@ The format is based on
   tell you to reword first
 - A split's "(file.txt)" summary suffix now names the file exactly, instead of
   putting a replacement character in any name that does not decode
+- Editing a target's final message before a bulk autofixup now opens the
+  editor on the commit's own bytes. It used to open on the message as drawn in
+  the list, so saving replaced anything git-tailor cannot read
 - When resuming an operation after a conflict fails, the conflict dialog stays
   up and says what happened, that nothing was lost, and that the branch is still
   on the commit it paused at — with Enter to try again and Esc to abort. It used

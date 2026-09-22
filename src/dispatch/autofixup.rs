@@ -15,7 +15,7 @@
 // Side-effect handlers for the bulk Autofixup operation.
 
 use anyhow::Result;
-use bstr::BString;
+use bstr::{BString, ByteSlice};
 use git_tailor::app::{AppMode, AppState, SquashMode};
 use git_tailor::autofixup::AutofixupGroup;
 use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
@@ -72,13 +72,30 @@ pub(crate) fn autofixup_target_selection_index(
 }
 
 /// The bytes `$EDITOR` opens on for a target group's final message.
-pub(super) fn edit_seed(_repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
+///
+/// Read from the repository, never from the group's rendering of the messages:
+/// that rendering is lossy, and an untouched template comes back as the
+/// override written to the commit.
+///
+/// A message that cannot be read falls back to the rendering rather than
+/// failing the edit — it is the same text the dialog behind the editor shows.
+pub(super) fn edit_seed(repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
+    let message_of = |oid: &Oid, rendered: &str| -> BString {
+        repo.commit_message_bytes(oid)
+            .unwrap_or_else(|_| BString::from(rendered))
+    };
     let sources: Vec<(SquashMode, BString)> = group
         .sources
         .iter()
-        .map(|pair| (pair.mode, BString::from(pair.source_message.clone())))
+        .map(|pair| {
+            (
+                pair.mode,
+                message_of(&pair.source_oid, &pair.source_message),
+            )
+        })
         .collect();
-    git_tailor::autofixup::edit_template(group.target_message.as_str().into(), &sources)
+    let target = message_of(&group.target_oid, &group.target_message);
+    git_tailor::autofixup::edit_template(target.as_bstr(), &sources)
 }
 
 /// Open `$EDITOR` on the target's message, with the sources being folded into
