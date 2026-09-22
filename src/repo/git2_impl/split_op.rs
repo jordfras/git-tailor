@@ -27,6 +27,7 @@ use crate::{Oid, fragmap};
 use super::Git2Repo;
 use super::hunks;
 use super::reads;
+use super::reword_op;
 
 pub(super) fn split_commit_per_file(
     repo: &mut Git2Repo,
@@ -750,7 +751,7 @@ fn commit_with_message(
         &original.author(),
         &original.committer(),
         message,
-        original.message_encoding().ok().flatten(),
+        reword_op::encoding_for(original, message),
         &new_tree,
         &parent_refs,
     )
