@@ -19,7 +19,7 @@
 use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
-use bstr::{BStr, BString};
+use bstr::{BStr, BString, ByteSlice};
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,9 +99,9 @@ pub fn edit_template(target_message: &BStr, sources: &[(SquashMode, BString)]) -
         text.push(b'\n');
         text.extend_from_slice(COMMENT_PREFIX.as_bytes());
         text.push(b'\n');
-        for line in source_message.split(|&b| b == b'\n') {
+        for line in source_message.lines() {
             text.extend_from_slice(COMMENT_PREFIX.as_bytes());
-            text.extend_from_slice(line.strip_suffix(b"\r").unwrap_or(line));
+            text.extend_from_slice(line);
             text.push(b'\n');
         }
     }
