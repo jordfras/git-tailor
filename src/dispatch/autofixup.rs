@@ -15,7 +15,7 @@
 // Side-effect handlers for the bulk Autofixup operation.
 
 use anyhow::Result;
-use bstr::{BString, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 use git_tailor::app::{AppMode, AppState, SquashMode};
 use git_tailor::autofixup::AutofixupGroup;
 use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
@@ -73,13 +73,20 @@ pub(crate) fn autofixup_target_selection_index(
 
 /// The bytes `$EDITOR` opens on for a target group's final message.
 ///
-/// Read from the repository, never from the group's rendering of the messages:
-/// that rendering is lossy, and an untouched template comes back as the
-/// override written to the commit.
+/// `edited` is what the user wrote the last time they edited this group, so a
+/// second edit starts from it rather than throwing it away.
+///
+/// Otherwise read from the repository, never from the group's rendering of the
+/// messages: that rendering is lossy, and an untouched template comes back as
+/// the override written to the commit.
 ///
 /// A message that cannot be read falls back to the rendering rather than
 /// failing the edit — it is the same text the dialog behind the editor shows.
-pub(super) fn edit_seed(repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
+pub(super) fn edit_seed(
+    repo: &impl RepoRead,
+    group: &AutofixupGroup,
+    edited: Option<&BStr>,
+) -> BString {
     let message_of = |oid: &Oid, rendered: &str| -> BString {
         repo.commit_message_bytes(oid)
             .unwrap_or_else(|_| BString::from(rendered))
@@ -94,7 +101,10 @@ pub(super) fn edit_seed(repo: &impl RepoRead, group: &AutofixupGroup) -> BString
             )
         })
         .collect();
-    let target = message_of(&group.target_oid, &group.target_message);
+    let target = match edited {
+        Some(edited) => BString::from(edited),
+        None => message_of(&group.target_oid, &group.target_message),
+    };
     git_tailor::autofixup::edit_template(target.as_bstr(), &sources)
 }
 
@@ -111,7 +121,13 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let template = edit_seed(git_repo, group);
+    let edited = match &app.mode {
+        AppMode::AutofixupConfirm(pending) => {
+            pending.message_overrides.get(&target_summary).cloned()
+        }
+        _ => None,
+    };
+    let template = edit_seed(git_repo, group, edited.as_ref().map(|m| m.as_bstr()));
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
     match editor_result {
         Ok(edited) => {

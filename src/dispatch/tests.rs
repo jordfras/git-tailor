@@ -1496,7 +1496,29 @@ fn the_autofixup_editor_seed_keeps_a_target_message_that_is_not_utf8() {
         sources: vec![],
     };
 
-    let seed = super::autofixup::edit_seed(&repo, &group);
+    let seed = super::autofixup::edit_seed(&repo, &group, None);
 
     assert_eq!(seed, b"Fix f\xf6r \xe5\xe4\xf6 handling\n");
+}
+
+/// Editing a group's message twice starts from what the user wrote the first
+/// time. Seeding the second edit from the commit instead silently discards the
+/// first, while the dialog still shows the group as edited.
+#[test]
+fn the_autofixup_editor_seed_starts_from_a_previous_edit() {
+    let target_oid = Oid::from("aaaaaaaaaaaa");
+    let mut repo = MockRepo::default();
+    repo.commit_messages
+        .insert(target_oid.clone(), "Add parser\n".into());
+
+    let group = git_tailor::autofixup::AutofixupGroup {
+        target_oid: target_oid.clone(),
+        target_summary: "Add parser".to_string(),
+        target_message: "Add parser\n".to_string(),
+        sources: vec![],
+    };
+
+    let seed = super::autofixup::edit_seed(&repo, &group, Some("what I wrote\n".into()));
+
+    assert_eq!(seed, "what I wrote\n");
 }
