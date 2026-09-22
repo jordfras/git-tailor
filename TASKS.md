@@ -239,6 +239,30 @@ Guidelines:
   change to the span-propagation algorithm's core: an empty interval for a
   deletion may be load-bearing for propagation arithmetic, where a zero-width
   point is not. Establish that before changing it.
+- [ ] T257 P3 bug - Autofixup identifies a target by its decoded summary.
+  `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
+  the target's summary, and that summary is `CommitInfo::summary` — the lossy
+  rendering built in `reads.rs` (`lossy(commit.summary_bytes())`). Two targets
+  whose summaries differ only in bytes that do not decode render the same, so
+  they collide: an override the user edited for one is written onto the other.
+  `plan_autofixup`'s `fixup! <summary>` matching has the same exposure, and git
+  itself does not — `--autosquash` matches subjects on their raw bytes.
+  Same collision class as T250 and T251, but it did not go with them because
+  the fix is not a retyping. **Keying on `Oid` is wrong** and the reason is
+  recorded on the field: the OID is not stable across the batch's cascading
+  rebases, which is precisely why the summary is the key. And the summary
+  cannot simply become bytes — it is display data the whole TUI draws, searches
+  and measures, and under the rule T249 settled on (decode at the render
+  boundary, never before it) `CommitInfo::summary` staying a lossy `String` is
+  correct.
+  So this needs an identity for a target that is neither its OID nor its
+  rendering: the summary's *bytes*, carried alongside the rendering through
+  `AutofixupPair`, `AutofixupGroup` and the journal — a decision about what
+  identifies a commit across a rebase, which is why it is filed rather than
+  fixed.
+  Narrow in practice: it needs two commits in range whose summaries differ only
+  in undecodable bytes, and an edited override. The consequence is a message
+  written to the wrong commit.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
