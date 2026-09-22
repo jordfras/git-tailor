@@ -448,3 +448,51 @@ fn splitting_out_a_non_utf8_file_name_keeps_its_bytes_in_the_summary() {
         "the file name's bytes, not a decode of them"
     );
 }
+
+/// A split derives a new message, so the original's `encoding` header only
+/// still describes it while the bytes are unchanged or still will not decode.
+/// A derived message that is valid UTF-8 needs no header — keeping one makes
+/// git transcode bytes that were never in that encoding.
+#[test]
+fn a_derived_split_message_that_is_utf8_drops_a_stale_encoding_header() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    // An ASCII message, but the commit declares ISO-8859-1 — what a repo with
+    // `i18n.commitEncoding` set produces for every commit.
+    test.write_file("café.txt", "c\n");
+    test.write_file("plain.txt", "d\n");
+    test.stage_file("café.txt");
+    test.stage_file("plain.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, b"Add files\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            &[std::path::PathBuf::from("café.txt")],
+            &Oid::from(to_split),
+        )
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    let peeled = *pieces.last().unwrap();
+    assert_eq!(
+        message_bytes(&test, peeled),
+        "Add files (café.txt)".as_bytes()
+    );
+    assert_eq!(
+        encoding(&test, peeled),
+        None,
+        "the suffix is UTF-8, so a header saying otherwise would mangle it"
+    );
+
+    // The untouched remainder keeps the original bytes, so it keeps the header
+    // that describes them.
+    assert_eq!(encoding(&test, pieces[0]).as_deref(), Some("ISO-8859-1"));
+}
