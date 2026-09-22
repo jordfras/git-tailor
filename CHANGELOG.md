@@ -44,6 +44,9 @@ The format is based on
   tell you to reword first
 - A split's "(file.txt)" summary suffix now names the file exactly, instead of
   putting a replacement character in any name that does not decode
+- A split piece no longer inherits an `encoding` header that does not describe
+  it. With `i18n.commitEncoding` set, a peeled-out commit's "(café.txt)" suffix
+  came back mangled
 - Editing a target's final message before a bulk autofixup now opens the
   editor on the commit's own bytes. It used to open on the message as drawn in
   the list, so saving replaced anything git-tailor cannot read

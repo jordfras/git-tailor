@@ -67,10 +67,11 @@ pub(super) fn split_message(original: &BStr, n: usize, total: usize) -> BString 
 }
 
 /// Append a parenthesised `suffix` to the summary line of `original`, keeping
-/// the body intact. Bytes, not text: the suffix usually names a file, and a
-/// piece carries the original's `encoding` header, so decoding and re-encoding
-/// the name would be two chances to change it.  Used by the "split out file(s)"/"split out hunk(s)"
+/// the body intact.  Used by the "split out file(s)"/"split out hunk(s)"
 /// operations to mark the peeled-out commit with what it contains.
+///
+/// The suffix is bytes because it usually names a file, and a name git-tailor
+/// cannot decode has no text to append.
 pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString {
     let original: &[u8] = original.as_ref();
     let (first, rest) = match original.find_byte(b'\n') {
