@@ -1816,3 +1816,36 @@ fn test_hunkless_delta_contributes_no_cluster() {
         "the commit with hunks still clusters"
     );
 }
+
+/// Columns come out in the order git lists files, which is the order of their
+/// bytes. `Path` compares component by component, so it sorts `repo/x.rs`
+/// before `repo.rs` where the bytes put `.` (0x2E) before `/` (0x2F) — and this
+/// project's own layout has that pair for every module with sub-modules.
+///
+/// The order is not cosmetic: `assign_hunk_groups` walks the same list, so it
+/// also decides which hunk group is numbered first and which hunk the rescue
+/// path cuts.
+#[test]
+fn clusters_come_out_in_byte_order_not_path_component_order() {
+    let commits = vec![make_commit_diff(
+        "c1",
+        vec![
+            make_file_diff(None, Some("repo/git2_impl.rs"), 0, 0, 1, 3),
+            make_file_diff(None, Some("repo.rs"), 0, 0, 1, 3),
+        ],
+    )];
+
+    // Undeduplicated: both files are touched by the same commit, so dedup
+    // would merge their columns and hide the order being asserted.
+    let fragmap = build_fragmap(&commits, false, &mut |_| true).unwrap();
+
+    let paths: Vec<&Path> = fragmap
+        .clusters
+        .iter()
+        .map(|c| c.spans[0].path.as_path())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![Path::new("repo.rs"), Path::new("repo/git2_impl.rs")]
+    );
+}
