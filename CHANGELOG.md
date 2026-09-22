@@ -42,6 +42,8 @@ The format is based on
 - Splitting a commit whose message git-tailor cannot decode now works, and the
   pieces keep the original bytes and its encoding header. It used to refuse and
   tell you to reword first
+- A split's "(file.txt)" summary suffix now names the file exactly, instead of
+  putting a replacement character in any name that does not decode
 - When resuming an operation after a conflict fails, the conflict dialog stays
   up and says what happened, that nothing was lost, and that the branch is still
   on the commit it paused at — with Enter to try again and Esc to abort. It used
