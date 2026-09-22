@@ -1472,3 +1472,31 @@ fn shell_launch_failure_reports_when_the_autostash_restore_itself_fails() {
         "the user must be told where their work is: {message}"
     );
 }
+
+/// The editor is seeded from the target's own bytes, not from the message the
+/// commit list draws. Saving an untouched template stores the seed verbatim as
+/// the override, so a lossy seed rewrites a message git-tailor cannot read
+/// with one it can — silently, and with no way back.
+#[test]
+fn the_autofixup_editor_seed_keeps_a_target_message_that_is_not_utf8() {
+    // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
+    let latin1 = &b"Fix f\xf6r \xe5\xe4\xf6 handling\n"[..];
+    let target_oid = Oid::from("aaaaaaaaaaaa");
+
+    let mut repo = MockRepo::default();
+    repo.commit_messages
+        .insert(target_oid.clone(), latin1.into());
+
+    let group = git_tailor::autofixup::AutofixupGroup {
+        target_oid: target_oid.clone(),
+        target_summary: "Fix f\u{fffd}r \u{fffd}\u{fffd}\u{fffd} handling".to_string(),
+        // What `CommitInfo` holds: the lossy rendering, which is exactly what
+        // must not reach the editor.
+        target_message: String::from_utf8_lossy(latin1).into_owned(),
+        sources: vec![],
+    };
+
+    let seed = super::autofixup::edit_seed(&repo, &group);
+
+    assert_eq!(seed, b"Fix f\xf6r \xe5\xe4\xf6 handling\n");
+}

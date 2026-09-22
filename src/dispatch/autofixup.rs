@@ -72,7 +72,7 @@ pub(crate) fn autofixup_target_selection_index(
 }
 
 /// The bytes `$EDITOR` opens on for a target group's final message.
-fn edit_seed(_repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
+pub(super) fn edit_seed(_repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
     let sources: Vec<(SquashMode, BString)> = group
         .sources
         .iter()

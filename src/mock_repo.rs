@@ -51,6 +51,10 @@ pub(crate) struct MockRepo {
     /// When set, `rebase_continue` fails — a resume that cannot finish while
     /// the conflict it belongs to is still paused.
     pub(crate) rebase_continue_err: bool,
+    /// Configurable `commit_message_bytes` result, keyed by OID, so a test can
+    /// give a commit a message that does not decode. Falls back to a fixed
+    /// placeholder for any OID not listed.
+    pub(crate) commit_messages: std::collections::HashMap<Oid, bstr::BString>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
@@ -154,6 +158,7 @@ impl Default for MockRepo {
             autostash_save_calls: std::cell::Cell::new(0),
             autostash_restore_calls: std::cell::Cell::new(0),
             rebase_continue_err: false,
+            commit_messages: std::collections::HashMap::new(),
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
@@ -252,8 +257,12 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
 
-    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<bstr::BString> {
-        Ok("mock message\n".into())
+    fn commit_message_bytes(&self, oid: &Oid) -> anyhow::Result<bstr::BString> {
+        Ok(self
+            .commit_messages
+            .get(oid)
+            .cloned()
+            .unwrap_or_else(|| "mock message\n".into()))
     }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
