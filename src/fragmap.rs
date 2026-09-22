@@ -58,6 +58,16 @@ fn canonical_path<'a>(path: &'a Path, rename_map: &'a HashMap<PathBuf, PathBuf>)
     rename_map.get(path).map(PathBuf::as_path).unwrap_or(path)
 }
 
+/// Sort paths by their bytes.
+///
+/// `Path` compares component by component, which puts `repo/x.rs` before
+/// `repo.rs` where the bytes put it after. Column order, the numbering of the
+/// split pieces and which hunk the rescue path cuts all come off this list, so
+/// it has to be the order git lists files in.
+fn sort_by_path_bytes<P: AsRef<Path>>(paths: &mut [P]) {
+    paths.sort_by_cached_key(|p| crate::domain::path_to_bytes(p.as_ref()));
+}
+
 /// Collect per-file hunk lists grouped by canonical path.
 ///
 /// This is the shared grouping logic used by [`build_fragmap`],
@@ -236,7 +246,7 @@ pub fn build_fragmap(
     let rename_map = build_rename_map(commit_diffs);
     let file_commits = collect_file_commits(commit_diffs, &rename_map);
     let mut sorted_paths: Vec<PathBuf> = file_commits.keys().cloned().collect();
-    sorted_paths.sort();
+    sort_by_path_bytes(&mut sorted_paths);
 
     let total = sorted_paths.len();
     let mut clusters = Vec::new();
@@ -310,7 +320,7 @@ pub fn assign_hunk_groups(
     let file_commits = collect_file_commits(commit_diffs, &rename_map);
 
     let mut sorted_paths: Vec<&PathBuf> = file_commits.keys().collect();
-    sorted_paths.sort();
+    sort_by_path_bytes(&mut sorted_paths);
 
     // Attribute every hunk, walking files alphabetically and hunks top to
     // bottom so groups appear in a stable, positional order.

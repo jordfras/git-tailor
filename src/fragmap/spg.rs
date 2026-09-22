@@ -708,7 +708,7 @@ pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
         super::collect_file_commits(commit_diffs, &super::build_rename_map(commit_diffs));
 
     let mut sorted_paths: Vec<&PathBuf> = file_commits.keys().collect();
-    sorted_paths.sort();
+    super::sort_by_path_bytes(&mut sorted_paths);
 
     for path in sorted_paths {
         let commits_for_file = &file_commits[path];
