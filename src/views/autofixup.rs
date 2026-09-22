@@ -74,7 +74,7 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 };
                 AppAction::PrepareAutofixupEditMessage {
                     target_summary: group.target_summary.clone(),
-                    template: autofixup::edit_template(group),
+                    group: Box::new(group.clone()),
                 }
             }
             _ => AppAction::Handled,

@@ -15,8 +15,10 @@
 // Side-effect handlers for the bulk Autofixup operation.
 
 use anyhow::Result;
-use git_tailor::app::{AppMode, AppState};
-use git_tailor::repo::{GitRepo, RebaseOutcome};
+use bstr::BString;
+use git_tailor::app::{AppMode, AppState, SquashMode};
+use git_tailor::autofixup::AutofixupGroup;
+use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
 use git_tailor::{CommitInfo, Oid};
 
 use crate::dispatch::{
@@ -69,8 +71,18 @@ pub(crate) fn autofixup_target_selection_index(
     Some(reference_index.saturating_sub(removed_before))
 }
 
-/// Open `$EDITOR` on `template` (the target's message, with the sources being
-/// folded into it commented out — see `autofixup::edit_template`) and store
+/// The bytes `$EDITOR` opens on for a target group's final message.
+fn edit_seed(_repo: &impl RepoRead, group: &AutofixupGroup) -> BString {
+    let sources: Vec<(SquashMode, BString)> = group
+        .sources
+        .iter()
+        .map(|pair| (pair.mode, BString::from(pair.source_message.clone())))
+        .collect();
+    git_tailor::autofixup::edit_template(group.target_message.as_str().into(), &sources)
+}
+
+/// Open `$EDITOR` on the target's message, with the sources being folded into
+/// it commented out (see `autofixup::edit_template`), and store
 /// the result back onto the still-open confirmation dialog as an override for
 /// `target_summary`. Does not execute anything; the batch only runs once the
 /// user confirms.
@@ -78,12 +90,12 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     target_summary: String,
-    template: String,
+    group: &AutofixupGroup,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let editor_result =
-        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bytes());
+    let template = edit_seed(git_repo, group);
+    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
     match editor_result {
         Ok(edited) => {
             let message = git_tailor::autofixup::strip_comment_lines(&edited);

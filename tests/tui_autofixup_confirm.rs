@@ -303,13 +303,14 @@ fn test_autofixup_confirm_reword_targets_the_selected_group() {
     match result {
         AppAction::PrepareAutofixupEditMessage {
             target_summary,
-            template,
+            group,
         } => {
+            // The picked group, not a template: the seed is built in dispatch,
+            // which is where the commits' bytes can be read.
             assert_eq!(target_summary, "Add lexer");
-            // Target's own message is live/editable; the source folding into
-            // it is commented out (git-autosquash style).
-            assert!(template.starts_with("Add lexer\n"));
-            assert!(template.contains("# squash! Add lexer"));
+            assert_eq!(group.target_summary, "Add lexer");
+            assert_eq!(group.sources.len(), 1);
+            assert_eq!(group.sources[0].source_summary, "squash! Add lexer");
         }
         other => panic!("expected PrepareAutofixupEditMessage, got {other:?}"),
     }

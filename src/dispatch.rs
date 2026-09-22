@@ -287,13 +287,13 @@ pub(crate) fn dispatch_action(
         }
         AppAction::PrepareAutofixupEditMessage {
             target_summary,
-            template,
+            group,
         } => {
             return handle_prepare_autofixup_edit_message(
                 git_repo,
                 app,
                 target_summary,
-                template,
+                &group,
                 terminal_guard,
                 kb_enhanced,
             );

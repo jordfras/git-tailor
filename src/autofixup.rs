@@ -19,7 +19,7 @@
 use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
-use bstr::BString;
+use bstr::{BStr, BString};
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,29 +73,36 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
 
 const COMMENT_PREFIX: &str = "# ";
 
+/// The message without its trailing newlines, which the template supplies.
+fn trim_trailing_newlines(message: &BStr) -> &[u8] {
+    let bytes: &[u8] = message.as_ref();
+    let end = bytes.iter().rposition(|&b| b != b'\n').map_or(0, |i| i + 1);
+    &bytes[..end]
+}
+
 /// Build the text shown in `$EDITOR` when the user edits a target group's
-/// final message: the target's current message, live and editable, followed
-/// by each source's message commented out — mirroring `git rebase
+/// final message: `target_message`, live and editable, followed by each
+/// source's message commented out — mirroring `git rebase
 /// --autosquash`'s own combination template. Left untouched, the commented
 /// sources contribute nothing, so a no-op edit is the same as not editing at
 /// all (matches `fixup!`'s already-silent default).
-pub fn edit_template(group: &AutofixupGroup) -> String {
-    let mut text = group.target_message.trim_end_matches('\n').to_string();
-    text.push('\n');
-    for source in &group.sources {
-        text.push('\n');
-        text.push_str(COMMENT_PREFIX);
-        text.push_str(match source.mode {
-            SquashMode::Fixup => "The message below is from a fixup! commit being folded in:",
-            SquashMode::Squash => "The message below is from a squash! commit being folded in:",
+pub fn edit_template(target_message: &BStr, sources: &[(SquashMode, BString)]) -> BString {
+    let mut text = BString::from(trim_trailing_newlines(target_message));
+    text.push(b'\n');
+    for (mode, source_message) in sources {
+        text.push(b'\n');
+        text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+        text.extend_from_slice(match mode {
+            SquashMode::Fixup => b"The message below is from a fixup! commit being folded in:",
+            SquashMode::Squash => b"The message below is from a squash! commit being folded in:",
         });
-        text.push('\n');
-        text.push_str(COMMENT_PREFIX);
-        text.push('\n');
-        for line in source.source_message.lines() {
-            text.push_str(COMMENT_PREFIX);
-            text.push_str(line);
-            text.push('\n');
+        text.push(b'\n');
+        text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+        text.push(b'\n');
+        for line in source_message.split(|&b| b == b'\n') {
+            text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+            text.extend_from_slice(line.strip_suffix(b"\r").unwrap_or(line));
+            text.push(b'\n');
         }
     }
     text
@@ -160,6 +167,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
 mod tests {
     use super::*;
     use crate::VirtualOid;
+    use bstr::ByteSlice;
 
     fn commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
@@ -262,18 +270,34 @@ mod tests {
         assert_eq!(groups[1].sources.len(), 1);
     }
 
+    /// The template for `group`, built the way `dispatch::autofixup::edit_seed`
+    /// builds it.
+    fn template_for(group: &AutofixupGroup) -> BString {
+        let sources: Vec<(SquashMode, BString)> = group
+            .sources
+            .iter()
+            .map(|pair| (pair.mode, BString::from(pair.source_message.clone())))
+            .collect();
+        edit_template(group.target_message.as_str().into(), &sources)
+    }
+
     #[test]
     fn edit_template_comments_out_every_source() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];
         let pairs = plan_autofixup(&commits);
         let group = &group_by_target(&pairs)[0];
 
-        let template = edit_template(group);
-        assert!(template.starts_with("Add parser\n"));
-        for line in template.lines().skip(1).filter(|l| !l.is_empty()) {
+        let template = template_for(group);
+        assert!(template.starts_with(b"Add parser\n"));
+        for line in template
+            .split(|&b| b == b'\n')
+            .skip(1)
+            .filter(|l| !l.is_empty())
+        {
             assert!(
-                line.starts_with('#'),
-                "expected every non-blank line after the target message to be commented: {line:?}"
+                line.starts_with(b"#"),
+                "expected every non-blank line after the target message to be commented: {:?}",
+                line.as_bstr()
             );
         }
     }
@@ -288,8 +312,8 @@ mod tests {
         let pairs = plan_autofixup(&commits);
         let group = &group_by_target(&pairs)[0];
 
-        let template = edit_template(group);
-        assert_eq!(strip_comment_lines(template.as_bytes()), b"Add parser");
+        let template = template_for(group);
+        assert_eq!(strip_comment_lines(&template), b"Add parser");
     }
 
     #[test]

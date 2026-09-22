@@ -152,7 +152,7 @@ pub enum AppAction {
     /// group identified by `target_summary` (its original, stable identity).
     PrepareAutofixupEditMessage {
         target_summary: String,
-        template: String,
+        group: Box<crate::autofixup::AutofixupGroup>,
     },
     /// Execute a confirmed autofixup batch. `pairs` is the plan shown in the
     /// confirmation dialog, reused after completion to work out where the
