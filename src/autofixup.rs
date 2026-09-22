@@ -281,6 +281,28 @@ mod tests {
         edit_template(group.target_message.as_str().into(), &sources)
     }
 
+    /// A commit message ends in a newline, which is a terminator and not an
+    /// empty last line. Treating it as one puts a bare "# " under every folded
+    /// source in the editor.
+    #[test]
+    fn edit_template_does_not_comment_a_line_past_the_end_of_a_message() {
+        let target = BString::from("Add parser\n");
+        let sources = vec![(SquashMode::Fixup, BString::from("fixup! Add parser\n"))];
+
+        let template = edit_template(target.as_bstr(), &sources);
+
+        assert_eq!(
+            template,
+            concat!(
+                "Add parser\n",
+                "\n",
+                "# The message below is from a fixup! commit being folded in:\n",
+                "# \n",
+                "# fixup! Add parser\n",
+            )
+        );
+    }
+
     #[test]
     fn edit_template_comments_out_every_source() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];
