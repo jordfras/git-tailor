@@ -263,13 +263,16 @@ Guidelines:
   Narrow in practice: it needs two commits in range whose summaries differ only
   in undecodable bytes, and an edited override. The consequence is a message
   written to the wrong commit.
-- [ ] T258 P3 bug - Splitting out a gitlink hunk probably fails.
+- [ ] T258 P3 bug - Splitting out a gitlink hunk fails.
   A submodule pointer change has one hunk ("Subproject commit …"), so the
   split-out-hunks picker offers it. `apply_selected_hunks_to_tree`
   (`src/repo/git2_impl/hunks.rs`) then looks the old side up as a blob, and a
-  gitlink's id names a commit, not a blob. Unverified: reproduce first. Per-file
-  already routes gitlinks through `apply_gitlink_delta_to_tree`; per-hunk and
-  per-hunk-group go through the same blob path and need checking too.
+  gitlink's id names a commit, not a blob. Reproduced for split-out-hunks when
+  the gitlink's hunk stays in the rest: it fails with "the requested type does
+  not match the type in the ODB". Picking the gitlink's hunk, and split per
+  hunk, return without error but their trees are unchecked; per-hunk-group is
+  untested. Per-file writes gitlinks whole through `apply_whole_deltas_to_tree`
+  and is not affected.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

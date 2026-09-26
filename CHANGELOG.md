@@ -78,6 +78,9 @@ The format is based on
 - `--autostash` now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
+- Splitting a commit per file works when it changes a binary file. Unless that
+  file happened to sort last, the split failed with "patch does not contain
+  binary data"
 
 ## [3.1.0] - 2026-09-12
 
