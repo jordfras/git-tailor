@@ -20,7 +20,7 @@
 
 use anyhow::{Context, Result};
 use bstr::{BStr, BString, ByteSlice};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::fragmap::HunkFragment;
 
@@ -209,11 +209,15 @@ pub(super) fn apply_single_hunk_to_tree(
 /// `selected_hunks` maps each delta index to the selections to apply within
 /// that delta.  Files with no selected hunks keep their original content from
 /// `parent_tree`.
+///
+/// Deltas are applied in diff order: a symlink that became a file is a deletion
+/// followed by an addition at the same path, and applying the addition first
+/// would let the deletion remove the file.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree,
     full_diff: &git2::Diff,
-    selected_hunks: &HashMap<usize, Vec<HunkSelection>>,
+    selected_hunks: &BTreeMap<usize, Vec<HunkSelection>>,
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
     idx.read_tree(parent_tree)?;

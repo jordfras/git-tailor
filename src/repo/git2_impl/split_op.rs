@@ -19,7 +19,7 @@
 
 use anyhow::{Context, Result};
 use bstr::{BStr, BString, ByteSlice};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::{Oid, fragmap};
@@ -238,7 +238,7 @@ pub(super) fn split_commit_per_hunk_group(
             let gk = *k_groups
                 .get(out_pos)
                 .expect("only the last piece has no group");
-            let mut selected: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+            let mut selected: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
             for (delta_idx, hunk_assignments) in delta_hunk_assignments.iter().enumerate() {
                 let chosen: Vec<hunks::HunkSelection> = hunk_assignments
                     .iter()
@@ -483,7 +483,7 @@ pub(super) fn split_commit_out_hunks(
     // their hunks, fully applying them) — otherwise such a file would
     // silently revert to its pre-commit state in the "rest" commit instead of
     // keeping its actual (unselected) changes.
-    let mut rest: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+    let mut rest: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
     for (delta_idx, &num_hunks) in hunk_counts.iter().enumerate() {
         let unselected: Vec<hunks::HunkSelection> = (0..num_hunks)
             .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
