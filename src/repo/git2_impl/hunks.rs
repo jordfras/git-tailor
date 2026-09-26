@@ -89,30 +89,29 @@ pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString 
     out
 }
 
-/// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
-/// updated tree OID.
-///
-/// `apply_to_tree` cannot handle gitlink entries because libgit2 treats them
-/// as blobs, causing a crash.  `TreeUpdateBuilder` supports the `0o160000`
-/// commit-mode entry directly and is used here instead.
-pub(super) fn apply_gitlink_delta_to_tree(
+/// Write each delta's new side into `base_tree` whole: its blob or gitlink and
+/// its mode, or its removal. Unlike `apply_to_tree`, this needs no patch text,
+/// so it handles binary files and submodule pointers as readily as text.
+pub(super) fn apply_whole_deltas_to_tree<'d>(
     repo: &git2::Repository,
     base_tree: &git2::Tree<'_>,
-    delta: &git2::DiffDelta<'_>,
+    deltas: impl IntoIterator<Item = git2::DiffDelta<'d>>,
 ) -> Result<git2::Oid> {
-    let path = delta
-        .new_file()
-        .path()
-        .or_else(|| delta.old_file().path())
-        .context("gitlink delta has no path")?
-        .to_owned();
-    let path_str = path.to_str().context("submodule path is not valid UTF-8")?;
-
     let mut builder = git2::build::TreeUpdateBuilder::new();
-    if delta.status() == git2::Delta::Deleted {
-        builder.remove(path_str);
-    } else {
-        builder.upsert(path_str, delta.new_file().id(), git2::FileMode::Commit);
+    for delta in deltas {
+        let old_path = delta.old_file().path();
+        let new_path = delta.new_file().path();
+        if delta.status() == git2::Delta::Deleted {
+            builder.remove(old_path.context("deleted delta has no path")?);
+            continue;
+        }
+        let new_path = new_path.context("delta has no new-side path")?;
+        if let Some(old_path) = old_path
+            && old_path != new_path
+        {
+            builder.remove(old_path);
+        }
+        builder.upsert(new_path, delta.new_file().id(), delta.new_file().mode());
     }
     builder.create_updated(repo, base_tree).map_err(Into::into)
 }

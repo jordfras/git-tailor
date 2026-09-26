@@ -268,8 +268,9 @@ Guidelines:
   split-out-hunks picker offers it. `apply_selected_hunks_to_tree`
   (`src/repo/git2_impl/hunks.rs`) then looks the old side up as a blob, and a
   gitlink's id names a commit, not a blob. Unverified: reproduce first. Per-file
-  already routes gitlinks through `apply_gitlink_delta_to_tree`; per-hunk and
-  per-hunk-group go through the same blob path and need checking too.
+  writes gitlinks whole through `apply_whole_deltas_to_tree` and is not
+  affected; per-hunk and per-hunk-group go through the same blob path and need
+  checking too.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

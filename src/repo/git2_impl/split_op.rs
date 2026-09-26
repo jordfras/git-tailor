@@ -58,36 +58,8 @@ pub(super) fn split_commit_per_file(
             target.commit_tree.id()
         } else {
             let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .expect("delta has a path")
-                .to_path_buf();
-
             let base_tree = repo.inner.find_tree(current_tree_oid)?;
-
-            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
-                || delta.old_file().mode() == git2::FileMode::Commit;
-
-            if is_gitlink {
-                // apply_to_tree cannot process gitlink (submodule pointer) entries
-                // because libgit2 tries to patch them as blobs, causing a crash.
-                hunks::apply_gitlink_delta_to_tree(&repo.inner, &base_tree, &delta)?
-            } else {
-                let mut opts = git2::DiffOptions::new();
-                opts.pathspec(&path);
-                let file_diff = repo.inner.diff_tree_to_tree(
-                    Some(&target.parent_tree),
-                    Some(&target.commit_tree),
-                    Some(&mut opts),
-                )?;
-                let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
-                if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path.display());
-                }
-                new_index.write_tree_to(&repo.inner)?
-            }
+            hunks::apply_whole_deltas_to_tree(&repo.inner, &base_tree, [delta])?
         };
 
         current_base = Some(commit_split_piece(
