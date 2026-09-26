@@ -118,7 +118,12 @@ pub(crate) fn handle_prepare_split_out_hunks(
                         })
                 })
                 .collect();
-            if hunks.len() < 2 {
+            // A change with no hunks cannot be picked, so it stays behind in
+            // the original commit — as good a remainder as a second hunk.
+            let has_hunkless = diff.files.iter().any(|file| file.hunks.is_empty());
+            if hunks.is_empty() {
+                app.set_error_message("Commit has no hunks — nothing to split out");
+            } else if hunks.len() < 2 && !has_hunkless {
                 app.set_error_message("Commit has fewer than 2 hunks — nothing to split out");
             } else {
                 app.enter_split_hunks_select(commit_oid, hunks, context_lines);
