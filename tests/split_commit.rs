@@ -35,3 +35,5 @@ mod per_hunk_group;
 mod rename;
 #[path = "split_commit/root_commit.rs"]
 mod root_commit;
+#[path = "split_commit/type_change.rs"]
+mod type_change;
