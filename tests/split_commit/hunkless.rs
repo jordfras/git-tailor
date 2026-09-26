@@ -244,3 +244,75 @@ fn split_per_hunk_gives_a_mode_only_change_its_own_piece() {
         [vec!["a.txt"], vec!["run.sh +x"]]
     );
 }
+
+/// No fragmap column claims a change without hunks, so no group does either;
+/// together they make one extra piece after the groups.
+#[test]
+fn split_per_hunk_group_puts_hunkless_changes_in_one_extra_piece() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("b.txt", "b1\n"), ("bin.dat", "\0old\0")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "a2\n"),
+            ("b.txt", "b2\n"),
+            ("bin.dat", "\0new\0"),
+            ("empty.txt", ""),
+        ],
+        "change",
+    );
+    // Touching b.txt again sets its hunk apart from a.txt's: two groups.
+    test.commit_file("b.txt", "b3\n", "later");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+            .unwrap(),
+        3
+    );
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [
+            vec!["a.txt"],
+            vec!["b.txt"],
+            vec!["bin.dat", "empty.txt"],
+            vec!["b.txt"]
+        ]
+    );
+}
+
+/// One group beside a hunkless change is still two pieces.
+#[test]
+fn split_per_hunk_group_splits_one_group_from_a_mode_only_change() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "a1\n"), ("run.sh", "run\n")], "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    make_executable(&test, "run.sh");
+    let to_split = test.commit("change");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    assert_eq!(
+        git_repo
+            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+            .unwrap(),
+        2
+    );
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["a.txt"], vec!["run.sh +x"]]
+    );
+}
