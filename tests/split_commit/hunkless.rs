@@ -316,3 +316,91 @@ fn split_per_hunk_group_splits_one_group_from_a_mode_only_change() {
         [vec!["a.txt"], vec!["run.sh +x"]]
     );
 }
+
+/// Commit a change to `a.txt`, `run.sh` and `z.txt` that also makes `run.sh`
+/// executable, and return (base, the commit).
+fn commit_text_and_mode_change(test: &common::TestRepo) -> (git2::Oid, git2::Oid) {
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("run.sh", "run1\n"), ("z.txt", "z1\n")],
+        "base",
+    );
+    for (path, content) in [("a.txt", "a2\n"), ("run.sh", "run2\n"), ("z.txt", "z2\n")] {
+        test.write_file(path, content);
+        test.stage_file(path);
+    }
+    make_executable(test, "run.sh");
+    (base, test.commit("change"))
+}
+
+#[test]
+fn split_per_hunk_keeps_a_mode_change_with_the_files_first_hunk() {
+    let test = common::TestRepo::new();
+    let (base, to_split) = commit_text_and_mode_change(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_per_hunk(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["a.txt"], vec!["run.sh", "run.sh +x"], vec!["z.txt"]]
+    );
+}
+
+#[test]
+fn split_per_hunk_group_keeps_a_mode_change_with_the_files_first_hunk() {
+    let test = common::TestRepo::new();
+    let (base, to_split) = commit_text_and_mode_change(&test);
+    // Touching z.txt again sets its hunk apart: two groups.
+    test.commit_file("z.txt", "z3\n", "later");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [
+            vec!["a.txt", "run.sh", "run.sh +x"],
+            vec!["z.txt"],
+            vec!["z.txt"]
+        ]
+    );
+}
+
+#[test]
+fn split_out_hunks_keeps_a_mode_change_with_the_files_unpicked_hunks() {
+    let test = common::TestRepo::new();
+    let (base, to_split) = commit_text_and_mode_change(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &Oid::from(to_split), 0)
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["run.sh", "run.sh +x", "z.txt"], vec!["a.txt"]]
+    );
+}
+
+/// With every hunk of the file picked, nothing of it is left to keep the mode
+/// change company, so it goes along.
+#[test]
+fn split_out_hunks_takes_a_mode_change_along_with_all_of_the_files_hunks() {
+    let test = common::TestRepo::new();
+    let (base, to_split) = commit_text_and_mode_change(&test);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_hunks(&Oid::from(to_split), &[(1, 0)], &Oid::from(to_split), 0)
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["a.txt", "z.txt"], vec!["run.sh", "run.sh +x"]]
+    );
+}
