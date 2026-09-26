@@ -99,6 +99,9 @@ The format is based on
   now goes with the first piece that changes the file — in "Split out hunk(s)",
   with the file's hunks you leave behind. It used to land in whatever piece
   came last
+- Splitting out hunks, or splitting per hunk group, no longer sometimes drops a
+  file that replaced a symlink from the piece that should contain it, only for
+  a later piece to add it back. Whether it happened varied from run to run
 
 ## [3.1.0] - 2026-09-12
 
