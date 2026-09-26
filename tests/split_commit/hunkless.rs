@@ -77,3 +77,76 @@ fn split_per_file_handles_a_binary_file_that_is_not_last() {
     );
     assert_eq!(test.head_tree_id(), test.tree_id(to_split));
 }
+
+/// Stage `path` as executable. Git records the mode on every platform; on Unix
+/// the file on disk has to agree too, or the split's dirty-overlap check sees
+/// the working tree disagreeing with the commit.
+fn make_executable(test: &common::TestRepo, path: &str) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let full = test.repo.workdir().unwrap().join(path);
+        std::fs::set_permissions(full, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut index = test.repo.index().unwrap();
+    index.read(true).unwrap();
+    let mut entry = index.get_path(std::path::Path::new(path), 0).unwrap();
+    entry.mode = 0o100755;
+    index.add(&entry).unwrap();
+    index.write().unwrap();
+}
+
+#[test]
+fn split_out_hunks_keeps_binary_and_empty_file_changes_in_the_remainder() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("b.txt", "b1\n"), ("bin.dat", "\0old\0")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "a2\n"),
+            ("b.txt", "b2\n"),
+            ("bin.dat", "\0new\0"),
+            ("empty.txt", ""),
+        ],
+        "change",
+    );
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &Oid::from(to_split), 0)
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["b.txt", "bin.dat", "empty.txt"], vec!["a.txt"]]
+    );
+    assert_eq!(test.head_tree_id(), test.tree_id(to_split));
+}
+
+#[test]
+fn split_out_hunks_keeps_a_mode_only_change_in_the_remainder() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("b.txt", "b1\n"), ("run.sh", "run\n")],
+        "base",
+    );
+    test.write_file("a.txt", "a2\n");
+    test.write_file("b.txt", "b2\n");
+    test.stage_file("a.txt");
+    test.stage_file("b.txt");
+    make_executable(&test, "run.sh");
+    let to_split = test.commit("change");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_hunks(&Oid::from(to_split), &[(0, 0)], &Oid::from(to_split), 0)
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["b.txt", "run.sh +x"], vec!["a.txt"]]
+    );
+    assert_eq!(test.head_tree_id(), test.tree_id(to_split));
+}
