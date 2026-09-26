@@ -17,7 +17,7 @@ pub mod git2_impl;
 pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
-use bstr::BString;
+use bstr::{BStr, BString};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -674,7 +674,7 @@ pub trait RepoWrite {
     ///
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
-    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &[u8], head_oid: &Oid)
+    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &BStr, head_oid: &Oid)
     -> Result<()>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
@@ -824,7 +824,7 @@ pub trait RepoWrite {
     /// operation whose undo is a soft reset (the committed changes reappear as
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
-    fn commit_staged(&mut self, message: &[u8]) -> Result<CommitOutcome>;
+    fn commit_staged(&mut self, message: &BStr) -> Result<CommitOutcome>;
 
     /// Lift the staged or unstaged working-tree changes into a temporary commit
     /// on top of HEAD, so the squash machinery can take them as its source.
@@ -921,7 +921,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &[u8],
+        message: &BStr,
         head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
@@ -939,7 +939,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &[u8],
+        combined_message: &BStr,
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<ConflictState>>;
@@ -958,7 +958,7 @@ pub trait RepoWrite {
     fn squash_finalize(
         &mut self,
         ctx: &SquashContext,
-        message: &[u8],
+        message: &BStr,
         original_branch_oid: &Oid,
         autofixup_context: Option<&AutofixupContext>,
     ) -> Result<RebaseOutcome>;

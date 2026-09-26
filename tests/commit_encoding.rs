@@ -25,6 +25,7 @@
 #[allow(dead_code)]
 mod common;
 
+use bstr::ByteSlice;
 use common::TestRepo;
 use common::prelude::*;
 
@@ -267,7 +268,7 @@ fn a_fixup_keeps_the_targets_non_utf8_message() {
             .squash_commits(
                 &Oid::from(source),
                 &Oid::from(target),
-                &target_message,
+                target_message.as_bstr(),
                 &Oid::from(source),
             )
             .unwrap()
@@ -332,7 +333,7 @@ fn rewording_to_utf8_drops_the_stale_encoding_header() {
     git_repo
         .reword_commit(
             &Oid::from(to_reword),
-            "plain ascii now\n".as_bytes(),
+            "plain ascii now\n".into(),
             &Oid::from(to_reword),
         )
         .unwrap();
@@ -375,7 +376,7 @@ fn a_fixup_keeps_the_targets_encoding_header_even_when_it_reads_as_utf8() {
             .squash_commits(
                 &Oid::from(source),
                 &Oid::from(target),
-                &target_message,
+                target_message.as_bstr(),
                 &Oid::from(source),
             )
             .unwrap()
@@ -401,7 +402,11 @@ fn rewording_within_latin1_keeps_the_encoding_header() {
     let edited: &[u8] = b"Ny rubrik f\xf6r \xe5\xe4\xf6\n";
     let mut git_repo = test.git_repo();
     git_repo
-        .reword_commit(&Oid::from(to_reword), edited, &Oid::from(to_reword))
+        .reword_commit(
+            &Oid::from(to_reword),
+            edited.as_bstr(),
+            &Oid::from(to_reword),
+        )
         .unwrap();
 
     let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());

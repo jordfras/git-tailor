@@ -17,6 +17,7 @@
 #[allow(dead_code)]
 mod common;
 
+use bstr::ByteSlice;
 use common::prelude::*;
 use git_tailor::repo::UndoOutcome;
 
@@ -193,7 +194,7 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     let outcome = git_repo
         .squash_finalize(
             ctx,
-            &ctx.combined_message,
+            ctx.combined_message.as_bstr(),
             &state.original_branch_oid,
             state.autofixup_context.as_ref(),
         )
@@ -357,7 +358,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     let outcome = git_repo
         .squash_finalize(
             squash_ctx,
-            &squash_ctx.combined_message,
+            squash_ctx.combined_message.as_bstr(),
             &state.original_branch_oid,
             state.autofixup_context.as_ref(),
         )

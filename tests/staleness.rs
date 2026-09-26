@@ -74,7 +74,7 @@ fn a_squash_refuses_when_the_branch_moved_underneath_it() {
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(target),
-        b"squashed",
+        "squashed".into(),
         &stale_head,
     );
 
@@ -199,7 +199,7 @@ fn finalizing_a_squash_refuses_after_head_moved_to_another_branch() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined",
+            "combined".into(),
             SquashMode::Squash,
             &head,
         )
@@ -235,8 +235,12 @@ fn finalizing_a_squash_refuses_after_head_moved_to_another_branch() {
         .target();
     test.repo.set_head("refs/heads/side").unwrap();
 
-    let result =
-        git_repo.squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None);
+    let result = git_repo.squash_finalize(
+        &ctx,
+        "resolved squash".into(),
+        &state.original_branch_oid,
+        None,
+    );
 
     assert!(result.is_err(), "must be refused: {result:?}");
     let side_after = test

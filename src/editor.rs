@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::repo::RepoRead;
-use bstr::BString;
+use bstr::{BStr, BString};
 
 use anyhow::Context as _;
 
@@ -88,7 +88,7 @@ fn launch_editor(repo: &impl RepoRead, path: &std::path::Path) -> anyhow::Result
 /// bytes, and a commit message git-tailor cannot read is still the user's. Text
 /// here would mean seeding the editor with a lossy rendering and writing the
 /// replacement characters back as the message.
-pub fn edit_message_in_editor(repo: &impl RepoRead, message: &[u8]) -> anyhow::Result<BString> {
+pub fn edit_message_in_editor(repo: &impl RepoRead, message: &BStr) -> anyhow::Result<BString> {
     use std::io::Write as _;
 
     let mut tmpfile =

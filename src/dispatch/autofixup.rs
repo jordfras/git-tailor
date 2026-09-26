@@ -128,10 +128,11 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
         _ => None,
     };
     let template = edit_seed(git_repo, group, edited.as_ref().map(|m| m.as_bstr()));
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &template);
+    let editor_result =
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bstr());
     match editor_result {
         Ok(edited) => {
-            let message = git_tailor::autofixup::strip_comment_lines(&edited);
+            let message = git_tailor::autofixup::strip_comment_lines(edited.as_bstr());
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
                     pending.message_overrides.remove(&target_summary);

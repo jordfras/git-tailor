@@ -28,7 +28,7 @@ mod undo;
 mod tests;
 
 use anyhow::Result;
-use bstr::BString;
+use bstr::{BStr, BString};
 use git_tailor::app::{AppAction, AppState};
 use git_tailor::editor;
 use git_tailor::repo::{
@@ -430,7 +430,7 @@ pub(crate) fn settle_autostash_after_failure(
 /// Whether an edited commit message is empty once ASCII whitespace is
 /// trimmed from both ends — the signal to cancel the operation rather than
 /// write a message nobody typed.
-pub(crate) fn is_blank_message(message: &[u8]) -> bool {
+pub(crate) fn is_blank_message(message: &BStr) -> bool {
     message.trim_ascii().is_empty()
 }
 
@@ -442,7 +442,7 @@ pub(crate) fn edit_message_suspended(
     git_repo: &mut impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
-    seed: &[u8],
+    seed: &BStr,
 ) -> Result<BString> {
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {

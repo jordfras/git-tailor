@@ -185,7 +185,7 @@ fn squashing_into_the_graft_boundary_is_refused() {
     let result = git_repo.squash_commits(
         &Oid::from(source),
         &Oid::from(s.boundary),
-        b"squashed",
+        "squashed".into(),
         &Oid::from(s.head),
     );
 

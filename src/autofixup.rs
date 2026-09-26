@@ -74,10 +74,12 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
 const COMMENT_PREFIX: &str = "# ";
 
 /// The message without its trailing newlines, which the template supplies.
-fn trim_trailing_newlines(message: &BStr) -> &[u8] {
-    let bytes: &[u8] = message.as_ref();
-    let end = bytes.iter().rposition(|&b| b != b'\n').map_or(0, |i| i + 1);
-    &bytes[..end]
+fn trim_trailing_newlines(message: &BStr) -> &BStr {
+    let end = message
+        .iter()
+        .rposition(|&b| b != b'\n')
+        .map_or(0, |i| i + 1);
+    &message[..end]
 }
 
 /// Build the text shown in `$EDITOR` when the user edits a target group's
@@ -111,7 +113,7 @@ pub fn edit_template(target_message: &BStr, sources: &[(SquashMode, BString)]) -
 /// Strip `#`-prefixed comment lines and trim surrounding blank lines — mirrors
 /// git's own `commit.cleanup=strip` handling of the combination template
 /// above, so leaving the commented-out sources untouched discards them.
-pub fn strip_comment_lines(text: &[u8]) -> BString {
+pub fn strip_comment_lines(text: &BStr) -> BString {
     // Bytes throughout: a commit message is bytes to git, and the editor hands
     // back whatever the user typed. Decoding to `String` first would replace
     // anything that is not UTF-8 with U+FFFD — silently rewriting their text.
@@ -335,7 +337,7 @@ mod tests {
         let group = &group_by_target(&pairs)[0];
 
         let template = template_for(group);
-        assert_eq!(strip_comment_lines(&template), b"Add parser");
+        assert_eq!(strip_comment_lines(template.as_bstr()), b"Add parser");
     }
 
     #[test]
@@ -345,14 +347,14 @@ mod tests {
         // edit should clear any existing override rather than store a blank
         // message.
         let text = "# Add parser\n# fixup! Add parser";
-        assert_eq!(strip_comment_lines(text.as_bytes()), b"");
+        assert_eq!(strip_comment_lines(text.into()), b"");
     }
 
     #[test]
     fn strip_comment_lines_keeps_uncommented_additions() {
         let text = "Add parser\n\n# comment\nExtra detail the user typed\n# more comment";
         assert_eq!(
-            strip_comment_lines(text.as_bytes()),
+            strip_comment_lines(text.into()),
             b"Add parser\n\nExtra detail the user typed"
         );
     }
@@ -365,7 +367,7 @@ mod tests {
         // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
         let text: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n# a comment\n";
         assert_eq!(
-            strip_comment_lines(text),
+            strip_comment_lines(text.as_bstr()),
             b"Fix f\xf6r \xe5\xe4\xf6 handling".to_vec()
         );
     }
@@ -373,6 +375,6 @@ mod tests {
     #[test]
     fn strip_comment_lines_preserves_internal_blank_lines_in_a_multi_paragraph_message() {
         let text = "Summary\n\nBody paragraph one.\n\nBody paragraph two.";
-        assert_eq!(strip_comment_lines(text.as_bytes()), text.as_bytes());
+        assert_eq!(strip_comment_lines(text.into()), text.as_bytes());
     }
 }

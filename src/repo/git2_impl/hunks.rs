@@ -73,7 +73,6 @@ pub(super) fn split_message(original: &BStr, n: usize, total: usize) -> BString 
 /// The suffix is bytes because it usually names a file, and a name git-tailor
 /// cannot decode has no text to append.
 pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString {
-    let original: &[u8] = original.as_ref();
     let (first, rest) = match original.find_byte(b'\n') {
         Some(i) => (&original[..i], &original[i + 1..]),
         None => (original, &original[..0]),

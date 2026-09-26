@@ -30,7 +30,11 @@ fn reword_head_commit_changes_message() {
 
     let mut git_repo = test.git_repo();
     git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &Oid::from(to_reword))
+        .reword_commit(
+            &Oid::from(to_reword),
+            "new message".into(),
+            &Oid::from(to_reword),
+        )
         .unwrap();
 
     let head_oid = test.repo.head().unwrap().target().unwrap();
@@ -49,7 +53,7 @@ fn reword_middle_commit_propagates_to_descendants() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &head_oid)
+        .reword_commit(&Oid::from(to_reword), "new message".into(), &head_oid)
         .unwrap();
 
     let new_head_oid = test.repo.head().unwrap().target().unwrap();
@@ -79,7 +83,11 @@ fn reword_preserves_staged_changes() {
 
     let mut git_repo = test.git_repo();
     git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &Oid::from(to_reword))
+        .reword_commit(
+            &Oid::from(to_reword),
+            "new message".into(),
+            &Oid::from(to_reword),
+        )
         .unwrap();
 
     // Staged file must still be present in the index
@@ -110,7 +118,11 @@ fn reword_preserves_unstaged_changes() {
 
     let mut git_repo = test.git_repo();
     git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &Oid::from(to_reword))
+        .reword_commit(
+            &Oid::from(to_reword),
+            "new message".into(),
+            &Oid::from(to_reword),
+        )
         .unwrap();
 
     assert_eq!(
@@ -138,7 +150,7 @@ fn reword_preserves_descendant_trees() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &head_oid)
+        .reword_commit(&Oid::from(to_reword), "new message".into(), &head_oid)
         .unwrap();
 
     assert_eq!(
@@ -180,7 +192,7 @@ fn reword_rejects_a_merge_commit_in_the_replay_range() {
     let head_before = head_oid.clone();
 
     let err = git_repo
-        .reword_commit(&Oid::from(to_reword), b"new message", &head_oid)
+        .reword_commit(&Oid::from(to_reword), "new message".into(), &head_oid)
         .expect_err("a merge in the replay range must be refused");
     let msg = err.to_string();
 

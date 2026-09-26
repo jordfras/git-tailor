@@ -80,19 +80,22 @@ pub(crate) fn handle_prepare_reword(
             return Ok(LoopAction::Proceed);
         }
     };
-    let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &seed);
+    let editor_result =
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, seed.as_bstr());
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),
-        Ok(new_message) if is_blank_message(&new_message) => {
+        Ok(new_message) if is_blank_message(new_message.as_bstr()) => {
             app.set_success_message("Reword canceled: message is empty");
         }
         Ok(new_message) if new_message == seed => {
             app.set_success_message("No changes made");
         }
-        Ok(new_message) => match git_repo.reword_commit(&commit_oid, &new_message, &head_oid) {
-            Ok(()) => return Ok(LoopAction::ReloadPreserving),
-            Err(e) => app.set_error_message(format!("Reword failed: {e:#}")),
-        },
+        Ok(new_message) => {
+            match git_repo.reword_commit(&commit_oid, new_message.as_bstr(), &head_oid) {
+                Ok(()) => return Ok(LoopAction::ReloadPreserving),
+                Err(e) => app.set_error_message(format!("Reword failed: {e:#}")),
+            }
+        }
     }
     Ok(LoopAction::Proceed)
 }
@@ -152,7 +155,7 @@ pub(crate) fn handle_prepare_squash(
     match git_repo.squash_try_combine(
         &source_oid,
         &target_oid,
-        &message_for_context,
+        message_for_context.as_bstr(),
         squash_mode,
         &head_oid,
     ) {
@@ -177,7 +180,7 @@ pub(crate) fn handle_prepare_squash(
         target_bytes
     } else {
         let editor_result =
-            edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
+            edit_message_suspended(git_repo, terminal_guard, kb_enhanced, combined.as_bstr());
         match editor_result {
             Err(e) => {
                 return Ok(prepared.unwind(
@@ -187,7 +190,7 @@ pub(crate) fn handle_prepare_squash(
                     LoopAction::Continue,
                 ));
             }
-            Ok(msg) if is_blank_message(&msg) => {
+            Ok(msg) if is_blank_message(msg.as_bstr()) => {
                 return Ok(prepared.unwind(
                     git_repo,
                     app,
@@ -199,7 +202,8 @@ pub(crate) fn handle_prepare_squash(
         }
     };
     let success_msg = squash_success_message(&source, squash_mode);
-    let outcome = git_repo.squash_commits(&source_oid, &target_oid, &final_message, &head_oid);
+    let outcome =
+        git_repo.squash_commits(&source_oid, &target_oid, final_message.as_bstr(), &head_oid);
     if let Err(e) = outcome {
         return Ok(prepared.unwind(
             git_repo,

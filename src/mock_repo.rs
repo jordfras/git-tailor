@@ -18,6 +18,7 @@
 //! `unimplemented!()` so a new caller shows up as a panic rather than as a
 //! silently plausible default.
 
+use bstr::BStr;
 use git_tailor::Oid;
 use git_tailor::app::SquashMode;
 use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
@@ -375,7 +376,7 @@ impl RepoWrite for MockRepo {
     fn unstage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
-    fn commit_staged(&mut self, _: &[u8]) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
+    fn commit_staged(&mut self, _: &BStr) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
         if self.stage_ok {
             Ok(if self.stage_changed {
                 git_tailor::repo::CommitOutcome::Committed
@@ -473,7 +474,7 @@ impl RepoWrite for MockRepo {
     ) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn reword_commit(&mut self, _: &Oid, _: &[u8], _: &Oid) -> anyhow::Result<()> {
+    fn reword_commit(&mut self, _: &Oid, _: &BStr, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
@@ -486,7 +487,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &[u8],
+        _: &BStr,
         _: &Oid,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
@@ -495,7 +496,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        message: &[u8],
+        message: &BStr,
         _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
@@ -513,7 +514,7 @@ impl RepoWrite for MockRepo {
     fn squash_finalize(
         &mut self,
         _: &SquashContext,
-        _: &[u8],
+        _: &BStr,
         _: &Oid,
         _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {

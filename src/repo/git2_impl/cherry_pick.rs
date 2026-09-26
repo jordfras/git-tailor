@@ -17,6 +17,7 @@
 //! split and reword, which replay onto an identical tree and so cannot.
 
 use anyhow::Result;
+use bstr::ByteSlice;
 
 use super::super::{ConflictState, RebaseOutcome, Resume};
 use super::Git2Repo;
@@ -53,7 +54,7 @@ impl Git2Repo {
         let picked = self.commit_preserving_message(
             &desc.author(),
             &desc.committer(),
-            desc.message_bytes(),
+            desc.message_bytes().as_bstr(),
             desc.message_encoding().ok().flatten(),
             &new_tree,
             &[onto],
@@ -359,7 +360,7 @@ pub(super) fn replace_root_and_replay(
         repo.commit_preserving_message(
             &first_commit.author(),
             &first_commit.committer(),
-            first_commit.message_bytes(),
+            first_commit.message_bytes().as_bstr(),
             first_commit.message_encoding().ok().flatten(),
             &new_tree,
             &[],

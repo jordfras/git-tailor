@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
-use bstr::BString;
+use bstr::{BStr, BString};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -485,7 +485,7 @@ impl RepoWrite for Git2Repo {
     fn reword_commit(
         &mut self,
         commit_oid: &Oid,
-        new_message: &[u8],
+        new_message: &BStr,
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -606,7 +606,7 @@ impl RepoWrite for Git2Repo {
         self.journaled_index_op("Unstage all", stage_op::unstage_all)
     }
 
-    fn commit_staged(&mut self, message: &[u8]) -> Result<super::CommitOutcome> {
+    fn commit_staged(&mut self, message: &BStr) -> Result<super::CommitOutcome> {
         let before = reads::head_oid(self)?;
         match commit_staged_op::commit_staged(self, message)? {
             None => Ok(super::CommitOutcome::NothingStaged),
@@ -667,7 +667,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &[u8],
+        message: &BStr,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -690,7 +690,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &[u8],
+        combined_message: &BStr,
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
@@ -714,7 +714,7 @@ impl RepoWrite for Git2Repo {
     fn squash_finalize(
         &mut self,
         ctx: &super::SquashContext,
-        message: &[u8],
+        message: &BStr,
         original_branch_oid: &Oid,
         autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {
@@ -1147,7 +1147,7 @@ impl Git2Repo {
         &self,
         author: &git2::Signature<'_>,
         committer: &git2::Signature<'_>,
-        message: &[u8],
+        message: &BStr,
         encoding: Option<&str>,
         tree: &git2::Tree<'_>,
         parents: &[&git2::Commit<'_>],

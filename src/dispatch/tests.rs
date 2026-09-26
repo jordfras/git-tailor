@@ -1282,7 +1282,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         .squash_try_combine(
             prepared.source_oid(),
             &Oid::from("b".repeat(40)),
-            b"the target commit",
+            "the target commit".into(),
             SquashMode::Fixup,
             prepared.head_oid(),
         )
@@ -1308,7 +1308,7 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
         .squash_try_combine(
             &Oid::from("b".repeat(40)),
             &Oid::from("c".repeat(40)),
-            b"the target commit",
+            "the target commit".into(),
             SquashMode::Fixup,
             &Oid::from("a".repeat(40)),
         )

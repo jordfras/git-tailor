@@ -16,6 +16,7 @@
 //! reordered chain onto the appropriate base.
 
 use anyhow::{Context, Result};
+use bstr::ByteSlice;
 
 use super::super::RebaseOutcome;
 use super::Git2Repo;
@@ -134,7 +135,7 @@ fn plan_move_to_root(
     let new_root_oid = repo.commit_preserving_message(
         &commit.author(),
         &commit.committer(),
-        commit.message_bytes(),
+        commit.message_bytes().as_bstr(),
         commit.message_encoding().ok().flatten(),
         &new_tree,
         &[], // no parents — this becomes the new root

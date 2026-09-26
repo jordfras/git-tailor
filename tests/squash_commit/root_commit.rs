@@ -29,7 +29,7 @@ fn squash_into_root_commit() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            b"squashed message",
+            "squashed message".into(),
             &Oid::from(source),
         )
         .unwrap();
@@ -74,7 +74,7 @@ fn fixup_into_root_commit() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            b"root commit", // fixup: caller passes only the target message
+            "root commit".into(), // fixup: caller passes only the target message
             &Oid::from(source),
         )
         .unwrap();
@@ -106,7 +106,7 @@ fn squash_into_root_with_descendants() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(root),
-            b"squashed",
+            "squashed".into(),
             &Oid::from(source),
         )
         .unwrap();

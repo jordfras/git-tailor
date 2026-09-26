@@ -15,6 +15,7 @@
 //! Reword a commit's message by rewriting it and replaying its descendants.
 
 use anyhow::Result;
+use bstr::BStr;
 
 use super::Git2Repo;
 use crate::Oid;
@@ -22,7 +23,7 @@ use crate::Oid;
 pub(super) fn reword_commit(
     repo: &mut Git2Repo,
     commit_oid: &Oid,
-    new_message: &[u8],
+    new_message: &BStr,
     head_oid: &Oid,
 ) -> Result<()> {
     let commit_git_oid = git2::Oid::from(commit_oid);
@@ -68,7 +69,7 @@ pub(super) fn reword_commit(
 /// since that is the only description of those bytes anyone has.
 pub(super) fn encoding_for<'c>(
     original: &'c git2::Commit<'_>,
-    new_message: &[u8],
+    new_message: &BStr,
 ) -> Option<&'c str> {
     if new_message == original.message_bytes() || std::str::from_utf8(new_message).is_err() {
         original.message_encoding().ok().flatten()

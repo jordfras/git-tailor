@@ -19,6 +19,7 @@
 #[allow(dead_code)]
 mod common;
 
+use bstr::ByteSlice;
 use common::prelude::*;
 use git_tailor::repo::{CommitOutcome, UndoOutcome};
 
@@ -65,7 +66,7 @@ fn commit_staged_creates_a_commit_from_the_index() {
     };
 
     assert_eq!(
-        git_repo.commit_staged(b"add a change\n").unwrap(),
+        git_repo.commit_staged("add a change\n".into()).unwrap(),
         CommitOutcome::Committed
     );
 
@@ -90,7 +91,7 @@ fn commit_staged_keeps_a_non_utf8_message() {
     let mut git_repo = test.git_repo();
 
     assert_eq!(
-        git_repo.commit_staged(LATIN1_MESSAGE).unwrap(),
+        git_repo.commit_staged(LATIN1_MESSAGE.as_bstr()).unwrap(),
         CommitOutcome::Committed
     );
 
@@ -111,7 +112,7 @@ fn commit_staged_with_nothing_staged_is_a_noop() {
     let head = head_commit(&test).id();
 
     assert_eq!(
-        git_repo.commit_staged(b"nope\n").unwrap(),
+        git_repo.commit_staged("nope\n".into()).unwrap(),
         CommitOutcome::NothingStaged
     );
     assert_eq!(head_commit(&test).id(), head, "HEAD must not move");
@@ -123,7 +124,7 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
     let test = repo_with_staged_and_unstaged();
     let mut git_repo = test.git_repo();
     let parent = head_commit(&test).id();
-    git_repo.commit_staged(b"add a change\n").unwrap();
+    git_repo.commit_staged("add a change\n".into()).unwrap();
     let committed = head_commit(&test).id();
 
     // Undo soft-resets to the parent: the committed change is staged again and
@@ -148,7 +149,7 @@ fn undo_commit_is_a_soft_reset_and_redo_recommits() {
 fn undo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
     let mut git_repo = test.git_repo();
-    git_repo.commit_staged(b"add a change\n").unwrap();
+    git_repo.commit_staged("add a change\n".into()).unwrap();
 
     // Another commit lands outside git-tailor.
     test.commit_file("c.txt", "c\n", "external commit");
@@ -161,7 +162,7 @@ fn undo_commit_is_stale_when_head_moved_externally() {
 fn redo_commit_is_stale_when_head_moved_externally() {
     let test = repo_with_staged_and_unstaged();
     let mut git_repo = test.git_repo();
-    git_repo.commit_staged(b"add a change\n").unwrap();
+    git_repo.commit_staged("add a change\n".into()).unwrap();
     git_repo.undo().unwrap(); // commit now sits on the redo stack, HEAD at parent
 
     // HEAD moves outside git-tailor, so the redo target no longer matches.
@@ -178,7 +179,7 @@ fn commit_staged_errors_on_conflicted_index() {
     let mut git_repo = test.git_repo();
 
     assert!(
-        git_repo.commit_staged(b"x\n").is_err(),
+        git_repo.commit_staged("x\n".into()).is_err(),
         "committing must refuse a conflicted index"
     );
 }

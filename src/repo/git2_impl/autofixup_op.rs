@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use bstr::{BString, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
 
 use super::super::{AutofixupContext, ConflictState, RebaseOutcome, RepoRead};
 use super::Git2Repo;
@@ -73,7 +73,7 @@ pub(super) fn continue_autofixup(
 pub(super) fn continue_autofixup_after_squash_finalize(
     repo: &mut Git2Repo,
     squash_ctx: &super::super::SquashContext,
-    message: &[u8],
+    message: &BStr,
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
@@ -133,7 +133,7 @@ fn run_batch(
             repo,
             &pair.source_oid,
             &pair.target_oid,
-            &message,
+            message.as_bstr(),
             &current_tip,
         )? {
             RebaseOutcome::Complete => {
