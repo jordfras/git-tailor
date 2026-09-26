@@ -470,8 +470,24 @@ pub(super) fn split_commit_out_hunks(
         rest.insert(delta_idx, unselected);
     }
 
-    let rest_tree_oid =
+    let rest_hunks_tree_oid =
         hunks::apply_selected_hunks_to_tree(&repo.inner, &target.parent_tree, &full_diff, &rest)?;
+    // Nobody can pick a change that has no hunks, so it stays with the rest.
+    let hunkless = hunk_counts
+        .iter()
+        .enumerate()
+        .filter(|&(_, &num_hunks)| num_hunks == 0)
+        .map(|(delta_idx, _)| {
+            full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let rest_tree_oid = hunks::apply_whole_deltas_to_tree(
+        &repo.inner,
+        &repo.inner.find_tree(rest_hunks_tree_oid)?,
+        hunkless,
+    )?;
 
     // Two-tree trick: since `rest_tree_oid` already excludes the selected
     // hunks, replaying the full original tree back in on top represents

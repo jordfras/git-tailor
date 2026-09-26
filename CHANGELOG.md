@@ -81,6 +81,9 @@ The format is based on
 - Splitting a commit per file works when it changes a binary file. Unless that
   file happened to sort last, the split failed with "patch does not contain
   binary data"
+- "Split out hunk(s)" leaves a binary file, an empty file or a mode change in
+  the original commit. None of them has a hunk to pick, yet they were carried
+  into the split-out commit along with the hunks you did pick
 
 ## [3.1.0] - 2026-09-12
 
