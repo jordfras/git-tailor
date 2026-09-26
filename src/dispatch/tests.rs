@@ -286,8 +286,8 @@ fn prepare_split_out_hunks_flattens_diff_into_picker_entries() {
     }
 }
 
-/// A commit with fewer than 2 hunks total refuses to open the picker — an
-/// empty or single-hunk "rest" split is meaningless.
+/// A single hunk with nothing beside it refuses to open the picker: picking
+/// it would leave nothing in the original commit.
 #[test]
 fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let mut diff = three_hunk_commit_diff();

@@ -86,6 +86,9 @@ The format is based on
   into the split-out commit along with the hunks you did pick
 - "Split out hunk(s)" lets you pick every hunk when such a change would remain
   in the original commit. It refused, saying nothing would remain
+- "Split out hunk(s)" opens for a commit with a single hunk when it also
+  changes a binary file, an empty file or a mode. It refused, saying the commit
+  had fewer than 2 hunks
 
 ## [3.1.0] - 2026-09-12
 
