@@ -150,3 +150,33 @@ fn split_out_hunks_keeps_a_mode_only_change_in_the_remainder() {
     );
     assert_eq!(test.head_tree_id(), test.tree_id(to_split));
 }
+
+/// Picking every hunk still leaves the hunkless changes behind, so there is a
+/// remainder to keep and the split is not empty.
+#[test]
+fn split_out_hunks_allows_picking_every_hunk_when_a_hunkless_change_remains() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("b.txt", "b1\n"), ("bin.dat", "\0old\0")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[("a.txt", "a2\n"), ("b.txt", "b2\n"), ("bin.dat", "\0new\0")],
+        "change",
+    );
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_hunks(
+            &Oid::from(to_split),
+            &[(0, 0), (1, 0)],
+            &Oid::from(to_split),
+            0,
+        )
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["bin.dat"], vec!["a.txt", "b.txt"]]
+    );
+}
