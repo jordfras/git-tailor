@@ -103,7 +103,9 @@ pub(super) fn split_commit_per_hunk(
     )?;
 
     let hunk_count = count_hunks(&full_diff)?;
-    if hunk_count < 2 {
+    let hunkless = hunkless_deltas(&full_diff)?;
+    let piece_count = hunk_count + hunkless.len();
+    if piece_count < 2 {
         anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
     }
 
@@ -114,12 +116,21 @@ pub(super) fn split_commit_per_hunk(
     // apply exactly its first hunk directly to the blob — bypassing
     // apply_to_tree to avoid libgit2 validating rejected hunks against the
     // modified output buffer (which shifts line positions and causes "hunk
-    // did not apply").
+    // did not apply"). Changes with no hunk follow, one piece each.
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
-    for target_k in 0..hunk_count {
-        let next_tree_oid = if target_k == hunk_count - 1 {
+    for target_k in 0..piece_count {
+        let next_tree_oid = if target_k == piece_count - 1 {
             target.commit_tree.id()
+        } else if let Some(&delta_idx) = target_k
+            .checked_sub(hunk_count)
+            .and_then(|i| hunkless.get(i))
+        {
+            let current_tree = repo.inner.find_tree(current_tree_oid)?;
+            let delta = full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")?;
+            hunks::apply_whole_deltas_to_tree(&repo.inner, &current_tree, [delta])?
         } else {
             let current_tree = repo.inner.find_tree(current_tree_oid)?;
             let mut diff_opts = zero_context_diff_opts();
@@ -138,7 +149,7 @@ pub(super) fn split_commit_per_hunk(
             next_tree_oid,
             current_base,
             target_k + 1,
-            hunk_count,
+            piece_count,
         )?);
         current_tree_oid = next_tree_oid;
     }
@@ -297,7 +308,7 @@ pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
-    count_hunks(&diff)
+    Ok(count_hunks(&diff)? + hunkless_deltas(&diff)?.len())
 }
 
 pub(super) fn count_split_per_hunk_group(
@@ -630,6 +641,20 @@ fn zero_context_diff_opts() -> git2::DiffOptions {
     opts.context_lines(0);
     opts.interhunk_lines(0);
     opts
+}
+
+/// Indices of the deltas with no hunk: a binary file, an empty file, a mode
+/// change. No hunk-level split can select them, so each strategy has to place
+/// them deliberately.
+fn hunkless_deltas(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
+    let mut hunkless = Vec::new();
+    for delta_idx in 0..diff.deltas().len() {
+        let num_hunks = git2::Patch::from_diff(diff, delta_idx)?.map_or(0, |p| p.num_hunks());
+        if num_hunks == 0 {
+            hunkless.push(delta_idx);
+        }
+    }
+    Ok(hunkless)
 }
 
 /// Total hunk count across all files in `diff`.

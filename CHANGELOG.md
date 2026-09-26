@@ -89,6 +89,9 @@ The format is based on
 - "Split out hunk(s)" opens for a commit with a single hunk when it also
   changes a binary file, an empty file or a mode. It refused, saying the commit
   had fewer than 2 hunks
+- Splitting a commit per hunk gives a binary file, an empty file or a mode
+  change a piece of its own, after the hunks. They used to ride along in the
+  last piece, whichever hunk that was
 
 ## [3.1.0] - 2026-09-12
 
