@@ -447,7 +447,8 @@ pub(super) fn split_commit_out_hunks(
             anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
         }
     }
-    if selected.len() >= total_hunks {
+    let has_hunkless = hunk_counts.contains(&0);
+    if selected.len() >= total_hunks && !has_hunkless {
         anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
     }
 
