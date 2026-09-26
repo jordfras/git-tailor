@@ -95,6 +95,10 @@ The format is based on
 - Splitting a commit per hunk group puts binary files, empty files and mode
   changes together in one piece after the groups, since no group claims them.
   They used to ride along with the last group
+- When a split commit changes a file's content and its mode, the mode change
+  now goes with the first piece that changes the file — in "Split out hunk(s)",
+  with the file's hunks you leave behind. It used to land in whatever piece
+  came last
 
 ## [3.1.0] - 2026-09-12
 

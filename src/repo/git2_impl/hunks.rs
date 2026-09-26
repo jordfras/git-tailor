@@ -116,6 +116,17 @@ pub(super) fn apply_whole_deltas_to_tree<'d>(
     builder.create_updated(repo, base_tree).map_err(Into::into)
 }
 
+/// The mode a file gets once any of its hunks is applied: the new one, so a
+/// mode change travels with the file's first hunk rather than whichever piece
+/// happens to come last. A deletion has no new side, and until its last line
+/// goes the file keeps the mode it had.
+fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
+    match delta.status() {
+        git2::Delta::Deleted => delta.old_file().mode().into(),
+        _ => delta.new_file().mode().into(),
+    }
+}
+
 /// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
 /// and return the resulting tree OID.
 ///
@@ -144,19 +155,16 @@ pub(super) fn apply_single_hunk_to_tree(
             .context("delta has no file path")?
             .to_owned();
 
-        let (old_content, mode) = match delta.status() {
-            git2::Delta::Added => {
-                let m: u32 = delta.new_file().mode().into();
-                (Vec::new(), m)
-            }
+        let old_content = match delta.status() {
+            git2::Delta::Added => Vec::new(),
             _ => {
                 let entry = base_tree
                     .get_path(&file_path)
                     .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
-                let blob = repo.find_blob(entry.id())?;
-                (blob.content().to_owned(), entry.filemode() as u32)
+                repo.find_blob(entry.id())?.content().to_owned()
             }
         };
+        let mode = applied_mode(&delta);
 
         let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
             .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
@@ -234,20 +242,17 @@ pub(super) fn apply_selected_hunks_to_tree(
         // Content lives at the OLD path in `parent_tree` — for a renamed
         // delta that differs from `file_path` (the new path), so looking it
         // up under `file_path` fails (or silently finds the wrong file).
-        let (old_content, mode) = match delta.status() {
-            git2::Delta::Added => {
-                let m: u32 = delta.new_file().mode().into();
-                (Vec::new(), m)
-            }
+        let old_content = match delta.status() {
+            git2::Delta::Added => Vec::new(),
             _ => {
                 let lookup_path = old_path.context("delta has no old-side path")?;
                 let entry = parent_tree
                     .get_path(lookup_path)
                     .with_context(|| format!("'{}' not in parent tree", lookup_path.display()))?;
-                let blob = repo.find_blob(entry.id())?;
-                (blob.content().to_owned(), entry.filemode() as u32)
+                repo.find_blob(entry.id())?.content().to_owned()
             }
         };
+        let mode = applied_mode(&delta);
 
         let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
             .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
