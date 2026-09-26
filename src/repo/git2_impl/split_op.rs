@@ -19,7 +19,7 @@
 
 use anyhow::{Context, Result};
 use bstr::{BStr, BString, ByteSlice};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::{Oid, fragmap};
@@ -58,36 +58,8 @@ pub(super) fn split_commit_per_file(
             target.commit_tree.id()
         } else {
             let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .expect("delta has a path")
-                .to_path_buf();
-
             let base_tree = repo.inner.find_tree(current_tree_oid)?;
-
-            let is_gitlink = delta.new_file().mode() == git2::FileMode::Commit
-                || delta.old_file().mode() == git2::FileMode::Commit;
-
-            if is_gitlink {
-                // apply_to_tree cannot process gitlink (submodule pointer) entries
-                // because libgit2 tries to patch them as blobs, causing a crash.
-                hunks::apply_gitlink_delta_to_tree(&repo.inner, &base_tree, &delta)?
-            } else {
-                let mut opts = git2::DiffOptions::new();
-                opts.pathspec(&path);
-                let file_diff = repo.inner.diff_tree_to_tree(
-                    Some(&target.parent_tree),
-                    Some(&target.commit_tree),
-                    Some(&mut opts),
-                )?;
-                let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
-                if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path.display());
-                }
-                new_index.write_tree_to(&repo.inner)?
-            }
+            hunks::apply_whole_deltas_to_tree(&repo.inner, &base_tree, [delta])?
         };
 
         current_base = Some(commit_split_piece(
@@ -131,7 +103,9 @@ pub(super) fn split_commit_per_hunk(
     )?;
 
     let hunk_count = count_hunks(&full_diff)?;
-    if hunk_count < 2 {
+    let hunkless = hunkless_deltas(&full_diff)?;
+    let piece_count = hunk_count + hunkless.len();
+    if piece_count < 2 {
         anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
     }
 
@@ -142,12 +116,21 @@ pub(super) fn split_commit_per_hunk(
     // apply exactly its first hunk directly to the blob — bypassing
     // apply_to_tree to avoid libgit2 validating rejected hunks against the
     // modified output buffer (which shifts line positions and causes "hunk
-    // did not apply").
+    // did not apply"). Changes with no hunk follow, one piece each.
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
-    for target_k in 0..hunk_count {
-        let next_tree_oid = if target_k == hunk_count - 1 {
+    for target_k in 0..piece_count {
+        let next_tree_oid = if target_k == piece_count - 1 {
             target.commit_tree.id()
+        } else if let Some(&delta_idx) = target_k
+            .checked_sub(hunk_count)
+            .and_then(|i| hunkless.get(i))
+        {
+            let current_tree = repo.inner.find_tree(current_tree_oid)?;
+            let delta = full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")?;
+            hunks::apply_whole_deltas_to_tree(&repo.inner, &current_tree, [delta])?
         } else {
             let current_tree = repo.inner.find_tree(current_tree_oid)?;
             let mut diff_opts = zero_context_diff_opts();
@@ -166,7 +149,7 @@ pub(super) fn split_commit_per_hunk(
             next_tree_oid,
             current_base,
             target_k + 1,
-            hunk_count,
+            piece_count,
         )?);
         current_tree_oid = next_tree_oid;
     }
@@ -200,20 +183,7 @@ pub(super) fn split_commit_per_hunk_group(
     // be kept even when it equals `reference_oid`.
     let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
 
-    // Build a 0-context full diff (parent_tree → commit_tree) for tree
-    // manipulation; hunk indices here correspond to those in `assignment`.
-    // `assignment` comes from `commit_diff_for_fragmap`, which detects renames
-    // (`find_similar`) — without doing the same here, a renamed file shows up
-    // as an unrelated delete+add delta pair instead of one rename delta, so
-    // its hunk indices (and even its path) would no longer line up with
-    // `assignment` at all.
-    let mut diff_opts = zero_context_diff_opts();
-    let mut full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
-    full_diff.find_similar(None)?;
+    let full_diff = hunk_group_diff(repo, &target)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
@@ -247,7 +217,10 @@ pub(super) fn split_commit_per_hunk_group(
         }
     }
     let k_groups: Vec<usize> = touched.into_iter().collect();
-    let split_count = k_groups.len();
+    // No fragmap column claims a change without hunks, so they get one piece
+    // of their own after the groups.
+    let has_hunkless = !hunkless_deltas(&full_diff)?.is_empty();
+    let split_count = k_groups.len() + usize::from(has_hunkless);
 
     if split_count < 2 {
         anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
@@ -258,11 +231,14 @@ pub(super) fn split_commit_per_hunk_group(
     // ≤ gk to parent_tree in one sweep (positions relative to the original,
     // no cumulative offset issues).
     let mut current_base = initial_split_base(&target.commit)?;
-    for (out_pos, &gk) in k_groups.iter().enumerate() {
+    for out_pos in 0..split_count {
         let next_tree_oid = if out_pos == split_count - 1 {
             target.commit_tree.id()
         } else {
-            let mut selected: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+            let gk = *k_groups
+                .get(out_pos)
+                .expect("only the last piece has no group");
+            let mut selected: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
             for (delta_idx, hunk_assignments) in delta_hunk_assignments.iter().enumerate() {
                 let chosen: Vec<hunks::HunkSelection> = hunk_assignments
                     .iter()
@@ -325,7 +301,7 @@ pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
-    count_hunks(&diff)
+    Ok(count_hunks(&diff)? + hunkless_deltas(&diff)?.len())
 }
 
 pub(super) fn count_split_per_hunk_group(
@@ -335,7 +311,24 @@ pub(super) fn count_split_per_hunk_group(
     reference_oid: &Oid,
 ) -> Result<usize> {
     let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
-    Ok(assignment.touched_groups().len())
+    let target = load_split_commit(repo, commit_oid)?;
+    let has_hunkless = !hunkless_deltas(&hunk_group_diff(repo, &target)?)?.is_empty();
+    Ok(assignment.touched_groups().len() + usize::from(has_hunkless))
+}
+
+/// The 0-context diff a per-hunk-group split works from, whose hunk indices
+/// line up with the fragmap's assignment. That assignment detects renames, so
+/// this has to as well: otherwise a renamed file shows up as an unrelated
+/// delete+add pair, and its hunk indices (and even its path) no longer match.
+fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<git2::Diff<'r>> {
+    let mut diff_opts = zero_context_diff_opts();
+    let mut diff = repo.inner.diff_tree_to_tree(
+        Some(&target.parent_tree),
+        Some(&target.commit_tree),
+        Some(&mut diff_opts),
+    )?;
+    diff.find_similar(None)?;
+    Ok(diff)
 }
 
 /// Peel a set of selected files out of `commit_oid` into a follow-up commit,
@@ -475,7 +468,8 @@ pub(super) fn split_commit_out_hunks(
             anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
         }
     }
-    if selected.len() >= total_hunks {
+    let has_hunkless = hunk_counts.contains(&0);
+    if selected.len() >= total_hunks && !has_hunkless {
         anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
     }
 
@@ -489,7 +483,7 @@ pub(super) fn split_commit_out_hunks(
     // their hunks, fully applying them) — otherwise such a file would
     // silently revert to its pre-commit state in the "rest" commit instead of
     // keeping its actual (unselected) changes.
-    let mut rest: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
+    let mut rest: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
     for (delta_idx, &num_hunks) in hunk_counts.iter().enumerate() {
         let unselected: Vec<hunks::HunkSelection> = (0..num_hunks)
             .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
@@ -498,8 +492,24 @@ pub(super) fn split_commit_out_hunks(
         rest.insert(delta_idx, unselected);
     }
 
-    let rest_tree_oid =
+    let rest_hunks_tree_oid =
         hunks::apply_selected_hunks_to_tree(&repo.inner, &target.parent_tree, &full_diff, &rest)?;
+    // Nobody can pick a change that has no hunks, so it stays with the rest.
+    let hunkless = hunk_counts
+        .iter()
+        .enumerate()
+        .filter(|&(_, &num_hunks)| num_hunks == 0)
+        .map(|(delta_idx, _)| {
+            full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let rest_tree_oid = hunks::apply_whole_deltas_to_tree(
+        &repo.inner,
+        &repo.inner.find_tree(rest_hunks_tree_oid)?,
+        hunkless,
+    )?;
 
     // Two-tree trick: since `rest_tree_oid` already excludes the selected
     // hunks, replaying the full original tree back in on top represents
@@ -641,6 +651,20 @@ fn zero_context_diff_opts() -> git2::DiffOptions {
     opts.context_lines(0);
     opts.interhunk_lines(0);
     opts
+}
+
+/// Indices of the deltas with no hunk: a binary file, an empty file, a mode
+/// change. No hunk-level split can select them, so each strategy has to place
+/// them deliberately.
+fn hunkless_deltas(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
+    let mut hunkless = Vec::new();
+    for delta_idx in 0..diff.deltas().len() {
+        let num_hunks = git2::Patch::from_diff(diff, delta_idx)?.map_or(0, |p| p.num_hunks());
+        if num_hunks == 0 {
+            hunkless.push(delta_idx);
+        }
+    }
+    Ok(hunkless)
 }
 
 /// Total hunk count across all files in `diff`.

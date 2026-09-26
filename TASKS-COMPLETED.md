@@ -1988,3 +1988,19 @@
   share journal pins — quietly undoing the per-working-tree isolation added in
   3.1.0, whose whole point was that one tree's run must not unpin another's
   interrupted work. Hash the bytes instead.
+
+## Architecture & Robustness
+- [X] T254 P3 bug - Binary and mode-only changes slip past hunk-level splits.
+  A binary file, an empty file and a mode-only change have no hunks, so every
+  split that works by hunk had to place them deliberately and none did: they
+  rode along in whatever piece took the original tree whole. Per-file splitting
+  failed outright on a binary file that did not sort last.
+  The rule settled on: a change with no hunk is as indivisible as a hunk.
+  Split-out-hunks keeps it in the original commit (it cannot be picked), and
+  its picker and "nothing would remain" guard count it as a remainder.
+  Per-hunk gives each one its own piece after the hunks; per-hunk-group puts
+  them together in one piece after the groups, since no fragmap column claims
+  them. A mode change that comes with content changes travels with the file's
+  first applied hunk. Per-file now writes each file's new side into the tree
+  whole instead of patching it, which also covers gitlinks. Gitlink hunks in the
+  hunk-level splits went to T258.
