@@ -208,18 +208,6 @@ Guidelines:
   key is what carries it), or carry the source path alongside so entries can be
   distinguished without collapsing. Both change what the matrix shows, which is
   why this is not a quiet fix.
-- [ ] T254 P3 bug - Binary and mode-only changes slip past split-out-hunks.
-  `split_commit_out_hunks` (`src/repo/git2_impl/split_op.rs`) builds
-  `hunk_counts` from `Patch::num_hunks`, which is 0 for a binary delta and for a
-  mode-only change. Two consequences: `total_hunks` excludes them, so the
-  "every hunk is selected — nothing would remain" guard fires when something
-  *would* remain; and the delta gets an empty selection in the `rest` map, so
-  the change is carried into the peeled commit rather than staying with the
-  rest.
-  Needs a decision on what splitting even means for a change with no hunks. The
-  defensible answer is that it cannot be split and belongs with the remainder,
-  with `total_hunks` counting it so the guard stops misfiring — but that is a
-  behavior choice, not an obvious correction.
 - [ ] T255 P2 bug - A pure deletion belongs to no fragmap column.
   `spg::SpgSpan::from_new_hunk` and `attribution::hunk_new_span` both return the
   **empty** interval `[new_start+1, new_start+1)` when `new_lines == 0`, while
