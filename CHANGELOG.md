@@ -92,6 +92,9 @@ The format is based on
 - Splitting a commit per hunk gives a binary file, an empty file or a mode
   change a piece of its own, after the hunks. They used to ride along in the
   last piece, whichever hunk that was
+- Splitting a commit per hunk group puts binary files, empty files and mode
+  changes together in one piece after the groups, since no group claims them.
+  They used to ride along with the last group
 
 ## [3.1.0] - 2026-09-12
 
