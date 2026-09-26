@@ -44,10 +44,6 @@ etcetera = "0.11"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# str-like operations over bytes, for the commit messages git hands us as
-# bytes. `serde` is deliberately off: it writes a `BString` as an array of
-# numbers, while the journal's own `message_bytes` keeps it a plain string
-# whenever it decodes.
 bstr = { version = "1", default-features = false, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
