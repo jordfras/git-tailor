@@ -183,20 +183,7 @@ pub(super) fn split_commit_per_hunk_group(
     // be kept even when it equals `reference_oid`.
     let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
 
-    // Build a 0-context full diff (parent_tree → commit_tree) for tree
-    // manipulation; hunk indices here correspond to those in `assignment`.
-    // `assignment` comes from `commit_diff_for_fragmap`, which detects renames
-    // (`find_similar`) — without doing the same here, a renamed file shows up
-    // as an unrelated delete+add delta pair instead of one rename delta, so
-    // its hunk indices (and even its path) would no longer line up with
-    // `assignment` at all.
-    let mut diff_opts = zero_context_diff_opts();
-    let mut full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
-    full_diff.find_similar(None)?;
+    let full_diff = hunk_group_diff(repo, &target)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
@@ -230,7 +217,10 @@ pub(super) fn split_commit_per_hunk_group(
         }
     }
     let k_groups: Vec<usize> = touched.into_iter().collect();
-    let split_count = k_groups.len();
+    // No fragmap column claims a change without hunks, so they get one piece
+    // of their own after the groups.
+    let has_hunkless = !hunkless_deltas(&full_diff)?.is_empty();
+    let split_count = k_groups.len() + usize::from(has_hunkless);
 
     if split_count < 2 {
         anyhow::bail!("Commit has fewer than 2 hunk groups — nothing to split per hunk group");
@@ -241,10 +231,13 @@ pub(super) fn split_commit_per_hunk_group(
     // ≤ gk to parent_tree in one sweep (positions relative to the original,
     // no cumulative offset issues).
     let mut current_base = initial_split_base(&target.commit)?;
-    for (out_pos, &gk) in k_groups.iter().enumerate() {
+    for out_pos in 0..split_count {
         let next_tree_oid = if out_pos == split_count - 1 {
             target.commit_tree.id()
         } else {
+            let gk = *k_groups
+                .get(out_pos)
+                .expect("only the last piece has no group");
             let mut selected: HashMap<usize, Vec<hunks::HunkSelection>> = HashMap::new();
             for (delta_idx, hunk_assignments) in delta_hunk_assignments.iter().enumerate() {
                 let chosen: Vec<hunks::HunkSelection> = hunk_assignments
@@ -318,7 +311,24 @@ pub(super) fn count_split_per_hunk_group(
     reference_oid: &Oid,
 ) -> Result<usize> {
     let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
-    Ok(assignment.touched_groups().len())
+    let target = load_split_commit(repo, commit_oid)?;
+    let has_hunkless = !hunkless_deltas(&hunk_group_diff(repo, &target)?)?.is_empty();
+    Ok(assignment.touched_groups().len() + usize::from(has_hunkless))
+}
+
+/// The 0-context diff a per-hunk-group split works from, whose hunk indices
+/// line up with the fragmap's assignment. That assignment detects renames, so
+/// this has to as well: otherwise a renamed file shows up as an unrelated
+/// delete+add pair, and its hunk indices (and even its path) no longer match.
+fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<git2::Diff<'r>> {
+    let mut diff_opts = zero_context_diff_opts();
+    let mut diff = repo.inner.diff_tree_to_tree(
+        Some(&target.parent_tree),
+        Some(&target.commit_tree),
+        Some(&mut diff_opts),
+    )?;
+    diff.find_similar(None)?;
+    Ok(diff)
 }
 
 /// Peel a set of selected files out of `commit_oid` into a follow-up commit,
