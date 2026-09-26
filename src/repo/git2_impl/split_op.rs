@@ -396,7 +396,14 @@ pub(super) fn split_commit_out_files(
 
     let base = initial_split_base(&target.commit)?;
     let original_message = target.commit.message_bytes().as_bstr();
-    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+    let first = commit_with_message(
+        repo,
+        &target.commit,
+        rest_tree_oid,
+        base,
+        original_message,
+        reword_op::encoding_for(&target.commit, original_message),
+    )?;
 
     let suffix = if file_paths.len() == 1 {
         BString::from(crate::domain::path_to_bytes(&file_paths[0]))
@@ -410,6 +417,7 @@ pub(super) fn split_commit_out_files(
         target.commit_tree.id(),
         Some(first),
         peeled_message.as_bstr(),
+        suffixed_encoding(&target.commit, suffix.as_bstr(), peeled_message.as_bstr()),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -499,7 +507,14 @@ pub(super) fn split_commit_out_hunks(
     // call needed (mirrors split_commit_out_files' own use of the same trick).
     let base = initial_split_base(&target.commit)?;
     let original_message = target.commit.message_bytes().as_bstr();
-    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+    let first = commit_with_message(
+        repo,
+        &target.commit,
+        rest_tree_oid,
+        base,
+        original_message,
+        reword_op::encoding_for(&target.commit, original_message),
+    )?;
 
     let suffix = hunk_selection_suffix(&full_diff, &selected)?;
     let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
@@ -509,6 +524,7 @@ pub(super) fn split_commit_out_hunks(
         target.commit_tree.id(),
         Some(first),
         peeled_message.as_bstr(),
+        suffixed_encoding(&target.commit, suffix.as_bstr(), peeled_message.as_bstr()),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -728,7 +744,26 @@ fn commit_split_piece(
         new_tree_oid,
         current_base,
         message.as_bstr(),
+        // "(n/total)" is ASCII, which is all `suffixed_encoding` needs to know.
+        original.message_encoding().ok().flatten(),
     )
+}
+
+/// The `encoding` header for `original`'s message with `suffix` appended.
+///
+/// ASCII reads the same in every encoding git accepts, so an ASCII suffix
+/// leaves the message in the original's encoding — even when the result also
+/// happens to parse as UTF-8.
+fn suffixed_encoding<'c>(
+    original: &'c git2::Commit<'_>,
+    suffix: &BStr,
+    message: &BStr,
+) -> Option<&'c str> {
+    if suffix.is_ascii() {
+        original.message_encoding().ok().flatten()
+    } else {
+        reword_op::encoding_for(original, message)
+    }
 }
 
 /// Create a commit with the given tree and message, parented on `current_base`
@@ -740,6 +775,7 @@ fn commit_with_message(
     new_tree_oid: git2::Oid,
     current_base: Option<git2::Oid>,
     message: &BStr,
+    encoding: Option<&str>,
 ) -> Result<git2::Oid> {
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
     let parents: Vec<git2::Commit> = match current_base {
@@ -751,7 +787,7 @@ fn commit_with_message(
         &original.author(),
         &original.committer(),
         message,
-        reword_op::encoding_for(original, message),
+        encoding,
         &new_tree,
         &parent_refs,
     )
