@@ -180,3 +180,67 @@ fn split_out_hunks_allows_picking_every_hunk_when_a_hunkless_change_remains() {
         [vec!["bin.dat"], vec!["a.txt", "b.txt"]]
     );
 }
+
+/// Each change without a hunk is an indivisible unit, like a hunk, so it gets a
+/// piece of its own — after the hunks, in path order.
+#[test]
+fn split_per_hunk_gives_each_hunkless_change_its_own_piece() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[("a.txt", "a1\n"), ("b.txt", "b1\n"), ("bin.dat", "\0old\0")],
+        "base",
+    );
+    let to_split = test.commit_files(
+        &[
+            ("a.txt", "a2\n"),
+            ("b.txt", "b2\n"),
+            ("bin.dat", "\0new\0"),
+            ("empty.txt", ""),
+        ],
+        "change",
+    );
+
+    let mut git_repo = test.git_repo();
+    assert_eq!(
+        git_repo.count_split_per_hunk(&Oid::from(to_split)).unwrap(),
+        4
+    );
+    git_repo
+        .split_commit_per_hunk(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [
+            vec!["a.txt"],
+            vec!["b.txt"],
+            vec!["bin.dat"],
+            vec!["empty.txt"]
+        ]
+    );
+    assert_eq!(test.head_tree_id(), test.tree_id(to_split));
+}
+
+#[test]
+fn split_per_hunk_gives_a_mode_only_change_its_own_piece() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "a1\n"), ("run.sh", "run\n")], "base");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    make_executable(&test, "run.sh");
+    let to_split = test.commit("change");
+
+    let mut git_repo = test.git_repo();
+    assert_eq!(
+        git_repo.count_split_per_hunk(&Oid::from(to_split)).unwrap(),
+        2
+    );
+    git_repo
+        .split_commit_per_hunk(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
+
+    assert_eq!(
+        changes_per_commit(&test, base),
+        [vec!["a.txt"], vec!["run.sh +x"]]
+    );
+}
