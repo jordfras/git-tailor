@@ -18,13 +18,16 @@
 //! applicable.
 
 use anyhow::{Context, Result};
+use bstr::{BStr, BString, ByteSlice};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use crate::{Oid, fragmap};
 
 use super::Git2Repo;
 use super::hunks;
 use super::reads;
+use super::reword_op;
 
 pub(super) fn split_commit_per_file(
     repo: &mut Git2Repo,
@@ -60,8 +63,7 @@ pub(super) fn split_commit_per_file(
                 .path()
                 .or_else(|| delta.old_file().path())
                 .expect("delta has a path")
-                .to_string_lossy()
-                .into_owned();
+                .to_path_buf();
 
             let base_tree = repo.inner.find_tree(current_tree_oid)?;
 
@@ -82,7 +84,7 @@ pub(super) fn split_commit_per_file(
                 )?;
                 let mut new_index = repo.inner.apply_to_tree(&base_tree, &file_diff, None)?;
                 if new_index.has_conflicts() {
-                    anyhow::bail!("Conflict applying changes for file: {}", path);
+                    anyhow::bail!("Conflict applying changes for file: {}", path.display());
                 }
                 new_index.write_tree_to(&repo.inner)?
             }
@@ -221,12 +223,7 @@ pub(super) fn split_commit_per_hunk_group(
     let num_deltas = full_diff.deltas().len();
     for delta_idx in 0..num_deltas {
         let delta = full_diff.get_delta(delta_idx).context("delta index")?;
-        let path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let path = delta_path(&delta).unwrap_or_default();
         let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
         let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
         let file_assignments = assignment.by_file.get(&path);
@@ -348,7 +345,7 @@ pub(super) fn count_split_per_hunk_group(
 pub(super) fn split_commit_out_files(
     repo: &mut Git2Repo,
     commit_oid: &Oid,
-    file_paths: &[String],
+    file_paths: &[PathBuf],
     head_oid: &Oid,
 ) -> Result<()> {
     if file_paths.is_empty() {
@@ -362,7 +359,7 @@ pub(super) fn split_commit_out_files(
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
     let file_count = full_diff.deltas().len();
 
-    let selected: HashSet<&str> = file_paths.iter().map(String::as_str).collect();
+    let selected: HashSet<&Path> = file_paths.iter().map(PathBuf::as_path).collect();
     if selected.len() >= file_count {
         anyhow::bail!("Every file is selected — nothing would remain in the original commit");
     }
@@ -372,9 +369,11 @@ pub(super) fn split_commit_out_files(
         let delta = (0..file_count)
             .find_map(|i| {
                 let delta = full_diff.get_delta(i)?;
-                (delta_path(&delta).as_deref() == Some(path.as_str())).then_some(delta)
+                (delta_path(&delta).as_deref() == Some(path.as_path())).then_some(delta)
             })
-            .ok_or_else(|| anyhow::anyhow!("File not changed by this commit: {path}"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("File not changed by this commit: {}", path.display())
+            })?;
         chosen_deltas.push(delta);
     }
 
@@ -396,21 +395,29 @@ pub(super) fn split_commit_out_files(
     let rest_tree_oid = builder.create_updated(&repo.inner, &target.commit_tree)?;
 
     let base = initial_split_base(&target.commit)?;
-    let original_message = target.commit.message().unwrap_or("split");
-    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+    let original_message = target.commit.message_bytes().as_bstr();
+    let first = commit_with_message(
+        repo,
+        &target.commit,
+        rest_tree_oid,
+        base,
+        original_message,
+        reword_op::encoding_for(&target.commit, original_message),
+    )?;
 
     let suffix = if file_paths.len() == 1 {
-        file_paths[0].clone()
+        BString::from(crate::domain::path_to_bytes(&file_paths[0]))
     } else {
-        format!("{} files", file_paths.len())
+        BString::from(format!("{} files", file_paths.len()))
     };
-    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
+    let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
         repo,
         &target.commit,
         target.commit_tree.id(),
         Some(first),
-        &peeled_message,
+        peeled_message.as_bstr(),
+        suffixed_encoding(&target.commit, suffix.as_bstr(), peeled_message.as_bstr()),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -499,17 +506,25 @@ pub(super) fn split_commit_out_hunks(
     // exactly those hunks' changes — no second apply_selected_hunks_to_tree
     // call needed (mirrors split_commit_out_files' own use of the same trick).
     let base = initial_split_base(&target.commit)?;
-    let original_message = target.commit.message().unwrap_or("split");
-    let first = commit_with_message(repo, &target.commit, rest_tree_oid, base, original_message)?;
+    let original_message = target.commit.message_bytes().as_bstr();
+    let first = commit_with_message(
+        repo,
+        &target.commit,
+        rest_tree_oid,
+        base,
+        original_message,
+        reword_op::encoding_for(&target.commit, original_message),
+    )?;
 
     let suffix = hunk_selection_suffix(&full_diff, &selected)?;
-    let peeled_message = hunks::summary_suffix_message(original_message, &suffix);
+    let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
         repo,
         &target.commit,
         target.commit_tree.id(),
         Some(first),
-        &peeled_message,
+        peeled_message.as_bstr(),
+        suffixed_encoding(&target.commit, suffix.as_bstr(), peeled_message.as_bstr()),
     )?;
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -533,7 +548,7 @@ pub(super) fn split_commit_out_hunks(
 fn hunk_selection_suffix(
     full_diff: &git2::Diff,
     selected: &HashSet<(usize, usize)>,
-) -> Result<String> {
+) -> Result<BString> {
     let touched_deltas: BTreeSet<usize> =
         selected.iter().map(|&(delta_idx, _)| delta_idx).collect();
     if touched_deltas.len() == 1 {
@@ -541,13 +556,15 @@ fn hunk_selection_suffix(
         let delta = full_diff
             .get_delta(delta_idx)
             .context("delta index in range")?;
-        return Ok(delta_path(&delta).unwrap_or_default());
+        return Ok(BString::from(crate::domain::path_to_bytes(
+            &delta_path(&delta).unwrap_or_default(),
+        )));
     }
-    Ok(format!(
+    Ok(BString::from(format!(
         "{} hunks across {} files",
         selected.len(),
         touched_deltas.len()
-    ))
+    )))
 }
 
 /// Resolved inputs to a split operation.  `commit_oid` is the parsed form of
@@ -572,18 +589,6 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
         // The first piece would become an orphan root, which behind a graft
         // severs the branch from the history that was never fetched.
         repo.refuse_shallow_root(oid)?;
-    }
-    // A split does not copy the message, it derives one — "summary (1/3)". That
-    // has to go through a `&str`, and the only one available for bytes we cannot
-    // read is the lossy rendering, which would bake replacement characters into
-    // every piece. Replaying is safe because the bytes pass through untouched
-    // (see `Git2Repo::commit_preserving_message`); deriving is not.
-    if commit.message().is_err() {
-        anyhow::bail!(
-            "Cannot split {}: its commit message is not valid UTF-8, and the \
-             pieces' messages are built from it. Reword it first.",
-            commit_oid.short()
-        );
     }
     let parent_tree = if commit.parent_count() == 0 {
         repo.empty_tree()?
@@ -613,7 +618,7 @@ fn initial_split_base(commit: &git2::Commit<'_>) -> Result<Option<git2::Oid>> {
 /// submodule-pointer deltas are skipped — used by the per-file split path
 /// which applies them via tree manipulation only and so cannot be tripped by
 /// a dirty submodule state.
-fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSet<String> {
+fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSet<PathBuf> {
     diff.deltas()
         .filter(|d| {
             !exclude_gitlinks
@@ -624,7 +629,7 @@ fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSe
             d.new_file()
                 .path()
                 .or_else(|| d.old_file().path())
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(Path::to_path_buf)
         })
         .collect()
 }
@@ -732,12 +737,33 @@ fn commit_split_piece(
     piece_num: usize,
     total_pieces: usize,
 ) -> Result<git2::Oid> {
-    let message = hunks::split_message(
-        original.message().unwrap_or("split"),
-        piece_num,
-        total_pieces,
-    );
-    commit_with_message(repo, original, new_tree_oid, current_base, &message)
+    let message = hunks::split_message(original.message_bytes().as_bstr(), piece_num, total_pieces);
+    commit_with_message(
+        repo,
+        original,
+        new_tree_oid,
+        current_base,
+        message.as_bstr(),
+        // "(n/total)" is ASCII, which is all `suffixed_encoding` needs to know.
+        original.message_encoding().ok().flatten(),
+    )
+}
+
+/// The `encoding` header for `original`'s message with `suffix` appended.
+///
+/// ASCII reads the same in every encoding git accepts, so an ASCII suffix
+/// leaves the message in the original's encoding — even when the result also
+/// happens to parse as UTF-8.
+fn suffixed_encoding<'c>(
+    original: &'c git2::Commit<'_>,
+    suffix: &BStr,
+    message: &BStr,
+) -> Option<&'c str> {
+    if suffix.is_ascii() {
+        original.message_encoding().ok().flatten()
+    } else {
+        reword_op::encoding_for(original, message)
+    }
 }
 
 /// Create a commit with the given tree and message, parented on `current_base`
@@ -748,7 +774,8 @@ fn commit_with_message(
     original: &git2::Commit<'_>,
     new_tree_oid: git2::Oid,
     current_base: Option<git2::Oid>,
-    message: &str,
+    message: &BStr,
+    encoding: Option<&str>,
 ) -> Result<git2::Oid> {
     let new_tree = repo.inner.find_tree(new_tree_oid)?;
     let parents: Vec<git2::Commit> = match current_base {
@@ -756,23 +783,23 @@ fn commit_with_message(
         None => vec![],
     };
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
-    Ok(repo.inner.commit(
-        None,
+    repo.commit_preserving_message(
         &original.author(),
         &original.committer(),
         message,
+        encoding,
         &new_tree,
         &parent_refs,
-    )?)
+    )
 }
 
-/// New-or-old path of a delta as an owned `String`.
-fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<String> {
+/// New-or-old path of a delta, owned.
+fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<PathBuf> {
     delta
         .new_file()
         .path()
         .or_else(|| delta.old_file().path())
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(Path::to_path_buf)
 }
 
 /// Replay descendants of the split commit onto the last split piece and

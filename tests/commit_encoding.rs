@@ -25,6 +25,7 @@
 #[allow(dead_code)]
 mod common;
 
+use bstr::ByteSlice;
 use common::TestRepo;
 use common::prelude::*;
 
@@ -35,6 +36,17 @@ const LATIN1_MESSAGE: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n";
 /// that is not UTF-8, which is the whole problem.
 fn commit_with_raw_message(test: &TestRepo, parent: git2::Oid, message: &[u8]) -> git2::Oid {
     let tree = test.repo.find_commit(parent).unwrap().tree_id();
+    commit_with_raw_tree_and_message(test, parent, tree, message)
+}
+
+/// As [`commit_with_raw_message`], with a tree of the caller's choosing, so the
+/// commit can actually change something.
+fn commit_with_raw_tree_and_message(
+    test: &TestRepo,
+    parent: git2::Oid,
+    tree: git2::Oid,
+    message: &[u8],
+) -> git2::Oid {
     let mut raw = Vec::new();
     raw.extend_from_slice(format!("tree {tree}\n").as_bytes());
     raw.extend_from_slice(format!("parent {parent}\n").as_bytes());
@@ -153,33 +165,86 @@ fn such_a_history_can_be_listed_and_read() {
         .expect("and its diff must still open");
 }
 
-/// Splitting does not copy a message, it *derives* one — "summary (1/3)". That
-/// has to go through a `&str`, and the only `&str` available is the lossy one,
-/// which would bake replacement characters into the new commits.
-///
-/// Replaying is safe because the bytes pass through untouched; deriving is not,
-/// so it refuses and says why. Reword is the way out: give the commit a message
-/// git-tailor can read, then split it.
+/// Splitting does not copy a message, it *derives* one — "summary (1/3)" — so
+/// it has to read the original. Deriving over bytes keeps the ones it cannot
+/// decode; deriving over the lossy rendering would bake replacement characters
+/// into every piece.
 #[test]
-fn splitting_a_commit_whose_message_is_not_utf8_is_refused() {
+fn splitting_a_commit_whose_message_is_not_utf8_keeps_its_bytes() {
     let test = common::TestRepo::new();
     test.commit_file("a.txt", "v1\n", "base");
     let parent = test.commit_file("b.txt", "b\n", "parent");
-    let to_split = commit_with_raw_message(&test, parent, LATIN1_MESSAGE);
+
+    // Two files, so the split produces two numbered pieces.
+    test.write_file("c.txt", "c\n");
+    test.stage_file("c.txt");
+    test.write_file("d.txt", "d\n");
+    test.stage_file("d.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, LATIN1_MESSAGE);
 
     let mut git_repo = test.git_repo();
-    let before = git_repo.head_oid().unwrap();
-    let result = git_repo.split_commit_per_file(&Oid::from(to_split), &Oid::from(to_split));
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
 
-    let error = format!("{:#}", result.expect_err("splitting must refuse"));
-    assert!(
-        error.contains("message"),
-        "the refusal must name the reason: {error}"
+    let pieces = test.commits_from_head(parent);
+    assert_eq!(pieces.len(), 2, "one piece per file");
+    assert_eq!(
+        message_bytes(&test, pieces[0]),
+        b"Fix f\xf6r \xe5\xe4\xf6 handling (1/2)"
     );
     assert_eq!(
-        git_repo.head_oid().unwrap(),
-        before,
-        "and nothing may have moved"
+        message_bytes(&test, pieces[1]),
+        b"Fix f\xf6r \xe5\xe4\xf6 handling (2/2)"
+    );
+    assert_eq!(
+        encoding(&test, pieces[0]).as_deref(),
+        Some("ISO-8859-1"),
+        "a piece is the same message in the same encoding"
+    );
+}
+
+/// Peeling one file out suffixes the summary instead of numbering it, and takes
+/// the same route through the original's bytes.
+#[test]
+fn splitting_a_file_out_of_a_non_utf8_message_keeps_its_bytes() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    test.write_file("c.txt", "c\n");
+    test.stage_file("c.txt");
+    test.write_file("d.txt", "d\n");
+    test.stage_file("d.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, LATIN1_MESSAGE);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            &[std::path::PathBuf::from("d.txt")],
+            &Oid::from(to_split),
+        )
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(
+        message_bytes(&test, pieces[0]),
+        LATIN1_MESSAGE,
+        "the remainder keeps the original message untouched"
+    );
+    assert_eq!(
+        message_bytes(&test, pieces[1]),
+        b"Fix f\xf6r \xe5\xe4\xf6 handling (d.txt)"
     );
 }
 
@@ -203,7 +268,7 @@ fn a_fixup_keeps_the_targets_non_utf8_message() {
             .squash_commits(
                 &Oid::from(source),
                 &Oid::from(target),
-                &target_message,
+                target_message.as_bstr(),
                 &Oid::from(source),
             )
             .unwrap()
@@ -268,7 +333,7 @@ fn rewording_to_utf8_drops_the_stale_encoding_header() {
     git_repo
         .reword_commit(
             &Oid::from(to_reword),
-            "plain ascii now\n".as_bytes(),
+            "plain ascii now\n".into(),
             &Oid::from(to_reword),
         )
         .unwrap();
@@ -311,7 +376,7 @@ fn a_fixup_keeps_the_targets_encoding_header_even_when_it_reads_as_utf8() {
             .squash_commits(
                 &Oid::from(source),
                 &Oid::from(target),
-                &target_message,
+                target_message.as_bstr(),
                 &Oid::from(source),
             )
             .unwrap()
@@ -337,10 +402,139 @@ fn rewording_within_latin1_keeps_the_encoding_header() {
     let edited: &[u8] = b"Ny rubrik f\xf6r \xe5\xe4\xf6\n";
     let mut git_repo = test.git_repo();
     git_repo
-        .reword_commit(&Oid::from(to_reword), edited, &Oid::from(to_reword))
+        .reword_commit(
+            &Oid::from(to_reword),
+            edited.as_bstr(),
+            &Oid::from(to_reword),
+        )
         .unwrap();
 
     let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
     assert_eq!(message_bytes(&test, new_head), edited.to_vec());
     assert_eq!(encoding(&test, new_head).as_deref(), Some("ISO-8859-1"));
+}
+
+/// The summary suffix a split writes names a file, and a file name is bytes.
+/// Decoding it to build the suffix puts replacement characters in the message
+/// — and now that a piece carries the original's `encoding` header, decoding
+/// would also re-encode the name into whatever that header declares.
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn splitting_out_a_non_utf8_file_name_keeps_its_bytes_in_the_summary() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    let odd = common::non_utf8_path("odd", ".txt");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::write(workdir.join(&odd), "c\n").unwrap();
+    test.write_file("plain.txt", "d\n");
+    {
+        let mut index = test.repo.index().unwrap();
+        index.add_path(&odd).unwrap();
+        index.add_path(std::path::Path::new("plain.txt")).unwrap();
+        index.write().unwrap();
+    }
+    let to_split = test.commit("add two files");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            std::slice::from_ref(&odd),
+            &Oid::from(to_split),
+        )
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    let peeled = message_bytes(&test, *pieces.last().unwrap());
+    assert_eq!(
+        peeled, b"add two files (odd\xff.txt)",
+        "the file name's bytes, not a decode of them"
+    );
+}
+
+/// Appending an ASCII suffix cannot change which encoding a message is in, so
+/// a piece keeps the header even when the Latin-1 bytes also parse as UTF-8.
+#[test]
+fn splitting_an_ambiguous_latin1_message_keeps_its_encoding_header() {
+    // Latin-1 "CafÃ© fix", which also reads as UTF-8 "Café fix".
+    const AMBIGUOUS_MESSAGE: &[u8] = b"Caf\xc3\xa9 fix\n";
+
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    test.write_file("c.txt", "c\n");
+    test.write_file("d.txt", "d\n");
+    test.stage_file("c.txt");
+    test.stage_file("d.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, AMBIGUOUS_MESSAGE);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    assert_eq!(pieces.len(), 2);
+    for piece in pieces {
+        assert_eq!(
+            encoding(&test, piece).as_deref(),
+            Some("ISO-8859-1"),
+            "an ASCII \"(n/total)\" leaves the summary in Latin-1"
+        );
+    }
+}
+
+/// A split derives a new message, so the original's `encoding` header only
+/// still describes it while the bytes are unchanged or still will not decode.
+/// A derived message that is valid UTF-8 needs no header — keeping one makes
+/// git transcode bytes that were never in that encoding.
+#[test]
+fn a_derived_split_message_that_is_utf8_drops_a_stale_encoding_header() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    // An ASCII message, but the commit declares ISO-8859-1 — what a repo with
+    // `i18n.commitEncoding` set produces for every commit.
+    test.write_file("café.txt", "c\n");
+    test.write_file("plain.txt", "d\n");
+    test.stage_file("café.txt");
+    test.stage_file("plain.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, b"Add files\n");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            &[std::path::PathBuf::from("café.txt")],
+            &Oid::from(to_split),
+        )
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    let peeled = *pieces.last().unwrap();
+    assert_eq!(
+        message_bytes(&test, peeled),
+        "Add files (café.txt)".as_bytes()
+    );
+    assert_eq!(
+        encoding(&test, peeled),
+        None,
+        "the suffix is UTF-8, so a header saying otherwise would mangle it"
+    );
+
+    // The untouched remainder keeps the original bytes, so it keeps the header
+    // that describes them.
+    assert_eq!(encoding(&test, pieces[0]).as_deref(), Some("ISO-8859-1"));
 }

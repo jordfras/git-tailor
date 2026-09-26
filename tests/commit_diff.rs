@@ -16,6 +16,7 @@
 mod common;
 
 use git_tailor::{DiffLineKind, Oid, VirtualOid, repo::RepoRead};
+use std::path::{Path, PathBuf};
 
 #[test]
 fn test_commit_diff_root_commit_all_additions() {
@@ -29,7 +30,7 @@ fn test_commit_diff_root_commit_all_additions() {
     assert_eq!(diff.files.len(), 1);
 
     let file = &diff.files[0];
-    assert_eq!(file.new_path, Some("hello.txt".to_string()));
+    assert_eq!(file.new_path, Some("hello.txt".into()));
     assert_eq!(file.hunks.len(), 1);
 
     let hunk = &file.hunks[0];
@@ -56,8 +57,8 @@ fn test_commit_diff_file_modification() {
     assert_eq!(diff.files.len(), 1);
 
     let file = &diff.files[0];
-    assert_eq!(file.old_path, Some("file.txt".to_string()));
-    assert_eq!(file.new_path, Some("file.txt".to_string()));
+    assert_eq!(file.old_path, Some("file.txt".into()));
+    assert_eq!(file.new_path, Some("file.txt".into()));
     assert_eq!(file.hunks.len(), 1);
 
     let hunk = &file.hunks[0];
@@ -88,7 +89,7 @@ fn test_commit_diff_file_deletion() {
     assert_eq!(diff.files.len(), 1);
 
     let file = &diff.files[0];
-    assert_eq!(file.old_path, Some("to_delete.txt".to_string()));
+    assert_eq!(file.old_path, Some("to_delete.txt".into()));
     assert_eq!(file.hunks.len(), 1);
 
     let hunk = &file.hunks[0];
@@ -118,13 +119,13 @@ fn test_commit_diff_multiple_files() {
     assert_eq!(diff.commit.summary, "Add two files");
     assert_eq!(diff.files.len(), 2);
 
-    let filenames: Vec<String> = diff
+    let filenames: Vec<PathBuf> = diff
         .files
         .iter()
         .filter_map(|f| f.new_path.clone())
         .collect();
-    assert!(filenames.contains(&"b.txt".to_string()));
-    assert!(filenames.contains(&"c.txt".to_string()));
+    assert!(filenames.contains(&PathBuf::from("b.txt")));
+    assert!(filenames.contains(&PathBuf::from("c.txt")));
 }
 
 #[test]
@@ -191,8 +192,8 @@ fn test_commit_diff_for_fragmap_detects_rename() {
         "expected single file delta after rename"
     );
     let f = &diff.files[0];
-    assert_eq!(f.old_path.as_deref(), Some("old_name.rs"));
-    assert_eq!(f.new_path.as_deref(), Some("new_name.rs"));
+    assert_eq!(f.old_path.as_deref(), Some(Path::new("old_name.rs")));
+    assert_eq!(f.new_path.as_deref(), Some(Path::new("new_name.rs")));
 }
 
 #[test]
@@ -283,7 +284,10 @@ fn test_staged_diff_shows_a_new_empty_file() {
         "an empty file is not binary — the two render differently"
     );
     assert_eq!(diff.files.len(), 1);
-    assert_eq!(diff.files[0].new_path.as_deref(), Some("empty.txt"));
+    assert_eq!(
+        diff.files[0].new_path.as_deref(),
+        Some(Path::new("empty.txt"))
+    );
     assert!(repo.staged_diff_for_fragmap().unwrap().is_some());
 }
 
@@ -304,7 +308,10 @@ fn test_staged_diff_shows_a_new_binary_file() {
         .unwrap()
         .expect("staging a binary file should produce a staged row");
     assert_eq!(diff.files.len(), 1);
-    assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert_eq!(
+        diff.files[0].new_path.as_deref(),
+        Some(Path::new("blob.bin"))
+    );
     assert!(
         diff.files[0].is_binary,
         "git calls this binary, and the detail view says so from this flag"
@@ -331,7 +338,10 @@ fn test_unstaged_diff_shows_a_binary_file_change() {
         .unwrap()
         .expect("editing a binary file should produce an unstaged row");
     assert_eq!(diff.files.len(), 1);
-    assert_eq!(diff.files[0].new_path.as_deref(), Some("blob.bin"));
+    assert_eq!(
+        diff.files[0].new_path.as_deref(),
+        Some(Path::new("blob.bin"))
+    );
     assert!(diff.files[0].is_binary);
     assert!(diff.files[0].hunks.is_empty());
     assert!(repo.unstaged_diff_for_fragmap().unwrap().is_some());
@@ -343,4 +353,34 @@ fn test_staged_diff_is_none_when_nothing_is_staged() {
     test.commit_file("file.txt", "a\n", "init");
 
     assert!(test.git_repo().staged_diff(3).unwrap().is_none());
+}
+
+/// Two paths that differ only in a byte that is not valid UTF-8 are two files.
+/// Decoding maps every such byte to the same replacement character, and the
+/// fragmap and split key on what comes out.
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn paths_differing_only_in_invalid_bytes_stay_distinct() {
+    let test = common::TestRepo::new();
+    let one = common::non_utf8_path_with_byte("odd", 0xFE, ".txt");
+    let other = common::non_utf8_path_with_byte("odd", 0xFF, ".txt");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+
+    for path in [&one, &other] {
+        std::fs::write(workdir.join(path), "content\n").unwrap();
+        let mut index = test.repo.index().unwrap();
+        index.add_path(path).unwrap();
+        index.write().unwrap();
+    }
+    let commit = test.commit("two names a byte apart");
+
+    let diff = test.git_repo().commit_diff(&Oid::from(commit), 3).unwrap();
+
+    let paths: Vec<_> = diff
+        .files
+        .iter()
+        .filter_map(|f| f.new_path.clone())
+        .collect();
+    assert_eq!(paths.len(), 2, "both files are in the diff");
+    assert_ne!(paths[0], paths[1]);
 }

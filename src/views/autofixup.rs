@@ -74,7 +74,7 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 };
                 AppAction::PrepareAutofixupEditMessage {
                     target_summary: group.target_summary.clone(),
-                    template: autofixup::edit_template(group),
+                    group: Box::new(group.clone()),
                 }
             }
             _ => AppAction::Handled,
@@ -179,7 +179,7 @@ fn target_line(
     app: &AppState,
     group: &AutofixupGroup,
     selected: bool,
-    overrides: &std::collections::HashMap<String, Vec<u8>>,
+    overrides: &std::collections::HashMap<String, bstr::BString>,
     width: usize,
 ) -> Line<'static> {
     const EDITED: &str = " (edited)";

@@ -19,6 +19,7 @@ use crate::{
     repo::{ConflictState, StashConflictState},
     views::{palette::Colors, theme::Theme},
 };
+use bstr::BString;
 
 use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, SplitStrategy};
 use crate::app::ScrollState;
@@ -96,7 +97,7 @@ pub struct AppState {
     /// A commit message the user wrote for a resume that then failed, so the
     /// retry can seed the editor with it rather than throwing it away and
     /// starting from the computed default again.
-    pub resume_message: Option<Vec<u8>>,
+    pub resume_message: Option<BString>,
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
@@ -215,7 +216,7 @@ impl AppState {
         &mut self,
         state: ConflictState,
         why: String,
-        retry_message: Option<Vec<u8>>,
+        retry_message: Option<BString>,
     ) {
         // The attempt only ran because the markers were resolved, so a
         // `still_unresolved` carried over from an earlier press of Enter is

@@ -29,7 +29,7 @@ fn squash_returns_conflict_when_source_and_target_conflict() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            b"squashed",
+            "squashed".into(),
             &Oid::from(source),
         )
         .unwrap();
@@ -63,7 +63,12 @@ fn squash_returns_conflict_when_all_three_modify_same_file() {
     let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let result = git_repo
-        .squash_commits(&Oid::from(source), &Oid::from(target), b"squashed", &head)
+        .squash_commits(
+            &Oid::from(source),
+            &Oid::from(target),
+            "squashed".into(),
+            &head,
+        )
         .unwrap();
 
     match result {
@@ -98,7 +103,7 @@ fn squash_source_onto_target_overlapping_edits_errors() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            b"squashed",
+            "squashed".into(),
             &Oid::from(source),
         )
         .unwrap();
@@ -125,7 +130,7 @@ fn squash_with_multiple_intermediates_and_descendants() {
         .squash_commits(
             &Oid::from(source),
             &Oid::from(target),
-            b"squashed",
+            "squashed".into(),
             &Oid::from(after2),
         )
         .unwrap();
@@ -173,7 +178,7 @@ fn squash_try_combine_returns_none_when_clean() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined",
+            "combined".into(),
             SquashMode::Squash,
             &head,
         )
@@ -198,7 +203,7 @@ fn squash_try_combine_returns_conflict_state() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined msg",
+            "combined msg".into(),
             SquashMode::Squash,
             &head,
         )
@@ -235,7 +240,7 @@ fn squash_finalize_after_conflict_resolution() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined",
+            "combined".into(),
             SquashMode::Squash,
             &head,
         )
@@ -257,13 +262,18 @@ fn squash_finalize_after_conflict_resolution() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: b"combined".to_vec(),
+        combined_message: "combined".into(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None)
+        .squash_finalize(
+            &ctx,
+            "resolved squash".into(),
+            &state.original_branch_oid,
+            None,
+        )
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -307,7 +317,7 @@ fn a_resumed_squash_does_not_refuse_its_own_leftover_file() {
             .squash_commits(
                 &Oid::from(source),
                 &Oid::from(target),
-                b"target commit",
+                "target commit".into(),
                 &head
             )
             .unwrap()
@@ -322,7 +332,12 @@ fn a_resumed_squash_does_not_refuse_its_own_leftover_file() {
         panic!("expected a squash-tree conflict, got {:?}", state.resume);
     };
     let mut outcome = git_repo
-        .squash_finalize(ctx, b"target commit", &state.original_branch_oid, None)
+        .squash_finalize(
+            ctx,
+            "target commit".into(),
+            &state.original_branch_oid,
+            None,
+        )
         .unwrap();
     // Replay the descendants. Bounded: continuing without touching the markers
     // legitimately re-reports the same conflict, so an unbounded loop spins.

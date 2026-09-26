@@ -18,6 +18,7 @@ use git_tailor::repo::RepoWrite;
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk, VirtualOid,
 };
+use std::path::Path;
 
 use crate::mock_repo::{MockRepo, make_conflict_state};
 
@@ -237,15 +238,15 @@ fn three_hunk_commit_diff() -> CommitDiff {
         },
         files: vec![
             FileDiff {
-                old_path: Some("a.txt".to_string()),
-                new_path: Some("a.txt".to_string()),
+                old_path: Some("a.txt".into()),
+                new_path: Some("a.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1), one_line_hunk(10)],
             },
             FileDiff {
-                old_path: Some("b.txt".to_string()),
-                new_path: Some("b.txt".to_string()),
+                old_path: Some("b.txt".into()),
+                new_path: Some("b.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
@@ -339,21 +340,21 @@ fn three_file_commit_diff() -> CommitDiff {
         },
         files: vec![
             FileDiff {
-                old_path: Some("a.txt".to_string()),
-                new_path: Some("a.txt".to_string()),
+                old_path: Some("a.txt".into()),
+                new_path: Some("a.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
-                old_path: Some("b.txt".to_string()),
-                new_path: Some("b.txt".to_string()),
+                old_path: Some("b.txt".into()),
+                new_path: Some("b.txt".into()),
                 status: DeltaStatus::Modified,
                 is_binary: false,
                 hunks: vec![one_line_hunk(1)],
             },
             FileDiff {
-                old_path: Some("c.txt".to_string()),
+                old_path: Some("c.txt".into()),
                 new_path: None,
                 status: DeltaStatus::Deleted,
                 is_binary: false,
@@ -379,11 +380,18 @@ fn prepare_split_out_files_loads_diff_into_picker_files() {
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     match &app.mode {
         AppMode::SplitFilesSelect { files, .. } => {
-            let paths: Vec<Option<&str>> = files
+            let paths: Vec<Option<&Path>> = files
                 .iter()
                 .map(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
                 .collect();
-            assert_eq!(paths, vec![Some("a.txt"), Some("b.txt"), Some("c.txt")]);
+            assert_eq!(
+                paths,
+                vec![
+                    Some(Path::new("a.txt")),
+                    Some(Path::new("b.txt")),
+                    Some(Path::new("c.txt"))
+                ]
+            );
         }
         other => panic!("expected SplitFilesSelect mode, got {other:?}"),
     }
@@ -629,7 +637,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         "Continue",
         "Commit squash complete",
         &make_conflict_state(),
-        Some(b"the message the user typed\n".to_vec()),
+        Some("the message the user typed\n".into()),
     );
 
     assert!(
@@ -658,7 +666,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     );
     assert_eq!(
         app.resume_message.as_deref(),
-        Some(b"the message the user typed\n".as_slice()),
+        Some(&b"the message the user typed\n"[..].to_vec()),
         "a retry must not throw away what the user wrote"
     );
 
@@ -1227,12 +1235,12 @@ fn abandoning_a_commit_source_restores_the_autostash() {
 #[test]
 fn a_worktree_row_seeds_the_editor_with_the_target_message_alone() {
     assert_eq!(
-        squash_editor_seed(Some(b"the source commit"), b"the target commit"),
-        b"the target commit\n\nthe source commit".to_vec()
+        squash_editor_seed(Some("the source commit".into()), "the target commit".into()),
+        "the target commit\n\nthe source commit"
     );
     assert_eq!(
-        squash_editor_seed(None, b"the target commit"),
-        b"the target commit".to_vec()
+        squash_editor_seed(None, "the target commit".into()),
+        "the target commit"
     );
 }
 
@@ -1274,7 +1282,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         .squash_try_combine(
             prepared.source_oid(),
             &Oid::from("b".repeat(40)),
-            b"the target commit",
+            "the target commit".into(),
             SquashMode::Fixup,
             prepared.head_oid(),
         )
@@ -1300,7 +1308,7 @@ fn a_failed_conflict_probe_reports_the_underlying_cause() {
         .squash_try_combine(
             &Oid::from("b".repeat(40)),
             &Oid::from("c".repeat(40)),
-            b"the target commit",
+            "the target commit".into(),
             SquashMode::Fixup,
             &Oid::from("a".repeat(40)),
         )
@@ -1463,4 +1471,54 @@ fn shell_launch_failure_reports_when_the_autostash_restore_itself_fails() {
         message.contains("git stash list"),
         "the user must be told where their work is: {message}"
     );
+}
+
+/// The editor is seeded from the target's own bytes, not from the message the
+/// commit list draws. Saving an untouched template stores the seed verbatim as
+/// the override, so a lossy seed rewrites a message git-tailor cannot read
+/// with one it can — silently, and with no way back.
+#[test]
+fn the_autofixup_editor_seed_keeps_a_target_message_that_is_not_utf8() {
+    // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
+    let latin1 = &b"Fix f\xf6r \xe5\xe4\xf6 handling\n"[..];
+    let target_oid = Oid::from("aaaaaaaaaaaa");
+
+    let mut repo = MockRepo::default();
+    repo.commit_messages
+        .insert(target_oid.clone(), latin1.into());
+
+    let group = git_tailor::autofixup::AutofixupGroup {
+        target_oid: target_oid.clone(),
+        target_summary: "Fix f\u{fffd}r \u{fffd}\u{fffd}\u{fffd} handling".to_string(),
+        // What `CommitInfo` holds: the lossy rendering, which is exactly what
+        // must not reach the editor.
+        target_message: String::from_utf8_lossy(latin1).into_owned(),
+        sources: vec![],
+    };
+
+    let seed = super::autofixup::edit_seed(&repo, &group, None);
+
+    assert_eq!(seed, b"Fix f\xf6r \xe5\xe4\xf6 handling\n");
+}
+
+/// Editing a group's message twice starts from what the user wrote the first
+/// time. Seeding the second edit from the commit instead silently discards the
+/// first, while the dialog still shows the group as edited.
+#[test]
+fn the_autofixup_editor_seed_starts_from_a_previous_edit() {
+    let target_oid = Oid::from("aaaaaaaaaaaa");
+    let mut repo = MockRepo::default();
+    repo.commit_messages
+        .insert(target_oid.clone(), "Add parser\n".into());
+
+    let group = git_tailor::autofixup::AutofixupGroup {
+        target_oid: target_oid.clone(),
+        target_summary: "Add parser".to_string(),
+        target_message: "Add parser\n".to_string(),
+        sources: vec![],
+    };
+
+    let seed = super::autofixup::edit_seed(&repo, &group, Some("what I wrote\n".into()));
+
+    assert_eq!(seed, "what I wrote\n");
 }

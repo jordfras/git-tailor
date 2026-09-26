@@ -123,10 +123,24 @@ pub(super) fn rescue_ref(tree: &Oid) -> String {
 ///
 /// `repo.path()` is `<gitdir>/` for the main working tree and
 /// `<gitdir>/worktrees/<name>/` for a linked one, so the name is the last
-/// component when the one before it is `worktrees`. It is hashed rather than
-/// used as-is because a working tree's name only has to be a valid directory
-/// name, while this has to be a valid ref name. Hashing the name and not the
-/// full path keeps the pins matching after the repository is moved.
+/// component when the one before it is `worktrees`. Hashing the name and not
+/// the full path keeps the pins matching after the repository is moved.
+fn worktree_prefix(repo: &Git2Repo) -> String {
+    let path = repo.inner.path();
+    let name = path
+        .parent()
+        .filter(|parent| parent.file_name() == Some(std::ffi::OsStr::new("worktrees")))
+        .and_then(|_| path.file_name());
+    let id = name.map_or_else(|| "main".to_string(), worktree_id);
+    format!("{REF_NAMESPACE}{WORKTREE_REF_LEAF}{id}/")
+}
+
+/// Ref-name-safe id for a linked working tree's name.
+///
+/// Hashed rather than used as-is because a working tree's name only has to be
+/// a valid directory name, while this has to be a valid ref name. Hashed as
+/// bytes because a decoded name maps every invalid byte to the same character,
+/// and two trees sharing an id share their pins.
 ///
 /// Truncated to 12 hex chars (48 bits): two working trees landing on the same
 /// prefix needs on the order of 2^24 of them on one repository before it
@@ -135,26 +149,14 @@ pub(super) fn rescue_ref(tree: &Oid) -> String {
 /// old, shorter id would stop matching the new prefix and never be pruned —
 /// so it stays exactly this long rather than trading a theoretical collision
 /// for a real leak.
-fn worktree_prefix(repo: &Git2Repo) -> String {
-    let path = repo.inner.path();
-    let name = path
-        .parent()
-        .filter(|parent| parent.file_name() == Some(std::ffi::OsStr::new("worktrees")))
-        .and_then(|_| path.file_name());
-    let id = match name {
-        Some(name) => {
-            let digest =
-                git2::Oid::hash_object(git2::ObjectType::Blob, name.to_string_lossy().as_bytes());
-            match digest {
-                Ok(oid) => oid.to_string()[..12].to_string(),
-                // Only if libgit2 cannot hash at all; sharing one bucket is
-                // still better than failing an operation over a pin name.
-                Err(_) => "unknown".to_string(),
-            }
-        }
-        None => "main".to_string(),
-    };
-    format!("{REF_NAMESPACE}{WORKTREE_REF_LEAF}{id}/")
+fn worktree_id(name: &std::ffi::OsStr) -> String {
+    let bytes = crate::domain::path_to_bytes(std::path::Path::new(name));
+    match git2::Oid::hash_object(git2::ObjectType::Blob, &bytes) {
+        Ok(oid) => oid.to_string()[..12].to_string(),
+        // Only if libgit2 cannot hash at all; sharing one bucket is still
+        // better than failing an operation over a pin name.
+        Err(_) => "unknown".to_string(),
+    }
 }
 
 /// Full name of the in-progress `orig` pin for this working tree.
@@ -1357,5 +1359,23 @@ fn migrate_v1(old: JournalDocV1) -> JournalDoc {
         autostash: old.autostash,
         parked: None,
         worktree_source: None,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::worktree_id;
+
+    #[test]
+    fn worktree_names_differing_only_in_invalid_bytes_get_distinct_ids() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // Both decode to "wt<U+FFFD>", so a lossy id cannot tell them apart —
+        // and two working trees sharing a pin prefix unpin each other's work.
+        let one = OsStr::from_bytes(&[b'w', b't', 0xFE]);
+        let other = OsStr::from_bytes(&[b'w', b't', 0xFF]);
+
+        assert_ne!(worktree_id(one), worktree_id(other));
     }
 }

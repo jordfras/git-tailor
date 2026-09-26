@@ -24,6 +24,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use bstr::{BStr, BString, ByteSlice};
 
 use super::super::{AutofixupContext, ConflictState, RebaseOutcome, RepoRead};
 use super::Git2Repo;
@@ -36,7 +37,7 @@ pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, Vec<u8>>,
+    message_overrides: &HashMap<String, BString>,
 ) -> Result<RebaseOutcome> {
     run_batch(
         repo,
@@ -72,7 +73,7 @@ pub(super) fn continue_autofixup(
 pub(super) fn continue_autofixup_after_squash_finalize(
     repo: &mut Git2Repo,
     squash_ctx: &super::super::SquashContext,
-    message: &[u8],
+    message: &BStr,
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
@@ -116,7 +117,7 @@ fn run_batch(
     mut current_tip: Oid,
     batch_original_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, Vec<u8>>,
+    message_overrides: &HashMap<String, BString>,
 ) -> Result<RebaseOutcome> {
     loop {
         let commits = reads::list_commits(repo, &current_tip, reference_oid)?;
@@ -132,7 +133,7 @@ fn run_batch(
             repo,
             &pair.source_oid,
             &pair.target_oid,
-            &message,
+            message.as_bstr(),
             &current_tip,
         )? {
             RebaseOutcome::Complete => {
@@ -173,8 +174,8 @@ fn pair_message(
     repo: &Git2Repo,
     pair: &AutofixupPair,
     more_pending_for_target: bool,
-    message_overrides: &HashMap<String, Vec<u8>>,
-) -> Result<Vec<u8>> {
+    message_overrides: &HashMap<String, BString>,
+) -> Result<BString> {
     if !more_pending_for_target
         && let Some(overridden) = message_overrides.get(&pair.target_summary)
     {
@@ -186,8 +187,8 @@ fn pair_message(
         SquashMode::Squash => {
             let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
             Ok(crate::domain::combine_messages(
-                &target_bytes,
-                Some(&source_bytes),
+                target_bytes.as_bstr(),
+                Some(source_bytes.as_bstr()),
             ))
         }
     }

@@ -19,6 +19,7 @@
 //! module and can be unit-tested in isolation.
 
 use anyhow::{Context, Result};
+use bstr::{BStr, BString, ByteSlice};
 use std::collections::HashMap;
 
 use crate::fragmap::HunkFragment;
@@ -61,29 +62,31 @@ impl HunkSelection {
 /// The first line of the original message is kept and suffixed with "(n/total)".
 /// If the original message has a body (text after the first line), it is
 /// appended unchanged so no information is lost.
-pub(super) fn split_message(original: &str, n: usize, total: usize) -> String {
-    let mut lines = original.splitn(2, '\n');
-    let first = lines.next().unwrap_or("split").trim_end();
-    let rest = lines.next().unwrap_or("");
-    if rest.trim().is_empty() {
-        format!("{} ({}/{})", first, n, total)
-    } else {
-        format!("{} ({}/{})\n{}", first, n, total, rest)
-    }
+pub(super) fn split_message(original: &BStr, n: usize, total: usize) -> BString {
+    summary_suffix_message(original, format!("{n}/{total}").as_bytes().as_bstr())
 }
 
 /// Append a parenthesised `suffix` to the summary line of `original`, keeping
 /// the body intact.  Used by the "split out file(s)"/"split out hunk(s)"
 /// operations to mark the peeled-out commit with what it contains.
-pub(super) fn summary_suffix_message(original: &str, suffix: &str) -> String {
-    let mut lines = original.splitn(2, '\n');
-    let first = lines.next().unwrap_or("split").trim_end();
-    let rest = lines.next().unwrap_or("");
-    if rest.trim().is_empty() {
-        format!("{} ({})", first, suffix)
-    } else {
-        format!("{} ({})\n{}", first, suffix, rest)
+///
+/// The suffix is bytes because it usually names a file, and a name git-tailor
+/// cannot decode has no text to append.
+pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString {
+    let (first, rest) = match original.find_byte(b'\n') {
+        Some(i) => (&original[..i], &original[i + 1..]),
+        None => (original, &original[..0]),
+    };
+
+    let mut out = BString::from(first.trim_ascii_end());
+    out.extend_from_slice(b" (");
+    out.extend_from_slice(suffix);
+    out.push(b')');
+    if !rest.trim_ascii().is_empty() {
+        out.push(b'\n');
+        out.extend_from_slice(rest);
     }
+    out
 }
 
 /// Apply a gitlink (submodule pointer) delta to `base_tree` and return the
@@ -173,11 +176,7 @@ pub(super) fn apply_single_hunk_to_tree(
 
         let new_blob_oid = repo.blob(&new_content)?;
 
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
+        let path_bytes = crate::domain::path_to_bytes(&file_path);
         idx.add(&git2::IndexEntry {
             ctime: git2::IndexTime::new(0, 0),
             mtime: git2::IndexTime::new(0, 0),
@@ -254,11 +253,7 @@ pub(super) fn apply_selected_hunks_to_tree(
         let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
             .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
 
-        let path_bytes = file_path
-            .to_str()
-            .context("file path is not valid UTF-8")?
-            .as_bytes()
-            .to_vec();
+        let path_bytes = crate::domain::path_to_bytes(&file_path);
 
         if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
             // All lines removed → delete the file from the intermediate tree.
@@ -587,7 +582,7 @@ mod tests {
     #[test]
     fn summary_suffix_message_summary_only() {
         assert_eq!(
-            summary_suffix_message("my fix", "src/a.rs"),
+            summary_suffix_message("my fix".into(), "src/a.rs".into()),
             "my fix (src/a.rs)"
         );
     }
@@ -595,41 +590,41 @@ mod tests {
     #[test]
     fn summary_suffix_message_preserves_body() {
         let original = "my fix\n\nBody line 1.\nBody line 2.";
-        let result = summary_suffix_message(original, "src/a.rs");
+        let result = summary_suffix_message(original.into(), "src/a.rs".into());
         assert_eq!(result, "my fix (src/a.rs)\n\nBody line 1.\nBody line 2.");
     }
 
     #[test]
     fn summary_suffix_message_trailing_newline_on_summary() {
         assert_eq!(
-            summary_suffix_message("my fix\n", "src/a.rs"),
+            summary_suffix_message("my fix\n".into(), "src/a.rs".into()),
             "my fix (src/a.rs)"
         );
     }
 
     #[test]
     fn split_message_summary_only() {
-        assert_eq!(split_message("my fix", 1, 3), "my fix (1/3)");
+        assert_eq!(split_message("my fix".into(), 1, 3), "my fix (1/3)");
     }
 
     #[test]
     fn split_message_preserves_body() {
         let original = "my fix\n\nBody line 1.\nBody line 2.";
-        let result = split_message(original, 2, 3);
+        let result = split_message(original.into(), 2, 3);
         assert_eq!(result, "my fix (2/3)\n\nBody line 1.\nBody line 2.");
     }
 
     #[test]
     fn split_message_body_whitespace_only_treated_as_no_body() {
         let original = "my fix\n\n  \n";
-        let result = split_message(original, 1, 2);
+        let result = split_message(original.into(), 1, 2);
         assert_eq!(result, "my fix (1/2)");
     }
 
     #[test]
     fn split_message_trailing_newline_on_summary() {
         // git commit messages often end with a newline
-        let result = split_message("my fix\n", 1, 1);
+        let result = split_message("my fix\n".into(), 1, 1);
         assert_eq!(result, "my fix (1/1)");
     }
 }

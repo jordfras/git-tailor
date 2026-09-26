@@ -123,8 +123,8 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     let diff = CommitDiff {
         commit: common::create_test_commit("crlf001", "File with CRLF line endings"),
         files: vec![FileDiff {
-            old_path: Some("hello.txt".to_string()),
-            new_path: Some("hello.txt".to_string()),
+            old_path: Some("hello.txt".into()),
+            new_path: Some("hello.txt".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -231,8 +231,8 @@ fn test_commit_detail_search_bar_visible() {
     let diff = CommitDiff {
         commit: common::create_test_commit("abc123", "Add feature"),
         files: vec![FileDiff {
-            old_path: Some("hello.txt".to_string()),
-            new_path: Some("hello.txt".to_string()),
+            old_path: Some("hello.txt".into()),
+            new_path: Some("hello.txt".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -278,8 +278,8 @@ fn test_commit_detail_search_highlight_matches() {
     let diff = CommitDiff {
         commit: common::create_test_commit("abc123", "Add feature"),
         files: vec![FileDiff {
-            old_path: Some("hello.txt".to_string()),
-            new_path: Some("hello.txt".to_string()),
+            old_path: Some("hello.txt".into()),
+            new_path: Some("hello.txt".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -483,8 +483,8 @@ fn test_search_case_sensitive() {
     let diff = CommitDiff {
         commit: common::create_test_commit("abc123", "Add FOO feature"),
         files: vec![FileDiff {
-            old_path: Some("foo.txt".to_string()),
-            new_path: Some("foo.txt".to_string()),
+            old_path: Some("foo.txt".into()),
+            new_path: Some("foo.txt".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -604,8 +604,8 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
     let diff = CommitDiff {
         commit: common::create_test_commit("abc123", "Long diff"),
         files: vec![FileDiff {
-            old_path: Some("big.txt".to_string()),
-            new_path: Some("big.txt".to_string()),
+            old_path: Some("big.txt".into()),
+            new_path: Some("big.txt".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -734,8 +734,8 @@ fn render_detail_rows(files: Vec<FileDiff>) -> Vec<String> {
 
 fn hunkless_file(path: &str, status: DeltaStatus, is_binary: bool) -> FileDiff {
     FileDiff {
-        old_path: Some(path.to_string()),
-        new_path: Some(path.to_string()),
+        old_path: Some(path.into()),
+        new_path: Some(path.into()),
         status,
         is_binary,
         hunks: vec![],
@@ -786,8 +786,8 @@ fn test_detail_marks_a_hunkless_modification() {
 #[test]
 fn test_detail_does_not_mark_a_file_with_hunks() {
     let file = FileDiff {
-        old_path: Some("file.txt".to_string()),
-        new_path: Some("file.txt".to_string()),
+        old_path: Some("file.txt".into()),
+        new_path: Some("file.txt".into()),
         status: DeltaStatus::Modified,
         is_binary: false,
         hunks: vec![Hunk {

@@ -15,8 +15,10 @@
 // Side-effect handlers for the bulk Autofixup operation.
 
 use anyhow::Result;
-use git_tailor::app::{AppMode, AppState};
-use git_tailor::repo::{GitRepo, RebaseOutcome};
+use bstr::{BStr, BString, ByteSlice};
+use git_tailor::app::{AppMode, AppState, SquashMode};
+use git_tailor::autofixup::AutofixupGroup;
+use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
 use git_tailor::{CommitInfo, Oid};
 
 use crate::dispatch::{
@@ -69,8 +71,45 @@ pub(crate) fn autofixup_target_selection_index(
     Some(reference_index.saturating_sub(removed_before))
 }
 
-/// Open `$EDITOR` on `template` (the target's message, with the sources being
-/// folded into it commented out — see `autofixup::edit_template`) and store
+/// The bytes `$EDITOR` opens on for a target group's final message.
+///
+/// `edited` is what the user wrote the last time they edited this group, so a
+/// second edit starts from it rather than throwing it away.
+///
+/// Otherwise read from the repository, never from the group's rendering of the
+/// messages: that rendering is lossy, and an untouched template comes back as
+/// the override written to the commit.
+///
+/// A message that cannot be read falls back to the rendering rather than
+/// failing the edit — it is the same text the dialog behind the editor shows.
+pub(super) fn edit_seed(
+    repo: &impl RepoRead,
+    group: &AutofixupGroup,
+    edited: Option<&BStr>,
+) -> BString {
+    let message_of = |oid: &Oid, rendered: &str| -> BString {
+        repo.commit_message_bytes(oid)
+            .unwrap_or_else(|_| BString::from(rendered))
+    };
+    let sources: Vec<(SquashMode, BString)> = group
+        .sources
+        .iter()
+        .map(|pair| {
+            (
+                pair.mode,
+                message_of(&pair.source_oid, &pair.source_message),
+            )
+        })
+        .collect();
+    let target = match edited {
+        Some(edited) => BString::from(edited),
+        None => message_of(&group.target_oid, &group.target_message),
+    };
+    git_tailor::autofixup::edit_template(target.as_bstr(), &sources)
+}
+
+/// Open `$EDITOR` on the target's message, with the sources being folded into
+/// it commented out (see `autofixup::edit_template`), and store
 /// the result back onto the still-open confirmation dialog as an override for
 /// `target_summary`. Does not execute anything; the batch only runs once the
 /// user confirms.
@@ -78,22 +117,29 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     target_summary: String,
-    template: String,
+    group: &AutofixupGroup,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
+    let edited = match &app.mode {
+        AppMode::AutofixupConfirm(pending) => {
+            pending.message_overrides.get(&target_summary).cloned()
+        }
+        _ => None,
+    };
+    let template = edit_seed(git_repo, group, edited.as_ref().map(|m| m.as_bstr()));
     let editor_result =
-        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bytes());
+        edit_message_suspended(git_repo, terminal_guard, kb_enhanced, template.as_bstr());
     match editor_result {
         Ok(edited) => {
-            let message = git_tailor::autofixup::strip_comment_lines(&edited);
+            let message = git_tailor::autofixup::strip_comment_lines(edited.as_bstr());
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
                     pending.message_overrides.remove(&target_summary);
                 } else {
-                    pending
-                        .message_overrides
-                        .insert(target_summary, [message, b"\n".to_vec()].concat());
+                    let mut message = message;
+                    message.push(b'\n');
+                    pending.message_overrides.insert(target_summary, message);
                 }
             }
         }
@@ -109,7 +155,7 @@ pub(crate) fn handle_execute_autofixup(
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
-    message_overrides: std::collections::HashMap<String, Vec<u8>>,
+    message_overrides: std::collections::HashMap<String, bstr::BString>,
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);

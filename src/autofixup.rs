@@ -19,6 +19,7 @@
 use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
+use bstr::{BStr, BString, ByteSlice};
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,29 +73,38 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
 
 const COMMENT_PREFIX: &str = "# ";
 
+/// The message without its trailing newlines, which the template supplies.
+fn trim_trailing_newlines(message: &BStr) -> &BStr {
+    let end = message
+        .iter()
+        .rposition(|&b| b != b'\n')
+        .map_or(0, |i| i + 1);
+    &message[..end]
+}
+
 /// Build the text shown in `$EDITOR` when the user edits a target group's
-/// final message: the target's current message, live and editable, followed
-/// by each source's message commented out — mirroring `git rebase
+/// final message: `target_message`, live and editable, followed by each
+/// source's message commented out — mirroring `git rebase
 /// --autosquash`'s own combination template. Left untouched, the commented
 /// sources contribute nothing, so a no-op edit is the same as not editing at
 /// all (matches `fixup!`'s already-silent default).
-pub fn edit_template(group: &AutofixupGroup) -> String {
-    let mut text = group.target_message.trim_end_matches('\n').to_string();
-    text.push('\n');
-    for source in &group.sources {
-        text.push('\n');
-        text.push_str(COMMENT_PREFIX);
-        text.push_str(match source.mode {
-            SquashMode::Fixup => "The message below is from a fixup! commit being folded in:",
-            SquashMode::Squash => "The message below is from a squash! commit being folded in:",
+pub fn edit_template(target_message: &BStr, sources: &[(SquashMode, BString)]) -> BString {
+    let mut text = BString::from(trim_trailing_newlines(target_message));
+    text.push(b'\n');
+    for (mode, source_message) in sources {
+        text.push(b'\n');
+        text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+        text.extend_from_slice(match mode {
+            SquashMode::Fixup => b"The message below is from a fixup! commit being folded in:",
+            SquashMode::Squash => b"The message below is from a squash! commit being folded in:",
         });
-        text.push('\n');
-        text.push_str(COMMENT_PREFIX);
-        text.push('\n');
-        for line in source.source_message.lines() {
-            text.push_str(COMMENT_PREFIX);
-            text.push_str(line);
-            text.push('\n');
+        text.push(b'\n');
+        text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+        text.push(b'\n');
+        for line in source_message.lines() {
+            text.extend_from_slice(COMMENT_PREFIX.as_bytes());
+            text.extend_from_slice(line);
+            text.push(b'\n');
         }
     }
     text
@@ -103,7 +113,7 @@ pub fn edit_template(group: &AutofixupGroup) -> String {
 /// Strip `#`-prefixed comment lines and trim surrounding blank lines — mirrors
 /// git's own `commit.cleanup=strip` handling of the combination template
 /// above, so leaving the commented-out sources untouched discards them.
-pub fn strip_comment_lines(text: &[u8]) -> Vec<u8> {
+pub fn strip_comment_lines(text: &BStr) -> BString {
     // Bytes throughout: a commit message is bytes to git, and the editor hands
     // back whatever the user typed. Decoding to `String` first would replace
     // anything that is not UTF-8 with U+FFFD — silently rewriting their text.
@@ -112,7 +122,7 @@ pub fn strip_comment_lines(text: &[u8]) -> Vec<u8> {
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
         .filter(|line| !line.starts_with(b"#"))
         .collect();
-    kept.join(&b'\n').trim_ascii().to_vec()
+    kept.join(&b'\n').trim_ascii().into()
 }
 
 /// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest-first,
@@ -159,6 +169,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
 mod tests {
     use super::*;
     use crate::VirtualOid;
+    use bstr::ByteSlice;
 
     fn commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
@@ -261,18 +272,56 @@ mod tests {
         assert_eq!(groups[1].sources.len(), 1);
     }
 
+    /// The template for `group`, built the way `dispatch::autofixup::edit_seed`
+    /// builds it.
+    fn template_for(group: &AutofixupGroup) -> BString {
+        let sources: Vec<(SquashMode, BString)> = group
+            .sources
+            .iter()
+            .map(|pair| (pair.mode, BString::from(pair.source_message.clone())))
+            .collect();
+        edit_template(group.target_message.as_str().into(), &sources)
+    }
+
+    /// A commit message ends in a newline, which is a terminator and not an
+    /// empty last line. Treating it as one puts a bare "# " under every folded
+    /// source in the editor.
+    #[test]
+    fn edit_template_does_not_comment_a_line_past_the_end_of_a_message() {
+        let target = BString::from("Add parser\n");
+        let sources = vec![(SquashMode::Fixup, BString::from("fixup! Add parser\n"))];
+
+        let template = edit_template(target.as_bstr(), &sources);
+
+        assert_eq!(
+            template,
+            concat!(
+                "Add parser\n",
+                "\n",
+                "# The message below is from a fixup! commit being folded in:\n",
+                "# \n",
+                "# fixup! Add parser\n",
+            )
+        );
+    }
+
     #[test]
     fn edit_template_comments_out_every_source() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];
         let pairs = plan_autofixup(&commits);
         let group = &group_by_target(&pairs)[0];
 
-        let template = edit_template(group);
-        assert!(template.starts_with("Add parser\n"));
-        for line in template.lines().skip(1).filter(|l| !l.is_empty()) {
+        let template = template_for(group);
+        assert!(template.starts_with(b"Add parser\n"));
+        for line in template
+            .split(|&b| b == b'\n')
+            .skip(1)
+            .filter(|l| !l.is_empty())
+        {
             assert!(
-                line.starts_with('#'),
-                "expected every non-blank line after the target message to be commented: {line:?}"
+                line.starts_with(b"#"),
+                "expected every non-blank line after the target message to be commented: {:?}",
+                line.as_bstr()
             );
         }
     }
@@ -287,8 +336,8 @@ mod tests {
         let pairs = plan_autofixup(&commits);
         let group = &group_by_target(&pairs)[0];
 
-        let template = edit_template(group);
-        assert_eq!(strip_comment_lines(template.as_bytes()), b"Add parser");
+        let template = template_for(group);
+        assert_eq!(strip_comment_lines(template.as_bstr()), b"Add parser");
     }
 
     #[test]
@@ -298,14 +347,14 @@ mod tests {
         // edit should clear any existing override rather than store a blank
         // message.
         let text = "# Add parser\n# fixup! Add parser";
-        assert_eq!(strip_comment_lines(text.as_bytes()), b"");
+        assert_eq!(strip_comment_lines(text.into()), b"");
     }
 
     #[test]
     fn strip_comment_lines_keeps_uncommented_additions() {
         let text = "Add parser\n\n# comment\nExtra detail the user typed\n# more comment";
         assert_eq!(
-            strip_comment_lines(text.as_bytes()),
+            strip_comment_lines(text.into()),
             b"Add parser\n\nExtra detail the user typed"
         );
     }
@@ -318,7 +367,7 @@ mod tests {
         // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
         let text: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n# a comment\n";
         assert_eq!(
-            strip_comment_lines(text),
+            strip_comment_lines(text.as_bstr()),
             b"Fix f\xf6r \xe5\xe4\xf6 handling".to_vec()
         );
     }
@@ -326,6 +375,6 @@ mod tests {
     #[test]
     fn strip_comment_lines_preserves_internal_blank_lines_in_a_multi_paragraph_message() {
         let text = "Summary\n\nBody paragraph one.\n\nBody paragraph two.";
-        assert_eq!(strip_comment_lines(text.as_bytes()), text.as_bytes());
+        assert_eq!(strip_comment_lines(text.into()), text.as_bytes());
     }
 }

@@ -37,7 +37,7 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined",
+            "combined".into(),
             SquashMode::Squash,
             &head,
         )
@@ -70,13 +70,18 @@ fn squash_finalize_after_external_conflict_resolution_without_staging() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: b"combined".to_vec(),
+        combined_message: "combined".into(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, b"resolved squash", &state.original_branch_oid, None)
+        .squash_finalize(
+            &ctx,
+            "resolved squash".into(),
+            &state.original_branch_oid,
+            None,
+        )
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -116,7 +121,7 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"squashed",
+            "squashed".into(),
             SquashMode::Squash,
             &head,
         )
@@ -136,13 +141,13 @@ fn squash_finalize_does_not_leak_descendant_files_into_squash_tree() {
         },
         source_oid: Oid::from(source),
         target_oid: Oid::from(target),
-        combined_message: b"squashed".to_vec(),
+        combined_message: "squashed".into(),
         descendant_oids: vec![],
         squash_mode: SquashMode::Squash,
     };
 
     let result = git_repo
-        .squash_finalize(&ctx, b"squashed", &state.original_branch_oid, None)
+        .squash_finalize(&ctx, "squashed".into(), &state.original_branch_oid, None)
         .unwrap();
 
     assert_rebase_complete!(result);
@@ -184,7 +189,7 @@ fn rebase_abort_after_squash_conflict_leaves_no_staged_changes() {
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
-            b"combined",
+            "combined".into(),
             SquashMode::Fixup,
             &head,
         )

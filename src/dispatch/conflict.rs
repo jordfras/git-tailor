@@ -16,6 +16,7 @@
 // the merge tool or editor, and continuing or aborting the paused operation.
 
 use anyhow::Result;
+use bstr::ByteSlice;
 use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
@@ -96,7 +97,7 @@ pub(crate) fn handle_rebase_continue(
                 .clone()
                 .unwrap_or_else(|| ctx.combined_message.clone());
             let editor_result =
-                edit_message_suspended(git_repo, terminal_guard, kb_enhanced, &combined);
+                edit_message_suspended(git_repo, terminal_guard, kb_enhanced, combined.as_bstr());
             match editor_result {
                 Err(e) => {
                     let _ = git_repo.rebase_abort(&state);
@@ -104,7 +105,7 @@ pub(crate) fn handle_rebase_continue(
                     app.set_error_message(format!("Editor error: {e:#}"));
                     return Ok(LoopAction::Reload);
                 }
-                Ok(msg) if is_blank_message(&msg) => {
+                Ok(msg) if is_blank_message(msg.as_bstr()) => {
                     let _ = git_repo.rebase_abort(&state);
                     let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;
@@ -120,7 +121,7 @@ pub(crate) fn handle_rebase_continue(
         let success_msg = format!("{} complete", state.operation_label);
         let outcome = git_repo.squash_finalize(
             &ctx_clone,
-            &final_msg,
+            final_msg.as_bstr(),
             &original_oid,
             state.autofixup_context.as_ref(),
         );

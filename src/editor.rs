@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::repo::RepoRead;
+use bstr::{BStr, BString};
 
 use anyhow::Context as _;
 
@@ -87,7 +88,7 @@ fn launch_editor(repo: &impl RepoRead, path: &std::path::Path) -> anyhow::Result
 /// bytes, and a commit message git-tailor cannot read is still the user's. Text
 /// here would mean seeding the editor with a lossy rendering and writing the
 /// replacement characters back as the message.
-pub fn edit_message_in_editor(repo: &impl RepoRead, message: &[u8]) -> anyhow::Result<Vec<u8>> {
+pub fn edit_message_in_editor(repo: &impl RepoRead, message: &BStr) -> anyhow::Result<BString> {
     use std::io::Write as _;
 
     let mut tmpfile =
@@ -104,7 +105,7 @@ pub fn edit_message_in_editor(repo: &impl RepoRead, message: &[u8]) -> anyhow::R
     // of a multi-byte sequence in any encoding git accepts.
     let mut out = edited.trim_ascii().to_vec();
     out.push(b'\n');
-    Ok(out)
+    Ok(out.into())
 }
 
 /// Open an existing working-tree file in the configured editor.

@@ -402,9 +402,18 @@ impl TuiTestHarness {
 /// in memory works everywhere, and stays `#[cfg(unix)]`.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn non_utf8_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
+    non_utf8_path_with_byte(prefix, 0xFF, suffix)
+}
+
+/// As [`non_utf8_path`], with the invalid byte chosen by the caller, so two
+/// paths can be built that differ in nothing else. `byte` must be one no valid
+/// UTF-8 sequence contains: `0xF8`..=`0xFF`.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn non_utf8_path_with_byte(prefix: &str, byte: u8, suffix: &str) -> std::path::PathBuf {
     use std::os::unix::ffi::OsStrExt;
+    assert!(byte >= 0xF8, "{byte:#x} can appear in valid UTF-8");
     let mut bytes = prefix.as_bytes().to_vec();
-    bytes.push(0xFF);
+    bytes.push(byte);
     bytes.extend_from_slice(suffix.as_bytes());
     std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes))
 }
@@ -441,8 +450,8 @@ pub fn create_test_commit_diff(
     CommitDiff {
         commit: create_test_commit(oid, summary),
         files: vec![FileDiff {
-            old_path: Some(path.to_string()),
-            new_path: Some(path.to_string()),
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {
@@ -476,7 +485,7 @@ pub fn create_fragmap(
 pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
     SpanCluster {
         spans: vec![FileSpan {
-            path: path.to_string(),
+            path: path.into(),
             start_line: start,
             end_line: end,
         }],

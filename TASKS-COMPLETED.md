@@ -1935,3 +1935,56 @@
   Done as a third journal slot rather than a sum type: `parked` is a
   sibling of `autostash`, so the six discrimination sites went instead
   of becoming match arms.
+
+## Byte-Valued Domain Data
+- [X] T249 P2 refactor - Give byte-valued domain data a type that refuses to be
+  decoded by accident. Commit messages and repository paths are bytes to git,
+  and the 3.1.0 work moved them to `&[u8]` at the trait boundary — correctly.
+  Every bug found since has been a `String` reappearing at an *internal*
+  boundary, because `Vec<u8>` -> `String` is one cheap call away and nothing in
+  the type system objects: the autofixup editor decode (fixed), the lossy path
+  key in T250, the lossy worktree-name hash in T251.
+  `OsString` is not the answer and is worth recording as rejected: it models
+  *platform* string semantics, so on Windows it is WTF-16 with no `from_vec` —
+  a Latin-1 commit message has no representation there at all.
+  Done with `bstr` for messages and `PathBuf` for paths, not the hand-rolled
+  `Message`/`RepoPath` newtypes this task proposed. The two reasons recorded
+  for rejecting `bstr` were both wrong. It is `MIT OR Apache-2.0` and its only
+  required dependency is `memchr`, already in the tree via `regex`, so there
+  was nothing to carry through `cargo-deny`. And the newtype's headline
+  feature — no `Display`, so `format!("{msg}")` will not compile — guards the
+  wrong thing: none of the three bugs came from a format string. All three
+  came from an explicit `to_string_lossy()` at an *identity* boundary, which
+  removing `Display` would not have caught. What stops those is a byte type
+  that is `Hash + Eq` on its bytes and convenient enough to keep, which is
+  what `BString` is.
+  The rule the work settled on, and the one to apply next time:
+  **decode at the render boundary, never before it.** `CommitInfo::summary`,
+  `CommitInfo::message` and `DiffLine::content` stay lossy `String` — ratatui
+  draws `&str`, and nothing rendered is written back. Map keys, hash inputs and
+  anything that becomes a commit message or a tree path stay bytes.
+  `bstr`'s `unicode` feature stays off: it pulls in `regex-automata`, and the
+  only thing it was wanted for was `trim`, which `trim_ascii` covers.
+  Scope was wider than the "~50 lines" this task estimated, because the path
+  identity chain ran from `reads.rs` through `FileDiff`, the whole fragmap and
+  `split_op`. That retyping is what closed T250, and needed no dependency.
+- [X] T250 P3 bug - Split assigns hunks through a lossy path key.
+  `fragmap.rs` keys `by_file: HashMap<String, Vec<HunkAssignment>>`, and
+  `split_op.rs` builds those keys with `to_string_lossy()`. Every invalid byte
+  becomes U+FFFD, so two distinct non-UTF-8 paths collapse to one key and split
+  applies one file's hunk assignments to another — writing content to the wrong
+  path, silently, since split does real tree surgery.
+  The visible symptom turned out to be a refusal rather than silent corruption:
+  the two files merge into one fragmap entry, so the commit looks like it has
+  fewer hunk groups than it has and the split declines. The silent-corruption
+  path is still reachable through the other split strategies.
+  Fixed by retyping the identity chain to `PathBuf` — `FileDiff::old_path` /
+  `new_path`, `build_rename_map`, `collect_file_commits`, `column_of`,
+  `by_file`, `collect_commit_paths` — and writing index-entry paths through
+  `domain::path_to_bytes` instead of refusing what would not decode.
+- [X] T251 P3 bug - The per-working-tree journal prefix hashes a lossy name.
+  `journal.rs` hashes `name.to_string_lossy()` to build `wt/<id>/`. Two linked
+  worktrees whose names differ only in invalid bytes hash the same, so they
+  share journal pins — quietly undoing the per-working-tree isolation added in
+  3.1.0, whose whole point was that one tree's run must not unpin another's
+  interrupted work. Hash the bytes instead.

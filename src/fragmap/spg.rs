@@ -33,6 +33,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{CommitDiff, VirtualOid};
 
 use super::{FileSpan, HunkInfo, SpanCluster};
+use std::path::{Path, PathBuf};
 
 /// Half-open interval `[start, end)` for SPG span computations.
 /// Uses `i64` to safely handle arithmetic with large sentinel values.
@@ -613,7 +614,7 @@ pub(super) fn deduplicate_clusters(clusters: &mut Vec<SpanCluster>) {
 /// generation. Return `false` from `poll` to interrupt; `None` is returned
 /// in that case.
 pub(super) fn build_file_clusters(
-    path: &str,
+    path: &Path,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
@@ -635,7 +636,7 @@ pub(super) fn build_file_clusters(
 /// hunk group needs the pairing to tell which of a commit's hunks belongs to
 /// which column; `build_file_clusters` discards it.
 pub(super) fn build_file_clusters_with_target(
-    path: &str,
+    path: &Path,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     target: Option<usize>,
@@ -673,7 +674,7 @@ pub(super) fn build_file_clusters_with_target(
             clusters.push((
                 SpanCluster {
                     spans: vec![FileSpan {
-                        path: path.to_string(),
+                        path: path.to_path_buf(),
                         start_line: sp.start.max(1) as u32,
                         end_line: (sp.end - 1).max(1) as u32,
                     }],
@@ -706,8 +707,8 @@ pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
     let file_commits =
         super::collect_file_commits(commit_diffs, &super::build_rename_map(commit_diffs));
 
-    let mut sorted_paths: Vec<&String> = file_commits.keys().collect();
-    sorted_paths.sort();
+    let mut sorted_paths: Vec<&PathBuf> = file_commits.keys().collect();
+    super::sort_by_path_bytes(&mut sorted_paths);
 
     for path in sorted_paths {
         let commits_for_file = &file_commits[path];
@@ -716,7 +717,11 @@ pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
         let gens: Vec<usize> = commits_for_file.iter().map(|(g, _)| *g).collect();
         eprintln!(
             "FILE: {} | gens={:?} | nodes={} | raw_paths={} | deduped_paths={}",
-            path, gens, node_count, raw_path_count, deduped_path_count
+            path.display(),
+            gens,
+            node_count,
+            raw_path_count,
+            deduped_path_count
         );
     }
 }

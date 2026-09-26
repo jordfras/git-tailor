@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::domain::commit::CommitInfo;
+use std::path::PathBuf;
 
 /// The kind of change a diff line represents.
 ///
@@ -89,9 +90,13 @@ pub enum DeltaStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDiff {
     /// Path in the old (parent) version, or None if the file was newly added.
-    pub old_path: Option<String>,
+    ///
+    /// A path, not text: git does not guarantee one is UTF-8, and this is what
+    /// the fragmap and the split key a file on. Decode it at the point it is
+    /// rendered, never before.
+    pub old_path: Option<PathBuf>,
     /// Path in the new (commit) version, or None if the file was deleted.
-    pub new_path: Option<String>,
+    pub new_path: Option<PathBuf>,
     /// The git delta status indicating the type of change.
     pub status: DeltaStatus,
     /// Whether git considers either side of this delta binary. Binary deltas

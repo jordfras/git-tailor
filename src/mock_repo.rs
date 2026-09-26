@@ -18,6 +18,7 @@
 //! `unimplemented!()` so a new caller shows up as a panic rather than as a
 //! silently plausible default.
 
+use bstr::BStr;
 use git_tailor::Oid;
 use git_tailor::app::SquashMode;
 use git_tailor::repo::{ConflictState, RebaseOutcome, RepoRead, RepoWrite, SquashContext};
@@ -51,6 +52,10 @@ pub(crate) struct MockRepo {
     /// When set, `rebase_continue` fails — a resume that cannot finish while
     /// the conflict it belongs to is still paused.
     pub(crate) rebase_continue_err: bool,
+    /// Configurable `commit_message_bytes` result, keyed by OID, so a test can
+    /// give a commit a message that does not decode. Falls back to a fixed
+    /// placeholder for any OID not listed.
+    pub(crate) commit_messages: std::collections::HashMap<Oid, bstr::BString>,
     /// Configurable `commit_diff` result, for `handle_prepare_split_out_hunks` tests.
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
@@ -154,6 +159,7 @@ impl Default for MockRepo {
             autostash_save_calls: std::cell::Cell::new(0),
             autostash_restore_calls: std::cell::Cell::new(0),
             rebase_continue_err: false,
+            commit_messages: std::collections::HashMap::new(),
             commit_diff: None,
             conflicting_files: Vec::new(),
             lift: LiftOutcome::default(),
@@ -252,8 +258,12 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
 
-    fn commit_message_bytes(&self, _: &Oid) -> anyhow::Result<Vec<u8>> {
-        Ok(b"mock message\n".to_vec())
+    fn commit_message_bytes(&self, oid: &Oid) -> anyhow::Result<bstr::BString> {
+        Ok(self
+            .commit_messages
+            .get(oid)
+            .cloned()
+            .unwrap_or_else(|| "mock message\n".into()))
     }
     fn count_split_per_file(&self, _: &Oid) -> anyhow::Result<usize> {
         if self.count_ok {
@@ -366,7 +376,7 @@ impl RepoWrite for MockRepo {
     fn unstage_all(&mut self) -> anyhow::Result<git_tailor::repo::StageOutcome> {
         mock_stage_outcome(self.stage_ok, self.stage_changed)
     }
-    fn commit_staged(&mut self, _: &[u8]) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
+    fn commit_staged(&mut self, _: &BStr) -> anyhow::Result<git_tailor::repo::CommitOutcome> {
         if self.stage_ok {
             Ok(if self.stage_changed {
                 git_tailor::repo::CommitOutcome::Committed
@@ -447,7 +457,12 @@ impl RepoWrite for MockRepo {
     fn split_commit_per_hunk_group(&mut self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_out_files(&mut self, _: &Oid, _: &[String], _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_out_files(
+        &mut self,
+        _: &Oid,
+        _: &[std::path::PathBuf],
+        _: &Oid,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn split_commit_out_hunks(
@@ -459,7 +474,7 @@ impl RepoWrite for MockRepo {
     ) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn reword_commit(&mut self, _: &Oid, _: &[u8], _: &Oid) -> anyhow::Result<()> {
+    fn reword_commit(&mut self, _: &Oid, _: &BStr, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn rebase_continue(&mut self, _: &ConflictState) -> anyhow::Result<RebaseOutcome> {
@@ -472,7 +487,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &[u8],
+        _: &BStr,
         _: &Oid,
     ) -> anyhow::Result<RebaseOutcome> {
         unimplemented!()
@@ -481,7 +496,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        message: &[u8],
+        message: &BStr,
         _: SquashMode,
         _: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
@@ -499,7 +514,7 @@ impl RepoWrite for MockRepo {
     fn squash_finalize(
         &mut self,
         _: &SquashContext,
-        _: &[u8],
+        _: &BStr,
         _: &Oid,
         _: Option<&git_tailor::repo::AutofixupContext>,
     ) -> anyhow::Result<RebaseOutcome> {
@@ -509,7 +524,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &std::collections::HashMap<String, Vec<u8>>,
+        _: &std::collections::HashMap<String, bstr::BString>,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {

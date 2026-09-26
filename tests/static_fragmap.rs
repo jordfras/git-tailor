@@ -212,8 +212,8 @@ fn test_rename_clusters_with_original_file() {
     let c1 = CommitDiff {
         commit: common::create_test_commit("bbbb22223333", "Rename old to new"),
         files: vec![FileDiff {
-            old_path: Some("src/old.rs".to_string()),
-            new_path: Some("src/new.rs".to_string()),
+            old_path: Some("src/old.rs".into()),
+            new_path: Some("src/new.rs".into()),
             status: DeltaStatus::Modified,
             is_binary: false,
             hunks: vec![Hunk {

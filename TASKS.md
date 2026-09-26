@@ -182,48 +182,6 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [ ] T249 P2 refactor - Give byte-valued domain data a type that refuses to be
-  decoded by accident. Commit messages and repository paths are bytes to git,
-  and the 3.1.0 work moved them to `&[u8]` at the trait boundary — correctly.
-  Every bug found since has been a `String` reappearing at an *internal*
-  boundary, because `Vec<u8>` -> `String` is one cheap call away and nothing in
-  the type system objects: the autofixup editor decode (fixed), the lossy path
-  key in T250, the lossy worktree-name hash in T251.
-  `OsString` is not the answer and is worth recording as rejected: it models
-  *platform* string semantics, so on Windows it is WTF-16 with no `from_vec` —
-  a Latin-1 commit message has no representation there at all. Paths are the
-  exception, and `PathBuf` is already the domain type for them (`domain.rs`
-  `path_to_bytes` / `bytes_to_path`, exact on Unix, UTF-8-by-construction
-  elsewhere). That half is settled.
-  Proposal: a hand-rolled newtype, following `Oid(String)`'s precedent —
-  `Message(Vec<u8>)` with `as_bytes()`, an explicit and greppable
-  `to_string_lossy()`, `Hash + Eq` on the bytes, and deliberately **no
-  `Display`**, so `format!("{msg}")` does not compile. A `RepoPath` over bytes
-  does the same for path keys.
-  `bstr` is the off-the-shelf alternative (`BString`/`BStr`, lossy `Display`,
-  escaped `Debug`, str-like byte APIs). Rejected for now: a new dependency to
-  carry through `cargo-deny`, and a large API where a small deliberate one is
-  wanted. The newtype is ~50 lines. Revisit if the hand-rolled version starts
-  growing str-like methods.
-  Subsumes T250 and T251 — do those individually only if this is not done,
-  since fixing them one at a time is waiting for the fourth instance.
-- [ ] T250 P3 bug - Split assigns hunks through a lossy path key.
-  `fragmap.rs` keys `by_file: HashMap<String, Vec<HunkAssignment>>`, and
-  `split_op.rs` builds those keys with `to_string_lossy()`. Every invalid byte
-  becomes U+FFFD, so two distinct non-UTF-8 paths collapse to one key and split
-  applies one file's hunk assignments to another — writing content to the wrong
-  path, silently, since split does real tree surgery.
-  Same shape as the index-path bug fixed in 3.1.0, where entries were decoded
-  with `String::from_utf8` and what failed was dropped.
-  Needs two non-UTF-8 paths differing only in their invalid bytes, so it is
-  rare; the consequence is bad enough to fix anyway. Entangled with fragmap's
-  `String`-keyed model throughout, which is why T249 is the better route.
-- [ ] T251 P3 bug - The per-working-tree journal prefix hashes a lossy name.
-  `journal.rs` hashes `name.to_string_lossy()` to build `wt/<id>/`. Two linked
-  worktrees whose names differ only in invalid bytes hash the same, so they
-  share journal pins — quietly undoing the per-working-tree isolation added in
-  3.1.0, whose whole point was that one tree's run must not unpin another's
-  interrupted work. Hash the bytes instead.
 - [ ] T252 P2 fix - Bound the span-propagation graph's path enumeration.
   `spg_enumerate_paths` (`src/fragmap/spg.rs`) enumerates every path through the
   graph eagerly and recursively with no cap. Measured: 34 commits produce
@@ -281,6 +239,30 @@ Guidelines:
   change to the span-propagation algorithm's core: an empty interval for a
   deletion may be load-bearing for propagation arithmetic, where a zero-width
   point is not. Establish that before changing it.
+- [ ] T257 P3 bug - Autofixup identifies a target by its decoded summary.
+  `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
+  the target's summary, and that summary is `CommitInfo::summary` — the lossy
+  rendering built in `reads.rs` (`lossy(commit.summary_bytes())`). Two targets
+  whose summaries differ only in bytes that do not decode render the same, so
+  they collide: an override the user edited for one is written onto the other.
+  `plan_autofixup`'s `fixup! <summary>` matching has the same exposure, and git
+  itself does not — `--autosquash` matches subjects on their raw bytes.
+  Same collision class as T250 and T251, but it did not go with them because
+  the fix is not a retyping. **Keying on `Oid` is wrong** and the reason is
+  recorded on the field: the OID is not stable across the batch's cascading
+  rebases, which is precisely why the summary is the key. And the summary
+  cannot simply become bytes — it is display data the whole TUI draws, searches
+  and measures, and under the rule T249 settled on (decode at the render
+  boundary, never before it) `CommitInfo::summary` staying a lossy `String` is
+  correct.
+  So this needs an identity for a target that is neither its OID nor its
+  rendering: the summary's *bytes*, carried alongside the rendering through
+  `AutofixupPair`, `AutofixupGroup` and the journal — a decision about what
+  identifies a commit across a rebase, which is why it is filed rather than
+  fixed.
+  Narrow in practice: it needs two commits in range whose summaries differ only
+  in undecodable bytes, and an edited override. The consequence is a message
+  written to the wrong commit.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

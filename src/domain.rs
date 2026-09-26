@@ -15,6 +15,7 @@
 pub mod commit;
 pub mod diff;
 
+use bstr::{BStr, BString};
 use std::path::{Path, PathBuf};
 
 /// A git index entry's path is raw bytes and need not be UTF-8; non-Unix
@@ -44,16 +45,16 @@ pub(crate) fn bytes_to_path(bytes: &[u8]) -> PathBuf {
 /// fixup starts from: the target's message, a blank line, then the source's —
 /// or just the target's when there is no source message to fold in (a fixup,
 /// or a source with none of its own, such as a working-tree row).
-pub fn combine_messages(target: &[u8], source: Option<&[u8]>) -> Vec<u8> {
+pub fn combine_messages(target: &BStr, source: Option<&BStr>) -> BString {
     match source {
         Some(source) => {
-            let mut combined = Vec::with_capacity(target.len() + source.len() + 2);
+            let mut combined = BString::from(Vec::with_capacity(target.len() + source.len() + 2));
             combined.extend_from_slice(target);
             combined.extend_from_slice(b"\n\n");
             combined.extend_from_slice(source);
             combined
         }
-        None => target.to_vec(),
+        None => target.to_owned(),
     }
 }
 
@@ -64,37 +65,42 @@ pub fn combine_messages(target: &[u8], source: Option<&[u8]>) -> Vec<u8> {
 /// it cannot. Reading accepts either, which is what lets a journal written
 /// before messages became bytes load without a version bump or a migration.
 pub(crate) mod message_bytes {
+    use bstr::BString;
     use serde::de::{Error, SeqAccess, Visitor};
     use serde::{Deserializer, Serializer};
     use std::fmt;
 
-    pub(crate) fn serialize<S: Serializer>(bytes: &[u8], ser: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn serialize<S: Serializer, B: AsRef<[u8]> + ?Sized>(
+        bytes: &B,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let bytes = bytes.as_ref();
         match std::str::from_utf8(bytes) {
             Ok(text) => ser.serialize_str(text),
             Err(_) => ser.serialize_bytes(bytes),
         }
     }
 
-    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<u8>, D::Error> {
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<BString, D::Error> {
         struct Either;
 
         impl<'de> Visitor<'de> for Either {
-            type Value = Vec<u8>;
+            type Value = BString;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a commit message as a string or as bytes")
             }
 
             fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
-                Ok(v.as_bytes().to_vec())
+                Ok(BString::from(v))
             }
 
             fn visit_bytes<E: Error>(self, v: &[u8]) -> Result<Self::Value, E> {
-                Ok(v.to_vec())
+                Ok(BString::from(v))
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                let mut out = Vec::new();
+                let mut out = BString::default();
                 while let Some(byte) = seq.next_element::<u8>()? {
                     out.push(byte);
                 }
@@ -103,6 +109,114 @@ pub(crate) mod message_bytes {
         }
 
         de.deserialize_any(Either)
+    }
+}
+
+/// Serde for messages keyed by the summary they will replace.
+///
+/// Each message uses the same string-or-bytes trick as [`message_bytes`],
+/// applied independently so one message git-tailor cannot decode does not
+/// force the whole map onto the byte-array shape.
+pub(crate) mod message_map {
+    use super::message_bytes;
+    use bstr::BString;
+    use serde::de::{MapAccess, Visitor};
+    use serde::ser::SerializeMap;
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::collections::HashMap;
+    use std::fmt;
+
+    struct Message(BString);
+
+    impl serde::Serialize for Message {
+        fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+            message_bytes::serialize(&self.0, ser)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Message {
+        fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+            message_bytes::deserialize(de).map(Message)
+        }
+    }
+
+    pub(crate) fn serialize<S: Serializer>(
+        messages: &HashMap<String, BString>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut map = ser.serialize_map(Some(messages.len()))?;
+        for (summary, message) in messages {
+            map.serialize_entry(summary, &Message(message.clone()))?;
+        }
+        map.end()
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<HashMap<String, BString>, D::Error> {
+        struct Messages;
+
+        impl<'de> Visitor<'de> for Messages {
+            type Value = HashMap<String, BString>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("commit messages keyed by summary")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut out = HashMap::new();
+                while let Some((summary, Message(message))) = map.next_entry()? {
+                    out.insert(summary, message);
+                }
+                Ok(out)
+            }
+        }
+
+        de.deserialize_map(Messages)
+    }
+}
+
+#[cfg(test)]
+mod message_map_tests {
+    use super::message_map;
+    use bstr::BString;
+    use std::collections::HashMap;
+
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct Wrapper {
+        #[serde(with = "message_map")]
+        messages: HashMap<String, BString>,
+    }
+
+    #[test]
+    fn a_utf8_message_round_trips_as_a_plain_string() {
+        let wrapper = Wrapper {
+            messages: HashMap::from([("Add parser".to_string(), BString::from("Edited\n"))]),
+        };
+        let json = serde_json::to_string(&wrapper).unwrap();
+        assert_eq!(json, r#"{"messages":{"Add parser":"Edited\n"}}"#);
+        let back: Wrapper = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    fn a_non_utf8_message_round_trips_through_a_byte_array() {
+        let latin1 = BString::from(&b"Fix f\xf6r \xe5\xe4\xf6\n"[..]);
+        let wrapper = Wrapper {
+            messages: HashMap::from([("Fix".to_string(), latin1)]),
+        };
+        let json = serde_json::to_string(&wrapper).unwrap();
+        let back: Wrapper = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    fn a_journal_that_wrote_every_message_as_a_byte_array_still_loads() {
+        // The shape the derived `Vec<u8>` serialization produced, which a
+        // journal parked by an earlier build of this release still holds.
+        let json = r#"{"messages":{"Add parser":[69,100,105,116,101,100,10]}}"#;
+        let wrapper: Wrapper = serde_json::from_str(json).unwrap();
+        assert_eq!(wrapper.messages["Add parser"], BString::from("Edited\n"));
     }
 }
 

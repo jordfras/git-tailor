@@ -28,6 +28,7 @@
 //! occupies.
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 
 /// Half-open `[start, end)` range of 1-based file line numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +93,7 @@ pub struct HunkGroupAssignment {
     /// Per file path, one entry per hunk of the split commit — indexed the
     /// same way as the 0-context full diff produced by
     /// `GitRepo::commit_diff_for_fragmap`.
-    pub by_file: HashMap<String, Vec<HunkAssignment>>,
+    pub by_file: HashMap<PathBuf, Vec<HunkAssignment>>,
 }
 
 impl HunkGroupAssignment {

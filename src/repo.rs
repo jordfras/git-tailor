@@ -17,6 +17,7 @@ pub mod git2_impl;
 pub use git2_impl::Git2Repo;
 
 use anyhow::Result;
+use bstr::{BStr, BString};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -336,7 +337,8 @@ pub struct AutofixupContext {
     /// to the last pair squashed into a given target — so an intermediate
     /// step in a multi-fixup group never renames the target before the
     /// remaining fixups in that group have had a chance to match it.
-    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
+    #[serde(with = "crate::domain::message_map")]
+    pub message_overrides: std::collections::HashMap<String, BString>,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -359,7 +361,7 @@ pub struct SquashContext {
     /// the journal readable and lets a v2 journal written before this load
     /// unchanged.
     #[serde(with = "crate::domain::message_bytes")]
-    pub combined_message: Vec<u8>,
+    pub combined_message: BString,
     /// OIDs of descendants to rebase after the squash commit is created.
     pub descendant_oids: Vec<Oid>,
     /// Whether this is a squash (editor shown) or fixup (target message kept as-is).
@@ -532,7 +534,7 @@ pub trait RepoRead {
     /// that will be written back — an editor seed, a reword, a squash — must
     /// come from here instead, or a message git-tailor cannot read is silently
     /// replaced by one it can.
-    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>>;
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<BString>;
 
     /// Count how many commits `split_commit_per_file` would produce for this commit.
     fn count_split_per_file(&self, commit_oid: &Oid) -> Result<usize>;
@@ -630,7 +632,7 @@ pub trait RepoWrite {
     fn split_commit_out_files(
         &mut self,
         commit_oid: &Oid,
-        file_paths: &[String],
+        file_paths: &[PathBuf],
         head_oid: &Oid,
     ) -> Result<()>;
 
@@ -672,7 +674,7 @@ pub trait RepoWrite {
     ///
     /// Because only the message changes the diff at every step is identical, so
     /// no conflicts can arise from staged or unstaged working-tree changes.
-    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &[u8], head_oid: &Oid)
+    fn reword_commit(&mut self, commit_oid: &Oid, new_message: &BStr, head_oid: &Oid)
     -> Result<()>;
 
     /// Drop a commit from the branch by cherry-picking its descendants onto
@@ -822,7 +824,7 @@ pub trait RepoWrite {
     /// operation whose undo is a soft reset (the committed changes reappear as
     /// staged). Returns [`CommitOutcome::NothingStaged`] when the index matches
     /// HEAD.
-    fn commit_staged(&mut self, message: &[u8]) -> Result<CommitOutcome>;
+    fn commit_staged(&mut self, message: &BStr) -> Result<CommitOutcome>;
 
     /// Lift the staged or unstaged working-tree changes into a temporary commit
     /// on top of HEAD, so the squash machinery can take them as its source.
@@ -919,7 +921,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &[u8],
+        message: &BStr,
         head_oid: &Oid,
     ) -> Result<RebaseOutcome>;
 
@@ -937,7 +939,7 @@ pub trait RepoWrite {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &[u8],
+        combined_message: &BStr,
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<ConflictState>>;
@@ -956,7 +958,7 @@ pub trait RepoWrite {
     fn squash_finalize(
         &mut self,
         ctx: &SquashContext,
-        message: &[u8],
+        message: &BStr,
         original_branch_oid: &Oid,
         autofixup_context: Option<&AutofixupContext>,
     ) -> Result<RebaseOutcome>;
@@ -984,7 +986,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
+        message_overrides: &std::collections::HashMap<String, bstr::BString>,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.

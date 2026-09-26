@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use anyhow::{Context, Result};
+use bstr::{BStr, BString};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -330,13 +331,13 @@ impl RepoRead for Git2Repo {
         reads::list_commits(self, from_oid, to_oid)
     }
 
-    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<Vec<u8>> {
+    fn commit_message_bytes(&self, commit_oid: &Oid) -> Result<BString> {
         Ok(self
             .inner
             .find_commit(git2::Oid::from(commit_oid))
             .context("failed to read the commit")?
             .message_bytes()
-            .to_vec())
+            .into())
     }
 
     fn commit_diff(&self, oid: &Oid, context_lines: u32) -> Result<CommitDiff> {
@@ -460,7 +461,7 @@ impl RepoWrite for Git2Repo {
     fn split_commit_out_files(
         &mut self,
         commit_oid: &Oid,
-        file_paths: &[String],
+        file_paths: &[PathBuf],
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -484,7 +485,7 @@ impl RepoWrite for Git2Repo {
     fn reword_commit(
         &mut self,
         commit_oid: &Oid,
-        new_message: &[u8],
+        new_message: &BStr,
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -605,7 +606,7 @@ impl RepoWrite for Git2Repo {
         self.journaled_index_op("Unstage all", stage_op::unstage_all)
     }
 
-    fn commit_staged(&mut self, message: &[u8]) -> Result<super::CommitOutcome> {
+    fn commit_staged(&mut self, message: &BStr) -> Result<super::CommitOutcome> {
         let before = reads::head_oid(self)?;
         match commit_staged_op::commit_staged(self, message)? {
             None => Ok(super::CommitOutcome::NothingStaged),
@@ -666,7 +667,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        message: &[u8],
+        message: &BStr,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
@@ -689,7 +690,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         source_oid: &Oid,
         target_oid: &Oid,
-        combined_message: &[u8],
+        combined_message: &BStr,
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
@@ -713,7 +714,7 @@ impl RepoWrite for Git2Repo {
     fn squash_finalize(
         &mut self,
         ctx: &super::SquashContext,
-        message: &[u8],
+        message: &BStr,
         original_branch_oid: &Oid,
         autofixup_context: Option<&super::AutofixupContext>,
     ) -> Result<super::RebaseOutcome> {
@@ -745,7 +746,7 @@ impl RepoWrite for Git2Repo {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, Vec<u8>>,
+        message_overrides: &std::collections::HashMap<String, bstr::BString>,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
@@ -855,32 +856,35 @@ impl Git2Repo {
     }
 
     /// Refuse if any staged or unstaged change touches a file in `commit_paths`.
-    fn check_dirty_overlap(&self, commit_paths: &HashSet<String>) -> Result<()> {
-        let mut overlapping: Vec<String> = Vec::new();
+    fn check_dirty_overlap(&self, commit_paths: &HashSet<PathBuf>) -> Result<()> {
+        let mut overlapping: Vec<&Path> = Vec::new();
         // Context lines do not affect the file list this check inspects.
-        for synthetic_diff in [
+        let synthetic_diffs: Vec<_> = [
             self.staged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
             self.unstaged_diff(crate::repo::DEFAULT_CONTEXT_LINES)?,
         ]
         .into_iter()
         .flatten()
-        {
+        .collect();
+        for synthetic_diff in &synthetic_diffs {
             for file in &synthetic_diff.files {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .unwrap_or("");
-                if commit_paths.contains(path) && !overlapping.contains(&path.to_string()) {
-                    overlapping.push(path.to_string());
+                let Some(path) = file.new_path.as_deref().or(file.old_path.as_deref()) else {
+                    continue;
+                };
+                if commit_paths.contains(path) && !overlapping.contains(&path) {
+                    overlapping.push(path);
                 }
             }
         }
         if !overlapping.is_empty() {
             overlapping.sort();
+            let names: Vec<String> = overlapping
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
             anyhow::bail!(
                 "Cannot split: staged/unstaged changes overlap with: {}",
-                overlapping.join(", ")
+                names.join(", ")
             );
         }
         Ok(())
@@ -1143,7 +1147,7 @@ impl Git2Repo {
         &self,
         author: &git2::Signature<'_>,
         committer: &git2::Signature<'_>,
-        message: &[u8],
+        message: &BStr,
         encoding: Option<&str>,
         tree: &git2::Tree<'_>,
         parents: &[&git2::Commit<'_>],

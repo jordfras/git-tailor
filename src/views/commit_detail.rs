@@ -21,6 +21,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
+use std::path::Path;
 
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
@@ -547,11 +548,11 @@ fn get_file_status_and_path(file: &crate::FileDiff) -> (FileStatus, String) {
         (_, Some(new))
             if file.status != DeltaStatus::Renamed && file.status != DeltaStatus::Copied =>
         {
-            new.clone()
+            new.display().to_string()
         }
-        (Some(old), Some(new)) => format!("{} → {}", old, new),
-        (Some(old), None) => old.clone(),
-        (None, Some(new)) => new.clone(),
+        (Some(old), Some(new)) => format!("{} → {}", old.display(), new.display()),
+        (Some(old), None) => old.display().to_string(),
+        (None, Some(new)) => new.display().to_string(),
         (None, None) => String::from("<unknown>"),
     };
 
@@ -620,7 +621,7 @@ fn render_h_scrollbar(
 
 /// Format a diff file path with the given prefix, falling back to `/dev/null`
 /// when the path is absent (e.g. for added or deleted files).
-fn diff_path_with_prefix(path: Option<&str>, prefix: &str) -> String {
-    path.map(|s| format!("{prefix}/{s}"))
+fn diff_path_with_prefix(path: Option<&Path>, prefix: &str) -> String {
+    path.map(|p| format!("{prefix}/{}", p.display()))
         .unwrap_or_else(|| "/dev/null".to_string())
 }

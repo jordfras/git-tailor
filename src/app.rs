@@ -35,6 +35,7 @@ use crate::{
     autofixup::AutofixupPair,
     repo::{ConflictState, StashConflictState, WorktreeSource},
 };
+use std::path::PathBuf;
 
 /// Result of a view module's `handle_key` function.
 ///
@@ -71,7 +72,7 @@ pub enum AppAction {
     /// follow-up commit together.
     ExecuteSplitOutFiles {
         commit_oid: Oid,
-        file_paths: Vec<String>,
+        file_paths: Vec<PathBuf>,
     },
     /// Open (or refresh, after a `+`/`-` context change) the hunk picker for
     /// the "split out hunk(s)" strategy: load the commit's diff at
@@ -151,7 +152,7 @@ pub enum AppAction {
     /// group identified by `target_summary` (its original, stable identity).
     PrepareAutofixupEditMessage {
         target_summary: String,
-        template: String,
+        group: Box<crate::autofixup::AutofixupGroup>,
     },
     /// Execute a confirmed autofixup batch. `pairs` is the plan shown in the
     /// confirmation dialog, reused after completion to work out where the
@@ -162,7 +163,7 @@ pub enum AppAction {
         head_oid: Oid,
         reference_oid: Oid,
         pairs: Vec<AutofixupPair>,
-        message_overrides: std::collections::HashMap<String, Vec<u8>>,
+        message_overrides: std::collections::HashMap<String, bstr::BString>,
     },
 }
 
@@ -424,5 +425,5 @@ pub struct PendingAutofixup {
     pub selected_group: usize,
     /// User-edited final messages, keyed by the target's original summary
     /// text (see `AutofixupContext::message_overrides`).
-    pub message_overrides: std::collections::HashMap<String, Vec<u8>>,
+    pub message_overrides: std::collections::HashMap<String, bstr::BString>,
 }

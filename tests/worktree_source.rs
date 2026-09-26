@@ -27,7 +27,8 @@ fn row_paths(diff: Option<git_tailor::CommitDiff>) -> Vec<String> {
     diff.map(|d| {
         d.files
             .iter()
-            .filter_map(|f| f.new_path.clone().or_else(|| f.old_path.clone()))
+            .filter_map(|f| f.new_path.as_deref().or(f.old_path.as_deref()))
+            .map(|p| p.display().to_string())
             .collect()
     })
     .unwrap_or_default()
@@ -337,7 +338,7 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
             .iter()
             .filter_map(|f| f.new_path.clone())
             .collect::<Vec<_>>(),
-        vec!["bin.dat".to_string()]
+        vec![std::path::PathBuf::from("bin.dat")]
     );
     // The staged text edit is parked in the stash; the submodule pointer is not,
     // because `git stash` leaves gitlinks alone. It stays staged across the fold
@@ -865,7 +866,7 @@ fn a_failed_carry_back_still_records_the_rewrite_it_landed() {
         .squash_commits(
             &lifted.temp_oid,
             &Oid::from(target),
-            b"target commit",
+            "target commit".into(),
             &lifted.temp_oid,
         )
         .expect_err("the carry-back cannot find its stash");
@@ -1181,7 +1182,7 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
     // An earlier, completed operation to have some history worth keeping.
     let head = git_repo.head_oid().unwrap();
     git_repo
-        .reword_commit(&Oid::from(second), b"second reworded", &head)
+        .reword_commit(&Oid::from(second), "second reworded".into(), &head)
         .unwrap();
     assert!(matches!(
         git_repo.read_journal().unwrap(),
@@ -1494,7 +1495,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                b"second",
+                "second".into(),
                 &started.temp_oid,
             )
             .unwrap()
@@ -1534,7 +1535,7 @@ fn redo_refuses_once_the_index_has_moved_on() {
             .squash_commits(
                 &started.temp_oid,
                 &Oid::from(target),
-                b"second",
+                "second".into(),
                 &started.temp_oid,
             )
             .unwrap()

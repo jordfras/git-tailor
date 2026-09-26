@@ -28,6 +28,7 @@ mod undo;
 mod tests;
 
 use anyhow::Result;
+use bstr::{BStr, BString};
 use git_tailor::app::{AppAction, AppState};
 use git_tailor::editor;
 use git_tailor::repo::{
@@ -286,13 +287,13 @@ pub(crate) fn dispatch_action(
         }
         AppAction::PrepareAutofixupEditMessage {
             target_summary,
-            template,
+            group,
         } => {
             return handle_prepare_autofixup_edit_message(
                 git_repo,
                 app,
                 target_summary,
-                template,
+                &group,
                 terminal_guard,
                 kb_enhanced,
             );
@@ -429,7 +430,7 @@ pub(crate) fn settle_autostash_after_failure(
 /// Whether an edited commit message is empty once ASCII whitespace is
 /// trimmed from both ends — the signal to cancel the operation rather than
 /// write a message nobody typed.
-pub(crate) fn is_blank_message(message: &[u8]) -> bool {
+pub(crate) fn is_blank_message(message: &BStr) -> bool {
     message.trim_ascii().is_empty()
 }
 
@@ -441,8 +442,8 @@ pub(crate) fn edit_message_suspended(
     git_repo: &mut impl GitRepo,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
-    seed: &[u8],
-) -> Result<Vec<u8>> {
+    seed: &BStr,
+) -> Result<BString> {
     let terminal_bg = terminal_guard.background();
     with_tui_suspended(terminal_guard.terminal(), kb_enhanced, terminal_bg, || {
         editor::edit_message_in_editor(git_repo, seed)
@@ -463,7 +464,7 @@ pub(crate) fn handle_resume_outcome(
     op_label: &str,
     success_msg: &str,
     state: &git_tailor::repo::ConflictState,
-    retry_message: Option<Vec<u8>>,
+    retry_message: Option<BString>,
 ) -> LoopAction {
     match outcome {
         Err(e) => {

@@ -17,6 +17,7 @@
 //! ref move) lives in [`super::Git2Repo::commit_staged`].
 
 use anyhow::{Context, Result};
+use bstr::BStr;
 
 use super::Git2Repo;
 use crate::Oid;
@@ -24,7 +25,7 @@ use crate::Oid;
 /// Commit whatever is staged in the index with `message`, using the current HEAD
 /// as the sole parent. Returns the new commit OID, or `None` when nothing is
 /// staged (the index tree equals HEAD's tree).
-pub(super) fn commit_staged(repo: &mut Git2Repo, message: &[u8]) -> Result<Option<Oid>> {
+pub(super) fn commit_staged(repo: &mut Git2Repo, message: &BStr) -> Result<Option<Oid>> {
     let (parent_oid, head_tree_oid) = {
         let parent = repo
             .inner

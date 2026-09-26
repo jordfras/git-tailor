@@ -17,6 +17,7 @@
 //! `finalize` so the user can hand-edit the merged tree before finishing.
 
 use anyhow::Result;
+use bstr::BStr;
 
 use super::super::{ConflictState, RebaseOutcome, Resume, SquashContext};
 use super::Git2Repo;
@@ -29,7 +30,7 @@ pub(super) fn squash_commits(
     repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
-    message: &[u8],
+    message: &BStr,
     head_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     repo.check_no_dirty_state()?;
@@ -140,7 +141,7 @@ pub(super) fn squash_try_combine(
     repo: &mut Git2Repo,
     source_oid: &Oid,
     target_oid: &Oid,
-    combined_message: &[u8],
+    combined_message: &BStr,
     squash_mode: SquashMode,
     head_oid: &Oid,
 ) -> Result<Option<ConflictState>> {
@@ -187,7 +188,7 @@ pub(super) fn squash_try_combine(
 pub(super) fn squash_finalize(
     repo: &mut Git2Repo,
     ctx: &SquashContext,
-    message: &[u8],
+    message: &BStr,
     original_branch_oid: &Oid,
 ) -> Result<RebaseOutcome> {
     let mut index = repo.inner.index()?;
@@ -287,7 +288,7 @@ fn build_conflict_state(
     repo: &mut Git2Repo,
     cherry_index: &git2::Index,
     inputs: &SquashInputs<'_>,
-    combined_message: &[u8],
+    combined_message: &BStr,
     squash_mode: SquashMode,
 ) -> Result<ConflictState> {
     let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
@@ -302,7 +303,7 @@ fn build_conflict_state(
             base_oid: inputs.base_oid.map(Oid::from),
             source_oid: inputs.source_oid.clone(),
             target_oid: inputs.target_oid.clone(),
-            combined_message: combined_message.to_vec(),
+            combined_message: combined_message.into(),
             descendant_oids,
             squash_mode,
         }),
