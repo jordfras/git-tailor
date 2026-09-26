@@ -17,6 +17,8 @@ mod common;
 
 #[path = "split_commit/dirty_state.rs"]
 mod dirty_state;
+#[path = "split_commit/hunkless.rs"]
+mod hunkless;
 #[path = "split_commit/multi_path.rs"]
 mod multi_path;
 #[path = "split_commit/out_files.rs"]
