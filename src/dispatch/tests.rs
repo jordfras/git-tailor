@@ -306,6 +306,48 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
+/// A binary file has no hunk to pick but stays in the original commit, so a
+/// single hunk beside it is still something to split out.
+#[test]
+fn prepare_split_out_hunks_opens_for_one_hunk_beside_a_hunkless_change() {
+    let mut diff = three_hunk_commit_diff();
+    diff.files[0].hunks.truncate(1);
+    diff.files[1].is_binary = true;
+    diff.files[1].hunks.clear();
+    let mut repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
+
+    match &app.mode {
+        AppMode::SplitHunksSelect { hunks, .. } => assert_eq!(hunks.len(), 1),
+        other => panic!("expected SplitHunksSelect mode, got {other:?}"),
+    }
+}
+
+/// Hunkless changes alone leave nothing to pick.
+#[test]
+fn prepare_split_out_hunks_refuses_a_commit_with_no_hunks() {
+    let mut diff = three_hunk_commit_diff();
+    for file in &mut diff.files {
+        file.is_binary = true;
+        file.hunks.clear();
+    }
+    let mut repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
+
+    assert!(app.status.is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
 /// A `commit_diff` failure surfaces as an error message rather than entering
 /// the picker with stale or empty data.
 #[test]
