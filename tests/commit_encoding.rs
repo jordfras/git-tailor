@@ -454,6 +454,43 @@ fn splitting_out_a_non_utf8_file_name_keeps_its_bytes_in_the_summary() {
     );
 }
 
+/// Appending an ASCII suffix cannot change which encoding a message is in, so
+/// a piece keeps the header even when the Latin-1 bytes also parse as UTF-8.
+#[test]
+fn splitting_an_ambiguous_latin1_message_keeps_its_encoding_header() {
+    // Latin-1 "CafÃ© fix", which also reads as UTF-8 "Café fix".
+    const AMBIGUOUS_MESSAGE: &[u8] = b"Caf\xc3\xa9 fix\n";
+
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "v1\n", "base");
+    let parent = test.commit_file("b.txt", "b\n", "parent");
+
+    test.write_file("c.txt", "c\n");
+    test.write_file("d.txt", "d\n");
+    test.stage_file("c.txt");
+    test.stage_file("d.txt");
+    let tree = {
+        let mut index = test.repo.index().unwrap();
+        index.write_tree().unwrap()
+    };
+    let to_split = commit_with_raw_tree_and_message(&test, parent, tree, AMBIGUOUS_MESSAGE);
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_per_file(&Oid::from(to_split), &Oid::from(to_split))
+        .unwrap();
+
+    let pieces = test.commits_from_head(parent);
+    assert_eq!(pieces.len(), 2);
+    for piece in pieces {
+        assert_eq!(
+            encoding(&test, piece).as_deref(),
+            Some("ISO-8859-1"),
+            "an ASCII \"(n/total)\" leaves the summary in Latin-1"
+        );
+    }
+}
+
 /// A split derives a new message, so the original's `encoding` header only
 /// still describes it while the bytes are unchanged or still will not decode.
 /// A derived message that is valid UTF-8 needs no header — keeping one makes
