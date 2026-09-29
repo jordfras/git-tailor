@@ -131,3 +131,36 @@ fn split_per_hunk_writes_a_pointer_changed_in_a_middle_piece() {
         "a.txt's piece, then sub's, then z.txt's"
     );
 }
+
+/// Splitting writes pointers in the tree alone, so a submodule checked out
+/// at some other commit is not in the way.
+#[test]
+fn split_per_hunk_ignores_a_submodule_checked_out_elsewhere() {
+    let test = common::TestRepo::new();
+    let first = test.commit_file("a.txt", "a1\n", "first");
+    commit_with_pointer(&test, &[], first, "add sub");
+    let second = test.commit_file("b.txt", "b1\n", "second");
+    let to_split = commit_with_pointer(&test, &[("a.txt", "a2\n")], second, "change");
+
+    let sub = git2::Repository::init(test.repo.workdir().unwrap().join("sub")).unwrap();
+    let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let empty_tree = sub
+        .find_tree(sub.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    sub.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        "elsewhere",
+        &empty_tree,
+        &[],
+    )
+    .unwrap();
+
+    let commit = Oid::from(to_split);
+    test.git_repo()
+        .split_commit_per_hunk(&commit, &commit)
+        .unwrap();
+
+    assert_eq!(pointers(&test, second), [Some(first), Some(second)]);
+}
