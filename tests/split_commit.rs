@@ -15,6 +15,8 @@
 #[allow(dead_code)]
 mod common;
 
+#[path = "split_commit/dir_file_swap.rs"]
+mod dir_file_swap;
 #[path = "split_commit/dirty_state.rs"]
 mod dirty_state;
 #[path = "split_commit/hunkless.rs"]
