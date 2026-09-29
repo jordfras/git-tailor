@@ -348,6 +348,39 @@ fn prepare_split_out_hunks_refuses_a_commit_with_no_hunks() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
+/// A directory replaced by a file shows two hunks, but they move as one swap,
+/// so picking either would leave nothing behind.
+#[test]
+fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_a_file() {
+    let mut diff = three_hunk_commit_diff();
+    diff.files = vec![
+        FileDiff {
+            old_path: None,
+            new_path: Some("a".into()),
+            status: DeltaStatus::Added,
+            is_binary: false,
+            hunks: vec![one_line_hunk(1)],
+        },
+        FileDiff {
+            old_path: Some("a/x".into()),
+            new_path: None,
+            status: DeltaStatus::Deleted,
+            is_binary: false,
+            hunks: vec![one_line_hunk(1)],
+        },
+    ];
+    let mut repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
+
+    assert!(app.status.is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
 /// A `commit_diff` failure surfaces as an error message rather than entering
 /// the picker with stale or empty data.
 #[test]
