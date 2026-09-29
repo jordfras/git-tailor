@@ -244,3 +244,27 @@ fn split_per_hunk_group_places_a_symlink_replaced_by_a_file_by_both_its_hunks() 
     pieces.pop();
     assert_eq!(pieces, [vec!["a.txt", "link"], vec!["b.txt"]]);
 }
+
+#[test]
+fn split_out_hunks_names_a_file_replaced_by_a_symlink_once() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("f", "text\n"), ("g.txt", "g1\n")], "base");
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    std::fs::remove_file(workdir.join("f")).unwrap();
+    std::os::unix::fs::symlink("g.txt", workdir.join("f")).unwrap();
+    test.write_file("g.txt", "g2\n");
+    for path in ["f", "g.txt"] {
+        test.stage_file(path);
+    }
+    let to_split = test.commit("change");
+
+    // f's deletion sorts first, so it is delta 0; picking it takes the swap.
+    let commit = Oid::from(to_split);
+    test.git_repo()
+        .split_commit_out_hunks(&commit, &[(0, 0)], &commit, 3)
+        .unwrap();
+
+    let split_out = *test.commits_from_head(base).last().unwrap();
+    let summary = test.repo.find_commit(split_out).unwrap();
+    assert_eq!(summary.summary().unwrap().unwrap(), "change (f)");
+}
