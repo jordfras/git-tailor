@@ -452,63 +452,18 @@ pub(super) fn split_commit_out_hunks(
         Some(&mut diff_opts),
     )?;
 
-    let num_deltas = full_diff.deltas().len();
-    let hunk_counts: Vec<usize> = (0..num_deltas)
-        .map(|delta_idx| {
-            git2::Patch::from_diff(&full_diff, delta_idx)
-                .map(|p| p.map(|p| p.num_hunks()).unwrap_or(0))
-        })
-        .collect::<std::result::Result<_, git2::Error>>()?;
-    let total_hunks: usize = hunk_counts.iter().sum();
-
+    let hunk_counts = hunk_counts(&full_diff)?;
     let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
-    for &(delta_idx, hunk_idx) in &selected {
-        let valid = hunk_counts.get(delta_idx).is_some_and(|&n| hunk_idx < n);
-        if !valid {
-            anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
-        }
-    }
-    let has_hunkless = hunk_counts.contains(&0);
-    if selected.len() >= total_hunks && !has_hunkless {
-        anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
-    }
+    validate_hunk_selection(&selected, &hunk_counts)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
-    // The "rest" tree is built via apply_selected_hunks_to_tree with the
-    // *complement* selection — every hunk not chosen. A delta absent from the
-    // selection map keeps its parent-tree (pre-commit) content unchanged, so
-    // every delta touched by the commit needs an explicit entry here, even
-    // ones with none of their hunks selected (whose entry then lists *all*
-    // their hunks, fully applying them) — otherwise such a file would
-    // silently revert to its pre-commit state in the "rest" commit instead of
-    // keeping its actual (unselected) changes.
-    let mut rest: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
-    for (delta_idx, &num_hunks) in hunk_counts.iter().enumerate() {
-        let unselected: Vec<hunks::HunkSelection> = (0..num_hunks)
-            .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
-            .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
-            .collect();
-        rest.insert(delta_idx, unselected);
-    }
-
-    let rest_hunks_tree_oid =
-        hunks::apply_selected_hunks_to_tree(&repo.inner, &target.parent_tree, &full_diff, &rest)?;
-    // Nobody can pick a change that has no hunks, so it stays with the rest.
-    let hunkless = hunk_counts
-        .iter()
-        .enumerate()
-        .filter(|&(_, &num_hunks)| num_hunks == 0)
-        .map(|(delta_idx, _)| {
-            full_diff
-                .get_delta(delta_idx)
-                .context("delta index in range")
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let rest_tree_oid = hunks::apply_whole_deltas_to_tree(
+    let rest_tree_oid = rest_tree(
         &repo.inner,
-        &repo.inner.find_tree(rest_hunks_tree_oid)?,
-        hunkless,
+        &target.parent_tree,
+        &full_diff,
+        &hunk_counts,
+        &selected,
     )?;
 
     // Two-tree trick: since `rest_tree_oid` already excludes the selected
@@ -550,6 +505,61 @@ pub(super) fn split_commit_out_hunks(
         second,
         "git-tailor: split out hunks",
     )
+}
+
+/// Refuse a selection naming a hunk beyond `hunk_counts`, or one that would
+/// leave nothing in the original commit.
+fn validate_hunk_selection(
+    selected: &HashSet<(usize, usize)>,
+    hunk_counts: &[usize],
+) -> Result<()> {
+    for &(delta_idx, hunk_idx) in selected {
+        let valid = hunk_counts.get(delta_idx).is_some_and(|&n| hunk_idx < n);
+        if !valid {
+            anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
+        }
+    }
+    let total_hunks: usize = hunk_counts.iter().sum();
+    let has_hunkless = hunk_counts.contains(&0);
+    if selected.len() >= total_hunks && !has_hunkless {
+        anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
+    }
+    Ok(())
+}
+
+/// The tree of everything in `diff` that `selected` leaves behind: the
+/// unselected hunks, and every hunkless change, since nobody can pick one.
+///
+/// Every delta gets an entry in the complement, even one with all its hunks
+/// unselected: a delta absent from the map keeps its parent-tree content, which
+/// would revert the file.
+fn rest_tree(
+    repo: &git2::Repository,
+    parent_tree: &git2::Tree<'_>,
+    diff: &git2::Diff<'_>,
+    hunk_counts: &[usize],
+    selected: &HashSet<(usize, usize)>,
+) -> Result<git2::Oid> {
+    let rest: BTreeMap<usize, Vec<hunks::HunkSelection>> = hunk_counts
+        .iter()
+        .enumerate()
+        .map(|(delta_idx, &num_hunks)| {
+            let unselected = (0..num_hunks)
+                .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
+                .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
+                .collect();
+            (delta_idx, unselected)
+        })
+        .collect();
+    let rest_hunks_tree_oid = hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)?;
+
+    let hunkless = hunk_counts
+        .iter()
+        .enumerate()
+        .filter(|&(_, &num_hunks)| num_hunks == 0)
+        .map(|(delta_idx, _)| diff.get_delta(delta_idx).context("delta index in range"))
+        .collect::<Result<Vec<_>>>()?;
+    hunks::apply_whole_deltas_to_tree(repo, &repo.find_tree(rest_hunks_tree_oid)?, hunkless)
 }
 
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
@@ -657,14 +667,20 @@ fn zero_context_diff_opts() -> git2::DiffOptions {
 /// change. No hunk-level split can select them, so each strategy has to place
 /// them deliberately.
 fn hunkless_deltas(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
-    let mut hunkless = Vec::new();
-    for delta_idx in 0..diff.deltas().len() {
-        let num_hunks = git2::Patch::from_diff(diff, delta_idx)?.map_or(0, |p| p.num_hunks());
-        if num_hunks == 0 {
-            hunkless.push(delta_idx);
-        }
-    }
+    let hunkless = hunk_counts(diff)?
+        .into_iter()
+        .enumerate()
+        .filter(|&(_, num_hunks)| num_hunks == 0)
+        .map(|(delta_idx, _)| delta_idx)
+        .collect();
     Ok(hunkless)
+}
+
+/// The number of hunks in each of `diff`'s deltas, in delta order.
+fn hunk_counts(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
+    (0..diff.deltas().len())
+        .map(|delta_idx| Ok(git2::Patch::from_diff(diff, delta_idx)?.map_or(0, |p| p.num_hunks())))
+        .collect()
 }
 
 /// Total hunk count across all files in `diff`.
