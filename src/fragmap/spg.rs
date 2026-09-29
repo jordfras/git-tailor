@@ -32,8 +32,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{CommitDiff, VirtualOid};
 
-use super::{FileSpan, HunkInfo, SpanCluster};
-use std::path::{Path, PathBuf};
+use super::{FileId, FileSpan, HunkInfo, SpanCluster};
+use std::path::Path;
 
 /// Half-open interval `[start, end)` for SPG span computations.
 /// Uses `i64` to safely handle arithmetic with large sentinel values.
@@ -615,12 +615,13 @@ pub(super) fn deduplicate_clusters(clusters: &mut Vec<SpanCluster>) {
 /// in that case.
 pub(super) fn build_file_clusters(
     path: &Path,
+    file: FileId,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
     Some(
-        build_file_clusters_with_target(path, commits_for_file, commit_diffs, None, poll)?
+        build_file_clusters_with_target(path, file, commits_for_file, commit_diffs, None, poll)?
             .into_iter()
             .map(|(cluster, _)| cluster)
             .collect(),
@@ -637,6 +638,7 @@ pub(super) fn build_file_clusters(
 /// which column; `build_file_clusters` discards it.
 pub(super) fn build_file_clusters_with_target(
     path: &Path,
+    file: FileId,
     commits_for_file: &[(usize, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     target: Option<usize>,
@@ -675,6 +677,7 @@ pub(super) fn build_file_clusters_with_target(
                 SpanCluster {
                     spans: vec![FileSpan {
                         path: path.to_path_buf(),
+                        file,
                         start_line: sp.start.max(1) as u32,
                         end_line: (sp.end - 1).max(1) as u32,
                     }],
@@ -704,14 +707,12 @@ pub(super) fn enumerate_file_spg_paths(
 /// Diagnostic: dump per-file SPG stats (for debugging, not used in production).
 #[allow(dead_code)]
 pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
-    let file_commits =
-        super::collect_file_commits(commit_diffs, &super::build_rename_map(commit_diffs));
+    let lineages = super::FileLineages::new(commit_diffs);
+    let file_commits = super::collect_file_commits(commit_diffs, &lineages);
 
-    let mut sorted_paths: Vec<&PathBuf> = file_commits.keys().collect();
-    super::sort_by_path_bytes(&mut sorted_paths);
-
-    for path in sorted_paths {
-        let commits_for_file = &file_commits[path];
+    for file in lineages.sorted(file_commits.keys().copied()) {
+        let path = lineages.label(file);
+        let commits_for_file = &file_commits[&file];
         let (node_count, raw_path_count, deduped_path_count) =
             enumerate_file_spg_paths(commits_for_file);
         let gens: Vec<usize> = commits_for_file.iter().map(|(g, _)| *g).collect();

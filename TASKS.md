@@ -195,19 +195,6 @@ Guidelines:
   enumeration outright), and thread a real `poll` through so a user can abort.
   Not a patch — the enumeration is the algorithm, which is why this is filed
   rather than fixed.
-- [ ] T253 P2 bug - Two files in one commit can collide onto one fragmap key.
-  `collect_file_commits` (`src/fragmap.rs`) keys by canonical path, and merges
-  hunks when the last entry for a key is the same commit. That merge exists for
-  a file appearing twice in one commit — which only happens when a rename chain
-  maps two *different* paths in the same commit to the same canonical name.
-  Their hunks are then concatenated into one list whose line numbers refer to
-  two different files, so it is out of order and the hunk-group assignments
-  indexed off it are wrong.
-  The fix needs a semantic decision rather than a patch: either keep the two
-  files apart at that commit (losing the rename link there, since the canonical
-  key is what carries it), or carry the source path alongside so entries can be
-  distinguished without collapsing. Both change what the matrix shows, which is
-  why this is not a quiet fix.
 - [ ] T255 P2 bug - A pure deletion belongs to no fragmap column.
   `spg::SpgSpan::from_new_hunk` and `attribution::hunk_new_span` both return the
   **empty** interval `[new_start+1, new_start+1)` when `new_lines == 0`, while

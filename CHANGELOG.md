@@ -33,6 +33,12 @@ The format is based on
 
 ### Fixed
 
+- Splitting a commit per hunk group now works when it adds a file where another
+  was renamed away from. The two files' hunks were mixed up, so the split was
+  refused or put hunks in the wrong pieces
+- The hunk group matrix no longer relates commits that share no file when the
+  commits shown include a merge. A rename the merge seemed to make was applied
+  to the whole history, gluing two files' histories together
 - Two linked working trees whose names differ only in bytes git-tailor cannot
   decode no longer share undo pins. One tree's run could unpin another tree's
   interrupted work

@@ -229,7 +229,7 @@ or adjacent spans across commits are merged into **SpanClusters**. A matrix of
 "conflict" (relate) when they share a cluster.
 
 ```
-FileSpan     { path, start_line, end_line }
+FileSpan     { path, file: FileId, start_line, end_line }
 SpanCluster  { spans: Vec<FileSpan>, commit_oids: Vec<Oid> }
 FragMap      { commits, clusters, matrix: Vec<Vec<TouchKind>> }
 TouchKind    ∈ { Added, Modified, Deleted, None }

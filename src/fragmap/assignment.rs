@@ -27,9 +27,6 @@
 //! of insertions would collapse into one group however many columns it
 //! occupies.
 
-use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
-
 /// Half-open `[start, end)` range of 1-based file line numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRange {
@@ -90,21 +87,8 @@ impl HunkAssignment {
 pub struct HunkGroupAssignment {
     /// Number of distinct groups (column and relation pattern).
     pub group_count: usize,
-    /// Per file path, one entry per hunk of the split commit — indexed the
-    /// same way as the 0-context full diff produced by
-    /// `GitRepo::commit_diff_for_fragmap`.
-    pub by_file: HashMap<PathBuf, Vec<HunkAssignment>>,
-}
-
-impl HunkGroupAssignment {
-    /// The distinct groups that receive at least one hunk, in ascending order.
-    pub fn touched_groups(&self) -> Vec<usize> {
-        let touched: BTreeSet<usize> = self
-            .by_file
-            .values()
-            .flatten()
-            .flat_map(|a| a.groups())
-            .collect();
-        touched.into_iter().collect()
-    }
+    /// Per change of the split commit, one entry per hunk — indexed the same
+    /// way as the 0-context, rename-detecting diff produced by
+    /// `GitRepo::commit_diff_for_fragmap`. A change with no hunks has none.
+    pub by_change: Vec<Vec<HunkAssignment>>,
 }

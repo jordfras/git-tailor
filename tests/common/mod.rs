@@ -26,7 +26,7 @@ pub use fake::{StubRepo, StubRepoBuilder};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
+    fragmap::{FileId, FileSpan, FragMap, SpanCluster, TouchKind},
     repo::{ConflictState, Git2Repo, RepoWrite},
 };
 use git2::{Repository, Signature};
@@ -486,6 +486,7 @@ pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCl
     SpanCluster {
         spans: vec![FileSpan {
             path: path.into(),
+            file: FileId::default(),
             start_line: start,
             end_line: end,
         }],
