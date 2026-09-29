@@ -1928,3 +1928,17 @@ fn a_file_added_where_one_is_deleted_in_the_same_commit_is_new() {
     assert_ne!(lineages.of(0, 1), lineages.of(0, 0));
     assert_eq!(lineages.of(1, 0), lineages.of(0, 1));
 }
+
+/// A copy is a new file: the file it was copied from keeps its history.
+#[test]
+fn a_copy_is_new_and_its_source_keeps_its_history() {
+    use crate::DeltaStatus::{Copied, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Modified, "a", "a"), change(Copied, "a", "c")],
+        vec![change(Modified, "a", "a")],
+    ]);
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_ne!(lineages.of(1, 1), lineages.of(0, 0));
+}
