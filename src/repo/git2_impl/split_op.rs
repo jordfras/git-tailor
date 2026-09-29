@@ -39,10 +39,12 @@ pub(super) fn split_commit_per_file(
     let full_diff =
         repo.inner
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
-    let units = swap_groups(&full_diff).units();
+    let swaps = swap_groups(&full_diff);
+    let units = swaps.units();
     let file_count = units.len();
 
     if file_count < 2 {
+        refuse_lone_swap(&swaps, "files")?;
         anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
     }
 
@@ -111,6 +113,7 @@ pub(super) fn split_commit_per_hunk(
     let hunkless = changes.hunkless();
     let piece_count = hunk_steps + hunkless.len();
     if piece_count < 2 {
+        refuse_lone_swap(&changes.swaps, "hunks")?;
         anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
     }
 
@@ -823,6 +826,15 @@ impl SplitChanges {
             .sum();
         loose_hunks + self.swaps.groups().len()
     }
+}
+
+/// With too little to split, a swap can only be the whole commit: say that
+/// its `parts` move as one rather than that there are too few of them.
+fn refuse_lone_swap(swaps: &SwapGroups, parts: &str) -> Result<()> {
+    if swaps.groups().is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!("These {parts} replace one another and move as one — nothing to split")
 }
 
 fn swap_groups(diff: &git2::Diff<'_>) -> SwapGroups {
