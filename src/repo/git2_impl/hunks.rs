@@ -300,9 +300,19 @@ pub(super) fn revert_deltas_in_tree<'d>(
     idx.write_tree_to(repo).map_err(Into::into)
 }
 
-/// Add `path` to `idx` as `id` with `mode`. The index only feeds
-/// `write_tree_to`, so the stat fields stay zero.
+/// Add `path` to `idx` as `id` with `mode`, replacing a file at any of its
+/// parents and anything under it. The index only feeds `write_tree_to`, so
+/// the stat fields stay zero.
 fn add_entry(idx: &mut git2::Index, path: &Path, id: git2::Oid, mode: u32) -> Result<()> {
+    // Index::add keeps a directory's entries under a file added in its place
+    // when anything sorts before it, and write_tree then drops the file.
+    idx.remove_dir(path, 0)?;
+    let parents = path.ancestors().skip(1);
+    for parent in parents.filter(|parent| !parent.as_os_str().is_empty()) {
+        if idx.get_path(parent, 0).is_some() {
+            idx.remove(parent, 0)?;
+        }
+    }
     idx.add(&git2::IndexEntry {
         ctime: git2::IndexTime::new(0, 0),
         mtime: git2::IndexTime::new(0, 0),
