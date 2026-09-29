@@ -582,15 +582,12 @@ fn validate_hunk_selection(
         .iter()
         .filter_map(|&(delta_idx, _)| changes.swaps.group_of(delta_idx))
         .collect();
-    let loose_left = changes
-        .hunk_counts
+    let pickable = changes.swaps.pickable(&changes.hunk_counts);
+    let picked_loose = selected
         .iter()
-        .enumerate()
-        .filter(|&(delta_idx, _)| changes.swaps.group_of(delta_idx).is_none())
-        .any(|(delta_idx, &num_hunks)| {
-            num_hunks == 0 || (0..num_hunks).any(|h| !selected.contains(&(delta_idx, h)))
-        });
-    if !loose_left && picked_swaps.len() == changes.swaps.groups().len() {
+        .filter(|&&(delta_idx, _)| changes.swaps.group_of(delta_idx).is_none())
+        .count();
+    if picked_loose + picked_swaps.len() == pickable.units && !pickable.has_unpickable {
         anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
     }
     Ok(picked_swaps)

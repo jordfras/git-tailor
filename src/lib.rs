@@ -26,4 +26,4 @@ pub mod views;
 
 pub use domain::commit::{CommitInfo, Oid, VirtualOid};
 pub use domain::diff::{CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
-pub use domain::swap::SwapGroups;
+pub use domain::swap::{Pickable, SwapGroups};

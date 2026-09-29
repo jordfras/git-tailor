@@ -121,6 +121,24 @@ impl SwapGroups {
         }
     }
 
+    /// What a hunk-level pick can take, given each change's hunk count.
+    pub fn pickable(&self, hunk_counts: &[usize]) -> Pickable {
+        let mut pickable = Pickable {
+            units: 0,
+            has_unpickable: false,
+        };
+        for unit in self.units() {
+            let hunks: usize = unit.iter().map(|&change| hunk_counts[change]).sum();
+            match unit.as_slice() {
+                [_] => pickable.units += hunks,
+                _ if hunks > 0 => pickable.units += 1,
+                _ => {}
+            }
+            pickable.has_unpickable |= hunks == 0;
+        }
+        pickable
+    }
+
     /// The changes in diff order, each group gathered where its first change
     /// sits: the units a split can place without tearing a swap apart.
     pub fn units(&self) -> Vec<Vec<usize>> {
@@ -132,6 +150,17 @@ impl SwapGroups {
             .map(|change| self.with_group(change))
             .collect()
     }
+}
+
+/// What a hunk-level pick can take from a diff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pickable {
+    /// The parts a pick takes one at a time: each hunk outside a swap, and
+    /// each swap with a hunk.
+    pub units: usize,
+    /// Whether something stays behind whatever is picked: a change with no
+    /// hunk, alone or in a swap of such changes.
+    pub has_unpickable: bool,
 }
 
 fn root(parent: &mut [usize], mut change: usize) -> usize {
@@ -206,6 +235,26 @@ mod tests {
     fn a_path_merely_sharing_a_prefix_does_not_collide() {
         assert!(groups(&[(Added, "a", "a"), (Deleted, "a.txt", "a.txt")]).is_empty());
         assert!(groups(&[(Deleted, "a", "a"), (Added, "ab/x", "ab/x")]).is_empty());
+    }
+
+    #[test]
+    fn pickable_counts_a_swap_as_one_unit_and_a_hunkless_change_as_a_remainder() {
+        let swaps = SwapGroups::new(
+            [
+                (Modified, "0.txt"),
+                (Added, "a"),
+                (Deleted, "a/x"),
+                (Modified, "bin"),
+            ]
+            .map(|(status, path)| (status, Some(Path::new(path)), Some(Path::new(path)))),
+        );
+        assert_eq!(
+            swaps.pickable(&[2, 1, 1, 0]),
+            Pickable {
+                units: 3,
+                has_unpickable: true
+            }
+        );
     }
 
     #[test]
