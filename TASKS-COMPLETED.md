@@ -2031,8 +2031,8 @@
   wrong list — refusing the split, or misrouting hunks.
   Settled rule: files are tracked as lineages, walking the commits oldest
   first (`FileLineages` in `src/fragmap.rs`). A rename carries a file to its new
-  path; a file added at a path a rename vacated is new; a deleted file lies
-  dormant and a later file at its path restores it; a file added where one is
-  deleted in the same commit is new. No two changes in one commit are then one
-  file, so `HunkGroupAssignment` is indexed per change of the split commit and
-  the split no longer looks anything up by path.
+  path; a copy, and a file added at a path a rename vacated, are new; a deleted
+  file lies dormant and a later file at its path restores it; a file added where
+  one is deleted in the same commit is new. No two changes in one commit are
+  then one file, so `HunkGroupAssignment` is indexed per change of the split
+  commit and the split no longer looks anything up by path.

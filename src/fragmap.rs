@@ -131,10 +131,13 @@ impl FileLineages {
     }
 }
 
-/// The path `file` was renamed from, if it was.
+/// The path `file` was renamed from, if it was. A copy leaves its source in
+/// place, so it is an addition, not a rename.
 fn renamed_from(file: &crate::FileDiff) -> Option<&Path> {
     match (&file.old_path, &file.new_path) {
-        (Some(old), Some(new)) if old != new => Some(old),
+        (Some(old), Some(new)) if old != new && file.status != crate::DeltaStatus::Copied => {
+            Some(old)
+        }
         _ => None,
     }
 }
