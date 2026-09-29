@@ -220,22 +220,7 @@ pub(super) fn apply_single_hunk_to_tree(
         }
 
         let new_blob_oid = repo.blob(&new_content)?;
-
-        let path_bytes = crate::domain::path_to_bytes(&file_path);
-        idx.add(&git2::IndexEntry {
-            ctime: git2::IndexTime::new(0, 0),
-            mtime: git2::IndexTime::new(0, 0),
-            dev: 0,
-            ino: 0,
-            mode,
-            uid: 0,
-            gid: 0,
-            file_size: new_content.len() as u32,
-            id: new_blob_oid,
-            flags: 0,
-            flags_extended: 0,
-            path: path_bytes,
-        })?;
+        add_entry(&mut idx, &file_path, new_blob_oid, mode)?;
 
         return idx.write_tree_to(repo).map_err(Into::into);
     }
@@ -304,25 +289,35 @@ pub(super) fn revert_deltas_in_tree<'d>(
     for delta in deltas {
         let old = delta.old_file();
         if !old.id().is_zero() {
-            idx.add(&git2::IndexEntry {
-                ctime: git2::IndexTime::new(0, 0),
-                mtime: git2::IndexTime::new(0, 0),
-                dev: 0,
-                ino: 0,
-                mode: old.mode().into(),
-                uid: 0,
-                gid: 0,
-                file_size: old.size() as u32,
-                id: old.id(),
-                flags: 0,
-                flags_extended: 0,
-                path: crate::domain::path_to_bytes(
-                    old.path().context("delta has no old-side path")?,
-                ),
-            })?;
+            add_entry(
+                &mut idx,
+                old.path().context("delta has no old-side path")?,
+                old.id(),
+                old.mode().into(),
+            )?;
         }
     }
     idx.write_tree_to(repo).map_err(Into::into)
+}
+
+/// Add `path` to `idx` as `id` with `mode`. The index only feeds
+/// `write_tree_to`, so the stat fields stay zero.
+fn add_entry(idx: &mut git2::Index, path: &Path, id: git2::Oid, mode: u32) -> Result<()> {
+    idx.add(&git2::IndexEntry {
+        ctime: git2::IndexTime::new(0, 0),
+        mtime: git2::IndexTime::new(0, 0),
+        dev: 0,
+        ino: 0,
+        mode,
+        uid: 0,
+        gid: 0,
+        file_size: 0,
+        id,
+        flags: 0,
+        flags_extended: 0,
+        path: crate::domain::path_to_bytes(path),
+    })?;
+    Ok(())
 }
 
 fn write_whole_delta_to_index(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
@@ -340,20 +335,12 @@ fn write_whole_delta_to_index(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>
     {
         idx.remove(old_path, 0)?;
     }
-    idx.add(&git2::IndexEntry {
-        ctime: git2::IndexTime::new(0, 0),
-        mtime: git2::IndexTime::new(0, 0),
-        dev: 0,
-        ino: 0,
-        mode: delta.new_file().mode().into(),
-        uid: 0,
-        gid: 0,
-        file_size: delta.new_file().size() as u32,
-        id: delta.new_file().id(),
-        flags: 0,
-        flags_extended: 0,
-        path: crate::domain::path_to_bytes(new_path),
-    })?;
+    add_entry(
+        idx,
+        new_path,
+        delta.new_file().id(),
+        delta.new_file().mode().into(),
+    )?;
     Ok(())
 }
 
@@ -401,8 +388,6 @@ fn apply_hunks_to_index(
     let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
         .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
 
-    let path_bytes = crate::domain::path_to_bytes(&file_path);
-
     if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
         // All lines removed → delete the file from the intermediate tree.
         idx.remove(&file_path, 0)?;
@@ -417,20 +402,7 @@ fn apply_hunks_to_index(
             idx.remove(old, 0)?;
         }
         let new_blob_oid = repo.blob(&new_content)?;
-        idx.add(&git2::IndexEntry {
-            ctime: git2::IndexTime::new(0, 0),
-            mtime: git2::IndexTime::new(0, 0),
-            dev: 0,
-            ino: 0,
-            mode,
-            uid: 0,
-            gid: 0,
-            file_size: new_content.len() as u32,
-            id: new_blob_oid,
-            flags: 0,
-            flags_extended: 0,
-            path: path_bytes,
-        })?;
+        add_entry(idx, &file_path, new_blob_oid, mode)?;
     }
     Ok(())
 }
