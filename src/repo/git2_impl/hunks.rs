@@ -107,23 +107,12 @@ pub(super) fn apply_whole_deltas_to_tree<'d>(
     base_tree: &git2::Tree<'_>,
     deltas: impl IntoIterator<Item = git2::DiffDelta<'d>>,
 ) -> Result<git2::Oid> {
-    let mut builder = git2::build::TreeUpdateBuilder::new();
+    let mut idx = git2::Index::new()?;
+    idx.read_tree(base_tree)?;
     for delta in deltas {
-        let old_path = delta.old_file().path();
-        let new_path = delta.new_file().path();
-        if delta.status() == git2::Delta::Deleted {
-            builder.remove(old_path.context("deleted delta has no path")?);
-            continue;
-        }
-        let new_path = new_path.context("delta has no new-side path")?;
-        if let Some(old_path) = old_path
-            && old_path != new_path
-        {
-            builder.remove(old_path);
-        }
-        builder.upsert(new_path, delta.new_file().id(), delta.new_file().mode());
+        write_whole_delta_to_index(&mut idx, &delta)?;
     }
-    builder.create_updated(repo, base_tree).map_err(Into::into)
+    idx.write_tree_to(repo).map_err(Into::into)
 }
 
 /// The mode a file gets once any of its hunks is applied: the new one, so a
