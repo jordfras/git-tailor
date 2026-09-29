@@ -661,11 +661,27 @@ fn zero_context_diff_opts() -> git2::DiffOptions {
 /// Indices of the deltas with no hunk: a binary file, an empty file, a mode
 /// change. No hunk-level split can select them, so each strategy has to place
 /// them deliberately.
+///
+/// Leaves out a deletion whose path a delta with hunks adds back, as when a
+/// symlink replaces a binary file: writing the addition replaces the file, so
+/// the deletion has nothing left to do.
 fn hunkless_deltas(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
-    let hunkless = hunk_counts(diff)?
-        .into_iter()
+    let hunk_counts = hunk_counts(diff)?;
+    let readded: HashSet<&Path> = diff
+        .deltas()
+        .zip(&hunk_counts)
+        .filter(|(delta, num_hunks)| **num_hunks > 0 && delta.status() == git2::Delta::Added)
+        .filter_map(|(delta, _)| delta.new_file().path())
+        .collect();
+    let replaced = |delta: &git2::DiffDelta<'_>| {
+        delta.status() == git2::Delta::Deleted
+            && delta.old_file().path().is_some_and(|p| readded.contains(p))
+    };
+    let hunkless = diff
+        .deltas()
+        .zip(&hunk_counts)
         .enumerate()
-        .filter(|&(_, num_hunks)| num_hunks == 0)
+        .filter(|(_, (delta, num_hunks))| **num_hunks == 0 && !replaced(delta))
         .map(|(delta_idx, _)| delta_idx)
         .collect();
     Ok(hunkless)
