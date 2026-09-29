@@ -93,6 +93,11 @@ The format is based on
 - Splitting out hunks, or splitting per hunk group, no longer sometimes drops a
   file that replaced a symlink from the piece that should contain it, only for
   a later piece to add it back. Whether it happened varied from run to run
+- Splitting a commit that replaces a directory with a file, or a file with a
+  directory, keeps the swap together in one piece. Splitting per file and
+  "Split out file(s)" failed on such a commit, and the other strategies could
+  fail or end with an empty piece. Splitting out only the side that gets
+  replaced is refused
 
 ## [3.1.0] - 2026-09-12
 

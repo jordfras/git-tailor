@@ -21,6 +21,7 @@
 use anyhow::{Context, Result};
 use bstr::{BStr, BString, ByteSlice};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::fragmap::HunkFragment;
 
@@ -99,6 +100,39 @@ pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString 
     out
 }
 
+/// The deletions in `diff` that an addition replaces, each mapped to that
+/// addition: at the same path (a symlink replacing a binary file), above it (a
+/// file replacing a directory) or below it (a directory replacing a file). No
+/// tree holds both sides, so writing the addition does the deletion's work.
+pub(super) fn replaced_deletions(diff: &git2::Diff<'_>) -> BTreeMap<usize, usize> {
+    let added: BTreeMap<&Path, usize> = diff
+        .deltas()
+        .enumerate()
+        .filter(|(_, delta)| delta.status() == git2::Delta::Added)
+        .filter_map(|(delta_idx, delta)| Some((delta.new_file().path()?, delta_idx)))
+        .collect();
+    diff.deltas()
+        .enumerate()
+        .filter(|(_, delta)| delta.status() == git2::Delta::Deleted)
+        .filter_map(|(delta_idx, delta)| {
+            let path = delta.old_file().path()?;
+            let at_or_above = path.ancestors().find_map(|p| added.get(p));
+            // Paths order by component, so whatever lies under `path` directly
+            // follows it.
+            let below = || {
+                added
+                    .range(path..)
+                    .find(|&(p, _)| *p != path)
+                    .filter(|&(p, _)| p.starts_with(path))
+                    .map(|(_, addition)| addition)
+            };
+            at_or_above
+                .or_else(below)
+                .map(|&addition| (delta_idx, addition))
+        })
+        .collect()
+}
+
 /// Write each delta's new side into `base_tree` whole: its blob or gitlink and
 /// its mode, or its removal. Unlike `apply_to_tree`, this needs no patch text,
 /// so it handles binary files and submodule pointers as readily as text.
@@ -127,7 +161,8 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
 }
 
 /// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
-/// and return the resulting tree OID.
+/// and return the resulting tree OID. A replaced deletion is skipped: the
+/// addition that replaces it does its work.
 ///
 /// The diff must have been computed from `base_tree`, so the hunk's old-side
 /// content matches exactly.  This avoids `apply_to_tree` with `hunk_callback`
@@ -138,7 +173,11 @@ pub(super) fn apply_single_hunk_to_tree(
     base_tree: &git2::Tree,
     diff: &git2::Diff,
 ) -> Result<git2::Oid> {
+    let replaced = replaced_deletions(diff);
     for delta_idx in 0..diff.deltas().len() {
+        if replaced.contains_key(&delta_idx) {
+            continue;
+        }
         let mut patch = match git2::Patch::from_diff(diff, delta_idx)? {
             Some(p) => p,
             None => continue,
@@ -237,6 +276,52 @@ pub(super) fn apply_selected_hunks_to_tree(
         }
     }
 
+    idx.write_tree_to(repo).map_err(Into::into)
+}
+
+/// Put each delta's old side back into `tree`: the inverse of
+/// `apply_whole_deltas_to_tree`.
+pub(super) fn revert_deltas_in_tree<'d>(
+    repo: &git2::Repository,
+    tree: &git2::Tree<'_>,
+    deltas: &[git2::DiffDelta<'d>],
+) -> Result<git2::Oid> {
+    let mut idx = git2::Index::new()?;
+    idx.read_tree(tree)?;
+    // Every new side goes before any old side returns: a file replacing a
+    // directory still stands where the directory's files go back.
+    for delta in deltas {
+        if !delta.new_file().id().is_zero() {
+            idx.remove(
+                delta
+                    .new_file()
+                    .path()
+                    .context("delta has no new-side path")?,
+                0,
+            )?;
+        }
+    }
+    for delta in deltas {
+        let old = delta.old_file();
+        if !old.id().is_zero() {
+            idx.add(&git2::IndexEntry {
+                ctime: git2::IndexTime::new(0, 0),
+                mtime: git2::IndexTime::new(0, 0),
+                dev: 0,
+                ino: 0,
+                mode: old.mode().into(),
+                uid: 0,
+                gid: 0,
+                file_size: old.size() as u32,
+                id: old.id(),
+                flags: 0,
+                flags_extended: 0,
+                path: crate::domain::path_to_bytes(
+                    old.path().context("delta has no old-side path")?,
+                ),
+            })?;
+        }
+    }
     idx.write_tree_to(repo).map_err(Into::into)
 }
 

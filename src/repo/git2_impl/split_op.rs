@@ -39,7 +39,8 @@ pub(super) fn split_commit_per_file(
     let full_diff =
         repo.inner
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
-    let file_count = full_diff.deltas().len();
+    let file_deltas = file_pieces(&full_diff);
+    let file_count = file_deltas.len();
 
     if file_count < 2 {
         anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
@@ -49,12 +50,12 @@ pub(super) fn split_commit_per_file(
 
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
-    for delta_idx in 0..file_count {
+    for (piece_idx, &delta_idx) in file_deltas.iter().enumerate() {
         // The last piece takes the original tree verbatim rather than the
         // accumulated one, so the chain provably ends where the original commit
         // did — which is what lets the descendant replay be conflict-free. The
         // other strategies already do this.
-        let new_tree_oid = if delta_idx == file_count - 1 {
+        let new_tree_oid = if piece_idx == file_count - 1 {
             target.commit_tree.id()
         } else {
             let delta = full_diff.get_delta(delta_idx).expect("delta index valid");
@@ -67,7 +68,7 @@ pub(super) fn split_commit_per_file(
             &target.commit,
             new_tree_oid,
             current_base,
-            delta_idx + 1,
+            piece_idx + 1,
             file_count,
         )?);
         current_tree_oid = new_tree_oid;
@@ -187,36 +188,8 @@ pub(super) fn split_commit_per_hunk_group(
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
-    // For each (delta_idx, hunk_idx), record its assignment — a whole-hunk
-    // group, or per-fragment groups when the hunk spans several columns.
-    let mut delta_hunk_assignments: Vec<Vec<fragmap::HunkAssignment>> = Vec::new();
-    let num_deltas = full_diff.deltas().len();
-    for delta_idx in 0..num_deltas {
-        let delta = full_diff.get_delta(delta_idx).context("delta index")?;
-        let path = delta_path(&delta).unwrap_or_default();
-        let patch = git2::Patch::from_diff(&full_diff, delta_idx)?;
-        let num_hunks = patch.as_ref().map(|p| p.num_hunks()).unwrap_or(0);
-        let file_assignments = assignment.by_file.get(&path);
-        let assignments_for_delta: Vec<fragmap::HunkAssignment> = (0..num_hunks)
-            .map(|h| {
-                file_assignments
-                    .and_then(|fa| fa.get(h))
-                    .cloned()
-                    .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
-            })
-            .collect();
-        delta_hunk_assignments.push(assignments_for_delta);
-    }
-
-    // Only group indices touched by K's hunks produce output commits — not
-    // every column the full fragmap has.
-    let mut touched: BTreeSet<usize> = BTreeSet::new();
-    for assignments in &delta_hunk_assignments {
-        for hunk_assignment in assignments {
-            touched.extend(hunk_assignment.groups());
-        }
-    }
-    let k_groups: Vec<usize> = touched.into_iter().collect();
+    let delta_hunk_assignments = delta_hunk_assignments(&assignment, &full_diff)?;
+    let k_groups = touched_groups(&delta_hunk_assignments);
     // No fragmap column claims a change without hunks, so they get one piece
     // of their own after the groups.
     let has_hunkless = !hunkless_deltas(&full_diff)?.is_empty();
@@ -290,7 +263,16 @@ pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &Oid) -> Result<
     let diff =
         repo.inner
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
-    Ok(diff.deltas().len())
+    Ok(file_pieces(&diff).len())
+}
+
+/// The deltas a per-file split gives a piece each: all but the replaced
+/// deletions, which go with their addition.
+fn file_pieces(diff: &git2::Diff<'_>) -> Vec<usize> {
+    let replaced = hunks::replaced_deletions(diff);
+    (0..diff.deltas().len())
+        .filter(|delta_idx| !replaced.contains_key(delta_idx))
+        .collect()
 }
 
 pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
@@ -312,8 +294,52 @@ pub(super) fn count_split_per_hunk_group(
 ) -> Result<usize> {
     let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
     let target = load_split_commit(repo, commit_oid)?;
-    let has_hunkless = !hunkless_deltas(&hunk_group_diff(repo, &target)?)?.is_empty();
-    Ok(assignment.touched_groups().len() + usize::from(has_hunkless))
+    let diff = hunk_group_diff(repo, &target)?;
+    let groups = touched_groups(&delta_hunk_assignments(&assignment, &diff)?);
+    let has_hunkless = !hunkless_deltas(&diff)?.is_empty();
+    Ok(groups.len() + usize::from(has_hunkless))
+}
+
+/// Each delta's hunk assignments, indexed by delta then hunk: a whole-hunk
+/// group, or per-fragment groups when the hunk spans several columns. A
+/// replaced deletion gets none, since its addition does its work.
+fn delta_hunk_assignments(
+    assignment: &fragmap::HunkGroupAssignment,
+    diff: &git2::Diff<'_>,
+) -> Result<Vec<Vec<fragmap::HunkAssignment>>> {
+    let replaced = hunks::replaced_deletions(diff);
+    hunk_counts(diff)?
+        .into_iter()
+        .enumerate()
+        .map(|(delta_idx, num_hunks)| {
+            if replaced.contains_key(&delta_idx) {
+                return Ok(Vec::new());
+            }
+            let delta = diff.get_delta(delta_idx).context("delta index")?;
+            let file_assignments = assignment
+                .by_file
+                .get(&delta_path(&delta).unwrap_or_default());
+            Ok((0..num_hunks)
+                .map(|h| {
+                    file_assignments
+                        .and_then(|fa| fa.get(h))
+                        .cloned()
+                        .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
+                })
+                .collect())
+        })
+        .collect()
+}
+
+/// The groups `delta_hunk_assignments` touch, in order: only these produce
+/// pieces, not every column the full fragmap has.
+fn touched_groups(delta_hunk_assignments: &[Vec<fragmap::HunkAssignment>]) -> Vec<usize> {
+    let touched: BTreeSet<usize> = delta_hunk_assignments
+        .iter()
+        .flatten()
+        .flat_map(|hunk_assignment| hunk_assignment.groups())
+        .collect();
+    touched.into_iter().collect()
 }
 
 /// The 0-context diff a per-hunk-group split works from, whose hunk indices
@@ -332,9 +358,8 @@ fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<g
 }
 
 /// Peel a set of selected files out of `commit_oid` into a follow-up commit,
-/// keeping everything else in the first (original-message) commit: pure tree
-/// surgery, looping a `TreeUpdateBuilder` over every selected path to revert
-/// it to its parent state (or remove it if newly added) in the "rest" tree.
+/// keeping everything else in the first (original-message) commit. A picked
+/// file takes along any deletion it replaces.
 pub(super) fn split_commit_out_files(
     repo: &mut Git2Repo,
     commit_oid: &Oid,
@@ -352,40 +377,25 @@ pub(super) fn split_commit_out_files(
             .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
     let file_count = full_diff.deltas().len();
 
-    let selected: HashSet<&Path> = file_paths.iter().map(PathBuf::as_path).collect();
-    if selected.len() >= file_count {
+    let chosen = chosen_file_deltas(&full_diff, file_paths)?;
+    if chosen.len() >= file_count {
         anyhow::bail!("Every file is selected — nothing would remain in the original commit");
-    }
-
-    let mut chosen_deltas = Vec::with_capacity(file_paths.len());
-    for path in file_paths {
-        let delta = (0..file_count)
-            .find_map(|i| {
-                let delta = full_diff.get_delta(i)?;
-                (delta_path(&delta).as_deref() == Some(path.as_path())).then_some(delta)
-            })
-            .ok_or_else(|| {
-                anyhow::anyhow!("File not changed by this commit: {}", path.display())
-            })?;
-        chosen_deltas.push(delta);
     }
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, true))?;
 
-    // The first commit keeps every change except the selected files. Build
-    // its tree by taking the full commit tree and reverting each selected
-    // path to its parent state (or removing it when newly added) — pure tree
-    // surgery handles added/modified/deleted files and gitlinks uniformly and
-    // can never produce a merge conflict.
-    let mut builder = git2::build::TreeUpdateBuilder::new();
-    for (path, delta) in file_paths.iter().zip(&chosen_deltas) {
-        if delta.old_file().id().is_zero() {
-            builder.remove(path);
-        } else {
-            builder.upsert(path, delta.old_file().id(), delta.old_file().mode());
-        }
-    }
-    let rest_tree_oid = builder.create_updated(&repo.inner, &target.commit_tree)?;
+    // The first commit keeps every change except the selected files: the full
+    // commit tree with each of them reverted, which can never conflict.
+    let chosen_deltas = chosen
+        .iter()
+        .map(|&delta_idx| {
+            full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let rest_tree_oid =
+        hunks::revert_deltas_in_tree(&repo.inner, &target.commit_tree, &chosen_deltas)?;
 
     let base = initial_split_base(&target.commit)?;
     let original_message = target.commit.message_bytes().as_bstr();
@@ -454,7 +464,8 @@ pub(super) fn split_commit_out_hunks(
 
     let hunk_counts = hunk_counts(&full_diff)?;
     let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
-    validate_hunk_selection(&selected, &hunk_counts)?;
+    let replaced = hunks::replaced_deletions(&full_diff);
+    validate_hunk_selection(&selected, &hunk_counts, &replaced)?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
 
@@ -463,6 +474,7 @@ pub(super) fn split_commit_out_hunks(
         &target.parent_tree,
         &full_diff,
         &hunk_counts,
+        &replaced,
         &selected,
     )?;
 
@@ -507,11 +519,13 @@ pub(super) fn split_commit_out_hunks(
     )
 }
 
-/// Refuse a selection naming a hunk beyond `hunk_counts`, or one that would
-/// leave nothing in the original commit.
+/// Refuse a selection naming a hunk beyond `hunk_counts`, one that picks
+/// nothing but replaced deletions, or one that would leave nothing in the
+/// original commit.
 fn validate_hunk_selection(
     selected: &HashSet<(usize, usize)>,
     hunk_counts: &[usize],
+    replaced: &BTreeMap<usize, usize>,
 ) -> Result<()> {
     for &(delta_idx, hunk_idx) in selected {
         let valid = hunk_counts.get(delta_idx).is_some_and(|&n| hunk_idx < n);
@@ -519,9 +533,24 @@ fn validate_hunk_selection(
             anyhow::bail!("Invalid hunk selection: delta {delta_idx}, hunk {hunk_idx}");
         }
     }
-    let total_hunks: usize = hunk_counts.iter().sum();
-    let has_hunkless = hunk_counts.contains(&0);
-    if selected.len() >= total_hunks && !has_hunkless {
+    let picked = selected
+        .iter()
+        .filter(|(delta_idx, _)| !replaced.contains_key(delta_idx))
+        .count();
+    if picked == 0 {
+        anyhow::bail!(
+            "The selected hunks only delete what another change replaces — nothing to split out"
+        );
+    }
+    let mut total_hunks = 0;
+    let mut has_hunkless = false;
+    for (delta_idx, &num_hunks) in hunk_counts.iter().enumerate() {
+        if !replaced.contains_key(&delta_idx) {
+            total_hunks += num_hunks;
+            has_hunkless |= num_hunks == 0;
+        }
+    }
+    if picked >= total_hunks && !has_hunkless {
         anyhow::bail!("Every hunk is selected — nothing would remain in the original commit");
     }
     Ok(())
@@ -530,19 +559,22 @@ fn validate_hunk_selection(
 /// The tree of everything in `diff` that `selected` leaves behind: the
 /// unselected hunks, and every hunkless change, since nobody can pick one.
 ///
-/// Every delta gets an entry, even one with all its hunks unselected: a delta
-/// absent from the map keeps its parent-tree content, which would revert the
-/// file.
+/// Every delta but a replaced deletion gets an entry, even one with all its
+/// hunks unselected: a delta absent from the map keeps its parent-tree content,
+/// which would revert the file. A replaced deletion stays out, so it happens
+/// exactly when its addition does.
 fn rest_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree<'_>,
     diff: &git2::Diff<'_>,
     hunk_counts: &[usize],
+    replaced: &BTreeMap<usize, usize>,
     selected: &HashSet<(usize, usize)>,
 ) -> Result<git2::Oid> {
     let rest: BTreeMap<usize, hunks::DeltaSelection> = hunk_counts
         .iter()
         .enumerate()
+        .filter(|(delta_idx, _)| !replaced.contains_key(delta_idx))
         .map(|(delta_idx, &num_hunks)| {
             if num_hunks == 0 {
                 return (delta_idx, hunks::DeltaSelection::Whole);
@@ -555,6 +587,44 @@ fn rest_tree(
         })
         .collect();
     hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)
+}
+
+/// The deltas of `diff` that `file_paths` pick, with each deletion a picked
+/// addition replaces. Picking only the replaced deletion is refused.
+fn chosen_file_deltas(diff: &git2::Diff<'_>, file_paths: &[PathBuf]) -> Result<BTreeSet<usize>> {
+    let file_count = diff.deltas().len();
+    let mut chosen: BTreeSet<usize> = BTreeSet::new();
+    for path in file_paths {
+        let before = chosen.len();
+        chosen.extend((0..file_count).filter(|&delta_idx| {
+            diff.get_delta(delta_idx)
+                .is_some_and(|delta| delta_path(&delta).as_deref() == Some(path.as_path()))
+        }));
+        if chosen.len() == before {
+            anyhow::bail!("File not changed by this commit: {}", path.display());
+        }
+    }
+    let delta_display = |delta_idx: usize| {
+        diff.get_delta(delta_idx)
+            .and_then(|delta| delta_path(&delta))
+            .unwrap_or_default()
+            .display()
+            .to_string()
+    };
+    for (&deletion, &addition) in &hunks::replaced_deletions(diff) {
+        match (chosen.contains(&deletion), chosen.contains(&addition)) {
+            (true, false) => anyhow::bail!(
+                "{} is replaced by {} — pick that instead",
+                delta_display(deletion),
+                delta_display(addition)
+            ),
+            (false, true) => {
+                chosen.insert(deletion);
+            }
+            _ => {}
+        }
+    }
+    Ok(chosen)
 }
 
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
@@ -660,28 +730,14 @@ fn zero_context_diff_opts() -> git2::DiffOptions {
 
 /// Indices of the deltas with no hunk: a binary file, an empty file, a mode
 /// change. No hunk-level split can select them, so each strategy has to place
-/// them deliberately.
-///
-/// Leaves out a deletion whose path a delta with hunks adds back, as when a
-/// symlink replaces a binary file: writing the addition replaces the file, so
-/// the deletion has nothing left to do.
+/// them deliberately. A replaced deletion is left out: it goes with its
+/// addition.
 fn hunkless_deltas(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
-    let hunk_counts = hunk_counts(diff)?;
-    let readded: HashSet<&Path> = diff
-        .deltas()
-        .zip(&hunk_counts)
-        .filter(|(delta, num_hunks)| **num_hunks > 0 && delta.status() == git2::Delta::Added)
-        .filter_map(|(delta, _)| delta.new_file().path())
-        .collect();
-    let replaced = |delta: &git2::DiffDelta<'_>| {
-        delta.status() == git2::Delta::Deleted
-            && delta.old_file().path().is_some_and(|p| readded.contains(p))
-    };
-    let hunkless = diff
-        .deltas()
-        .zip(&hunk_counts)
+    let replaced = hunks::replaced_deletions(diff);
+    let hunkless = hunk_counts(diff)?
+        .into_iter()
         .enumerate()
-        .filter(|(_, (delta, num_hunks))| **num_hunks == 0 && !replaced(delta))
+        .filter(|&(delta_idx, num_hunks)| num_hunks == 0 && !replaced.contains_key(&delta_idx))
         .map(|(delta_idx, _)| delta_idx)
         .collect();
     Ok(hunkless)
@@ -694,18 +750,16 @@ fn hunk_counts(diff: &git2::Diff<'_>) -> Result<Vec<usize>> {
         .collect()
 }
 
-/// Total hunk count across all files in `diff`.
+/// Total hunk count across all files in `diff`, leaving out replaced
+/// deletions: their addition's hunks do their work.
 fn count_hunks(diff: &git2::Diff<'_>) -> Result<usize> {
-    let mut count = 0usize;
-    diff.foreach(
-        &mut |_, _| true,
-        None,
-        Some(&mut |_, _| {
-            count += 1;
-            true
-        }),
-        None,
-    )?;
+    let replaced = hunks::replaced_deletions(diff);
+    let count = hunk_counts(diff)?
+        .into_iter()
+        .enumerate()
+        .filter(|(delta_idx, _)| !replaced.contains_key(delta_idx))
+        .map(|(_, num_hunks)| num_hunks)
+        .sum();
     Ok(count)
 }
 
