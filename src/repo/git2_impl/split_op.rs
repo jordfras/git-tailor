@@ -677,18 +677,20 @@ fn hunk_selection_suffix(
     let loose = selected
         .iter()
         .filter(|&&(delta_idx, _)| changes.swaps.group_of(delta_idx).is_none());
-    let files: BTreeSet<usize> = loose
+    // A swap can hold two changes at one path, so count paths, not changes.
+    let files: BTreeSet<PathBuf> = loose
         .clone()
         .map(|&(delta_idx, _)| delta_idx)
         .chain(swap_members().copied())
-        .collect();
-    if let (1, Some(&delta_idx)) = (files.len(), files.first()) {
-        let delta = full_diff
-            .get_delta(delta_idx)
-            .context("delta index in range")?;
-        return Ok(BString::from(crate::domain::path_to_bytes(
-            &delta_path(&delta).unwrap_or_default(),
-        )));
+        .map(|delta_idx| {
+            let delta = full_diff
+                .get_delta(delta_idx)
+                .context("delta index in range")?;
+            Ok(delta_path(&delta).unwrap_or_default())
+        })
+        .collect::<Result<_>>()?;
+    if let (1, Some(path)) = (files.len(), files.first()) {
+        return Ok(BString::from(crate::domain::path_to_bytes(path)));
     }
     let hunks = loose.count()
         + swap_members()
