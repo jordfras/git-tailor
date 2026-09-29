@@ -2029,10 +2029,17 @@
   renamed from shared the renamed file's key. In one commit their hunks were
   concatenated, and splitting per hunk group read each file's hunks from the
   wrong list — refusing the split, or misrouting hunks.
-  Settled rule: files are tracked as lineages, walking the commits oldest
-  first (`FileLineages` in `src/fragmap.rs`). A rename carries a file to its new
-  path; a file added at a path a rename vacated is new; a deleted file lies
-  dormant and a later file at its path restores it; a file added where one is
-  deleted in the same commit is new. No two changes in one commit are then one
-  file, so `HunkGroupAssignment` is indexed per change of the split commit and
-  the split no longer looks anything up by path.
+  Settled rule: files are tracked as lineages (`src/fragmap/lineage.rs`), and
+  each commit sees the files its first parent left — the parent its diff is
+  against — taking what a merge brings in from the parent that has it. A rename
+  carries a file to its new path; a copy, and a file added at a path a rename
+  vacated, are new; a deleted file lies dormant and a later file at its path
+  restores it; a file added where one is deleted in the same commit is new.
+  Commits are walked parents first, as commit times need not grow from parent
+  to child. A first attempt walked the list in date order with one global map
+  and needed a rule per merge shape; review kept finding shapes it missed.
+  The fragmap and split diffs detect renames only, ignoring `diff.renames`, so
+  the matrix does not depend on a personal setting. No two changes in one
+  commit are then one file, so `HunkGroupAssignment` is indexed per change of
+  the split commit, the split refuses an assignment that does not match its
+  diff, and nothing is looked up by path.
