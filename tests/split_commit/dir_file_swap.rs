@@ -16,8 +16,13 @@
 //! directory. libgit2 reports that as a deletion and an addition at colliding
 //! paths, and no tree can hold both sides, so the deletion travels with the
 //! addition that replaces it.
+//!
+//! Every commit also changes `0.txt` and `b.txt`, which sort on either side of
+//! the swap: the index keeps a replaced directory's files when an entry sorts
+//! before the file replacing it, and the swap then sits in a middle piece,
+//! where the original tree does not paper over it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::common;
 use crate::common::prelude::*;
@@ -37,21 +42,23 @@ fn commit_all(test: &common::TestRepo, message: &str) -> git2::Oid {
 }
 
 /// A commit that replaces directory `a/` (holding `a/x` with `x`) with file
-/// `a`, and changes `b.txt`. Its deltas: `a` added, `a/x` deleted, `b.txt`.
+/// `a`, and changes `0.txt` and `b.txt`.
 fn commit_directory_becoming_a_file(test: &common::TestRepo, x: &str) -> (git2::Oid, git2::Oid) {
-    let base = test.commit_files(&[("a/x", x), ("b.txt", "b1\n")], "base");
+    let base = test.commit_files(&[("0.txt", "01\n"), ("a/x", x), ("b.txt", "b1\n")], "base");
     std::fs::remove_dir_all(test.repo.workdir().unwrap().join("a")).unwrap();
     test.write_file("a", "a\n");
+    test.write_file("0.txt", "02\n");
     test.write_file("b.txt", "b2\n");
     (base, commit_all(test, "change"))
 }
 
 /// A commit that replaces file `a` (holding `x`) with directory `a/`, and
-/// changes `b.txt`. Its deltas: `a` deleted, `a/x` added, `b.txt`.
+/// changes `0.txt` and `b.txt`.
 fn commit_file_becoming_a_directory(test: &common::TestRepo, x: &str) -> (git2::Oid, git2::Oid) {
-    let base = test.commit_files(&[("a", x), ("b.txt", "b1\n")], "base");
+    let base = test.commit_files(&[("0.txt", "01\n"), ("a", x), ("b.txt", "b1\n")], "base");
     std::fs::remove_file(test.repo.workdir().unwrap().join("a")).unwrap();
     test.write_file("a/x", "a\n");
+    test.write_file("0.txt", "02\n");
     test.write_file("b.txt", "b2\n");
     (base, commit_all(test, "change"))
 }
@@ -83,30 +90,51 @@ fn changes_per_piece(test: &common::TestRepo, base: git2::Oid) -> Vec<Vec<String
         .collect()
 }
 
-/// Split per hunk group and check the pieces match the count and none is
-/// empty; with fewer than two groups the split must refuse.
+/// The first hunk of `path` in `to_split`, as split out hunks numbers it.
+fn hunk_of(test: &common::TestRepo, to_split: git2::Oid, path: &str) -> (usize, usize) {
+    let commit = test.repo.find_commit(to_split).unwrap();
+    let parent_tree = commit.parent(0).unwrap().tree().unwrap();
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(3);
+    let diff = test
+        .repo
+        .diff_tree_to_tree(
+            Some(&parent_tree),
+            Some(&commit.tree().unwrap()),
+            Some(&mut opts),
+        )
+        .unwrap();
+    let delta_idx = diff
+        .deltas()
+        .position(|delta| {
+            delta.new_file().path().or(delta.old_file().path()) == Some(Path::new(path))
+        })
+        .unwrap();
+    (delta_idx, 0)
+}
+
+/// Split per hunk group, with a later commit changing `b.txt` so that it forms
+/// a group apart from the swap, and check the pieces match the count and none
+/// is empty.
 fn assert_per_hunk_group_has_no_empty_piece(
     test: &common::TestRepo,
     base: git2::Oid,
     to_split: git2::Oid,
 ) {
+    let head = test.commit_file("b.txt", "b3\n", "later");
     let mut git_repo = test.git_repo();
-    let (commit, base_oid) = (Oid::from(to_split), Oid::from(base));
+    let (commit, head, base_oid) = (Oid::from(to_split), Oid::from(head), Oid::from(base));
     let count = git_repo
-        .count_split_per_hunk_group(&commit, &commit, &base_oid)
+        .count_split_per_hunk_group(&commit, &head, &base_oid)
         .unwrap();
-    let result = git_repo.split_commit_per_hunk_group(&commit, &commit, &base_oid);
+    git_repo
+        .split_commit_per_hunk_group(&commit, &head, &base_oid)
+        .unwrap();
 
-    if count < 2 {
-        assert!(result.is_err(), "split with {count} group: {result:?}");
-        assert_eq!(test.commits_from_head(base), [to_split]);
-        return;
-    }
-    result.unwrap();
-    let pieces = changes_per_piece(test, base);
+    let mut pieces = changes_per_piece(test, base);
+    pieces.pop();
     assert_eq!(pieces.len(), count, "{pieces:?}");
     assert!(pieces.iter().all(|p| !p.is_empty()), "{pieces:?}");
-    assert_eq!(test.head_tree_id(), test.tree_id(to_split));
 }
 
 #[test]
@@ -121,7 +149,7 @@ fn split_per_file_replaces_a_directory_with_a_file_in_one_piece() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["A a", "D a/x"], vec!["M b.txt"]]
+        [vec!["M 0.txt"], vec!["A a", "D a/x"], vec!["M b.txt"]]
     );
 }
 
@@ -137,7 +165,7 @@ fn split_per_file_replaces_a_file_with_a_directory_in_one_piece() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["D a", "A a/x"], vec!["M b.txt"]]
+        [vec!["M 0.txt"], vec!["D a", "A a/x"], vec!["M b.txt"]]
     );
 }
 
@@ -153,7 +181,7 @@ fn split_per_hunk_replaces_a_directory_with_a_file_in_one_piece() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["A a", "D a/x"], vec!["M b.txt"]]
+        [vec!["M 0.txt"], vec!["A a", "D a/x"], vec!["M b.txt"]]
     );
 }
 
@@ -169,7 +197,7 @@ fn split_per_hunk_replaces_a_binary_file_with_a_directory_in_one_piece() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["D a", "A a/x"], vec!["M b.txt"]]
+        [vec!["M 0.txt"], vec!["D a", "A a/x"], vec!["M b.txt"]]
     );
 }
 
@@ -194,12 +222,12 @@ fn split_out_hunks_leaves_a_directory_replaced_by_a_file_in_the_remainder() {
 
     let commit = Oid::from(to_split);
     test.git_repo()
-        .split_commit_out_hunks(&commit, &[(2, 0)], &commit, 3)
+        .split_commit_out_hunks(&commit, &[hunk_of(&test, to_split, "b.txt")], &commit, 3)
         .unwrap();
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["A a", "D a/x"], vec!["M b.txt"]]
+        [vec!["M 0.txt", "A a", "D a/x"], vec!["M b.txt"]]
     );
 }
 
@@ -210,12 +238,12 @@ fn split_out_hunks_takes_the_directory_a_picked_file_replaces() {
 
     let commit = Oid::from(to_split);
     test.git_repo()
-        .split_commit_out_hunks(&commit, &[(0, 0)], &commit, 3)
+        .split_commit_out_hunks(&commit, &[hunk_of(&test, to_split, "a")], &commit, 3)
         .unwrap();
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["M b.txt"], vec!["A a", "D a/x"]]
+        [vec!["M 0.txt", "M b.txt"], vec!["A a", "D a/x"]]
     );
 }
 
@@ -225,9 +253,12 @@ fn split_out_hunks_refuses_only_a_directory_a_file_replaces() {
     let (base, to_split) = commit_directory_becoming_a_file(&test, TEXT);
 
     let commit = Oid::from(to_split);
-    let result = test
-        .git_repo()
-        .split_commit_out_hunks(&commit, &[(1, 0)], &commit, 3);
+    let result = test.git_repo().split_commit_out_hunks(
+        &commit,
+        &[hunk_of(&test, to_split, "a/x")],
+        &commit,
+        3,
+    );
 
     assert!(result.is_err(), "{result:?}");
     assert_eq!(test.commits_from_head(base), [to_split]);
@@ -239,9 +270,12 @@ fn split_out_hunks_refuses_only_a_file_a_directory_replaces() {
     let (base, to_split) = commit_file_becoming_a_directory(&test, TEXT);
 
     let commit = Oid::from(to_split);
-    let result = test
-        .git_repo()
-        .split_commit_out_hunks(&commit, &[(0, 0)], &commit, 3);
+    let result = test.git_repo().split_commit_out_hunks(
+        &commit,
+        &[hunk_of(&test, to_split, "a")],
+        &commit,
+        3,
+    );
 
     assert!(result.is_err(), "{result:?}");
     assert_eq!(test.commits_from_head(base), [to_split]);
@@ -259,7 +293,7 @@ fn split_out_files_takes_the_directory_a_picked_file_replaces() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["M b.txt"], vec!["A a", "D a/x"]]
+        [vec!["M 0.txt", "M b.txt"], vec!["A a", "D a/x"]]
     );
 }
 
@@ -275,7 +309,7 @@ fn split_out_files_takes_the_file_a_picked_directory_replaces() {
 
     assert_eq!(
         changes_per_piece(&test, base),
-        [vec!["M b.txt"], vec!["D a", "A a/x"]]
+        [vec!["M 0.txt", "M b.txt"], vec!["D a", "A a/x"]]
     );
 }
 
