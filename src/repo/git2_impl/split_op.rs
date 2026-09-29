@@ -444,10 +444,10 @@ pub(super) fn split_commit_out_files(
         reword_op::encoding_for(&target.commit, original_message),
     )?;
 
-    let suffix = if file_paths.len() == 1 {
-        BString::from(crate::domain::path_to_bytes(&file_paths[0]))
-    } else {
-        BString::from(format!("{} files", file_paths.len()))
+    let picked: BTreeSet<&PathBuf> = file_paths.iter().collect();
+    let suffix = match picked.first() {
+        Some(path) if picked.len() == 1 => BString::from(crate::domain::path_to_bytes(path)),
+        _ => BString::from(format!("{} files", picked.len())),
     };
     let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
