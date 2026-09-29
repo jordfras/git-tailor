@@ -100,51 +100,23 @@ pub(super) fn summary_suffix_message(original: &BStr, suffix: &BStr) -> BString 
     out
 }
 
-/// The deletions in `diff` that an addition replaces, each mapped to that
-/// addition: at the same path (a symlink replacing a binary file), above it (a
-/// file replacing a directory) or below it (a directory replacing a file). No
-/// tree holds both sides, so writing the addition does the deletion's work.
-pub(super) fn replaced_deletions(diff: &git2::Diff<'_>) -> BTreeMap<usize, usize> {
-    let added: BTreeMap<&Path, usize> = diff
-        .deltas()
-        .enumerate()
-        .filter(|(_, delta)| delta.status() == git2::Delta::Added)
-        .filter_map(|(delta_idx, delta)| Some((delta.new_file().path()?, delta_idx)))
-        .collect();
-    diff.deltas()
-        .enumerate()
-        .filter(|(_, delta)| delta.status() == git2::Delta::Deleted)
-        .filter_map(|(delta_idx, delta)| {
-            let path = delta.old_file().path()?;
-            let at_or_above = path.ancestors().find_map(|p| added.get(p));
-            // Paths order by component, so whatever lies under `path` directly
-            // follows it.
-            let below = || {
-                added
-                    .range(path..)
-                    .find(|&(p, _)| *p != path)
-                    .filter(|&(p, _)| p.starts_with(path))
-                    .map(|(_, addition)| addition)
-            };
-            at_or_above
-                .or_else(below)
-                .map(|&addition| (delta_idx, addition))
-        })
-        .collect()
-}
-
 /// Write each delta's new side into `base_tree` whole: its blob or gitlink and
 /// its mode, or its removal. Unlike `apply_to_tree`, this needs no patch text,
 /// so it handles binary files and submodule pointers as readily as text.
 pub(super) fn apply_whole_deltas_to_tree<'d>(
     repo: &git2::Repository,
     base_tree: &git2::Tree<'_>,
-    deltas: impl IntoIterator<Item = git2::DiffDelta<'d>>,
+    deltas: &[git2::DiffDelta<'d>],
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
     idx.read_tree(base_tree)?;
+    // Every old side goes before any new side lands: the deltas of a swap
+    // collide, and a removal after an addition would take the addition away.
     for delta in deltas {
-        write_whole_delta_to_index(&mut idx, &delta)?;
+        remove_old_side(&mut idx, delta)?;
+    }
+    for delta in deltas {
+        add_new_side(&mut idx, delta)?;
     }
     idx.write_tree_to(repo).map_err(Into::into)
 }
@@ -160,79 +132,64 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
     }
 }
 
-/// Apply the first hunk of the first non-empty delta in `diff` to `base_tree`
-/// and return the resulting tree OID. A replaced deletion is skipped: the
-/// addition that replaces it does its work.
+/// Apply the first hunk of delta `delta_idx` in `diff` to `base_tree` and
+/// return the resulting tree OID.
 ///
 /// The diff must have been computed from `base_tree`, so the hunk's old-side
 /// content matches exactly.  This avoids `apply_to_tree` with `hunk_callback`
 /// filtering, which fails because libgit2 validates rejected hunks against the
 /// already-modified output buffer (whose line positions have shifted).
-pub(super) fn apply_single_hunk_to_tree(
+pub(super) fn apply_first_hunk_to_tree(
     repo: &git2::Repository,
     base_tree: &git2::Tree,
     diff: &git2::Diff,
+    delta_idx: usize,
 ) -> Result<git2::Oid> {
-    let replaced = replaced_deletions(diff);
-    for delta_idx in 0..diff.deltas().len() {
-        if replaced.contains_key(&delta_idx) {
-            continue;
+    let mut patch =
+        git2::Patch::from_diff(diff, delta_idx)?.context("delta has no patch to apply")?;
+    let delta = diff.get_delta(delta_idx).context("delta index in range")?;
+    let file_path = delta
+        .new_file()
+        .path()
+        .or_else(|| delta.old_file().path())
+        .context("delta has no file path")?
+        .to_owned();
+
+    let old_content = match delta.status() {
+        git2::Delta::Added => Vec::new(),
+        _ => {
+            let entry = base_tree
+                .get_path(&file_path)
+                .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
+            repo.find_blob(entry.id())?.content().to_owned()
         }
-        let mut patch = match git2::Patch::from_diff(diff, delta_idx)? {
-            Some(p) => p,
-            None => continue,
-        };
-        if patch.num_hunks() == 0 {
-            continue;
-        }
-        let delta = diff.get_delta(delta_idx).context("delta index in range")?;
-        let file_path = delta
-            .new_file()
-            .path()
-            .or_else(|| delta.old_file().path())
-            .context("delta has no file path")?
-            .to_owned();
+    };
+    let mode = applied_mode(&delta);
 
-        let old_content = match delta.status() {
-            git2::Delta::Added => Vec::new(),
-            _ => {
-                let entry = base_tree
-                    .get_path(&file_path)
-                    .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
-                repo.find_blob(entry.id())?.content().to_owned()
-            }
-        };
-        let mode = applied_mode(&delta);
+    let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
+        .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
 
-        let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
-            .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
+    let mut idx = git2::Index::new()?;
+    idx.read_tree(base_tree)?;
 
-        // Load base_tree into an in-memory index, update the one file, write tree.
-        let mut idx = git2::Index::new()?;
-        idx.read_tree(base_tree)?;
-
-        // A deletion's hunk removes every line, so the path has to go with it:
-        // writing the empty result back as a blob truncates the file instead of
-        // deleting it.
-        if delta.status() == git2::Delta::Deleted {
-            idx.remove_path(&file_path)?;
-            return idx.write_tree_to(repo).map_err(Into::into);
-        }
-
+    // A deletion's hunk removes every line, so the path has to go with it:
+    // writing the empty result back as a blob truncates the file instead of
+    // deleting it.
+    if delta.status() == git2::Delta::Deleted {
+        idx.remove_path(&file_path)?;
+    } else {
         let new_blob_oid = repo.blob(&new_content)?;
         add_entry(&mut idx, &file_path, new_blob_oid, mode)?;
-
-        return idx.write_tree_to(repo).map_err(Into::into);
     }
-    Ok(base_tree.id())
+    idx.write_tree_to(repo).map_err(Into::into)
 }
+
 /// Apply the selected deltas of `full_diff`, or parts of them, to
 /// `parent_tree`, returning the new tree OID. A delta absent from `selected`
 /// keeps its content from `parent_tree`.
 ///
-/// Deltas are applied in diff order: a symlink that became a file is a deletion
-/// followed by an addition at the same path, and applying the addition first
-/// would let the deletion remove the file.
+/// Deltas written whole shed their old sides before anything lands, as in
+/// `apply_whole_deltas_to_tree`; the rest apply in diff order.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree,
@@ -242,6 +199,16 @@ pub(super) fn apply_selected_hunks_to_tree(
     let mut idx = git2::Index::new()?;
     idx.read_tree(parent_tree)?;
 
+    let delta = |delta_idx: usize| {
+        full_diff
+            .get_delta(delta_idx)
+            .context("delta index in range")
+    };
+    for (&delta_idx, selection) in selected {
+        if let DeltaSelection::Whole = selection {
+            remove_old_side(&mut idx, &delta(delta_idx)?)?;
+        }
+    }
     for (&delta_idx, selection) in selected {
         match selection {
             DeltaSelection::Hunks(selections) => apply_hunks_to_index(
@@ -252,12 +219,7 @@ pub(super) fn apply_selected_hunks_to_tree(
                 delta_idx,
                 selections,
             )?,
-            DeltaSelection::Whole => {
-                let delta = full_diff
-                    .get_delta(delta_idx)
-                    .context("delta index in range")?;
-                write_whole_delta_to_index(&mut idx, &delta)?;
-            }
+            DeltaSelection::Whole => add_new_side(&mut idx, &delta(delta_idx)?)?,
         }
     }
 
@@ -330,28 +292,32 @@ fn add_entry(idx: &mut git2::Index, path: &Path, id: git2::Oid, mode: u32) -> Re
     Ok(())
 }
 
-fn write_whole_delta_to_index(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
-    let old_path = delta.old_file().path();
+/// Take away the path a delta removes: a deletion's, or a rename's old one.
+fn remove_old_side(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
+    if matches!(delta.status(), git2::Delta::Deleted | git2::Delta::Renamed) {
+        idx.remove(
+            delta
+                .old_file()
+                .path()
+                .context("delta has no old-side path")?,
+            0,
+        )?;
+    }
+    Ok(())
+}
+
+/// Put down a delta's new side whole, unless it is a deletion.
+fn add_new_side(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
     if delta.status() == git2::Delta::Deleted {
-        idx.remove(old_path.context("deleted delta has no path")?, 0)?;
         return Ok(());
     }
-    let new_path = delta
-        .new_file()
-        .path()
-        .context("delta has no new-side path")?;
-    if let Some(old_path) = old_path
-        && old_path != new_path
-    {
-        idx.remove(old_path, 0)?;
-    }
+    let new = delta.new_file();
     add_entry(
         idx,
-        new_path,
-        delta.new_file().id(),
-        delta.new_file().mode().into(),
-    )?;
-    Ok(())
+        new.path().context("delta has no new-side path")?,
+        new.id(),
+        new.mode().into(),
+    )
 }
 
 fn apply_hunks_to_index(

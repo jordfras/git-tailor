@@ -571,7 +571,8 @@ pub trait RepoWrite {
     /// Creates N new commits (one per file touched by `commit_oid`), each applying
     /// only that file's changes. Rebases all commits between `commit_oid` (exclusive)
     /// and `head_oid` (inclusive) onto the resulting commits, then fast-forwards the
-    /// branch ref to the new tip.
+    /// branch ref to the new tip. A swap (see [`crate::SwapGroups`]) counts as one
+    /// file.
     ///
     /// Fails if:
     /// - the commit has fewer than 2 changed files (nothing to split)
@@ -583,7 +584,8 @@ pub trait RepoWrite {
     ///
     /// Creates N new commits (one per hunk across all files), in file-then-hunk-index
     /// order. Each intermediate tree is built by cumulatively applying the first k hunks
-    /// of the full diff (with 0 context lines) onto the original parent tree.
+    /// of the full diff (with 0 context lines) onto the original parent tree. A swap
+    /// (see [`crate::SwapGroups`]) counts as one hunk.
     ///
     /// Fails if:
     /// - the commit has fewer than 2 hunks (nothing to split)
@@ -619,8 +621,9 @@ pub trait RepoWrite {
     /// Produces exactly two commits: the first keeps every
     /// file *not* selected under the original (unchanged) message; the second
     /// contains only the selected files' changes, with a summary suffix
-    /// naming the file (or a file count when more than one). All commits
-    /// between `commit_oid` (exclusive) and `head_oid` (inclusive) are
+    /// naming the file (or a file count when more than one). A picked file
+    /// takes the rest of its swap along (see [`crate::SwapGroups`]). All
+    /// commits between `commit_oid` (exclusive) and `head_oid` (inclusive) are
     /// rebased onto the result and the branch ref is fast-forwarded.
     ///
     /// Fails if:
@@ -647,7 +650,8 @@ pub trait RepoWrite {
     /// first keeps everything *not* selected under the original (unchanged)
     /// message; the second contains only the selected hunks, with a summary
     /// suffix describing them (the file name when they're all in one file, a
-    /// hunk/file count otherwise). All commits between `commit_oid`
+    /// hunk/file count otherwise). A picked hunk takes the rest of its swap
+    /// along (see [`crate::SwapGroups`]). All commits between `commit_oid`
     /// (exclusive) and `head_oid` (inclusive) are rebased onto the result and
     /// the branch ref is fast-forwarded.
     ///

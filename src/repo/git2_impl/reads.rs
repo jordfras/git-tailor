@@ -408,6 +408,22 @@ fn extract_commit_diff(diff: &git2::Diff, commit: &git2::Commit) -> Result<Commi
     })
 }
 
+pub(super) fn delta_status(status: git2::Delta) -> crate::DeltaStatus {
+    match status {
+        git2::Delta::Unmodified => crate::DeltaStatus::Unmodified,
+        git2::Delta::Added => crate::DeltaStatus::Added,
+        git2::Delta::Deleted => crate::DeltaStatus::Deleted,
+        git2::Delta::Modified => crate::DeltaStatus::Modified,
+        git2::Delta::Renamed => crate::DeltaStatus::Renamed,
+        git2::Delta::Copied => crate::DeltaStatus::Copied,
+        git2::Delta::Ignored => crate::DeltaStatus::Ignored,
+        git2::Delta::Untracked => crate::DeltaStatus::Untracked,
+        git2::Delta::Typechange => crate::DeltaStatus::Typechange,
+        git2::Delta::Unreadable => crate::DeltaStatus::Unreadable,
+        git2::Delta::Conflicted => crate::DeltaStatus::Conflicted,
+    }
+}
+
 fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
     let mut files: Vec<FileDiff> = Vec::new();
 
@@ -417,19 +433,7 @@ fn extract_files_from_diff(diff: &git2::Diff) -> Result<Vec<FileDiff>> {
         let old_path = delta.old_file().path().map(std::path::Path::to_path_buf);
         let new_path = delta.new_file().path().map(std::path::Path::to_path_buf);
 
-        let status = match delta.status() {
-            git2::Delta::Unmodified => crate::DeltaStatus::Unmodified,
-            git2::Delta::Added => crate::DeltaStatus::Added,
-            git2::Delta::Deleted => crate::DeltaStatus::Deleted,
-            git2::Delta::Modified => crate::DeltaStatus::Modified,
-            git2::Delta::Renamed => crate::DeltaStatus::Renamed,
-            git2::Delta::Copied => crate::DeltaStatus::Copied,
-            git2::Delta::Ignored => crate::DeltaStatus::Ignored,
-            git2::Delta::Untracked => crate::DeltaStatus::Untracked,
-            git2::Delta::Typechange => crate::DeltaStatus::Typechange,
-            git2::Delta::Unreadable => crate::DeltaStatus::Unreadable,
-            git2::Delta::Conflicted => crate::DeltaStatus::Conflicted,
-        };
+        let status = delta_status(delta.status());
 
         let patch = git2::Patch::from_diff(diff, delta_idx)?
             .context("Failed to extract patch from diff")?;

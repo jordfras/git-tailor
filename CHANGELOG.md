@@ -94,10 +94,11 @@ The format is based on
   file that replaced a symlink from the piece that should contain it, only for
   a later piece to add it back. Whether it happened varied from run to run
 - Splitting a commit that replaces a directory with a file, or a file with a
-  directory, keeps the swap together in one piece. Splitting per file and
-  "Split out file(s)" failed on such a commit, and the other strategies could
-  fail or end with an empty piece. Splitting out only the side that gets
-  replaced is refused
+  directory, keeps the swap together in one piece, renames into or out of it
+  included. Picking any part of it in "Split out file(s)" or "Split out
+  hunk(s)" takes all of it. Splitting per file and "Split out file(s)" failed
+  on such a commit, and the other strategies could fail or end with an empty
+  piece
 
 ## [3.1.0] - 2026-09-12
 

@@ -15,9 +15,9 @@
 // Side-effect handlers for the split operations.
 
 use anyhow::Result;
-use git_tailor::Oid;
 use git_tailor::app::{AppState, HunkPickerEntry, SplitStrategy};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
+use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
 use crate::dispatch::{LoopAction, settle_autostash};
@@ -118,12 +118,24 @@ pub(crate) fn handle_prepare_split_out_hunks(
                         })
                 })
                 .collect();
-            // A change with no hunks cannot be picked, so it stays behind in
-            // the original commit — as good a remainder as a second hunk.
-            let has_hunkless = diff.files.iter().any(|file| file.hunks.is_empty());
+            // A swap moves as one, however many hunks it shows. A change with
+            // no hunks cannot be picked, so it stays behind in the original
+            // commit — as good a remainder as a second hunk.
+            let units = SwapGroups::of_files(&diff.files).units();
+            let pickable_units: usize = units
+                .iter()
+                .map(|unit| match unit.as_slice() {
+                    [change] => diff.files[*change].hunks.len(),
+                    swap => usize::from(swap.iter().any(|&c| !diff.files[c].hunks.is_empty())),
+                })
+                .sum();
+            let has_unpickable = units.iter().any(|unit| {
+                unit.iter()
+                    .all(|&change| diff.files[change].hunks.is_empty())
+            });
             if hunks.is_empty() {
                 app.set_error_message("Commit has no hunks — nothing to split out");
-            } else if hunks.len() < 2 && !has_hunkless {
+            } else if pickable_units < 2 && !has_unpickable {
                 app.set_error_message("Commit has fewer than 2 hunks — nothing to split out");
             } else {
                 app.enter_split_hunks_select(commit_oid, hunks, context_lines);

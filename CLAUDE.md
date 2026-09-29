@@ -53,7 +53,8 @@ git-tailor/
 │   ├── domain.rs           # Domain module declarations
 │   ├── domain/
 │   │   ├── commit.rs       # CommitInfo, Oid, VirtualOid
-│   │   └── diff.rs         # FileDiff, Hunk, DiffLine, CommitDiff, DeltaStatus, DiffLineKind
+│   │   ├── diff.rs         # FileDiff, Hunk, DiffLine, CommitDiff, DeltaStatus, DiffLineKind
+│   │   └── swap.rs         # SwapGroups: colliding changes a split keeps together
 │   ├── editor.rs           # External editor integration (commit message editing)
 │   ├── mergetool.rs        # External merge tool integration
 │   ├── repo.rs             # GitRepo trait definition
