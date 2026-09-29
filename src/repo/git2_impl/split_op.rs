@@ -314,14 +314,26 @@ impl HunkGroupPlan {
             })
             .collect::<Result<Vec<Vec<fragmap::HunkAssignment>>>>()?;
 
+        // The fragmap files a swap's changes that share a path under that one
+        // path, their hunks one after another, so a member's own hunk index
+        // does not find its entry. Only a swap's changes share a path, so all
+        // of its paths' entries are its own.
         let swap_placement: Vec<Option<usize>> = changes
             .swaps
             .groups()
             .iter()
             .map(|members| {
-                members
+                let paths: BTreeSet<PathBuf> = members
                     .iter()
-                    .flat_map(|&member| &assignments[member])
+                    .filter_map(|&member| diff.get_delta(member).and_then(|d| delta_path(&d)))
+                    .collect();
+                let by_path = paths
+                    .iter()
+                    .filter_map(|path| assignment.by_file.get(path))
+                    .flatten();
+                let by_member = members.iter().flat_map(|&member| &assignments[member]);
+                by_path
+                    .chain(by_member)
                     .flat_map(|hunk_assignment| hunk_assignment.groups())
                     .min()
             })
