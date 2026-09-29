@@ -78,27 +78,18 @@ The format is based on
 - `--autostash` now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
-- Splitting a commit per file works when it changes a binary file. Unless that
-  file happened to sort last, the split failed with "patch does not contain
-  binary data"
-- "Split out hunk(s)" leaves a binary file, an empty file or a mode change in
-  the original commit. None of them has a hunk to pick, yet they were carried
-  into the split-out commit along with the hunks you did pick
-- "Split out hunk(s)" lets you pick every hunk when such a change would remain
-  in the original commit. It refused, saying nothing would remain
-- "Split out hunk(s)" opens for a commit with a single hunk when it also
-  changes a binary file, an empty file or a mode. It refused, saying the commit
-  had fewer than 2 hunks
-- Splitting a commit per hunk gives a binary file, an empty file or a mode
-  change a piece of its own, after the hunks. They used to ride along in the
-  last piece, whichever hunk that was
-- Splitting a commit per hunk group puts binary files, empty files and mode
-  changes together in one piece after the groups, since no group claims them.
-  They used to ride along with the last group
-- When a split commit changes a file's content and its mode, the mode change
-  now goes with the first piece that changes the file — in "Split out hunk(s)",
-  with the file's hunks you leave behind. It used to land in whatever piece
-  came last
+- Splitting a commit now puts changes that have no hunk to pick (a binary
+  file, an empty file, a mode change) somewhere deliberate. Splitting per hunk
+  gives each one a piece of its own after the hunks, and splitting per hunk
+  group puts them together in one piece after the groups; they used to ride
+  along in whichever piece came last. "Split out hunk(s)" leaves them in the
+  original commit instead of carrying them into the split-out one, so it now
+  also opens for a commit with a single hunk beside such a change, and lets you
+  pick every hunk. When a file's content and mode both change, the mode goes
+  with the first piece that changes the file — in "Split out hunk(s)", with the
+  hunks you leave behind — instead of whatever piece came last. Splitting per
+  file no longer fails with "patch does not contain binary data" when a binary
+  file does not sort last
 - Splitting out hunks, or splitting per hunk group, no longer sometimes drops a
   file that replaced a symlink from the piece that should contain it, only for
   a later piece to add it back. Whether it happened varied from run to run
