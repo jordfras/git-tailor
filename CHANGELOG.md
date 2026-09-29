@@ -78,6 +78,32 @@ The format is based on
 - `--autostash` now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
+- Splitting a commit now puts changes that have no hunk to pick (a binary
+  file, an empty file, a mode change) somewhere deliberate. Splitting per hunk
+  gives each one a piece of its own after the hunks, and splitting per hunk
+  group puts them together in one piece after the groups; they used to ride
+  along in whichever piece came last. "Split out hunk(s)" leaves them in the
+  original commit instead of carrying them into the split-out one, so it now
+  also opens for a commit with a single hunk beside such a change, and lets you
+  pick every hunk. When a file's content and mode both change, the mode goes
+  with the first piece that changes the file — in "Split out hunk(s)", with the
+  hunks you leave behind — instead of whatever piece came last. Splitting per
+  file no longer fails with "patch does not contain binary data" when a binary
+  file does not sort last
+- Splitting a commit by hunk now writes a submodule pointer change as the
+  commit it points to. "Split out hunk(s)" and splitting per hunk applied it as
+  text, leaving a corrupt pointer in history or failing outright. Like
+  splitting per file, they no longer refuse because the submodule is checked
+  out at another commit
+- Splitting out hunks, or splitting per hunk group, no longer sometimes drops a
+  file that replaced a symlink from the piece that should contain it, only for
+  a later piece to add it back. Whether it happened varied from run to run
+- Splitting a commit that replaces a directory with a file, or a file with a
+  directory, keeps the swap together in one piece, renames into or out of it
+  included. Picking any part of it in "Split out file(s)" or "Split out
+  hunk(s)" takes all of it. Splitting per file and "Split out file(s)" failed
+  on such a commit, and the other strategies could fail or end with an empty
+  piece
 
 ## [3.1.0] - 2026-09-12
 

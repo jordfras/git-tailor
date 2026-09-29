@@ -46,6 +46,30 @@ fn split_out_files_single_file_two_files() {
 }
 
 #[test]
+fn split_out_files_accepts_a_path_given_twice() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_files(&[("a.txt", "a\n"), ("b.txt", "b\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "a2\n"), ("b.txt", "b2\n")], "change both");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    git_repo
+        .split_commit_out_files(
+            &Oid::from(to_split),
+            &["b.txt".into(), "b.txt".into()],
+            &head_oid,
+        )
+        .unwrap();
+
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 2);
+    let second = test.repo.find_commit(commits[1]).unwrap();
+    assert_eq!(second.summary().unwrap().unwrap(), "change both (b.txt)");
+}
+
+#[test]
 fn split_out_files_multiple_files_combined_into_one_commit() {
     let test = common::TestRepo::new();
 

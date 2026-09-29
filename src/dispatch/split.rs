@@ -15,9 +15,9 @@
 // Side-effect handlers for the split operations.
 
 use anyhow::Result;
-use git_tailor::Oid;
 use git_tailor::app::{AppState, HunkPickerEntry, SplitStrategy};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
+use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
 use crate::dispatch::{LoopAction, settle_autostash};
@@ -71,8 +71,12 @@ pub(crate) fn handle_prepare_split_out_files(
 ) -> Result<LoopAction> {
     match git_repo.commit_diff(&commit_oid, DEFAULT_CONTEXT_LINES) {
         Err(e) => app.set_error_message(format!("{e:#}")),
-        Ok(diff) if diff.files.len() < 2 => {
-            app.set_error_message("Commit touches fewer than 2 files — nothing to split out");
+        Ok(diff) if SwapGroups::of_files(&diff.files).units().len() < 2 => {
+            app.set_error_message(if diff.files.len() < 2 {
+                "Commit touches fewer than 2 files — nothing to split out"
+            } else {
+                "These files replace one another and move as one — nothing to split out"
+            });
         }
         Ok(diff) => app.enter_split_files_select(commit_oid, diff.files),
     }
@@ -118,8 +122,16 @@ pub(crate) fn handle_prepare_split_out_hunks(
                         })
                 })
                 .collect();
-            if hunks.len() < 2 {
-                app.set_error_message("Commit has fewer than 2 hunks — nothing to split out");
+            let hunk_counts: Vec<usize> = diff.files.iter().map(|file| file.hunks.len()).collect();
+            let pickable = SwapGroups::of_files(&diff.files).pickable(&hunk_counts);
+            if hunks.is_empty() {
+                app.set_error_message("Commit has no hunks — nothing to split out");
+            } else if pickable.units < 2 && !pickable.has_unpickable {
+                app.set_error_message(if hunks.len() < 2 {
+                    "Commit has fewer than 2 hunks — nothing to split out"
+                } else {
+                    "These hunks replace one another and move as one — nothing to split out"
+                });
             } else {
                 app.enter_split_hunks_select(commit_oid, hunks, context_lines);
             }
