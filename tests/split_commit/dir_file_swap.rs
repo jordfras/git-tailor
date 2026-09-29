@@ -533,3 +533,37 @@ fn split_out_hunks_names_every_file_of_a_picked_swap() {
         .to_owned();
     assert_eq!(summary, "change (1 hunk across 3 files)");
 }
+
+/// A commit that does nothing but replace directory `a/` with file `a`.
+fn commit_only_a_swap(test: &common::TestRepo) -> git2::Oid {
+    test.commit_files(&[("a/x", TEXT)], "base");
+    std::fs::remove_dir_all(test.repo.workdir().unwrap().join("a")).unwrap();
+    test.write_file("a", "a\n");
+    commit_all(test, "change")
+}
+
+#[test]
+fn split_per_file_says_a_lone_swap_moves_as_one() {
+    let test = common::TestRepo::new();
+    let commit = Oid::from(commit_only_a_swap(&test));
+
+    let error = test
+        .git_repo()
+        .split_commit_per_file(&commit, &commit)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("move as one"), "{error}");
+}
+
+#[test]
+fn split_per_hunk_says_a_lone_swap_moves_as_one() {
+    let test = common::TestRepo::new();
+    let commit = Oid::from(commit_only_a_swap(&test));
+
+    let error = test
+        .git_repo()
+        .split_commit_per_hunk(&commit, &commit)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("move as one"), "{error}");
+}
