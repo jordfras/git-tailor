@@ -348,10 +348,9 @@ fn prepare_split_out_hunks_refuses_a_commit_with_no_hunks() {
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
-/// A directory replaced by a file shows two hunks, but they move as one swap,
-/// so picking either would leave nothing behind.
-#[test]
-fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_a_file() {
+/// A commit that only replaces directory `a/` with file `a`: two files and two
+/// hunks, but one swap that moves as a whole.
+fn directory_becoming_a_file_diff() -> CommitDiff {
     let mut diff = three_hunk_commit_diff();
     diff.files = vec![
         FileDiff {
@@ -369,8 +368,14 @@ fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_
             hunks: vec![one_line_hunk(1)],
         },
     ];
+    diff
+}
+
+/// Picking either hunk of a swap takes both, which would leave nothing behind.
+#[test]
+fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_a_file() {
     let mut repo = MockRepo {
-        commit_diff: Some(diff),
+        commit_diff: Some(directory_becoming_a_file_diff()),
         ..MockRepo::default()
     };
     let mut app = AppState::default();
@@ -378,6 +383,8 @@ fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_
     handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
 
     assert!(app.status.is_error);
+    let message = app.status.message.as_deref().unwrap_or_default();
+    assert!(message.contains("move as one"), "{message}");
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -488,6 +495,23 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
+    assert_eq!(app.mode, AppMode::CommitList);
+}
+
+/// Picking either file of a swap takes both, which would leave nothing behind.
+#[test]
+fn prepare_split_out_files_refuses_a_commit_that_only_replaces_a_directory_with_a_file() {
+    let mut repo = MockRepo {
+        commit_diff: Some(directory_becoming_a_file_diff()),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40))).unwrap();
+
+    assert!(app.status.is_error);
+    let message = app.status.message.as_deref().unwrap_or_default();
+    assert!(message.contains("move as one"), "{message}");
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
