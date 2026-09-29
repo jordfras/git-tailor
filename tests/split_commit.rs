@@ -19,6 +19,8 @@ mod common;
 mod dir_file_swap;
 #[path = "split_commit/dirty_state.rs"]
 mod dirty_state;
+#[path = "split_commit/gitlink.rs"]
+mod gitlink;
 #[path = "split_commit/hunkless.rs"]
 mod hunkless;
 #[path = "split_commit/multi_path.rs"]
