@@ -121,8 +121,7 @@ pub(super) fn split_commit_per_hunk(
     // apply exactly its first hunk directly to the blob — bypassing
     // apply_to_tree to avoid libgit2 validating rejected hunks against the
     // modified output buffer (which shifts line positions and causes "hunk
-    // did not apply"). A swap goes whole, as one step. Changes with no hunk
-    // follow, one piece each.
+    // did not apply"). Changes with no hunk follow, one piece each.
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
     for target_k in 0..piece_count {
@@ -822,25 +821,25 @@ fn deltas_at<'d>(
 }
 
 /// Apply the next per-hunk step of `diff` to `tree`: the first hunk of the
-/// first change outside a swap, or a whole swap, whichever comes first.
+/// first change outside a swap, or a whole swap, whichever comes first. With
+/// neither left, `tree` stays as it is.
 fn apply_next_hunk_step(
     repo: &git2::Repository,
     tree: &git2::Tree<'_>,
     diff: &git2::Diff<'_>,
 ) -> Result<git2::Oid> {
-    let changes = SplitChanges::of(diff)?;
-    let next = (0..changes.hunk_counts.len())
-        .find(|&delta_idx| {
-            changes.hunk_counts[delta_idx] > 0 || changes.swaps.group_of(delta_idx).is_some()
-        })
-        .context("no hunk left to apply")?;
-    match changes.swaps.group_of(next) {
-        Some(swap) => {
-            let deltas = deltas_at(diff, &changes.swaps.groups()[swap])?;
-            hunks::apply_whole_deltas_to_tree(repo, tree, &deltas)
+    let swaps = swap_groups(diff);
+    for delta_idx in 0..diff.deltas().len() {
+        if let Some(swap) = swaps.group_of(delta_idx) {
+            let deltas = deltas_at(diff, &swaps.groups()[swap])?;
+            return hunks::apply_whole_deltas_to_tree(repo, tree, &deltas);
         }
-        None => hunks::apply_first_hunk_to_tree(repo, tree, diff, next),
+        let has_hunks = git2::Patch::from_diff(diff, delta_idx)?.is_some_and(|p| p.num_hunks() > 0);
+        if has_hunks {
+            return hunks::apply_first_hunk_to_tree(repo, tree, diff, delta_idx);
+        }
     }
+    Ok(tree.id())
 }
 
 /// The selection of hunk `hunk_idx` for the intermediate tree containing all
