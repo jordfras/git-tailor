@@ -223,78 +223,95 @@ pub(super) fn apply_selected_hunks_to_tree(
     idx.read_tree(parent_tree)?;
 
     for (&delta_idx, selections) in selected_hunks {
-        if selections.is_empty() {
-            continue;
-        }
-
-        let mut patch = match git2::Patch::from_diff(full_diff, delta_idx)? {
-            Some(p) => p,
-            None => continue,
-        };
-
-        let delta = full_diff
-            .get_delta(delta_idx)
-            .context("delta index in range")?;
-        let old_path = delta.old_file().path();
-        let file_path = delta
-            .new_file()
-            .path()
-            .or(old_path)
-            .context("delta has no file path")?
-            .to_owned();
-
-        // Content lives at the OLD path in `parent_tree` — for a renamed
-        // delta that differs from `file_path` (the new path), so looking it
-        // up under `file_path` fails (or silently finds the wrong file).
-        let old_content = match delta.status() {
-            git2::Delta::Added => Vec::new(),
-            _ => {
-                let lookup_path = old_path.context("delta has no old-side path")?;
-                let entry = parent_tree
-                    .get_path(lookup_path)
-                    .with_context(|| format!("'{}' not in parent tree", lookup_path.display()))?;
-                repo.find_blob(entry.id())?.content().to_owned()
-            }
-        };
-        let mode = applied_mode(&delta);
-
-        let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
-            .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
-
-        let path_bytes = crate::domain::path_to_bytes(&file_path);
-
-        if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
-            // All lines removed → delete the file from the intermediate tree.
-            idx.remove(&file_path, 0)?;
-        } else {
-            // A rename seeded the index (via `idx.read_tree(parent_tree)`)
-            // with a stale entry under the old path; drop it before adding
-            // the content under its new path, or both would remain.
-            if delta.status() == git2::Delta::Renamed
-                && let Some(old) = old_path
-                && old != file_path.as_path()
-            {
-                idx.remove(old, 0)?;
-            }
-            let new_blob_oid = repo.blob(&new_content)?;
-            idx.add(&git2::IndexEntry {
-                ctime: git2::IndexTime::new(0, 0),
-                mtime: git2::IndexTime::new(0, 0),
-                dev: 0,
-                ino: 0,
-                mode,
-                uid: 0,
-                gid: 0,
-                file_size: new_content.len() as u32,
-                id: new_blob_oid,
-                flags: 0,
-                flags_extended: 0,
-                path: path_bytes,
-            })?;
-        }
+        apply_hunks_to_index(
+            repo,
+            &mut idx,
+            parent_tree,
+            full_diff,
+            delta_idx,
+            selections,
+        )?;
     }
 
     idx.write_tree_to(repo).map_err(Into::into)
+}
+
+fn apply_hunks_to_index(
+    repo: &git2::Repository,
+    idx: &mut git2::Index,
+    parent_tree: &git2::Tree,
+    full_diff: &git2::Diff,
+    delta_idx: usize,
+    selections: &[HunkSelection],
+) -> Result<()> {
+    if selections.is_empty() {
+        return Ok(());
+    }
+
+    let Some(mut patch) = git2::Patch::from_diff(full_diff, delta_idx)? else {
+        return Ok(());
+    };
+    let delta = full_diff
+        .get_delta(delta_idx)
+        .context("delta index in range")?;
+    let old_path = delta.old_file().path();
+    let file_path = delta
+        .new_file()
+        .path()
+        .or(old_path)
+        .context("delta has no file path")?
+        .to_owned();
+
+    // Content lives at the OLD path in `parent_tree` — for a renamed
+    // delta that differs from `file_path` (the new path), so looking it
+    // up under `file_path` fails (or silently finds the wrong file).
+    let old_content = match delta.status() {
+        git2::Delta::Added => Vec::new(),
+        _ => {
+            let lookup_path = old_path.context("delta has no old-side path")?;
+            let entry = parent_tree
+                .get_path(lookup_path)
+                .with_context(|| format!("'{}' not in parent tree", lookup_path.display()))?;
+            repo.find_blob(entry.id())?.content().to_owned()
+        }
+    };
+    let mode = applied_mode(&delta);
+
+    let new_content = apply_hunk_selections_to_content(&old_content, &mut patch, selections)
+        .with_context(|| format!("applying selected hunks to '{}'", file_path.display()))?;
+
+    let path_bytes = crate::domain::path_to_bytes(&file_path);
+
+    if delta.status() == git2::Delta::Deleted && new_content.is_empty() {
+        // All lines removed → delete the file from the intermediate tree.
+        idx.remove(&file_path, 0)?;
+    } else {
+        // A rename seeded the index (via `idx.read_tree(parent_tree)`)
+        // with a stale entry under the old path; drop it before adding
+        // the content under its new path, or both would remain.
+        if delta.status() == git2::Delta::Renamed
+            && let Some(old) = old_path
+            && old != file_path.as_path()
+        {
+            idx.remove(old, 0)?;
+        }
+        let new_blob_oid = repo.blob(&new_content)?;
+        idx.add(&git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode,
+            uid: 0,
+            gid: 0,
+            file_size: new_content.len() as u32,
+            id: new_blob_oid,
+            flags: 0,
+            flags_extended: 0,
+            path: path_bytes,
+        })?;
+    }
+    Ok(())
 }
 
 /// Apply hunk `hunk_idx` from `patch` to `content`, returning the new bytes.
