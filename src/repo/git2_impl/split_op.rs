@@ -527,15 +527,7 @@ pub(super) fn split_commit_out_hunks(
         reword_op::encoding_for(&target.commit, original_message),
     )?;
 
-    let split_out = selected
-        .iter()
-        .copied()
-        .chain(picked_swaps.iter().flat_map(|&swap| {
-            changes.swaps.groups()[swap].iter().flat_map(|&member| {
-                (0..changes.hunk_counts[member]).map(move |hunk_idx| (member, hunk_idx))
-            })
-        }));
-    let suffix = hunk_selection_suffix(&full_diff, &split_out.collect())?;
+    let suffix = hunk_selection_suffix(&full_diff, &changes, &selected, &picked_swaps)?;
     let peeled_message = hunks::summary_suffix_message(original_message, suffix.as_bstr());
     let second = commit_with_message(
         repo,
@@ -652,17 +644,30 @@ fn chosen_file_deltas(diff: &git2::Diff<'_>, file_paths: &[PathBuf]) -> Result<B
     Ok(chosen)
 }
 
-/// Build the "(...)" suffix for the split-out commit's summary: the touched
-/// file's name when the selection is confined to one file (matching
-/// `split_commit_out_files`' style), or a hunk/file count otherwise.
+/// Build the "(...)" suffix for the split-out commit's summary: the file's
+/// name when one file moves (matching `split_commit_out_files`' style), or a
+/// hunk/file count otherwise. A picked swap moves every one of its files,
+/// hunkless ones included.
 fn hunk_selection_suffix(
     full_diff: &git2::Diff,
+    changes: &SplitChanges,
     selected: &HashSet<(usize, usize)>,
+    picked_swaps: &BTreeSet<usize>,
 ) -> Result<BString> {
-    let touched_deltas: BTreeSet<usize> =
-        selected.iter().map(|&(delta_idx, _)| delta_idx).collect();
-    if touched_deltas.len() == 1 {
-        let delta_idx = *touched_deltas.iter().next().expect("checked len == 1");
+    let swap_members = || {
+        picked_swaps
+            .iter()
+            .flat_map(|&swap| &changes.swaps.groups()[swap])
+    };
+    let loose = selected
+        .iter()
+        .filter(|&&(delta_idx, _)| changes.swaps.group_of(delta_idx).is_none());
+    let files: BTreeSet<usize> = loose
+        .clone()
+        .map(|&(delta_idx, _)| delta_idx)
+        .chain(swap_members().copied())
+        .collect();
+    if let (1, Some(&delta_idx)) = (files.len(), files.first()) {
         let delta = full_diff
             .get_delta(delta_idx)
             .context("delta index in range")?;
@@ -670,10 +675,18 @@ fn hunk_selection_suffix(
             &delta_path(&delta).unwrap_or_default(),
         )));
     }
+    let hunks = loose.count()
+        + swap_members()
+            .map(|&member| changes.hunk_counts[member])
+            .sum::<usize>();
+    let plural = |count: usize, noun: &str| match count {
+        1 => format!("1 {noun}"),
+        _ => format!("{count} {noun}s"),
+    };
     Ok(BString::from(format!(
-        "{} hunks across {} files",
-        selected.len(),
-        touched_deltas.len()
+        "{} across {}",
+        plural(hunks, "hunk"),
+        plural(files.len(), "file")
     )))
 }
 
