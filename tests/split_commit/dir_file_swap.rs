@@ -498,3 +498,38 @@ fn split_per_hunk_group_keeps_a_file_renamed_out_of_a_directory_a_file_replaces_
         "{pieces:?}"
     );
 }
+
+#[test]
+fn split_out_hunks_names_every_file_of_a_picked_swap() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(
+        &[
+            ("0.txt", "01\n"),
+            ("a/x", BINARY),
+            ("a/y", BINARY),
+            ("b.txt", "b1\n"),
+        ],
+        "base",
+    );
+    std::fs::remove_dir_all(test.repo.workdir().unwrap().join("a")).unwrap();
+    test.write_file("a", "a\n");
+    test.write_file("0.txt", "02\n");
+    test.write_file("b.txt", "b2\n");
+    let to_split = commit_all(&test, "change");
+
+    let commit = Oid::from(to_split);
+    test.git_repo()
+        .split_commit_out_hunks(&commit, &[hunk_of(&test, to_split, "a")], &commit, 3)
+        .unwrap();
+
+    let split_out = *test.commits_from_head(base).last().unwrap();
+    let summary = test
+        .repo
+        .find_commit(split_out)
+        .unwrap()
+        .summary()
+        .unwrap()
+        .unwrap()
+        .to_owned();
+    assert_eq!(summary, "change (1 hunk across 3 files)");
+}
