@@ -145,9 +145,12 @@ pub(super) fn apply_first_hunk_to_tree(
     diff: &git2::Diff,
     delta_idx: usize,
 ) -> Result<git2::Oid> {
+    let delta = diff.get_delta(delta_idx).context("delta index in range")?;
+    if is_gitlink(&delta) {
+        return apply_whole_deltas_to_tree(repo, base_tree, &[delta]);
+    }
     let mut patch =
         git2::Patch::from_diff(diff, delta_idx)?.context("delta has no patch to apply")?;
-    let delta = diff.get_delta(delta_idx).context("delta index in range")?;
     let file_path = delta
         .new_file()
         .path()
@@ -292,6 +295,14 @@ fn add_entry(idx: &mut git2::Index, path: &Path, id: git2::Oid, mode: u32) -> Re
     Ok(())
 }
 
+/// Whether `delta` changes a submodule pointer. Its one "Subproject commit"
+/// hunk stands for a commit id, not text, so applying the hunk means writing
+/// the pointer whole.
+fn is_gitlink(delta: &git2::DiffDelta<'_>) -> bool {
+    delta.old_file().mode() == git2::FileMode::Commit
+        || delta.new_file().mode() == git2::FileMode::Commit
+}
+
 /// Take away the path a delta removes: a deletion's, or a rename's old one.
 fn remove_old_side(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
     if matches!(delta.status(), git2::Delta::Deleted | git2::Delta::Renamed) {
@@ -332,12 +343,16 @@ fn apply_hunks_to_index(
         return Ok(());
     }
 
-    let Some(mut patch) = git2::Patch::from_diff(full_diff, delta_idx)? else {
-        return Ok(());
-    };
     let delta = full_diff
         .get_delta(delta_idx)
         .context("delta index in range")?;
+    if is_gitlink(&delta) {
+        remove_old_side(idx, &delta)?;
+        return add_new_side(idx, &delta);
+    }
+    let Some(mut patch) = git2::Patch::from_diff(full_diff, delta_idx)? else {
+        return Ok(());
+    };
     let old_path = delta.old_file().path();
     let file_path = delta
         .new_file()

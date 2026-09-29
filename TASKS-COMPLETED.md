@@ -2016,3 +2016,10 @@
   `SwapGroups::pickable`. Tree writes clear what a new path collides with
   themselves, since libgit2's `Index::add` keeps a replaced directory's entries
   when anything sorts before the file.
+- [X] T258 P3 bug - Splitting by hunk mishandled submodule pointers.
+  libgit2 shows a pointer change as one "Subproject commit" hunk, and the
+  hunk-level splits applied it as text: split-out-hunks and split-per-hunk
+  wrote a blob of that text under the gitlink mode, a corrupt pointer, or
+  failed looking up the commit id as a blob. Applying a gitlink's hunk now
+  writes the pointer whole. It keeps its one hunk rather than counting as
+  hunkless, so the picker still offers it and its hunk numbering still lines up.
