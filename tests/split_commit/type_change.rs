@@ -188,3 +188,59 @@ fn split_per_hunk_group_has_nothing_to_split_when_one_group_replaces_a_binary_fi
     assert!(result.is_err(), "split with nothing to split: {result:?}");
     assert_eq!(test.commits_from_head(base), [to_split]);
 }
+
+/// The paths each commit from `base` up to HEAD changes, oldest first.
+fn paths_per_commit(test: &common::TestRepo, base: git2::Oid) -> Vec<Vec<String>> {
+    test.commits_from_head(base)
+        .into_iter()
+        .map(|oid| {
+            let commit = test.repo.find_commit(oid).unwrap();
+            let parent_tree = commit.parent(0).unwrap().tree().unwrap();
+            let diff = test
+                .repo
+                .diff_tree_to_tree(Some(&parent_tree), Some(&commit.tree().unwrap()), None)
+                .unwrap();
+            let mut paths: Vec<String> = diff
+                .deltas()
+                .map(|delta| delta.new_file().path().unwrap().display().to_string())
+                .collect();
+            paths.dedup();
+            paths
+        })
+        .collect()
+}
+
+/// The fragmap files a symlink's deletion and the file replacing it under one
+/// path. Here the file's hunk relates to the later commit as a.txt's does,
+/// while the symlink's does not, so the swap belongs with a.txt.
+#[test]
+fn split_per_hunk_group_places_a_symlink_replaced_by_a_file_by_both_its_hunks() {
+    let test = common::TestRepo::new();
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    test.write_file("a.txt", "a1\n");
+    test.write_file("b.txt", "b1\n");
+    std::os::unix::fs::symlink("a.txt", workdir.join("link")).unwrap();
+    for path in ["a.txt", "b.txt", "link"] {
+        test.stage_file(path);
+    }
+    let base = test.commit("base");
+
+    std::fs::remove_file(workdir.join("link")).unwrap();
+    test.write_file("link", "l1\n");
+    test.write_file("a.txt", "a2\n");
+    test.write_file("b.txt", "b2\n");
+    for path in ["link", "a.txt", "b.txt"] {
+        test.stage_file(path);
+    }
+    let to_split = test.commit("change");
+    let later = test.commit_files(&[("a.txt", "a3\n"), ("link", "l2\n")], "later");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &Oid::from(later), &Oid::from(base))
+        .unwrap();
+
+    let mut pieces = paths_per_commit(&test, base);
+    pieces.pop();
+    assert_eq!(pieces, [vec!["a.txt", "link"], vec!["b.txt"]]);
+}
