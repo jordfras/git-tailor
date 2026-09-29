@@ -48,7 +48,7 @@ pub(super) fn split_commit_per_file(
         anyhow::bail!("Commit touches fewer than 2 files — nothing to split");
     }
 
-    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, true))?;
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
@@ -117,7 +117,7 @@ pub(super) fn split_commit_per_hunk(
         anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
     }
 
-    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     // Build one commit per hunk using incremental blob manipulation.  At each
     // step, recompute diff(current_tree → commit_tree) with 0 context and
@@ -191,7 +191,7 @@ pub(super) fn split_commit_per_hunk_group(
 
     let full_diff = hunk_group_diff(repo, &target)?;
 
-    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     let plan = HunkGroupPlan::new(&assignment, &full_diff)?;
     let split_count = plan.piece_count();
@@ -432,7 +432,7 @@ pub(super) fn split_commit_out_files(
         anyhow::bail!("Every file is selected — nothing would remain in the original commit");
     }
 
-    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, true))?;
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     // The first commit keeps every change except the selected files: the full
     // commit tree with each of them reverted, which can never conflict.
@@ -516,7 +516,7 @@ pub(super) fn split_commit_out_hunks(
     let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
     let picked_swaps = validate_hunk_selection(&selected, &changes)?;
 
-    repo.check_dirty_overlap(&collect_commit_paths(&full_diff, false))?;
+    repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     let rest_tree_oid = rest_tree(
         &repo.inner,
@@ -754,16 +754,14 @@ fn initial_split_base(commit: &git2::Commit<'_>) -> Result<Option<git2::Oid>> {
     }
 }
 
-/// Collect the file paths touched by `diff`.  When `exclude_gitlinks` is set,
-/// submodule-pointer deltas are skipped — used by the per-file split path
-/// which applies them via tree manipulation only and so cannot be tripped by
-/// a dirty submodule state.
-fn collect_commit_paths(diff: &git2::Diff<'_>, exclude_gitlinks: bool) -> HashSet<PathBuf> {
+/// Collect the file paths touched by `diff`, submodule pointers aside: a split
+/// writes those in the tree alone, so a submodule's checkout cannot get in
+/// its way.
+fn collect_commit_paths(diff: &git2::Diff<'_>) -> HashSet<PathBuf> {
     diff.deltas()
         .filter(|d| {
-            !exclude_gitlinks
-                || (d.new_file().mode() != git2::FileMode::Commit
-                    && d.old_file().mode() != git2::FileMode::Commit)
+            d.new_file().mode() != git2::FileMode::Commit
+                && d.old_file().mode() != git2::FileMode::Commit
         })
         .filter_map(|d| {
             d.new_file()

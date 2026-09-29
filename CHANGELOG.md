@@ -92,7 +92,9 @@ The format is based on
   file does not sort last
 - Splitting a commit by hunk now writes a submodule pointer change as the
   commit it points to. "Split out hunk(s)" and splitting per hunk applied it as
-  text, leaving a corrupt pointer in history or failing outright
+  text, leaving a corrupt pointer in history or failing outright. Like
+  splitting per file, they no longer refuse because the submodule is checked
+  out at another commit
 - Splitting out hunks, or splitting per hunk group, no longer sometimes drops a
   file that replaced a symlink from the piece that should contain it, only for
   a later piece to add it back. Whether it happened varied from run to run
