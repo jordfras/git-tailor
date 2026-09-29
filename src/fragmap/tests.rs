@@ -1849,3 +1849,17 @@ fn clusters_come_out_in_byte_order_not_path_component_order() {
         vec![Path::new("repo.rs"), Path::new("repo/git2_impl.rs")]
     );
 }
+
+/// A file added where another was renamed away from is a new file: an edit to
+/// it relates to its addition, not to the renamed file's history.
+#[test]
+fn build_fragmap_keeps_a_file_added_at_a_renamed_path_apart_from_the_rename() {
+    let rename = make_commit_diff("c0", vec![make_file_diff(Some("a"), Some("b"), 1, 3, 1, 3)]);
+    let add = make_commit_diff("c1", vec![make_file_diff(None, Some("a"), 0, 0, 1, 3)]);
+    let edit = make_commit_diff("c2", vec![make_file_diff(Some("a"), Some("a"), 1, 3, 1, 3)]);
+
+    let fm = build_fragmap(&[rename, add, edit], true, &mut |_| true).unwrap();
+
+    assert!(fm.shares_cluster_with(1, 2), "{:?}", fm.clusters);
+    assert!(!fm.shares_cluster_with(0, 2), "{:?}", fm.clusters);
+}

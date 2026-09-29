@@ -679,3 +679,41 @@ fn split_per_hunk_group_keeps_paths_a_single_invalid_byte_apart_separate() {
     assert_file_contents!(&test.repo, tip, &one, "A3\n");
     assert_file_contents!(&test.repo, tip, &other, "B2\n");
 }
+
+/// Lines 1 to 10 with `first` and `ninth` in place of lines 1 and 9.
+fn ten_lines_with(first: &str, ninth: &str) -> String {
+    (1..=10)
+        .map(|n| match n {
+            1 => format!("{first}\n"),
+            9 => format!("{ninth}\n"),
+            _ => format!("{n}\n"),
+        })
+        .collect()
+}
+
+/// A file added at the path another was renamed away from is a new file, not
+/// the renamed one's history: the fragmap must keep their hunks apart.
+#[test]
+fn split_per_hunk_group_keeps_a_file_added_where_another_was_renamed_from_apart() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a", &ten_lines_with("1", "9"), "base");
+    test.rename_file("a", "b", None, "rename a to b");
+    let to_split = test.commit_files(
+        &[("a", "new\n"), ("b", &ten_lines_with("1K", "9K"))],
+        "change",
+    );
+    let later = test.commit_file("b", &ten_lines_with("1K", "9L"), "later");
+
+    let mut git_repo = test.git_repo();
+    git_repo
+        .split_commit_per_hunk_group(&Oid::from(to_split), &Oid::from(later), &Oid::from(base))
+        .unwrap();
+
+    // The rename, then b's second hunk alone (it relates to `later`), with
+    // the new a and b's first hunk (neither relates to anything) first.
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 4, "rename, two pieces, later");
+    assert_file_contents!(&test.repo, commits[1], "a", "new\n");
+    assert_file_contents!(&test.repo, commits[1], "b", ten_lines_with("1K", "9"));
+    assert_file_contents!(&test.repo, commits[2], "b", ten_lines_with("1K", "9K"));
+}
