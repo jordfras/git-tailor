@@ -57,6 +57,16 @@ impl HunkSelection {
     }
 }
 
+/// What to apply of one delta when building an intermediate split tree.
+#[derive(Debug, Clone)]
+pub(super) enum DeltaSelection {
+    /// Apply these hunks, or fragments of them.
+    Hunks(Vec<HunkSelection>),
+    /// Write the new side whole: its blob or gitlink and its mode, or its
+    /// removal. The only way to apply a delta that has no hunks.
+    Whole,
+}
+
 /// Build the commit message for the n-th commit in a split sequence.
 ///
 /// The first line of the original message is kept and suffixed with "(n/total)".
@@ -203,12 +213,9 @@ pub(super) fn apply_single_hunk_to_tree(
     }
     Ok(base_tree.id())
 }
-/// Apply a selected subset of hunks (or fragments of hunks) from `full_diff`
-/// to `parent_tree`, returning the new tree OID.
-///
-/// `selected_hunks` maps each delta index to the selections to apply within
-/// that delta.  Files with no selected hunks keep their original content from
-/// `parent_tree`.
+/// Apply the selected deltas of `full_diff`, or parts of them, to
+/// `parent_tree`, returning the new tree OID. A delta absent from `selected`
+/// keeps its content from `parent_tree`.
 ///
 /// Deltas are applied in diff order: a symlink that became a file is a deletion
 /// followed by an addition at the same path, and applying the addition first
@@ -217,23 +224,63 @@ pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree,
     full_diff: &git2::Diff,
-    selected_hunks: &BTreeMap<usize, Vec<HunkSelection>>,
+    selected: &BTreeMap<usize, DeltaSelection>,
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
     idx.read_tree(parent_tree)?;
 
-    for (&delta_idx, selections) in selected_hunks {
-        apply_hunks_to_index(
-            repo,
-            &mut idx,
-            parent_tree,
-            full_diff,
-            delta_idx,
-            selections,
-        )?;
+    for (&delta_idx, selection) in selected {
+        match selection {
+            DeltaSelection::Hunks(selections) => apply_hunks_to_index(
+                repo,
+                &mut idx,
+                parent_tree,
+                full_diff,
+                delta_idx,
+                selections,
+            )?,
+            DeltaSelection::Whole => {
+                let delta = full_diff
+                    .get_delta(delta_idx)
+                    .context("delta index in range")?;
+                write_whole_delta_to_index(&mut idx, &delta)?;
+            }
+        }
     }
 
     idx.write_tree_to(repo).map_err(Into::into)
+}
+
+fn write_whole_delta_to_index(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
+    let old_path = delta.old_file().path();
+    if delta.status() == git2::Delta::Deleted {
+        idx.remove(old_path.context("deleted delta has no path")?, 0)?;
+        return Ok(());
+    }
+    let new_path = delta
+        .new_file()
+        .path()
+        .context("delta has no new-side path")?;
+    if let Some(old_path) = old_path
+        && old_path != new_path
+    {
+        idx.remove(old_path, 0)?;
+    }
+    idx.add(&git2::IndexEntry {
+        ctime: git2::IndexTime::new(0, 0),
+        mtime: git2::IndexTime::new(0, 0),
+        dev: 0,
+        ino: 0,
+        mode: delta.new_file().mode().into(),
+        uid: 0,
+        gid: 0,
+        file_size: delta.new_file().size() as u32,
+        id: delta.new_file().id(),
+        flags: 0,
+        flags_extended: 0,
+        path: crate::domain::path_to_bytes(new_path),
+    })?;
+    Ok(())
 }
 
 fn apply_hunks_to_index(

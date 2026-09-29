@@ -238,7 +238,7 @@ pub(super) fn split_commit_per_hunk_group(
             let gk = *k_groups
                 .get(out_pos)
                 .expect("only the last piece has no group");
-            let mut selected: BTreeMap<usize, Vec<hunks::HunkSelection>> = BTreeMap::new();
+            let mut selected: BTreeMap<usize, hunks::DeltaSelection> = BTreeMap::new();
             for (delta_idx, hunk_assignments) in delta_hunk_assignments.iter().enumerate() {
                 let chosen: Vec<hunks::HunkSelection> = hunk_assignments
                     .iter()
@@ -248,7 +248,7 @@ pub(super) fn split_commit_per_hunk_group(
                     })
                     .collect();
                 if !chosen.is_empty() {
-                    selected.insert(delta_idx, chosen);
+                    selected.insert(delta_idx, hunks::DeltaSelection::Hunks(chosen));
                 }
             }
             hunks::apply_selected_hunks_to_tree(
@@ -530,9 +530,9 @@ fn validate_hunk_selection(
 /// The tree of everything in `diff` that `selected` leaves behind: the
 /// unselected hunks, and every hunkless change, since nobody can pick one.
 ///
-/// Every delta gets an entry in the complement, even one with all its hunks
-/// unselected: a delta absent from the map keeps its parent-tree content, which
-/// would revert the file.
+/// Every delta gets an entry, even one with all its hunks unselected: a delta
+/// absent from the map keeps its parent-tree content, which would revert the
+/// file.
 fn rest_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree<'_>,
@@ -540,26 +540,21 @@ fn rest_tree(
     hunk_counts: &[usize],
     selected: &HashSet<(usize, usize)>,
 ) -> Result<git2::Oid> {
-    let rest: BTreeMap<usize, Vec<hunks::HunkSelection>> = hunk_counts
+    let rest: BTreeMap<usize, hunks::DeltaSelection> = hunk_counts
         .iter()
         .enumerate()
         .map(|(delta_idx, &num_hunks)| {
+            if num_hunks == 0 {
+                return (delta_idx, hunks::DeltaSelection::Whole);
+            }
             let unselected = (0..num_hunks)
                 .filter(|hunk_idx| !selected.contains(&(delta_idx, *hunk_idx)))
                 .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
                 .collect();
-            (delta_idx, unselected)
+            (delta_idx, hunks::DeltaSelection::Hunks(unselected))
         })
         .collect();
-    let rest_hunks_tree_oid = hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)?;
-
-    let hunkless = hunk_counts
-        .iter()
-        .enumerate()
-        .filter(|&(_, &num_hunks)| num_hunks == 0)
-        .map(|(delta_idx, _)| diff.get_delta(delta_idx).context("delta index in range"))
-        .collect::<Result<Vec<_>>>()?;
-    hunks::apply_whole_deltas_to_tree(repo, &repo.find_tree(rest_hunks_tree_oid)?, hunkless)
+    hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)
 }
 
 /// Build the "(...)" suffix for the split-out commit's summary: the touched
