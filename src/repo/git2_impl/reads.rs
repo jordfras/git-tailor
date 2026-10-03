@@ -185,9 +185,20 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
         repo.inner
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
-    diff.find_similar(None)?;
+    find_renames(&mut diff)?;
 
     extract_commit_diff(&diff, &commit)
+}
+
+/// Pair up renamed files in `diff`, and nothing more, whatever git's
+/// `diff.renames` says: with `copies` a new file is described against the one
+/// it resembles rather than whole, and the fragmap, and the split that numbers
+/// hunks as it does, must not change with a personal setting.
+pub(super) fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
+    let mut opts = git2::DiffFindOptions::new();
+    opts.renames(true);
+    diff.find_similar(Some(&mut opts))?;
+    Ok(())
 }
 
 /// HEAD's tree, or `None` on an unborn branch (no commits yet).

@@ -388,7 +388,7 @@ fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<g
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
-    diff.find_similar(None)?;
+    reads::find_renames(&mut diff)?;
     Ok(diff)
 }
 
