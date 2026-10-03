@@ -297,46 +297,31 @@ struct HunkGroupPlan {
 impl HunkGroupPlan {
     fn new(assignment: &fragmap::HunkGroupAssignment, diff: &git2::Diff<'_>) -> Result<Self> {
         let changes = SplitChanges::of(diff)?;
-        let mut assignments = changes
+        let mut assignments: Vec<Vec<fragmap::HunkAssignment>> = changes
             .hunk_counts
             .iter()
             .enumerate()
             .map(|(delta_idx, &num_hunks)| {
-                let delta = diff.get_delta(delta_idx).context("delta index")?;
-                let file_assignments = assignment
-                    .by_file
-                    .get(&delta_path(&delta).unwrap_or_default());
-                Ok((0..num_hunks)
+                let change_assignments = assignment.by_change.get(delta_idx);
+                (0..num_hunks)
                     .map(|h| {
-                        file_assignments
-                            .and_then(|fa| fa.get(h))
+                        change_assignments
+                            .and_then(|ca| ca.get(h))
                             .cloned()
                             .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
                     })
-                    .collect())
+                    .collect()
             })
-            .collect::<Result<Vec<Vec<fragmap::HunkAssignment>>>>()?;
+            .collect();
 
-        // The fragmap files a swap's changes that share a path under that one
-        // path, their hunks one after another, so a member's own hunk index
-        // does not find its entry. Only a swap's changes share a path, so all
-        // of its paths' entries are its own.
         let swap_placement: Vec<Option<usize>> = changes
             .swaps
             .groups()
             .iter()
             .map(|members| {
-                let paths: BTreeSet<PathBuf> = members
+                members
                     .iter()
-                    .filter_map(|&member| diff.get_delta(member).and_then(|d| delta_path(&d)))
-                    .collect();
-                let by_path = paths
-                    .iter()
-                    .filter_map(|path| assignment.by_file.get(path))
-                    .flatten();
-                let by_member = members.iter().flat_map(|&member| &assignments[member]);
-                by_path
-                    .chain(by_member)
+                    .flat_map(|&member| &assignments[member])
                     .flat_map(|hunk_assignment| hunk_assignment.groups())
                     .min()
             })
@@ -403,7 +388,7 @@ fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<g
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
-    diff.find_similar(None)?;
+    reads::find_renames(&mut diff)?;
     Ok(diff)
 }
 

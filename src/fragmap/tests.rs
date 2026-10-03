@@ -1232,6 +1232,7 @@ fn make_fragmap(commit_ids: &[&str], n_clusters: usize, touches: &[(usize, usize
         .map(|_| SpanCluster {
             spans: vec![FileSpan {
                 path: "f.txt".into(),
+                file: FileId::default(),
                 start_line: 1,
                 end_line: 1,
             }],
@@ -1476,8 +1477,8 @@ fn build_fragmap_file_rename_cluster_uses_canonical_path() {
 fn build_fragmap_rename_groups_old_and_new_in_same_cluster() {
     // Commit 0 touches foo.rs lines 1-10.
     // Commit 1 renames foo.rs → bar.rs and modifies overlapping lines 5-12.
-    // Both should land in the same cluster because the rename map links
-    // bar.rs back to the canonical name foo.rs.
+    // Both should land in the same cluster because the rename carries foo.rs
+    // on as bar.rs: one file.
     let c0 = make_commit_diff(
         "c0",
         vec![make_file_diff(Some("foo.rs"), Some("foo.rs"), 1, 0, 1, 10)],
@@ -1762,7 +1763,13 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
         assignment.group_count
     );
     assert_eq!(
-        assignment.touched_groups().len(),
+        assignment
+            .by_change
+            .iter()
+            .flatten()
+            .flat_map(|hunk| hunk.groups())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
         2,
         "both groups must actually receive hunks"
     );
@@ -1848,4 +1855,168 @@ fn clusters_come_out_in_byte_order_not_path_component_order() {
         paths,
         vec![Path::new("repo.rs"), Path::new("repo/git2_impl.rs")]
     );
+}
+
+/// A file added where another was renamed away from is a new file: an edit to
+/// it relates to its addition, not to the renamed file's history.
+#[test]
+fn build_fragmap_keeps_a_file_added_at_a_renamed_path_apart_from_the_rename() {
+    let rename = make_commit_diff("c0", vec![make_file_diff(Some("a"), Some("b"), 1, 3, 1, 3)]);
+    let add = make_commit_diff("c1", vec![make_file_diff(None, Some("a"), 0, 0, 1, 3)]);
+    let edit = make_commit_diff("c2", vec![make_file_diff(Some("a"), Some("a"), 1, 3, 1, 3)]);
+
+    let fm = build_fragmap(&[rename, add, edit], true, &mut |_| true).unwrap();
+
+    assert!(fm.shares_cluster_with(1, 2), "{:?}", fm.clusters);
+    assert!(!fm.shares_cluster_with(0, 2), "{:?}", fm.clusters);
+}
+
+/// A change as libgit2 reports it: both paths set, whatever the status.
+fn change(status: crate::DeltaStatus, old: &str, new: &str) -> FileDiff {
+    FileDiff {
+        old_path: Some(old.into()),
+        new_path: Some(new.into()),
+        status,
+        is_binary: false,
+        hunks: vec![],
+    }
+}
+
+fn lineages_of(commits: Vec<Vec<FileDiff>>) -> FileLineages {
+    let diffs: Vec<CommitDiff> = commits
+        .into_iter()
+        .enumerate()
+        .map(|(n, files)| make_commit_diff(&format!("c{n}"), files))
+        .collect();
+    FileLineages::new(&diffs)
+}
+
+#[test]
+fn a_rename_carries_a_file_and_a_file_added_at_its_old_path_is_new() {
+    use crate::DeltaStatus::{Added, Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Renamed, "a", "b")],
+        vec![change(Added, "a", "a"), change(Modified, "b", "b")],
+    ]);
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+    assert_eq!(lineages.of(2, 1), lineages.of(0, 0));
+    assert_ne!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_eq!(lineages.label(lineages.of(2, 1)), Path::new("a"));
+}
+
+#[test]
+fn a_file_restored_in_a_later_commit_is_the_one_deleted() {
+    use crate::DeltaStatus::{Added, Deleted};
+    let lineages = lineages_of(vec![
+        vec![change(Deleted, "a", "a")],
+        vec![change(Added, "a", "a")],
+    ]);
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+}
+
+#[test]
+fn a_file_added_where_one_is_deleted_in_the_same_commit_is_new() {
+    use crate::DeltaStatus::{Added, Deleted, Modified};
+    let lineages = lineages_of(vec![
+        vec![
+            change(Deleted, "link", "link"),
+            change(Added, "link", "link"),
+        ],
+        vec![change(Modified, "link", "link")],
+    ]);
+    assert_ne!(lineages.of(0, 1), lineages.of(0, 0));
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 1));
+}
+
+/// A copy is a new file: the file it was copied from keeps its history.
+#[test]
+fn a_copy_is_new_and_its_source_keeps_its_history() {
+    use crate::DeltaStatus::{Copied, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Modified, "a", "a"), change(Copied, "a", "c")],
+        vec![change(Modified, "a", "a")],
+    ]);
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_ne!(lineages.of(1, 1), lineages.of(0, 0));
+}
+
+// A merge commit's diff against its first parent repeats what its branch did,
+// so the same change can be seen twice: the second time is the same file.
+#[test]
+fn an_addition_repeated_by_a_merge_is_the_same_file() {
+    use crate::DeltaStatus::{Added, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Added, "a", "a")],
+        vec![change(Modified, "a", "a")],
+        vec![change(Added, "a", "a")],
+        vec![change(Modified, "a", "a")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+#[test]
+fn a_rename_repeated_by_a_merge_is_the_same_file() {
+    use crate::DeltaStatus::{Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Modified, "y", "y")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+#[test]
+fn a_deletion_repeated_by_a_merge_still_lets_a_later_commit_restore_the_file() {
+    use crate::DeltaStatus::{Added, Deleted, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Deleted, "a", "a")],
+        vec![change(Deleted, "a", "a")],
+        vec![change(Added, "a", "a")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+/// A commit on the merged-into line can still edit a file its branch renamed.
+#[test]
+fn an_edit_at_a_path_a_parallel_rename_left_is_the_renamed_file() {
+    use crate::DeltaStatus::{Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+/// Repeating a rename must not pull in the new file added at its old path.
+#[test]
+fn a_repeated_rename_leaves_a_new_file_at_its_old_path_alone() {
+    use crate::DeltaStatus::{Added, Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        vec![change(Modified, "a", "a"), change(Modified, "b", "b")],
+    ]);
+    let (renamed, added) = (lineages.of(1, 0), lineages.of(1, 1));
+    assert_eq!(renamed, lineages.of(0, 0));
+    assert_ne!(added, renamed);
+    assert_eq!(lineages.of(2, 0), renamed);
+    assert_eq!(lineages.of(2, 1), added);
+    assert_eq!(lineages.of(3, 0), added);
+    assert_eq!(lineages.of(3, 1), renamed);
 }
