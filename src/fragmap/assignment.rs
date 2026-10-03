@@ -87,8 +87,16 @@ impl HunkAssignment {
 pub struct HunkGroupAssignment {
     /// Number of distinct groups (column and relation pattern).
     pub group_count: usize,
-    /// Per change of the split commit, one entry per hunk — indexed the same
-    /// way as the 0-context, rename-detecting diff produced by
-    /// `GitRepo::commit_diff_for_fragmap`. A change with no hunks has none.
-    pub by_change: Vec<Vec<HunkAssignment>>,
+    /// Per change of the split commit, one entry per hunk; see [`Self::hunk`].
+    pub(super) by_change: Vec<Vec<HunkAssignment>>,
+}
+
+impl HunkGroupAssignment {
+    /// The assignment of hunk `hunk` of change `change`, both numbered as in
+    /// the split commit's 0-context, rename-detecting diff — the one
+    /// `GitRepo::commit_diff_for_fragmap` produces. `None` for a change with
+    /// no hunks.
+    pub fn hunk(&self, change: usize, hunk: usize) -> Option<&HunkAssignment> {
+        self.by_change.get(change)?.get(hunk)
+    }
 }

@@ -302,11 +302,10 @@ impl HunkGroupPlan {
             .iter()
             .enumerate()
             .map(|(delta_idx, &num_hunks)| {
-                let change_assignments = assignment.by_change.get(delta_idx);
                 (0..num_hunks)
                     .map(|h| {
-                        change_assignments
-                            .and_then(|ca| ca.get(h))
+                        assignment
+                            .hunk(delta_idx, h)
                             .cloned()
                             .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
                     })
