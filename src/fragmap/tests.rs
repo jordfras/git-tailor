@@ -1942,3 +1942,81 @@ fn a_copy_is_new_and_its_source_keeps_its_history() {
     assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
     assert_ne!(lineages.of(1, 1), lineages.of(0, 0));
 }
+
+// A merge commit's diff against its first parent repeats what its branch did,
+// so the same change can be seen twice: the second time is the same file.
+#[test]
+fn an_addition_repeated_by_a_merge_is_the_same_file() {
+    use crate::DeltaStatus::{Added, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Added, "a", "a")],
+        vec![change(Modified, "a", "a")],
+        vec![change(Added, "a", "a")],
+        vec![change(Modified, "a", "a")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+#[test]
+fn a_rename_repeated_by_a_merge_is_the_same_file() {
+    use crate::DeltaStatus::{Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Modified, "y", "y")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+#[test]
+fn a_deletion_repeated_by_a_merge_still_lets_a_later_commit_restore_the_file() {
+    use crate::DeltaStatus::{Added, Deleted, Modified};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Deleted, "a", "a")],
+        vec![change(Deleted, "a", "a")],
+        vec![change(Added, "a", "a")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+/// A commit on the merged-into line can still edit a file its branch renamed.
+#[test]
+fn an_edit_at_a_path_a_parallel_rename_left_is_the_renamed_file() {
+    use crate::DeltaStatus::{Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+        vec![change(Modified, "x", "x")],
+        vec![change(Renamed, "x", "y")],
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+/// Repeating a rename must not pull in the new file added at its old path.
+#[test]
+fn a_repeated_rename_leaves_a_new_file_at_its_old_path_alone() {
+    use crate::DeltaStatus::{Added, Modified, Renamed};
+    let lineages = lineages_of(vec![
+        vec![change(Modified, "a", "a")],
+        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        vec![change(Modified, "a", "a"), change(Modified, "b", "b")],
+    ]);
+    let (renamed, added) = (lineages.of(1, 0), lineages.of(1, 1));
+    assert_eq!(renamed, lineages.of(0, 0));
+    assert_ne!(added, renamed);
+    assert_eq!(lineages.of(2, 0), renamed);
+    assert_eq!(lineages.of(2, 1), added);
+    assert_eq!(lineages.of(3, 0), added);
+    assert_eq!(lineages.of(3, 1), renamed);
+}
