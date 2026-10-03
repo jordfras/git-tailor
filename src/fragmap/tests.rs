@@ -14,6 +14,7 @@
 
 use super::*;
 use crate::{CommitDiff, CommitInfo, FileDiff, Hunk, Oid, VirtualOid};
+use std::path::Path;
 
 fn make_commit_info() -> CommitInfo {
     CommitInfo {

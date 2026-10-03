@@ -79,6 +79,9 @@ git-tailor/
 │   │       └── stash.rs        # Auto-stash save/restore and its conflicts
 │   ├── fragmap.rs          # Span extraction, clustering, matrix generation
 │   ├── fragmap/
+│   │   ├── assignment.rs   # Hunk-group assignment types for split per hunk group
+│   │   ├── attribution.rs  # Exact line attribution for the commit being split
+│   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
 │   │   └── spg.rs          # Span Propagation Graph algorithm
 │   ├── views.rs            # View module declarations
 │   ├── views/
