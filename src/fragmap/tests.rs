@@ -1883,11 +1883,34 @@ fn change(status: crate::DeltaStatus, old: &str, new: &str) -> FileDiff {
     }
 }
 
+/// Lineages of a linear history: each commit's parent is the one before it.
 fn lineages_of(commits: Vec<Vec<FileDiff>>) -> FileLineages {
-    let diffs: Vec<CommitDiff> = commits
+    let names: Vec<String> = (0..commits.len()).map(|n| format!("c{n}")).collect();
+    let graph = commits
         .into_iter()
         .enumerate()
-        .map(|(n, files)| make_commit_diff(&format!("c{n}"), files))
+        .map(|(n, files)| {
+            let parents: Vec<&str> = n
+                .checked_sub(1)
+                .map(|p| names[p].as_str())
+                .into_iter()
+                .collect();
+            (names[n].as_str(), parents, files)
+        })
+        .collect();
+    lineages_of_graph(graph)
+}
+
+/// Lineages of commits given as (name, parents, changes), in the order a
+/// commit list holds them. A merge's changes are against its first parent.
+fn lineages_of_graph(commits: Vec<(&str, Vec<&str>, Vec<FileDiff>)>) -> FileLineages {
+    let diffs: Vec<CommitDiff> = commits
+        .into_iter()
+        .map(|(name, parents, files)| {
+            let mut diff = make_commit_diff(name, files);
+            diff.commit.parent_oids = parents.into_iter().map(Oid::from).collect();
+            diff
+        })
         .collect();
     FileLineages::new(&diffs)
 }
@@ -1944,30 +1967,32 @@ fn a_copy_is_new_and_its_source_keeps_its_history() {
     assert_ne!(lineages.of(1, 1), lineages.of(0, 0));
 }
 
-// A merge commit's diff against its first parent repeats what its branch did,
-// so the same change can be seen twice: the second time is the same file.
+// A merge's diff against its first parent shows what its branch brought in:
+// a file it brings in is the branch's file, not a new one.
 #[test]
-fn an_addition_repeated_by_a_merge_is_the_same_file() {
+fn a_file_a_merge_brings_in_is_the_branch_file() {
     use crate::DeltaStatus::{Added, Modified};
-    let lineages = lineages_of(vec![
-        vec![change(Added, "a", "a")],
-        vec![change(Modified, "a", "a")],
-        vec![change(Added, "a", "a")],
-        vec![change(Modified, "a", "a")],
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "b", "b")]),
+        ("f1", vec!["m0"], vec![change(Added, "a", "a")]),
+        ("f2", vec!["f1"], vec![change(Modified, "a", "a")]),
+        ("m1", vec!["m0", "f2"], vec![change(Added, "a", "a")]),
+        ("m2", vec!["m1"], vec![change(Modified, "a", "a")]),
     ]);
-    for commit in 1..4 {
-        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    let a = lineages.of(1, 0);
+    for commit in 2..5 {
+        assert_eq!(lineages.of(commit, 0), a, "commit {commit}");
     }
 }
 
 #[test]
-fn a_rename_repeated_by_a_merge_is_the_same_file() {
+fn a_rename_a_merge_brings_in_is_the_same_file() {
     use crate::DeltaStatus::{Modified, Renamed};
-    let lineages = lineages_of(vec![
-        vec![change(Modified, "x", "x")],
-        vec![change(Renamed, "x", "y")],
-        vec![change(Renamed, "x", "y")],
-        vec![change(Modified, "y", "y")],
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "x", "x")]),
+        ("f1", vec!["m0"], vec![change(Renamed, "x", "y")]),
+        ("m1", vec!["m0", "f1"], vec![change(Renamed, "x", "y")]),
+        ("m2", vec!["m1"], vec![change(Modified, "y", "y")]),
     ]);
     for commit in 1..4 {
         assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
@@ -1975,43 +2000,56 @@ fn a_rename_repeated_by_a_merge_is_the_same_file() {
 }
 
 #[test]
-fn a_deletion_repeated_by_a_merge_still_lets_a_later_commit_restore_the_file() {
+fn a_deletion_a_merge_brings_in_still_lets_a_later_commit_restore_the_file() {
     use crate::DeltaStatus::{Added, Deleted, Modified};
-    let lineages = lineages_of(vec![
-        vec![change(Modified, "a", "a")],
-        vec![change(Deleted, "a", "a")],
-        vec![change(Deleted, "a", "a")],
-        vec![change(Added, "a", "a")],
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "a", "a")]),
+        ("f1", vec!["m0"], vec![change(Deleted, "a", "a")]),
+        ("m1", vec!["m0", "f1"], vec![change(Deleted, "a", "a")]),
+        ("m2", vec!["m1"], vec![change(Added, "a", "a")]),
     ]);
     for commit in 1..4 {
         assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
     }
 }
 
-/// A commit on the merged-into line can still edit a file its branch renamed.
+/// The merged-into line can still edit a file its branch renamed.
 #[test]
-fn an_edit_at_a_path_a_parallel_rename_left_is_the_renamed_file() {
+fn an_edit_on_the_line_a_rename_has_not_reached_is_the_renamed_file() {
     use crate::DeltaStatus::{Modified, Renamed};
-    let lineages = lineages_of(vec![
-        vec![change(Modified, "x", "x")],
-        vec![change(Renamed, "x", "y")],
-        vec![change(Modified, "x", "x")],
-        vec![change(Renamed, "x", "y")],
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "x", "x")]),
+        ("f1", vec!["m0"], vec![change(Renamed, "x", "y")]),
+        ("m1", vec!["m0"], vec![change(Modified, "x", "x")]),
+        ("m2", vec!["m1", "f1"], vec![change(Renamed, "x", "y")]),
     ]);
     for commit in 1..4 {
         assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
     }
 }
 
-/// Repeating a rename must not pull in the new file added at its old path.
+/// A merge bringing in a rename must not pull in the new file its branch
+/// added at the old path.
 #[test]
-fn a_repeated_rename_leaves_a_new_file_at_its_old_path_alone() {
+fn a_merged_rename_leaves_a_new_file_at_its_old_path_alone() {
     use crate::DeltaStatus::{Added, Modified, Renamed};
-    let lineages = lineages_of(vec![
-        vec![change(Modified, "a", "a")],
-        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
-        vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
-        vec![change(Modified, "a", "a"), change(Modified, "b", "b")],
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "a", "a")]),
+        (
+            "f1",
+            vec!["m0"],
+            vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        ),
+        (
+            "m1",
+            vec!["m0", "f1"],
+            vec![change(Renamed, "a", "b"), change(Added, "a", "a")],
+        ),
+        (
+            "m2",
+            vec!["m1"],
+            vec![change(Modified, "a", "a"), change(Modified, "b", "b")],
+        ),
     ]);
     let (renamed, added) = (lineages.of(1, 0), lineages.of(1, 1));
     assert_eq!(renamed, lineages.of(0, 0));
@@ -2020,4 +2058,124 @@ fn a_repeated_rename_leaves_a_new_file_at_its_old_path_alone() {
     assert_eq!(lineages.of(2, 1), added);
     assert_eq!(lineages.of(3, 0), added);
     assert_eq!(lineages.of(3, 1), renamed);
+}
+
+/// A branch renames x and rewrites it past recognition, so the merge reports
+/// x deleted and y added: y is the branch's renamed file, and a new x added
+/// later is a new file.
+#[test]
+fn a_merge_reporting_a_rewritten_rename_as_a_deletion_and_an_addition() {
+    use crate::DeltaStatus::{Added, Deleted, Modified, Renamed};
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "x", "x")]),
+        ("f1", vec!["m0"], vec![change(Renamed, "x", "y")]),
+        ("f2", vec!["f1"], vec![change(Modified, "y", "y")]),
+        (
+            "m1",
+            vec!["m0", "f2"],
+            vec![change(Deleted, "x", "x"), change(Added, "y", "y")],
+        ),
+        ("m2", vec!["m1"], vec![change(Added, "x", "x")]),
+        (
+            "m3",
+            vec!["m2"],
+            vec![change(Modified, "x", "x"), change(Modified, "y", "y")],
+        ),
+    ]);
+    let renamed = lineages.of(0, 0);
+    assert_eq!(lineages.of(3, 1), renamed, "the merge's y is the branch's");
+    let new_x = lineages.of(4, 0);
+    assert_ne!(new_x, renamed);
+    assert_eq!(lineages.of(5, 0), new_x);
+    assert_eq!(lineages.of(5, 1), renamed);
+}
+
+/// A branch deletes x and adds y; the merge pairs them as a rename. Later
+/// edits to y continue the y the branch added.
+#[test]
+fn a_merge_pairing_a_branch_deletion_and_addition_as_a_rename() {
+    use crate::DeltaStatus::{Added, Deleted, Modified, Renamed};
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "x", "x")]),
+        ("f1", vec!["m0"], vec![change(Deleted, "x", "x")]),
+        ("f2", vec!["f1"], vec![change(Added, "y", "y")]),
+        ("m1", vec!["m0", "f2"], vec![change(Renamed, "x", "y")]),
+        ("m2", vec!["m1"], vec![change(Modified, "y", "y")]),
+    ]);
+    let added = lineages.of(2, 0);
+    assert_eq!(lineages.of(3, 0), added);
+    assert_eq!(lineages.of(4, 0), added);
+}
+
+/// Both lines rename the same file, to different paths.
+#[test]
+fn a_file_renamed_differently_on_two_lines_is_one_file() {
+    use crate::DeltaStatus::{Modified, Renamed};
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "x", "x")]),
+        ("f1", vec!["m0"], vec![change(Renamed, "x", "y")]),
+        ("m1", vec!["m0"], vec![change(Renamed, "x", "z")]),
+        ("m2", vec!["m1"], vec![change(Modified, "z", "z")]),
+    ]);
+    for commit in 1..4 {
+        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+    }
+}
+
+/// A merge bringing in a symlink replaced by a file: the file is the
+/// branch's, the symlink the one that was there.
+#[test]
+fn a_merge_bringing_in_a_swap_keeps_both_sides() {
+    use crate::DeltaStatus::{Added, Deleted, Modified};
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "l", "l")]),
+        (
+            "f1",
+            vec!["m0"],
+            vec![change(Deleted, "l", "l"), change(Added, "l", "l")],
+        ),
+        (
+            "m1",
+            vec!["m0", "f1"],
+            vec![change(Deleted, "l", "l"), change(Added, "l", "l")],
+        ),
+        ("m2", vec!["m1"], vec![change(Modified, "l", "l")]),
+    ]);
+    let (old, new) = (lineages.of(0, 0), lineages.of(1, 1));
+    assert_eq!(lineages.of(1, 0), old);
+    assert_ne!(new, old);
+    assert_eq!(lineages.of(2, 0), old);
+    assert_eq!(lineages.of(2, 1), new);
+    assert_eq!(lineages.of(3, 0), new);
+}
+
+/// A side line forked after a rename and a new file at the old path edits
+/// that new file, even once the main line has deleted it.
+#[test]
+fn a_side_line_edits_the_file_its_fork_had_at_a_path() {
+    use crate::DeltaStatus::{Added, Deleted, Modified, Renamed};
+    let lineages = lineages_of_graph(vec![
+        ("c0", vec![], vec![change(Modified, "x", "x")]),
+        ("c1", vec!["c0"], vec![change(Renamed, "x", "y")]),
+        ("c2", vec!["c1"], vec![change(Added, "x", "x")]),
+        ("c3", vec!["c2"], vec![change(Deleted, "x", "x")]),
+        ("s1", vec!["c2"], vec![change(Modified, "x", "x")]),
+    ]);
+    let new_x = lineages.of(2, 0);
+    assert_ne!(new_x, lineages.of(1, 0));
+    assert_eq!(lineages.of(4, 0), new_x);
+}
+
+/// Commit timestamps need not grow from parent to child, so a date-ordered
+/// list can hold a commit before its parent: it still continues its parent.
+#[test]
+fn a_commit_listed_before_its_parent_still_continues_it() {
+    use crate::DeltaStatus::{Added, Modified};
+    let lineages = lineages_of_graph(vec![
+        ("c0", vec![], vec![change(Added, "a", "a")]),
+        ("c2", vec!["c1"], vec![change(Modified, "a", "a")]),
+        ("c1", vec!["c0"], vec![change(Modified, "a", "a")]),
+    ]);
+    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
 }
