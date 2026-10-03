@@ -57,18 +57,33 @@ impl FileLineages {
         };
         let mut live: HashMap<PathBuf, FileId> = HashMap::new();
         let mut dormant: HashMap<PathBuf, FileId> = HashMap::new();
+        // Paths a rename left, and the file that left them.
+        let mut moved: HashMap<PathBuf, FileId> = HashMap::new();
         for diff in commit_diffs {
             let mut ids: Vec<Option<FileId>> = vec![None; diff.files.len()];
             let mut deleted_now: HashSet<&Path> = HashSet::new();
             // What a commit takes away goes first, so a path it vacates is
-            // free for what it adds.
+            // free for what it adds. A merge's diff repeats what its branch
+            // did, so a change already made is recognized, not made again.
             for (change, file) in diff.files.iter().enumerate() {
                 if let Some(old) = renamed_from(file) {
-                    ids[change] = Some(live.remove(old).unwrap_or_else(|| lineages.add(old)));
+                    let new = file.new_path.as_deref().unwrap_or(old);
+                    let repeated = moved
+                        .get(old)
+                        .copied()
+                        .filter(|&id| live.get(new) == Some(&id));
+                    ids[change] = Some(repeated.unwrap_or_else(|| {
+                        let id = live.remove(old).unwrap_or_else(|| lineages.add(old));
+                        moved.insert(old.to_path_buf(), id);
+                        id
+                    }));
                 } else if file.status == crate::DeltaStatus::Deleted
                     && let Some(path) = file.old_path.as_deref().or(file.new_path.as_deref())
                 {
-                    let id = live.remove(path).unwrap_or_else(|| lineages.add(path));
+                    let id = live
+                        .remove(path)
+                        .or_else(|| dormant.get(path).or(moved.get(path)).copied())
+                        .unwrap_or_else(|| lineages.add(path));
                     dormant.insert(path.to_path_buf(), id);
                     deleted_now.insert(path);
                     ids[change] = Some(id);
@@ -81,13 +96,22 @@ impl FileLineages {
                 let id = match ids[change] {
                     Some(_) if file.status == crate::DeltaStatus::Deleted => continue,
                     Some(renamed) => renamed,
-                    None if is_addition(file) && !deleted_now.contains(path) => {
-                        dormant.remove(path).unwrap_or_else(|| lineages.add(path))
-                    }
-                    None if is_addition(file) => lineages.add(path),
+                    None if is_addition(file) && deleted_now.contains(path) => lineages.add(path),
+                    None if is_addition(file) => match live.get(path) {
+                        Some(&repeated) => repeated,
+                        None => dormant.remove(path).unwrap_or_else(|| lineages.add(path)),
+                    },
                     None => match live.get(path) {
                         Some(&id) => id,
-                        None => lineages.add(path),
+                        // A path a rename or deletion left can still be edited
+                        // on a line of history the change has not reached.
+                        None => match moved.get(path).or(dormant.get(path)) {
+                            Some(&id) => {
+                                ids[change] = Some(id);
+                                continue;
+                            }
+                            None => lineages.add(path),
+                        },
                     },
                 };
                 dormant.remove(path);
