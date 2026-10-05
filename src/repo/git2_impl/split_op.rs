@@ -297,6 +297,9 @@ struct HunkGroupPlan {
 impl HunkGroupPlan {
     fn new(assignment: &fragmap::HunkGroupAssignment, diff: &git2::Diff<'_>) -> Result<Self> {
         let changes = SplitChanges::of(diff)?;
+        if !assignment.lines_up_with(&changes.hunk_counts) {
+            anyhow::bail!("The hunk groups do not match the commit's diff — refusing to split");
+        }
         let mut assignments: Vec<Vec<fragmap::HunkAssignment>> = changes
             .hunk_counts
             .iter()
@@ -307,7 +310,7 @@ impl HunkGroupPlan {
                         assignment
                             .hunk(delta_idx, h)
                             .cloned()
-                            .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
+                            .expect("checked to line up")
                     })
                     .collect()
             })

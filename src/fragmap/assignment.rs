@@ -99,4 +99,15 @@ impl HunkGroupAssignment {
     pub fn hunk(&self, change: usize, hunk: usize) -> Option<&HunkAssignment> {
         self.by_change.get(change)?.get(hunk)
     }
+
+    /// Whether this covers exactly a diff whose changes have `hunk_counts`
+    /// hunks: the split must not route one diff's hunks by another's groups.
+    pub fn lines_up_with(&self, hunk_counts: &[usize]) -> bool {
+        self.by_change.len() == hunk_counts.len()
+            && self
+                .by_change
+                .iter()
+                .zip(hunk_counts)
+                .all(|(hunks, &count)| hunks.len() == count)
+    }
 }
