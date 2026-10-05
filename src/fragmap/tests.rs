@@ -1450,9 +1450,9 @@ fn build_fragmap_far_deletion_does_not_cluster_with_unrelated_modify() {
 }
 
 #[test]
-fn build_fragmap_file_rename_cluster_uses_canonical_path() {
-    // A commit that renames foo.rs → bar.rs. The cluster should track
-    // the canonical (earliest) path — foo.rs.
+fn build_fragmap_file_rename_cluster_is_labeled_with_the_first_path() {
+    // A commit that renames foo.rs → bar.rs. The cluster is labeled with the
+    // path the file was first seen under — foo.rs.
     let c1 = CommitDiff {
         commit: make_commit_info_with_oid("c1"),
         files: vec![FileDiff {

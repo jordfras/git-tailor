@@ -900,7 +900,7 @@ fn hunk_selection_for_prefix(
 }
 
 /// Run the fragmap hunk-group clustering for the branch `head_oid..reference_oid`
-/// and return the per-file group assignment for `commit_oid`.
+/// and return the group assignment for `commit_oid`'s hunks.
 ///
 /// `commit_oid` is kept even when it equals `reference_oid`, which in `--all`
 /// mode it does for the root commit: dropping it would take the commit being

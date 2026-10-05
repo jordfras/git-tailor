@@ -15,12 +15,10 @@
 //! Regression tests for split-per-hunk-group across a commit that both
 //! renames a file and edits it.
 //!
-//! `assign_hunk_groups` internally keys its per-file grouping by each file's
-//! canonical (earliest) name, needed to attribute a renamed file's hunks
-//! across its history — but its public output must be keyed by the split
-//! commit's own path, and the tree surgery that actually builds the split
-//! pieces must resolve content at the pre-rename path in the parent tree and
-//! drop the stale old-path entry, or the rename is silently mishandled.
+//! The fragmap follows a renamed file across its history as one file, and the
+//! tree surgery that builds the split pieces must resolve content at the
+//! pre-rename path in the parent tree and drop the stale old-path entry, or
+//! the rename is silently mishandled.
 
 use crate::common;
 use crate::common::prelude::*;
@@ -108,11 +106,8 @@ fn split_per_hunk_group_survives_a_two_hop_rename_chain() {
     //   K     — reworks A's line (reached through BOTH renames) and edits a
     //           fresh line, under the file's third name  <-- split target
     //
-    // `assign_hunk_groups` collapses a rename chain to one canonical
-    // (earliest) key via `build_rename_map`'s transitive lookup; this
-    // exercises that collapsing over two hops instead of one, plus the
-    // re-keying back to K's own current path (gamma.py) added alongside the
-    // single-rename fix.
+    // The fragmap carries the file through both renames as one file; this
+    // exercises a rename chain of two hops instead of one.
     let test = common::TestRepo::new();
 
     let content = make_content();

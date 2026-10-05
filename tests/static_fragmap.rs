@@ -229,8 +229,8 @@ fn test_rename_clusters_with_original_file() {
     let output = plain(&[c0, c1]);
     insta::assert_snapshot!(output);
 
-    // The rename map links "src/new.rs" back to "src/old.rs", so the SPG
-    // processes both commits under the same file. The overlapping portion
+    // The rename carries "src/old.rs" on as "src/new.rs", so the SPG
+    // processes both commits as one file. The overlapping portion
     // (lines 5-10) forms a shared cluster; the non-overlapping part of c0
     // (lines 1-4) forms a second cluster touched only by c0.
     let lines: Vec<&str> = output.lines().collect();
