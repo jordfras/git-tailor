@@ -1025,3 +1025,67 @@ fn finalize_split(
     repo.advance_branch_ref(rebased_tip, log_msg)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::HunkGroupPlan;
+    use crate::{CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, fragmap};
+
+    fn added(path: &str) -> FileDiff {
+        FileDiff {
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
+            status: DeltaStatus::Added,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }
+    }
+
+    /// An assignment that does not line up with the split's diff must refuse
+    /// the split, not put hunks into pieces by guesswork.
+    #[test]
+    fn a_hunk_group_plan_refuses_an_assignment_for_another_diff() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let empty = repo
+            .find_tree(repo.treebuilder(None).unwrap().write().unwrap())
+            .unwrap();
+        let mut builder = repo.treebuilder(None).unwrap();
+        for path in ["a", "b"] {
+            builder
+                .insert(path, repo.blob(b"x\n").unwrap(), 0o100644)
+                .unwrap();
+        }
+        let both = repo.find_tree(builder.write().unwrap()).unwrap();
+        let diff = repo
+            .diff_tree_to_tree(Some(&empty), Some(&both), None)
+            .unwrap();
+
+        let oid = Oid::from("k");
+        let commit = CommitDiff {
+            commit: CommitInfo {
+                oid: VirtualOid::Real(oid.clone()),
+                summary: String::new(),
+                author: None,
+                date: None,
+                parent_oids: vec![],
+                message: String::new(),
+                author_email: None,
+                author_date: None,
+                committer: None,
+                committer_email: None,
+                commit_date: None,
+            },
+            files: vec![added("a")],
+        };
+        let assignment = fragmap::assign_hunk_groups(&[commit], &oid).unwrap();
+
+        assert!(HunkGroupPlan::new(&assignment, &diff).is_err());
+    }
+}
