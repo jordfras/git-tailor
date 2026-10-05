@@ -1233,7 +1233,7 @@ fn make_fragmap(commit_ids: &[&str], n_clusters: usize, touches: &[(usize, usize
         .map(|_| SpanCluster {
             spans: vec![FileSpan {
                 path: "f.txt".into(),
-                file: FileId::default(),
+                file: FileId::numbered(0),
                 start_line: 1,
                 end_line: 1,
             }],

@@ -21,8 +21,16 @@ use std::path::{Path, PathBuf};
 use crate::{CommitDiff, VirtualOid};
 
 /// One file's identity across the commits of a fragmap.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FileId(usize);
+
+impl FileId {
+    /// File number `n`, for fabricating spans; real ones come from the
+    /// lineages, which number files as they first see them.
+    pub fn numbered(n: usize) -> Self {
+        FileId(n)
+    }
+}
 
 /// Which file each change in a list of commit diffs belongs to.
 ///

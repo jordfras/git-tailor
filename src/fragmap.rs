@@ -104,7 +104,7 @@ struct HunkInfo {
 fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
     let mut spans = Vec::new();
 
-    for file in &commit_diff.files {
+    for (file_idx, file) in commit_diff.files.iter().enumerate() {
         let path = match &file.new_path {
             Some(p) => p.clone(),
             None => continue,
@@ -117,7 +117,7 @@ fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
 
             spans.push(FileSpan {
                 path: path.clone(),
-                file: FileId::default(),
+                file: FileId::numbered(file_idx),
                 start_line: hunk.new_start,
                 end_line: hunk.new_start + hunk.new_lines - 1,
             });

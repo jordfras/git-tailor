@@ -481,12 +481,17 @@ pub fn create_fragmap(
     }
 }
 
-/// Build a `SpanCluster` covering a single file span, touched by the given commits.
+/// Build a `SpanCluster` covering a single file span, touched by the given
+/// commits. Clusters with the same path are one file, and different paths
+/// different files.
 pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
+    let file = path.bytes().fold(0usize, |n, byte| {
+        n.wrapping_mul(31).wrapping_add(byte.into())
+    });
     SpanCluster {
         spans: vec![FileSpan {
             path: path.into(),
-            file: FileId::default(),
+            file: FileId::numbered(file),
             start_line: start,
             end_line: end,
         }],
