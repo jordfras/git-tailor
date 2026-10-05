@@ -11,8 +11,9 @@ The format is based on
 ### Changed
 
 - The hunk group matrix follows renamed files whatever git's `diff.renames`
-  setting says, and with that set to `copies` it now shows a copied file as
-  the new file it is, rather than as more of the file it was copied from
+  setting says, staged renames included, and with that set to `copies` it now
+  shows a copied file as the new file it is, rather than as more of the file
+  it was copied from
 - Squashing the Staged or Unstaged row now sets your *other* uncommitted
   changes aside in the stash while it works, instead of leaving them in your
   files. They come back when the fold finishes, and `git stash list` holds them
