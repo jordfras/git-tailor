@@ -446,3 +446,35 @@ fn fragmap_of_a_copy_is_the_same_with_copy_detection_on_or_off() {
 
     assert_eq!(detected.matrix, undetected.matrix);
 }
+
+/// The staged row follows a rename as the commit made from it will, so the
+/// matrix does not change on committing.
+#[test]
+fn staged_diff_for_fragmap_detects_a_staged_rename() {
+    let test = common::TestRepo::new();
+    let lines: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+    test.commit_file("a.txt", &lines, "add a");
+    std::fs::remove_file(test.repo.workdir().unwrap().join("a.txt")).unwrap();
+    test.write_file("b.txt", &lines.replace("line 10\n", "line ten\n"));
+    let mut index = test.repo.index().unwrap();
+    index.remove_path(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("b.txt")).unwrap();
+    index.write().unwrap();
+
+    let staged = test
+        .git_repo()
+        .staged_diff_for_fragmap()
+        .unwrap()
+        .expect("staged changes present");
+
+    assert_eq!(staged.files.len(), 1, "{:?}", staged.files);
+    assert_eq!(staged.files[0].status, git_tailor::DeltaStatus::Renamed);
+    assert_eq!(
+        staged.files[0].old_path.as_deref(),
+        Some(Path::new("a.txt"))
+    );
+    assert_eq!(
+        staged.files[0].new_path.as_deref(),
+        Some(Path::new("b.txt"))
+    );
+}
