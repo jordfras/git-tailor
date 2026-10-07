@@ -252,7 +252,8 @@ fn finish_conflict_tool(
 }
 
 /// Abort the paused operation `state` when resuming it cannot go on, put the
-/// auto-stash back and report `headline`.
+/// auto-stash back and report `headline`. An abort that is refused leaves the
+/// operation paused, so the dialog stays and the stash stays put.
 pub(super) fn abandon_resume(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
@@ -260,7 +261,14 @@ pub(super) fn abandon_resume(
     headline: String,
     done: LoopAction,
 ) -> LoopAction {
-    let _ = git_repo.rebase_abort(state);
+    if let Err(e) = git_repo.rebase_abort(state) {
+        app.reenter_rebase_conflict_after_failure(
+            state.clone(),
+            format!("{headline}. Abort failed: {e:#}"),
+            None,
+        );
+        return LoopAction::Continue;
+    }
     settle_autostash_after_failure(git_repo, app, &state.operation_label, headline, done)
 }
 

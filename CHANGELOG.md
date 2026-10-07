@@ -37,6 +37,10 @@ The format is based on
 
 ### Fixed
 
+- Resuming a paused operation that gives up — the editor failed, or the
+  message was empty — keeps the conflict dialog open and says why when the
+  abort itself is refused. It used to report the operation aborted and put
+  your stashed changes back on top of the conflict still on disk
 - When a split, squash or fixup fails, or resuming a paused operation gives up,
   and the uncommitted changes set aside cannot be put back, that is now
   reported, with where they are. Only the operation's own failure used to be
