@@ -1412,6 +1412,31 @@ fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
     assert!(message.contains("git stash list"), "{message}");
 }
 
+/// Giving up on resuming a paused operation reports an auto-stash it cannot
+/// put back, and where the changes are.
+#[test]
+fn abandoning_a_resume_reports_an_autostash_it_cannot_restore() {
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    super::conflict::abandon_resume(
+        &mut repo,
+        &mut app,
+        &make_conflict_state(),
+        "Squash aborted: empty commit message".to_string(),
+        LoopAction::Continue,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("empty commit message"), "{message}");
+    assert!(message.contains("could not be restored"), "{message}");
+    assert!(message.contains("git stash list"), "{message}");
+}
+
 /// A squash from a commit joins the two messages; a row has none of its own, so
 /// it starts from the target's alone rather than from a blank line under it.
 #[test]
