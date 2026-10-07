@@ -35,7 +35,9 @@ pub use assignment::{
 pub use lineage::FileId;
 use lineage::FileLineages;
 pub use position::{ChangePos, CommitPos, HunkPos};
-use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clusters};
+use spg::{
+    build_file_clusters, build_file_clusters_with_target, build_file_columns, deduplicate_clusters,
+};
 
 /// Collect each file's hunks per commit.
 ///
@@ -243,13 +245,12 @@ pub fn build_fragmap(
                 files_total: total,
             })
         };
-        let new_clusters = build_file_clusters(
-            lineages.label(file),
-            file,
-            &file_commits[&file],
-            commit_diffs,
-            &mut poll,
-        )?;
+        let (label, hunks) = (lineages.label(file), &file_commits[&file]);
+        let new_clusters = if deduplicate {
+            build_file_columns(label, file, hunks, commit_diffs, &mut poll)?
+        } else {
+            build_file_clusters(label, file, hunks, commit_diffs, &mut poll)?
+        };
         clusters.extend(new_clusters);
     }
 
