@@ -18,7 +18,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::{CommitDiff, VirtualOid};
+use crate::{CommitDiff, Oid};
 
 /// One file's identity across the commits of a fragmap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -105,10 +105,10 @@ impl FileLineages {
             of: Vec::new(),
             labels: Vec::new(),
         };
-        let position: HashMap<&VirtualOid, usize> = commit_diffs
+        let position: HashMap<&Oid, usize> = commit_diffs
             .iter()
             .enumerate()
-            .map(|(idx, diff)| (&diff.commit.oid, idx))
+            .filter_map(|(idx, diff)| Some((diff.commit.oid.as_oid()?, idx)))
             .collect();
         // The uncommitted rows have no parents and continue from the one
         // listed before them, as does every commit of a list made without
@@ -126,23 +126,18 @@ impl FileLineages {
                     let continues = diff.commit.oid.is_synthetic() || without_parents;
                     return (idx.checked_sub(1).filter(|_| continues), Vec::new());
                 }
-                let mut listed = oids
-                    .iter()
-                    .map(|oid| position.get(&VirtualOid::Real(oid.clone())).copied());
+                let mut listed = oids.iter().map(|oid| position.get(oid).copied());
                 (listed.next().flatten(), listed.flatten().collect())
             })
             .collect();
-        let mut children = vec![0usize; commit_diffs.len()];
-        for (first, others) in &parents {
-            for &parent in first.iter().chain(others) {
-                children[parent] += 1;
-            }
-        }
+        let children_of = children_of(&parents);
+        // How many children have yet to start from each commit's snapshot.
+        let mut children: Vec<usize> = children_of.iter().map(Vec::len).collect();
 
         let mut snapshots: Vec<Option<Snapshot>> = vec![None; commit_diffs.len()];
         let mut before_range: HashMap<PathBuf, FileId> = HashMap::new();
         let mut of: Vec<Vec<FileId>> = vec![Vec::new(); commit_diffs.len()];
-        for idx in parent_first_order(&parents) {
+        for idx in parent_first_order(&parents, &children_of) {
             let diff = &commit_diffs[idx];
             let (first, others) = &parents[idx];
             let mut snapshot = match *first {
@@ -282,18 +277,28 @@ impl FileLineages {
     }
 }
 
-/// The commits in an order that puts every parent before its children:
-/// commit times need not grow from parent to child, so a date-ordered list
-/// can hold a commit before its parent. Ties keep the list's order.
-fn parent_first_order(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<usize> {
-    let mut waiting: Vec<usize> = vec![0; parents.len()];
+/// Each commit's children among the commits.
+fn children_of(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<Vec<usize>> {
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); parents.len()];
     for (idx, (first, others)) in parents.iter().enumerate() {
         for &parent in first.iter().chain(others) {
-            waiting[idx] += 1;
             children[parent].push(idx);
         }
     }
+    children
+}
+
+/// The commits in an order that puts every parent before its children:
+/// commit times need not grow from parent to child, so a date-ordered list
+/// can hold a commit before its parent. Ties keep the list's order.
+fn parent_first_order(
+    parents: &[(Option<usize>, Vec<usize>)],
+    children_of: &[Vec<usize>],
+) -> Vec<usize> {
+    let mut waiting: Vec<usize> = parents
+        .iter()
+        .map(|(first, others)| first.iter().count() + others.len())
+        .collect();
     let mut ready: BinaryHeap<Reverse<usize>> = (0..parents.len())
         .filter(|&idx| waiting[idx] == 0)
         .map(Reverse)
@@ -301,7 +306,7 @@ fn parent_first_order(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<usize> {
     let mut order = Vec::with_capacity(parents.len());
     while let Some(Reverse(idx)) = ready.pop() {
         order.push(idx);
-        for &child in &children[idx] {
+        for &child in &children_of[idx] {
             waiting[child] -= 1;
             if waiting[child] == 0 {
                 ready.push(Reverse(child));
