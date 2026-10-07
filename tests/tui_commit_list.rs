@@ -484,7 +484,7 @@ fn test_commit_list_navigation_keys_in_both_display_orders() {
             let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
             let mut app = common::app_state_from_commit_summaries(&refs);
             app.list.selection_index = 5;
-            app.list.visible_height = 5;
+            app.list.follow_selection(5);
             app.list.reverse = reverse;
 
             views::commit_list::handle_key(key, &mut app);
@@ -509,10 +509,10 @@ fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
         let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
         let mut app = common::app_state_from_commit_summaries(&refs);
         app.list.selection_index = 5;
-        app.list.visible_height = 5;
         app.list.reverse = reverse;
+        app.list.follow_selection(5);
 
-        let before = app.list.effective_offset(5);
+        let before = app.list.scroll.offset;
         views::commit_list::handle_key(KeyCommand::ScrollListDown, &mut app);
 
         assert_eq!(
@@ -520,8 +520,8 @@ fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
             "scrolling must not move the selection (reverse={reverse})"
         );
         assert_eq!(
-            app.list.scroll_override,
-            Some(before + 1),
+            app.list.scroll.offset,
+            before + 1,
             "scrolling goes one display row down regardless of order (reverse={reverse})"
         );
     }

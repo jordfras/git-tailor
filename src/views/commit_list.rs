@@ -280,9 +280,6 @@ pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
 }
 
 fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: LayoutInfo) {
-    // Store visible height for page scrolling
-    app.list.visible_height = layout.available_height;
-
     let header = build_header(&layout, app.colors);
     let rows = build_rows(app, &layout);
 
@@ -450,9 +447,10 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let fragmap_col_width = display_clusters.len() as u16;
 
-    let visual_selection = fragmap_index(app, app.list.selection_index);
+    let visual_selection = app.list.visual_selection();
 
-    let scroll_offset = app.list.effective_offset(available_height);
+    app.list.follow_selection(available_height);
+    let scroll_offset = app.list.scroll.offset;
 
     LayoutInfo {
         table_area,

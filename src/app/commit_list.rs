@@ -14,16 +14,17 @@
 
 // The commit list: its rows, which one is selected, and where it is scrolled.
 
+use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
 use crate::{CommitInfo, VirtualOid};
 
 /// The browsable commit list and its cursor.
 ///
 /// Selection and scrolling are separate concerns here: `selection_index` is the
-/// cursor, while `scroll_override` is an optional viewport position that only
-/// `Ctrl-Up`/`Ctrl-Down` set. Rendering derives the actual offset from both via
-/// [`effective_offset`][Self::effective_offset], which is why this type has no
-/// plain `max` — the bound comes from the row count.
+/// cursor and `scroll` is where the viewport sits. The viewport is remembered
+/// rather than derived from the cursor, which is what lets the cursor travel
+/// inside it before the list scrolls; [`follow_selection`][Self::follow_selection]
+/// reconciles the two from render, where the height is known.
 #[derive(Debug, Default)]
 pub struct CommitListState {
     /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
@@ -32,12 +33,9 @@ pub struct CommitListState {
     pub selection_index: usize,
     /// Draw newest-first instead of oldest-first.
     pub reverse: bool,
-    /// Visible height of the list area (updated during render).
-    pub visible_height: usize,
-    /// Explicit scroll offset (display space) set by `Ctrl-Up`/`Down`.
-    /// `None` follows the selection (the default); `Some` is clamped each render
-    /// so the selection stays visible.
-    pub scroll_override: Option<usize>,
+    /// Viewport position in display space. Its bounds are measured during
+    /// render, so `visible_height` is 0 until the first frame.
+    pub scroll: ScrollState,
 }
 
 impl CommitListState {
@@ -96,22 +94,22 @@ impl CommitListState {
 
     /// Move the selection up by one page.
     pub fn select_page_up(&mut self) {
-        self.move_selection_back(page_size(self.visible_height));
+        self.move_selection_back(page_size(self.scroll.visible_height));
     }
 
     /// Move the selection down by one page.
     pub fn select_page_down(&mut self) {
-        self.move_selection_forward(page_size(self.visible_height));
+        self.move_selection_forward(page_size(self.scroll.visible_height));
     }
 
     /// Move the selection up by half a page.
     pub fn select_half_page_up(&mut self) {
-        self.move_selection_back(half_page_size(self.visible_height));
+        self.move_selection_back(half_page_size(self.scroll.visible_height));
     }
 
     /// Move the selection down by half a page.
     pub fn select_half_page_down(&mut self) {
-        self.move_selection_forward(half_page_size(self.visible_height));
+        self.move_selection_forward(half_page_size(self.scroll.visible_height));
     }
 
     fn move_selection_back(&mut self, step: usize) {
@@ -136,48 +134,41 @@ impl CommitListState {
         self.selection_index = self.commits.len().saturating_sub(1);
     }
 
-    /// The scroll offset (in display space) to render, given the visible
-    /// height. Without an override it follows the selection (pinned to the
-    /// bottom once scrolled, the historical behavior); with one it honors the
-    /// override but always clamps so the selected row stays visible.
-    pub fn effective_offset(&self, available_height: usize) -> usize {
+    /// The selected row's index in display space, which is mirrored when the
+    /// list is drawn newest-first.
+    pub fn visual_selection(&self) -> usize {
         let total = self.commits.len();
-        if total == 0 || available_height == 0 {
-            return 0;
+        let index = self.selection_index.min(total.saturating_sub(1));
+        if self.reverse {
+            total.saturating_sub(1) - index
+        } else {
+            index
         }
-        // Selected row in display space (the list is drawn reversed when `reverse`).
-        let visual_selection = if self.reverse {
-            total - 1 - self.selection_index.min(total - 1)
-        } else {
-            self.selection_index.min(total - 1)
-        };
-        let max_scroll = total.saturating_sub(available_height);
-        // Range of offsets that keep the selection on screen: from "selection at
-        // the bottom row" up to "selection at the top row" (never past max_scroll).
-        let min_off = visual_selection.saturating_sub(available_height - 1);
-        let max_off = visual_selection.min(max_scroll);
-        let derived = if visual_selection < available_height {
-            0
-        } else {
-            visual_selection - (available_height - 1)
-        };
-        self.scroll_override
-            .unwrap_or(derived)
-            .clamp(min_off, max_off)
+    }
+
+    /// Record the list bounds measured during render and move the viewport the
+    /// minimum needed to keep the cursor on screen.
+    ///
+    /// Idempotent, so the extra call split-pane mode makes each frame is free.
+    pub fn follow_selection(&mut self, available_height: usize) {
+        let max_scroll = self.commits.len().saturating_sub(available_height);
+        self.scroll.set_bounds(max_scroll, available_height);
+        if self.commits.is_empty() {
+            return;
+        }
+        self.scroll.ensure_visible(self.visual_selection(), 1);
     }
 
     /// Scroll one row up (toward earlier display rows) without moving the
-    /// selection. Clamped on render so it never scrolls the selected row off
-    /// screen.
+    /// selection. The next render pulls the viewport back if this would have
+    /// scrolled the selected row off screen.
     pub fn scroll_up(&mut self) {
-        let base = self.effective_offset(self.visible_height);
-        self.scroll_override = Some(base.saturating_sub(1));
+        self.scroll.step_back();
     }
 
     /// Scroll one row down without moving the selection.
     pub fn scroll_down(&mut self) {
-        let base = self.effective_offset(self.visible_height);
-        self.scroll_override = Some(base + 1);
+        self.scroll.step_forward();
     }
 }
 
@@ -261,20 +252,22 @@ mod tests {
         assert_eq!(app.selection_index, 2);
     }
 
-    /// Build an app with `n` commits, the given selection, and visible height.
+    /// Build an app with `n` commits, the given selection, and visible height,
+    /// its viewport settled as the first render leaves it.
     fn app_with(n: usize, selection: usize, height: usize) -> CommitListState {
-        CommitListState {
-            visible_height: height,
-            ..list_of(n, selection)
-        }
+        let mut app = list_of(n, selection);
+        app.follow_selection(height);
+        app
     }
 
     /// The offset that would be rendered for the current state.
     ///
     /// The one line the behavior tests below go through, so they read the
-    /// viewport the same way before and after it becomes stored state.
+    /// viewport the same way before and after it became stored state. Every
+    /// keypress is followed by a draw, so settling here is what the loop does.
     fn offset(app: &mut CommitListState, height: usize) -> usize {
-        app.effective_offset(height)
+        app.follow_selection(height);
+        app.scroll.offset
     }
 
     /// Steps taken from a settled viewport before `step` first moves it.
@@ -351,11 +344,11 @@ mod tests {
     }
 
     #[test]
-    fn effective_offset_without_override_follows_selection() {
-        // Selection at index 5 of 10 with a 4-row window pins it to the bottom.
-        let app = app_with(10, 5, 4);
-        assert_eq!(app.scroll_override, None);
-        assert_eq!(app.effective_offset(4), 2);
+    fn the_first_render_scrolls_the_selection_into_view() {
+        // Selection at index 5 of 10 with a 4-row window reveals it from the
+        // bottom, which is the least the viewport can move from a cold start.
+        let mut app = app_with(10, 5, 4);
+        assert_eq!(offset(&mut app, 4), 2);
         assert!(selection_visible(&app, 2, 4));
     }
 
@@ -363,24 +356,24 @@ mod tests {
     fn scroll_down_then_up_keeps_selection_visible_and_clamps() {
         let mut app = app_with(10, 5, 4);
         // Starts with the selection at the bottom (offset 2).
-        assert_eq!(app.effective_offset(4), 2);
+        assert_eq!(offset(&mut app, 4), 2);
 
         // Scrolling down advances the offset until the selection hits the top…
         app.scroll_down();
-        assert_eq!(app.effective_offset(4), 3);
+        assert_eq!(offset(&mut app, 4), 3);
         app.scroll_down();
-        assert_eq!(app.effective_offset(4), 4);
+        assert_eq!(offset(&mut app, 4), 4);
         app.scroll_down();
-        assert_eq!(app.effective_offset(4), 5);
+        assert_eq!(offset(&mut app, 4), 5);
         // …then stops (further scroll would push the selection off screen).
         app.scroll_down();
-        assert_eq!(app.effective_offset(4), 5);
+        assert_eq!(offset(&mut app, 4), 5);
         assert!(selection_visible(&app, 5, 4));
 
         // Scrolling back up returns to the bottom-pinned offset, then stops.
         for expected in [4, 3, 2, 2] {
             app.scroll_up();
-            assert_eq!(app.effective_offset(4), expected);
+            assert_eq!(offset(&mut app, 4), expected);
             assert!(selection_visible(&app, expected, 4));
         }
     }
@@ -389,15 +382,40 @@ mod tests {
     fn scroll_keeps_selection_visible_in_reverse_mode() {
         let mut app = app_with(10, 5, 4);
         app.reverse = true;
-        let off = app.effective_offset(4);
+        let off = offset(&mut app, 4);
         assert!(selection_visible(&app, off, 4));
         for _ in 0..6 {
             app.scroll_down();
-            let off = app.effective_offset(4);
+            let off = offset(&mut app, 4);
             assert!(
                 selection_visible(&app, off, 4),
                 "offset {off} hid selection"
             );
         }
+    }
+
+    #[test]
+    fn following_the_selection_twice_in_a_frame_changes_nothing() {
+        // Split-pane mode measures the layout twice per frame.
+        let mut app = app_with(10, 7, 4);
+        let once = app.scroll.offset;
+        app.follow_selection(4);
+        assert_eq!(app.scroll.offset, once);
+    }
+
+    #[test]
+    fn the_viewport_does_not_move_before_the_first_render() {
+        let mut app = list_of(10, 9);
+        app.follow_selection(0);
+        assert_eq!(app.scroll.offset, 0, "no viewport to reason about yet");
+    }
+
+    #[test]
+    fn jumping_to_either_end_reaches_the_very_first_and_last_row() {
+        let mut app = app_with(10, 5, 4);
+        app.jump_to_last();
+        assert_eq!(offset(&mut app, 4), 6, "the last row sits at the bottom");
+        app.jump_to_first();
+        assert_eq!(offset(&mut app, 4), 0, "the first row sits at the top");
     }
 }

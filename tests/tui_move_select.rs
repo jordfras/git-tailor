@@ -493,7 +493,7 @@ fn test_move_navigation_pages_in_both_display_orders() {
             let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
             let mut app = common::app_state_from_commit_summaries(&refs);
             app.list.selection_index = 2;
-            app.list.visible_height = 5; // a page is 4 rows
+            app.list.follow_selection(5); // a page is 4 rows
             app.list.reverse = reverse;
             app.mode = AppMode::MoveSelect {
                 source_index: 2,

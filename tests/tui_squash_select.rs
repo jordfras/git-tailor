@@ -319,7 +319,7 @@ fn test_squash_clamps_in_reverse_mode() {
 #[test]
 fn test_squash_page_down_clamped() {
     let mut app = make_app_in_squash_select(1, 0);
-    app.list.visible_height = 10;
+    app.list.follow_selection(10);
 
     // PageDown would jump past source_index — clamped to 1
     views::squash_select::handle_key(KeyCommand::PageDown, &mut app);
@@ -494,7 +494,7 @@ fn test_squash_select_pages_in_both_display_orders() {
             let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
             let mut app = common::app_state_from_commit_summaries(&refs);
             app.list.selection_index = 5;
-            app.list.visible_height = 5; // a page is 4 rows
+            app.list.follow_selection(5); // a page is 4 rows
             app.list.reverse = reverse;
             app.mode = AppMode::SquashSelect {
                 source_index: 9,
