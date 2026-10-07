@@ -1754,8 +1754,9 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
     );
 
     let diffs = vec![lexer, parser, bundled];
-    let assignment =
-        assign_hunk_groups(&diffs, &Oid::from("ccc333")).expect("commit is present in the diffs");
+    let assignment = assign_hunk_groups(&diffs, &Oid::from("ccc333"), &mut |_| true)
+        .unwrap()
+        .expect("commit is present in the diffs");
 
     assert_eq!(
         assignment.group_count, 2,

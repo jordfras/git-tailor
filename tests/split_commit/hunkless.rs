@@ -272,12 +272,14 @@ fn split_per_hunk_group_puts_hunkless_changes_in_one_extra_piece() {
     let head = git_repo.head_oid().unwrap();
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| {
+                true
+            })
             .unwrap(),
         3
     );
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| true)
         .unwrap();
 
     assert_eq!(
@@ -305,12 +307,14 @@ fn split_per_hunk_group_splits_one_group_from_a_mode_only_change() {
     let head = git_repo.head_oid().unwrap();
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+            .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| {
+                true
+            })
             .unwrap(),
         2
     );
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| true)
         .unwrap();
 
     assert_eq!(
@@ -360,7 +364,7 @@ fn split_per_hunk_group_keeps_a_mode_change_with_the_files_first_hunk() {
     let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| true)
         .unwrap();
 
     assert_eq!(

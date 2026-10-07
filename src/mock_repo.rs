@@ -277,7 +277,13 @@ impl RepoRead for MockRepo {
         unimplemented!()
     }
 
-    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<usize> {
+    fn count_split_per_hunk_group(
+        &self,
+        _: &Oid,
+        _: &Oid,
+        _: &Oid,
+        _: &mut dyn FnMut(git_tailor::fragmap::FragMapProgress) -> bool,
+    ) -> anyhow::Result<usize> {
         unimplemented!()
     }
 
@@ -454,7 +460,13 @@ impl RepoWrite for MockRepo {
     fn split_commit_per_hunk(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
     }
-    fn split_commit_per_hunk_group(&mut self, _: &Oid, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_per_hunk_group(
+        &mut self,
+        _: &Oid,
+        _: &Oid,
+        _: &Oid,
+        _: &mut dyn FnMut(git_tailor::fragmap::FragMapProgress) -> bool,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     fn split_commit_out_files(

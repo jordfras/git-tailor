@@ -357,6 +357,7 @@ fn build_hunk_group_matrix(
                 }
                 true
             }
+            FragMapProgress::ReadingCommits { .. } => true,
         }
     });
 

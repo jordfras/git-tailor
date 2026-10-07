@@ -36,9 +36,12 @@ pub(crate) fn handle_prepare_split(
     let count_result = match strategy {
         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
-        SplitStrategy::PerHunkGroup => {
-            git_repo.count_split_per_hunk_group(&commit_oid, &head_oid, &app.reference_oid)
-        }
+        SplitStrategy::PerHunkGroup => git_repo.count_split_per_hunk_group(
+            &commit_oid,
+            &head_oid,
+            &app.reference_oid,
+            &mut |_| true,
+        ),
         // "Split out file(s)" and "split out hunk(s)" each open their own
         // picker dialog instead, dispatched before reaching here.
         SplitStrategy::OutFiles => unreachable!("OutFiles uses PrepareSplitOutFiles"),
@@ -183,9 +186,12 @@ pub(crate) fn execute_split(
     let result = match strategy {
         SplitStrategy::PerFile => git_repo.split_commit_per_file(commit_oid, head_oid),
         SplitStrategy::PerHunk => git_repo.split_commit_per_hunk(commit_oid, head_oid),
-        SplitStrategy::PerHunkGroup => {
-            git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid)
-        }
+        SplitStrategy::PerHunkGroup => git_repo.split_commit_per_hunk_group(
+            commit_oid,
+            head_oid,
+            &app.reference_oid,
+            &mut |_| true,
+        ),
         // "Split out file(s)" and "split out hunk(s)" never reach
         // PrepareSplit/ExecuteSplit at all — each is executed via its own
         // handle_execute_split_out_* once confirmed in its picker dialog.

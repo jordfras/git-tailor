@@ -154,10 +154,10 @@ fn assert_per_hunk_group_has_no_empty_piece(
     let mut git_repo = test.git_repo();
     let (commit, head, base_oid) = (Oid::from(to_split), Oid::from(head), Oid::from(base));
     let count = git_repo
-        .count_split_per_hunk_group(&commit, &head, &base_oid)
+        .count_split_per_hunk_group(&commit, &head, &base_oid, &mut |_| true)
         .unwrap();
     git_repo
-        .split_commit_per_hunk_group(&commit, &head, &base_oid)
+        .split_commit_per_hunk_group(&commit, &head, &base_oid, &mut |_| true)
         .unwrap();
 
     let mut pieces = changes_per_piece(test, base);

@@ -169,7 +169,7 @@ fn split_root_commit_per_hunk_group() {
     let reference_oid = Oid::from(root);
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid)
+        .split_commit_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid, &mut |_| true)
         .unwrap();
 
     let new_head = test.repo.head().unwrap().target().unwrap();
@@ -235,7 +235,7 @@ fn counting_hunk_groups_works_on_the_root_commit() {
     let reference_oid = Oid::from(root);
 
     let count = git_repo
-        .count_split_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid)
+        .count_split_per_hunk_group(&Oid::from(root), &head_oid, &reference_oid, &mut |_| true)
         .expect("counting must not fail where the split succeeds");
 
     assert_eq!(count, 2, "the same two groups the split produces");
