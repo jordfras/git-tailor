@@ -1385,6 +1385,33 @@ fn abandoning_a_commit_source_restores_the_autostash() {
     );
 }
 
+/// Abandoning a commit source whose auto-stash will not come back says so, and
+/// where the changes are.
+#[test]
+fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Proceed,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Squash failed: nope"), "{message}");
+    assert!(message.contains("could not be restored"), "{message}");
+    assert!(message.contains("git stash list"), "{message}");
+}
+
 /// A squash from a commit joins the two messages; a row has none of its own, so
 /// it starts from the target's alone rather than from a blank line under it.
 #[test]
