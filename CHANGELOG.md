@@ -37,6 +37,8 @@ The format is based on
 
 ### Fixed
 
+- Splitting a commit per hunk group shows its progress, and Esc cancels it.
+  On a long history the screen froze until it was done, with no way out
 - Splitting a commit per hunk group now works when it adds a file where another
   was renamed away from. The two files' hunks were mixed up, so the split was
   refused or put hunks in the wrong pieces

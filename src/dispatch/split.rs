@@ -16,7 +16,7 @@
 
 use anyhow::Result;
 use git_tailor::app::{AppState, HunkPickerEntry, LoadingEscape, SplitStrategy};
-use git_tailor::fragmap::FragMapProgress;
+use git_tailor::fragmap::{FragMapProgress, Interrupted};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
@@ -27,6 +27,8 @@ use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
+
+const SPLIT_CANCELED: &str = "Split canceled";
 
 pub(crate) fn handle_prepare_split(
     git_repo: &mut impl GitRepo,
@@ -56,6 +58,7 @@ pub(crate) fn handle_prepare_split(
         SplitStrategy::OutHunks => unreachable!("OutHunks uses PrepareSplitOutHunks"),
     };
     match count_result {
+        Err(e) if e.is::<Interrupted>() => app.set_success_message(SPLIT_CANCELED),
         Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
             app.enter_split_confirm(strategy, commit_oid, head_oid, count);
@@ -212,7 +215,8 @@ pub(crate) fn execute_split(
 }
 
 /// Run `compute` with a progress callback that shows the per-hunk-group
-/// computation on `screen`, and put `app` back in the mode it was in.
+/// computation on `screen`, which stops it with `Interrupted` once the user
+/// presses Esc, and put `app` back in the mode it was in.
 fn with_hunk_group_progress<T>(
     screen: &mut impl ShowProgress,
     app: &mut AppState,
@@ -231,8 +235,7 @@ fn with_hunk_group_progress<T>(
             } => ("Grouping hunks\u{2026}", (files_done, files_total)),
             _ => return true,
         };
-        screen.show(app, message, Some(progress), Some(LoadingEscape::Cancel));
-        true
+        screen.show(app, message, Some(progress), Some(LoadingEscape::Cancel))
     });
     app.mode = mode;
     result
@@ -253,6 +256,13 @@ fn settle_split_autostash(
             "Split",
             "Commit split",
             LoopAction::Reload,
+        ),
+        Err(e) if e.is::<Interrupted>() => settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Split",
+            SPLIT_CANCELED,
+            LoopAction::Proceed,
         ),
         Err(e) => {
             let _ = git_repo.autostash_restore();
