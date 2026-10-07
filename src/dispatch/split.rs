@@ -21,7 +21,7 @@ use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
-use crate::dispatch::{LoopAction, settle_autostash};
+use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
 use crate::progress_screen::ShowProgress;
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
@@ -264,10 +264,12 @@ fn settle_split_autostash(
             SPLIT_CANCELED,
             LoopAction::Proceed,
         ),
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Split failed: {e:#}"));
-            LoopAction::Proceed
-        }
+        Err(e) => settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Split",
+            format!("Split failed: {e:#}"),
+            LoopAction::Proceed,
+        ),
     }
 }

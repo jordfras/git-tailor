@@ -37,6 +37,9 @@ The format is based on
 
 ### Fixed
 
+- When a split fails and the uncommitted changes it set aside cannot be put
+  back, that is now reported, with where they are. The split used to report
+  only its own failure, leaving your changes in the stash unmentioned
 - Splitting a commit per hunk group shows its progress, and Esc cancels it.
   On a long history the screen froze until it was done, with no way out
 - Splitting a commit per hunk group now works when it adds a file where another
