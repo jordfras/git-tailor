@@ -24,6 +24,7 @@ use git_tailor::repo::{GitRepo, LiftedRow};
 
 use crate::dispatch::{
     LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
+    settle_autostash_after_failure,
 };
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
@@ -242,19 +243,25 @@ pub(super) struct Prepared {
 }
 
 enum PreparedKind {
-    /// A commit source, with the working tree stashed out of the way.
-    Commit { source_oid: Oid, head_oid: Oid },
+    /// A commit source, with the working tree stashed out of the way, for the
+    /// operation `label` names.
+    Commit {
+        source_oid: Oid,
+        head_oid: Oid,
+        label: String,
+    },
     /// A working-tree row lifted into a temporary commit, which is both the
     /// source and the tip the squash runs from.
     Lifted(LiftedRow),
 }
 
 impl Prepared {
-    fn commit(source_oid: Oid, head_oid: Oid) -> Self {
+    fn commit(source_oid: Oid, head_oid: Oid, label: &str) -> Self {
         Self {
             kind: PreparedKind::Commit {
                 source_oid,
                 head_oid,
+                label: label.to_string(),
             },
             handled: false,
         }
@@ -298,10 +305,8 @@ impl Prepared {
     ) -> LoopAction {
         self.handled = true;
         match &self.kind {
-            PreparedKind::Commit { .. } => {
-                let _ = git_repo.autostash_restore();
-                app.set_error_message(message);
-                done
+            PreparedKind::Commit { label, .. } => {
+                settle_autostash_after_failure(git_repo, app, label, message, done)
             }
             PreparedKind::Lifted(lifted) => match git_repo.restore_lifted_row(lifted) {
                 Ok(()) => {
@@ -371,7 +376,7 @@ pub(super) fn prepare_source(
                 app.set_error_message(format!("Auto-stash failed: {e:#}"));
                 return Ok(None);
             }
-            Ok(Some(Prepared::commit(oid.clone(), head_oid)))
+            Ok(Some(Prepared::commit(oid.clone(), head_oid, label)))
         }
         SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row) {
             Ok(Some(lifted)) => Ok(Some(Prepared::lifted(lifted))),
