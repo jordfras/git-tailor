@@ -110,16 +110,21 @@ impl FileLineages {
             .enumerate()
             .map(|(idx, diff)| (&diff.commit.oid, idx))
             .collect();
-        // A commit with no parents at all, as the uncommitted rows, continues
-        // from the one listed before it. One whose parents lie outside the
-        // commits starts afresh.
+        // The uncommitted rows have no parents and continue from the one
+        // listed before them, as does every commit of a list made without
+        // parents. A root, or a commit whose parents lie outside the commits,
+        // starts afresh.
+        let without_parents = commit_diffs
+            .iter()
+            .all(|diff| diff.commit.parent_oids.is_empty());
         let parents: Vec<(Option<usize>, Vec<usize>)> = commit_diffs
             .iter()
             .enumerate()
             .map(|(idx, diff)| {
                 let oids = &diff.commit.parent_oids;
                 if oids.is_empty() {
-                    return (idx.checked_sub(1), Vec::new());
+                    let continues = diff.commit.oid.is_synthetic() || without_parents;
+                    return (idx.checked_sub(1).filter(|_| continues), Vec::new());
                 }
                 let mut listed = oids
                     .iter()
@@ -279,9 +284,7 @@ impl FileLineages {
 
 /// The commits in an order that puts every parent before its children:
 /// commit times need not grow from parent to child, so a date-ordered list
-/// can hold a commit before its parent. Ties keep the list's order, and a
-/// commit no order can place — a root listed after its own descendant, which
-/// the uncommitted rows' fallback then makes its child — comes last.
+/// can hold a commit before its parent. Ties keep the list's order.
 fn parent_first_order(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<usize> {
     let mut waiting: Vec<usize> = vec![0; parents.len()];
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); parents.len()];
@@ -305,8 +308,7 @@ fn parent_first_order(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<usize> {
             }
         }
     }
-    let placed: HashSet<usize> = order.iter().copied().collect();
-    order.extend((0..parents.len()).filter(|idx| !placed.contains(idx)));
+    debug_assert_eq!(order.len(), parents.len(), "parent edges form a cycle");
     order
 }
 
