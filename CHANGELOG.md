@@ -38,6 +38,10 @@ The format is based on
   could show you one
 - `--drop-rescued` removes them, listing them first. This is the only copy, so
   it is a separate command from both `--clean-journal` and `--list-rescued`
+- `--scroll-margin` keeps rows visible past the cursor in the commit list, so
+  there is always context in the direction you are moving. `auto` (the
+  default) scales with the window height, a number sets it exactly, and `0`
+  lets the cursor reach the edge as before
 
 ### Fixed
 
@@ -132,6 +136,10 @@ The format is based on
   hunk(s)" takes all of it. Splitting per file and "Split out file(s)" failed
   on such a commit, and the other strategies could fail or end with an empty
   piece
+- Moving up and down the commit list now behave the same. From the bottom the
+  cursor was stuck on the last row and the list scrolled from the first
+  keypress; it now travels inside the window first, as it already did going
+  the other way
 
 ## [3.1.0] - 2026-09-12
 
