@@ -24,7 +24,7 @@ use git_tailor::{editor, mergetool};
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_resume_outcome,
-    is_blank_message, settle_autostash,
+    is_blank_message, settle_autostash, settle_autostash_after_failure,
 };
 use crate::external_tool::with_tui_suspended;
 
@@ -261,9 +261,7 @@ pub(super) fn abandon_resume(
     done: LoopAction,
 ) -> LoopAction {
     let _ = git_repo.rebase_abort(state);
-    let _ = git_repo.autostash_restore();
-    app.set_error_message(headline);
-    done
+    settle_autostash_after_failure(git_repo, app, &state.operation_label, headline, done)
 }
 
 /// Refresh the rebase-conflict dialog after `tool_name` ran (its `outcome` passed
