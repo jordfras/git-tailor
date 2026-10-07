@@ -147,6 +147,7 @@ fn main() -> Result<()> {
 
     let mut app = AppState::new();
     app.list.reverse = cli.reverse;
+    app.list.scroll_margin = cli.scroll_margin;
     app.theme = cli.matrix_theme.unwrap_or_default();
     app.colors = colors;
     app.reference_oid = reference_oid.clone();

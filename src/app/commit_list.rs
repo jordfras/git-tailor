@@ -18,6 +18,33 @@ use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
 use crate::{CommitInfo, VirtualOid};
 
+/// How many rows to keep between the cursor and the edge of the commit list,
+/// so there is context visible in the direction of travel.
+///
+/// A newtype-style enum so its default survives `CommitListState`'s derived
+/// `Default`, the same reason [`DetailContextLines`][crate::app::DetailContextLines]
+/// is one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScrollMargin {
+    /// Scale with the window: a sixth of the visible rows.
+    #[default]
+    Auto,
+    /// Exactly this many rows, `0` letting the cursor reach the edge.
+    Fixed(usize),
+}
+
+impl ScrollMargin {
+    /// Rows to keep past the cursor in a viewport of `visible_height`.
+    pub fn rows(self, visible_height: usize) -> usize {
+        match self {
+            // Three rows on a full-screen 24-row terminal, and nothing on a
+            // window too short to give any up without crowding the cursor.
+            Self::Auto => visible_height / 6,
+            Self::Fixed(rows) => rows,
+        }
+    }
+}
+
 /// The browsable commit list and its cursor.
 ///
 /// Selection and scrolling are separate concerns here: `selection_index` is the
@@ -36,6 +63,8 @@ pub struct CommitListState {
     /// Viewport position in display space. Its bounds are measured during
     /// render, so `visible_height` is 0 until the first frame.
     pub scroll: ScrollState,
+    /// Rows kept between the cursor and the top or bottom of the list.
+    pub scroll_margin: ScrollMargin,
 }
 
 impl CommitListState {
@@ -156,7 +185,9 @@ impl CommitListState {
         if self.commits.is_empty() {
             return;
         }
-        self.scroll.ensure_visible(self.visual_selection(), 1);
+        let margin = self.scroll_margin.rows(available_height);
+        self.scroll
+            .ensure_visible_with_margin(self.visual_selection(), 1, margin);
     }
 
     /// Scroll one row up (toward earlier display rows) without moving the
@@ -408,6 +439,43 @@ mod tests {
         let mut app = list_of(10, 9);
         app.follow_selection(0);
         assert_eq!(app.scroll.offset, 0, "no viewport to reason about yet");
+    }
+
+    /// The offset after settling a 20-row list in a 9-row window that is
+    /// showing rows 6..15, with the cursor on `selection` and margin `margin`.
+    fn settled_at(selection: usize, margin: usize) -> usize {
+        let mut app = app_with(20, selection, 9);
+        app.scroll_margin = ScrollMargin::Fixed(margin);
+        app.scroll.offset = 6;
+        offset(&mut app, 9)
+    }
+
+    #[test]
+    fn a_margin_starts_the_scroll_early_in_both_directions() {
+        // Row 13 is three short of the bottom edge, so only a margin reaches it.
+        assert_eq!(settled_at(13, 0), 6, "without a margin, nothing moves yet");
+        assert_eq!(settled_at(13, 2), 7, "a margin of 2 scrolls two rows early");
+
+        // And the mirror image at the top edge.
+        assert_eq!(settled_at(7, 0), 6, "without a margin, nothing moves yet");
+        assert_eq!(settled_at(7, 2), 5, "a margin of 2 scrolls two rows early");
+    }
+
+    #[test]
+    fn auto_margin_scales_with_the_window_and_vanishes_when_tiny() {
+        assert_eq!(ScrollMargin::Auto.rows(22), 3, "a full-screen terminal");
+        assert_eq!(ScrollMargin::Auto.rows(4), 0, "no room to give any up");
+    }
+
+    #[test]
+    fn a_margin_does_not_stop_either_end_being_reached() {
+        let mut app = app_with(20, 10, 9);
+        app.scroll_margin = ScrollMargin::Fixed(3);
+        app.jump_to_last();
+        assert_eq!(offset(&mut app, 9), 11, "the last row, with no blank space");
+        assert_eq!(app.visual_selection(), 19);
+        app.jump_to_first();
+        assert_eq!(offset(&mut app, 9), 0, "the first row, with none above");
     }
 
     #[test]

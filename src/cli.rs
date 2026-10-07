@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
+use git_tailor::app::ScrollMargin;
 use git_tailor::views::palette::{Colors, Scheme};
 use git_tailor::views::theme::Theme;
 
@@ -130,6 +131,19 @@ pub struct Cli {
     )]
     pub palette: PaletteArg,
 
+    /// Rows kept visible beyond the cursor as the commit list scrolls.
+    ///
+    /// `auto` (default) is a sixth of the window height; `0` scrolls only once
+    /// the cursor is at the edge.
+    #[arg(
+        long = "scroll-margin",
+        env = "GT_SCROLL_MARGIN",
+        value_name = "auto|N",
+        default_value = "auto",
+        value_parser = parse_scroll_margin
+    )]
+    pub scroll_margin: ScrollMargin,
+
     /// Remove all git-tailor recovery state and exit, without launching the TUI.
     ///
     /// Deletes the journal file (`.git/git-tailor/journal.json`) and this
@@ -200,6 +214,16 @@ pub enum PaletteArg {
     File(PathBuf),
 }
 
+fn parse_scroll_margin(value: &str) -> std::result::Result<ScrollMargin, String> {
+    if value == "auto" {
+        return Ok(ScrollMargin::Auto);
+    }
+    value
+        .parse()
+        .map(ScrollMargin::Fixed)
+        .map_err(|_| format!("expected `auto` or a row count, got `{value}`"))
+}
+
 fn parse_palette(value: &str) -> std::result::Result<PaletteArg, String> {
     Ok(match value {
         "terminal" => PaletteArg::Terminal,
@@ -240,6 +264,29 @@ pub enum CompletionShell {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn scroll_margin_defaults_to_auto() {
+        let cli = Cli::try_parse_from(["gt"]).expect("args parse");
+        assert_eq!(cli.scroll_margin, ScrollMargin::Auto);
+    }
+
+    #[test]
+    fn scroll_margin_accepts_a_row_count_including_zero() {
+        for (value, expected) in [("3", 3), ("0", 0)] {
+            let cli = Cli::try_parse_from(["gt", "--scroll-margin", value]).expect("args parse");
+            assert_eq!(cli.scroll_margin, ScrollMargin::Fixed(expected));
+        }
+    }
+
+    #[test]
+    fn scroll_margin_rejects_a_non_numeric_value() {
+        let err = Cli::try_parse_from(["gt", "--scroll-margin", "lots"])
+            .map(|_| ())
+            .expect_err("a non-numeric margin must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("expected `auto` or a row count"), "{msg}");
+    }
 
     #[test]
     fn palette_builtins_resolve_without_a_file() {

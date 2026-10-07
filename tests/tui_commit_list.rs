@@ -152,6 +152,36 @@ fn test_commit_list_scrolled_to_bottom() {
     }));
 }
 
+/// Stepping into the bottom margin scrolls the list although the cursor's own
+/// row is still on screen, so the rows past it stay visible.
+#[test]
+fn test_commit_list_scrolls_early_within_the_margin() {
+    use git_tailor::app::ScrollMargin;
+
+    let mut harness = TuiTestHarness::narrow();
+
+    let mut app = AppState::new();
+    app.list.commits = (0..20)
+        .map(|i| {
+            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+        })
+        .collect();
+    app.list.scroll_margin = ScrollMargin::Fixed(2);
+    app.list.selection_index = 7;
+
+    // Settle the viewport, then step the cursor into the bottom margin.
+    let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let settled = app.list.scroll.offset;
+    app.list.move_down();
+
+    let buffer = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert!(
+        app.list.scroll.offset > settled,
+        "the margin must scroll the list before the cursor reaches the edge"
+    );
+    insta::assert_debug_snapshot!(buffer);
+}
+
 #[test]
 fn test_commit_list_reversed_with_commits() {
     let mut harness = TuiTestHarness::typical();
