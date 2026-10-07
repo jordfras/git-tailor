@@ -1506,6 +1506,39 @@ fn execute_drop_error_reports_a_failed_autostash_restore() {
     );
 }
 
+/// The same holds for a failed split: the user has to hear that their tracked
+/// work could not come back out of the stash, and where it is.
+#[test]
+fn execute_split_error_reports_a_failed_autostash_restore() {
+    let mut repo = MockRepo {
+        split_ok: false,
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let oid = Oid::from("a".repeat(40));
+    let _ = execute_split(
+        &mut repo,
+        &mut app,
+        SplitStrategy::PerFile,
+        &oid,
+        &oid,
+        &mut NoProgress,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Split failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the restore failure must be reported too: {message}"
+    );
+    assert!(
+        message.contains("git stash list"),
+        "and the user must be told where their work is: {message}"
+    );
+}
+
 /// When the restore clashes instead of failing, the markers are on disk and the
 /// resolution dialog is the urgent thing — but the message still has to say
 /// what went wrong on the way in.

@@ -39,6 +39,8 @@ pub(crate) struct MockRepo {
     pub(crate) autostash_restore_errs: bool,
     pub(crate) count_per_file: usize,
     pub(crate) count_ok: bool,
+    /// Whether `split_commit_per_file` succeeds.
+    pub(crate) split_ok: bool,
     /// What `count_split_per_hunk_group` returns, after one progress report
     /// that can interrupt it.
     pub(crate) count_per_hunk_group: usize,
@@ -155,6 +157,7 @@ impl Default for MockRepo {
             autostash_restore_errs: false,
             count_per_file: 0,
             count_ok: true,
+            split_ok: true,
             count_per_hunk_group: 0,
             stage_ok: true,
             stage_changed: true,
@@ -466,7 +469,11 @@ impl RepoWrite for MockRepo {
         Ok(())
     }
     fn split_commit_per_file(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
-        unimplemented!()
+        if self.split_ok {
+            Ok(())
+        } else {
+            anyhow::bail!("split failed")
+        }
     }
     fn split_commit_per_hunk(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
