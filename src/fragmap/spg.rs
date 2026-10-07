@@ -670,6 +670,110 @@ fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColu
     )
 }
 
+/// For each of `target`'s hunk spans — its active nodes — the generations of the
+/// commits on the first path through it in `spg_all_paths` order, hunks
+/// listed in the order of those paths. Hunks whose first paths tie come in
+/// span order rather than enumeration order; they touch the same commits.
+///
+/// The first path through a node is the best prefix to it followed by the
+/// best suffix from it: every generation after the node is later than every
+/// one before it, so a prefix that ends early only sorts after the prefixes
+/// that continue it. Paths that tie have the same commits, so which of them
+/// wins does not matter.
+fn spg_target_columns(
+    spg: &Spg,
+    target: i32,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<(SpgSpan, Vec<i32>)>> {
+    let sink = sink_node();
+    let graph = IndexedSpg::new(spg, &sink);
+    let mut keys: ConsArena<(i32, i64)> = ConsArena::new();
+    let key_of = |node: &SpgNode| (node.generation, node.new_span.start);
+
+    // From each node to the sink, the node included.
+    let mut suffix: Vec<Option<u32>> = vec![None; graph.nodes.len()];
+    suffix[graph.sink] = Some(NIL);
+    for &at in graph.by_generation.iter().rev() {
+        if at == graph.sink {
+            continue;
+        }
+        if !poll() {
+            return None;
+        }
+        let mut best: Option<u32> = None;
+        for &next in &graph.succs[at] {
+            if let Some(key) = suffix[next]
+                && best.is_none_or(|current| keys.cmp(key, current).is_lt())
+            {
+                best = Some(key);
+            }
+        }
+        let node = graph.nodes[at];
+        suffix[at] = best.map(|key| match node.is_active {
+            true => keys.cons(key_of(node), key),
+            false => key,
+        });
+    }
+
+    // From the source to each node, the node excluded, last element first.
+    let mut reversed: ConsArena<(i32, i64)> = ConsArena::new();
+    let in_order = |reversed: &ConsArena<(i32, i64)>, list: u32| {
+        let mut elements: Vec<(i32, i64)> = reversed.iter(list).collect();
+        elements.reverse();
+        elements
+    };
+    let ends_first =
+        |a: &[(i32, i64)], b: &[(i32, i64)]| match a.iter().zip(b).find(|(x, y)| x != y) {
+            Some((x, y)) => x < y,
+            None => a.len() > b.len(),
+        };
+    let mut prefix: Vec<Option<u32>> = vec![None; graph.nodes.len()];
+    prefix[graph.source] = Some(NIL);
+    for &at in &graph.by_generation {
+        let Some(before) = prefix[at] else { continue };
+        if !poll() {
+            return None;
+        }
+        let node = graph.nodes[at];
+        let through = match node.is_active {
+            true => reversed.cons(key_of(node), before),
+            false => before,
+        };
+        let through_in_order = in_order(&reversed, through);
+        for &next in &graph.succs[at] {
+            let better = prefix[next]
+                .is_none_or(|current| ends_first(&through_in_order, &in_order(&reversed, current)));
+            if better {
+                prefix[next] = Some(through);
+            }
+        }
+    }
+
+    let mut columns: Vec<(Vec<(i32, i64)>, SpgSpan)> = (0..graph.nodes.len())
+        .filter(|&at| graph.nodes[at].is_active && graph.nodes[at].generation == target)
+        .filter_map(|at| {
+            let mut path = in_order(&reversed, prefix[at]?);
+            path.extend(keys.iter(suffix[at]?));
+            Some((path, graph.nodes[at].new_span))
+        })
+        .collect();
+    columns.sort_by_key(|(path, span)| (path.clone(), span.end));
+    // `spg_all_paths` tells nodes apart by their new span alone.
+    let mut seen = HashSet::new();
+    columns.retain(|(_, span)| seen.insert(*span));
+    Some(
+        columns
+            .into_iter()
+            .map(|(path, span)| {
+                (
+                    span,
+                    path.iter().map(|&(generation, _)| generation).collect(),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// Build the SPG for a single file from its commits and hunks.
 ///
 /// `poll` is called after each commit generation. Return `false` from `poll`
@@ -813,60 +917,31 @@ pub(super) fn build_file_clusters(
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
-    Some(
-        build_file_clusters_with_target(path, file, commits_for_file, commit_diffs, None, poll)?
-            .into_iter()
-            .map(|(cluster, _)| cluster)
-            .collect(),
-    )
-}
-
-/// The same clusters, each paired with the span generation `target` occupies in
-/// it — that commit's own coordinates — or `None` where it does not touch the
-/// cluster at all.
-///
-/// A cluster is one path through the graph, so the node sitting on it at a
-/// given generation is exactly that commit's hunk in that column. Splitting per
-/// hunk group needs the pairing to tell which of a commit's hunks belongs to
-/// which column; `build_file_clusters` discards it.
-pub(super) fn build_file_clusters_with_target(
-    path: &Path,
-    file: FileId,
-    commits_for_file: &[(CommitPos, Vec<HunkInfo>)],
-    commit_diffs: &[CommitDiff],
-    target: Option<CommitPos>,
-    poll: &mut impl FnMut() -> bool,
-) -> Option<Vec<(SpanCluster, Option<SpgSpan>)>> {
     let spg = build_file_spg(commits_for_file, poll)?;
     let paths = spg_all_paths(&spg, poll)?;
 
-    let mut clusters: Vec<(SpanCluster, Option<SpgSpan>)> = Vec::new();
+    let mut clusters: Vec<SpanCluster> = Vec::new();
     for path_nodes in &paths {
         let mut commit_oids: Vec<VirtualOid> = Vec::new();
         let mut last_active_span: Option<SpgSpan> = None;
-        let mut target_span: Option<SpgSpan> = None;
 
         for node in path_nodes {
             if node.is_active
                 && node.generation >= 0
                 && (node.generation as usize) < commit_diffs.len()
             {
-                let generation = node.generation as usize;
-                let oid = &commit_diffs[generation].commit.oid;
+                let oid = &commit_diffs[node.generation as usize].commit.oid;
                 if !commit_oids.contains(oid) {
                     commit_oids.push(oid.clone());
                 }
                 last_active_span = Some(node.new_span);
-                if target == Some(CommitPos(generation)) {
-                    target_span = Some(node.new_span);
-                }
             }
         }
 
         if let Some(sp) = last_active_span
             && !commit_oids.is_empty()
         {
-            clusters.push((span_cluster(path, file, commit_oids, sp), target_span));
+            clusters.push(span_cluster(path, file, commit_oids, sp));
         }
     }
 
@@ -911,6 +986,40 @@ pub(super) fn build_file_columns(
                     .map(|&generation| commit_diffs[generation as usize].commit.oid.clone())
                     .collect();
                 span_cluster(path, file, commit_oids, column.last_span)
+            })
+            .collect(),
+    )
+}
+
+/// A column one of the target commit's hunks sits in.
+pub(super) struct TargetColumn {
+    /// The hunk's span, in the target commit's own coordinates.
+    pub(super) span: SpgSpan,
+    /// The commits touching the column, sorted. This is what the matrix
+    /// deduplicates columns on, so regions touched by the same commits are one
+    /// column even in different files.
+    pub(super) touching: Vec<VirtualOid>,
+}
+
+/// The columns `target`'s hunks in this file sit in, in matrix order: for
+/// each hunk, the first column through it.
+pub(super) fn build_target_columns(
+    commits_for_file: &[(CommitPos, Vec<HunkInfo>)],
+    commit_diffs: &[CommitDiff],
+    target: CommitPos,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<TargetColumn>> {
+    let spg = build_file_spg(commits_for_file, poll)?;
+    Some(
+        spg_target_columns(&spg, target.0 as i32, poll)?
+            .into_iter()
+            .map(|(span, generations)| {
+                let mut touching: Vec<VirtualOid> = generations
+                    .iter()
+                    .map(|&generation| commit_diffs[generation as usize].commit.oid.clone())
+                    .collect();
+                touching.sort();
+                TargetColumn { span, touching }
             })
             .collect(),
     )
@@ -1298,6 +1407,79 @@ mod tests {
                 .map(|c| (c.generations, c.last_span))
                 .collect();
             assert_eq!(columns, expected, "seed {seed}");
+        }
+    }
+
+    /// What the first path through each of `target`'s nodes is, by listing
+    /// every path.
+    fn first_paths_through(spg: &Spg, target: i32) -> Vec<(SpgSpan, Vec<i32>)> {
+        let mut seen = HashSet::new();
+        let mut expected = Vec::new();
+        for path in spg_all_paths(spg, &mut || true).unwrap() {
+            let Some(node) = path.iter().find(|n| n.is_active && n.generation == target) else {
+                continue;
+            };
+            if seen.insert(node.new_span) {
+                let generations = path
+                    .iter()
+                    .filter(|n| n.is_active)
+                    .map(|n| n.generation)
+                    .collect();
+                expected.push((node.new_span, generations));
+            }
+        }
+        expected
+    }
+
+    /// Only which commits each hunk's column holds, and the order of columns
+    /// that hold different commits, reach the caller.
+    fn assert_same_columns(
+        actual: Vec<(SpgSpan, Vec<i32>)>,
+        expected: Vec<(SpgSpan, Vec<i32>)>,
+        context: &str,
+    ) {
+        let commits = |columns: &[(SpgSpan, Vec<i32>)]| -> Vec<Vec<i32>> {
+            columns.iter().map(|(_, c)| c.clone()).collect()
+        };
+        assert_eq!(commits(&actual), commits(&expected), "{context}");
+        let sorted = |mut columns: Vec<(SpgSpan, Vec<i32>)>| {
+            columns.sort_by_key(|(span, c)| (span.start, span.end, c.clone()));
+            columns
+        };
+        assert_eq!(sorted(actual), sorted(expected), "{context}");
+    }
+
+    #[test]
+    fn target_columns_follow_the_first_path_through_each_node() {
+        for seed in 0..3000 {
+            let mut rng = super::super::tests::XorShift(seed * 2 + 1);
+            let spg = random_graph(&mut rng);
+            for target in 0..6 {
+                assert_same_columns(
+                    spg_target_columns(&spg, target, &mut || true).unwrap(),
+                    first_paths_through(&spg, target),
+                    &format!("seed {seed}, target {target}"),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn target_columns_follow_the_first_path_through_each_hunk() {
+        for seed in 0..1000 {
+            let diffs = super::super::tests::random_history(seed);
+            let lineages = super::super::FileLineages::new(&diffs);
+            for commits in super::super::collect_file_commits(&diffs, &lineages).values() {
+                let spg = build_file_spg(commits, &mut || true).unwrap();
+                for &(target, _) in commits {
+                    let target = target.0 as i32;
+                    assert_same_columns(
+                        spg_target_columns(&spg, target, &mut || true).unwrap(),
+                        first_paths_through(&spg, target),
+                        &format!("seed {seed}, target {target}"),
+                    );
+                }
+            }
         }
     }
 }

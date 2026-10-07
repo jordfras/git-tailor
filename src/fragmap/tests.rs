@@ -2392,7 +2392,7 @@ fn random_hunks(rng: &mut XorShift, len: &mut u32) -> Vec<Hunk> {
     hunks
 }
 
-fn random_history(seed: u64) -> Vec<CommitDiff> {
+pub(super) fn random_history(seed: u64) -> Vec<CommitDiff> {
     let mut rng = XorShift(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
     let files = ["a.txt", "b.txt", "c.txt"];
     let mut lengths = vec![12 + rng.below(12); files.len()];
