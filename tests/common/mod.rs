@@ -26,7 +26,7 @@ pub use fake::{StubRepo, StubRepoBuilder};
 use git_tailor::{
     CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid,
     app::AppState,
-    fragmap::{FileSpan, FragMap, SpanCluster, TouchKind},
+    fragmap::{FileId, FileSpan, FragMap, SpanCluster, TouchKind},
     repo::{ConflictState, Git2Repo, RepoWrite},
 };
 use git2::{Repository, Signature};
@@ -481,11 +481,18 @@ pub fn create_fragmap(
     }
 }
 
-/// Build a `SpanCluster` covering a single file span, touched by the given commits.
+/// Build a `SpanCluster` covering a single file span, touched by the given
+/// commits. Clusters with the same path are one file, and different paths
+/// different files.
 pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    let file = hasher.finish() as usize;
     SpanCluster {
         spans: vec![FileSpan {
             path: path.into(),
+            file: FileId::numbered(file),
             start_line: start,
             end_line: end,
         }],

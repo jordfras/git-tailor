@@ -79,6 +79,10 @@ git-tailor/
 │   │       └── stash.rs        # Auto-stash save/restore and its conflicts
 │   ├── fragmap.rs          # Span extraction, clustering, matrix generation
 │   ├── fragmap/
+│   │   ├── assignment.rs   # Hunk-group assignment types for split per hunk group
+│   │   ├── attribution.rs  # Exact line attribution for the commit being split
+│   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
+│   │   ├── position.rs     # CommitPos, ChangePos, HunkPos: typed positions
 │   │   └── spg.rs          # Span Propagation Graph algorithm
 │   ├── views.rs            # View module declarations
 │   ├── views/
@@ -229,7 +233,7 @@ or adjacent spans across commits are merged into **SpanClusters**. A matrix of
 "conflict" (relate) when they share a cluster.
 
 ```
-FileSpan     { path, start_line, end_line }
+FileSpan     { path, file: FileId, start_line, end_line }
 SpanCluster  { spans: Vec<FileSpan>, commit_oids: Vec<Oid> }
 FragMap      { commits, clusters, matrix: Vec<Vec<TouchKind>> }
 TouchKind    ∈ { Added, Modified, Deleted, None }

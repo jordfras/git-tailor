@@ -297,46 +297,33 @@ struct HunkGroupPlan {
 impl HunkGroupPlan {
     fn new(assignment: &fragmap::HunkGroupAssignment, diff: &git2::Diff<'_>) -> Result<Self> {
         let changes = SplitChanges::of(diff)?;
-        let mut assignments = changes
+        if !assignment.lines_up_with(&changes.hunk_counts) {
+            anyhow::bail!("The hunk groups do not match the commit's diff — refusing to split");
+        }
+        let mut assignments: Vec<Vec<fragmap::HunkAssignment>> = changes
             .hunk_counts
             .iter()
             .enumerate()
             .map(|(delta_idx, &num_hunks)| {
-                let delta = diff.get_delta(delta_idx).context("delta index")?;
-                let file_assignments = assignment
-                    .by_file
-                    .get(&delta_path(&delta).unwrap_or_default());
-                Ok((0..num_hunks)
+                (0..num_hunks)
                     .map(|h| {
-                        file_assignments
-                            .and_then(|fa| fa.get(h))
+                        assignment
+                            .hunk(fragmap::ChangePos(delta_idx), fragmap::HunkPos(h))
                             .cloned()
-                            .unwrap_or(fragmap::HunkAssignment::Whole { group: 0 })
+                            .expect("checked to line up")
                     })
-                    .collect())
+                    .collect()
             })
-            .collect::<Result<Vec<Vec<fragmap::HunkAssignment>>>>()?;
+            .collect();
 
-        // The fragmap files a swap's changes that share a path under that one
-        // path, their hunks one after another, so a member's own hunk index
-        // does not find its entry. Only a swap's changes share a path, so all
-        // of its paths' entries are its own.
         let swap_placement: Vec<Option<usize>> = changes
             .swaps
             .groups()
             .iter()
             .map(|members| {
-                let paths: BTreeSet<PathBuf> = members
+                members
                     .iter()
-                    .filter_map(|&member| diff.get_delta(member).and_then(|d| delta_path(&d)))
-                    .collect();
-                let by_path = paths
-                    .iter()
-                    .filter_map(|path| assignment.by_file.get(path))
-                    .flatten();
-                let by_member = members.iter().flat_map(|&member| &assignments[member]);
-                by_path
-                    .chain(by_member)
+                    .flat_map(|&member| &assignments[member])
                     .flat_map(|hunk_assignment| hunk_assignment.groups())
                     .min()
             })
@@ -403,7 +390,7 @@ fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<g
         Some(&target.commit_tree),
         Some(&mut diff_opts),
     )?;
-    diff.find_similar(None)?;
+    reads::find_renames(&mut diff)?;
     Ok(diff)
 }
 
@@ -913,7 +900,7 @@ fn hunk_selection_for_prefix(
 }
 
 /// Run the fragmap hunk-group clustering for the branch `head_oid..reference_oid`
-/// and return the per-file group assignment for `commit_oid`.
+/// and return the group assignment for `commit_oid`'s hunks.
 ///
 /// `commit_oid` is kept even when it equals `reference_oid`, which in `--all`
 /// mode it does for the root commit: dropping it would take the commit being
@@ -1040,4 +1027,68 @@ fn finalize_split(
         repo.replay_descendants_conflict_free(original_commit_oid, head_git_oid, final_tip)?;
     repo.advance_branch_ref(rebased_tip, log_msg)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HunkGroupPlan;
+    use crate::{CommitDiff, CommitInfo, DeltaStatus, FileDiff, Hunk, Oid, VirtualOid, fragmap};
+
+    fn added(path: &str) -> FileDiff {
+        FileDiff {
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
+            status: DeltaStatus::Added,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![],
+            }],
+        }
+    }
+
+    /// An assignment that does not line up with the split's diff must refuse
+    /// the split, not put hunks into pieces by guesswork.
+    #[test]
+    fn a_hunk_group_plan_refuses_an_assignment_for_another_diff() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let empty = repo
+            .find_tree(repo.treebuilder(None).unwrap().write().unwrap())
+            .unwrap();
+        let mut builder = repo.treebuilder(None).unwrap();
+        for path in ["a", "b"] {
+            builder
+                .insert(path, repo.blob(b"x\n").unwrap(), 0o100644)
+                .unwrap();
+        }
+        let both = repo.find_tree(builder.write().unwrap()).unwrap();
+        let diff = repo
+            .diff_tree_to_tree(Some(&empty), Some(&both), None)
+            .unwrap();
+
+        let oid = Oid::from("k");
+        let commit = CommitDiff {
+            commit: CommitInfo {
+                oid: VirtualOid::Real(oid.clone()),
+                summary: String::new(),
+                author: None,
+                date: None,
+                parent_oids: vec![],
+                message: String::new(),
+                author_email: None,
+                author_date: None,
+                committer: None,
+                committer_email: None,
+                commit_date: None,
+            },
+            files: vec![added("a")],
+        };
+        let assignment = fragmap::assign_hunk_groups(&[commit], &oid).unwrap();
+
+        assert!(HunkGroupPlan::new(&assignment, &diff).is_err());
+    }
 }

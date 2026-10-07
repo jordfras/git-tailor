@@ -20,70 +20,38 @@
 // commits refer to different file versions and cannot be compared directly.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{CommitDiff, Oid, VirtualOid};
 
 mod assignment;
 mod attribution;
+mod lineage;
+mod position;
 mod spg;
 pub use assignment::{
     FragmentAssignment, HunkAssignment, HunkFragment, HunkGroupAssignment, LineRange,
 };
+pub use lineage::FileId;
+use lineage::FileLineages;
+pub use position::{ChangePos, CommitPos, HunkPos};
 use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clusters};
 
-/// Build a map from every known file path to the canonical (earliest) name for
-/// that file, following rename chains across commits.
-///
-/// The commit diffs must be in chronological order (oldest first).  When a
-/// `FileDiff` has `old_path ≠ new_path` the old name's canonical entry is
-/// propagated to the new name.
-fn build_rename_map(commit_diffs: &[CommitDiff]) -> HashMap<PathBuf, PathBuf> {
-    let mut canonical: HashMap<PathBuf, PathBuf> = HashMap::new();
-    for diff in commit_diffs {
-        for file in &diff.files {
-            if let (Some(old), Some(new)) = (&file.old_path, &file.new_path)
-                && old != new
-            {
-                let root = canonical.get(old).cloned().unwrap_or_else(|| old.clone());
-                canonical.insert(new.clone(), root);
-            }
-        }
-    }
-    canonical
-}
-
-/// Resolve a file path to its canonical (earliest) name using the rename map.
-fn canonical_path<'a>(path: &'a Path, rename_map: &'a HashMap<PathBuf, PathBuf>) -> &'a Path {
-    rename_map.get(path).map(PathBuf::as_path).unwrap_or(path)
-}
-
-/// Sort paths by their bytes.
-///
-/// `Path` compares component by component, which puts `repo/x.rs` before
-/// `repo.rs` where the bytes put it after. Column order, the numbering of the
-/// split pieces and which hunk the rescue path cuts all come off this list, so
-/// it has to be the order git lists files in.
-fn sort_by_path_bytes<P: AsRef<Path>>(paths: &mut [P]) {
-    paths.sort_by_cached_key(|p| crate::domain::path_to_bytes(p.as_ref()));
-}
-
-/// Collect per-file hunk lists grouped by canonical path.
+/// Collect each file's hunks per commit.
 ///
 /// This is the shared grouping logic used by [`build_fragmap`],
 /// [`assign_hunk_groups`], and [`dump_per_file_spg_stats`].
 fn collect_file_commits(
     commit_diffs: &[CommitDiff],
-    rename_map: &HashMap<PathBuf, PathBuf>,
-) -> HashMap<PathBuf, Vec<(usize, Vec<HunkInfo>)>> {
-    let mut file_commits: HashMap<PathBuf, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
-        for file in &diff.files {
-            let path = match &file.new_path {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-            let key = canonical_path(&path, rename_map).to_path_buf();
+    lineages: &FileLineages,
+) -> HashMap<FileId, Vec<(CommitPos, Vec<HunkInfo>)>> {
+    let mut file_commits: HashMap<FileId, Vec<(CommitPos, Vec<HunkInfo>)>> = HashMap::new();
+    for (commit, diff) in commit_diffs.iter().enumerate() {
+        let commit = CommitPos(commit);
+        for (change, file) in diff.files.iter().enumerate() {
+            if file.new_path.is_none() || file.hunks.is_empty() {
+                continue;
+            }
             let hunks: Vec<HunkInfo> = file
                 .hunks
                 .iter()
@@ -94,15 +62,12 @@ fn collect_file_commits(
                     new_lines: h.new_lines,
                 })
                 .collect();
-            if !hunks.is_empty() {
-                let entry = file_commits.entry(key).or_default();
-                if let Some(last) = entry.last_mut()
-                    && last.0 == commit_idx
-                {
-                    last.1.extend(hunks);
-                    continue;
-                }
-                entry.push((commit_idx, hunks));
+            let entry = file_commits
+                .entry(lineages.of(commit, ChangePos(change)))
+                .or_default();
+            match entry.last_mut() {
+                Some((last, earlier)) if *last == commit => earlier.extend(hunks),
+                _ => entry.push((commit, hunks)),
             }
         }
     }
@@ -117,8 +82,10 @@ fn collect_file_commits(
 /// detect which commits touch related code regions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileSpan {
-    /// The file path (from the new version of the file).
+    /// The path the file was first seen under.
     pub path: PathBuf,
+    /// The file, which the path alone does not identify once a path is reused.
+    pub file: FileId,
     /// First line number (1-indexed) in the range.
     pub start_line: u32,
     /// Last line number (1-indexed) in the range, inclusive.
@@ -140,7 +107,7 @@ struct HunkInfo {
 fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
     let mut spans = Vec::new();
 
-    for file in &commit_diff.files {
+    for (file_idx, file) in commit_diff.files.iter().enumerate() {
         let path = match &file.new_path {
             Some(p) => p.clone(),
             None => continue,
@@ -153,6 +120,7 @@ fn extract_spans(commit_diff: &CommitDiff) -> Vec<FileSpan> {
 
             spans.push(FileSpan {
                 path: path.clone(),
+                file: FileId::numbered(file_idx),
                 start_line: hunk.new_start,
                 end_line: hunk.new_start + hunk.new_lines - 1,
             });
@@ -243,23 +211,27 @@ pub fn build_fragmap(
     deduplicate: bool,
     progress: &mut impl FnMut(FragMapProgress) -> bool,
 ) -> Option<FragMap> {
-    let rename_map = build_rename_map(commit_diffs);
-    let file_commits = collect_file_commits(commit_diffs, &rename_map);
-    let mut sorted_paths: Vec<PathBuf> = file_commits.keys().cloned().collect();
-    sort_by_path_bytes(&mut sorted_paths);
+    let lineages = FileLineages::new(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &lineages);
+    let sorted_files = lineages.sorted(file_commits.keys().copied());
 
-    let total = sorted_paths.len();
+    let total = sorted_files.len();
     let mut clusters = Vec::new();
 
-    for (i, path) in sorted_paths.iter().enumerate() {
-        let commits_for_file = &file_commits[path];
+    for (i, &file) in sorted_files.iter().enumerate() {
         let mut poll = || {
             progress(FragMapProgress::ClusteringFile {
                 files_done: i,
                 files_total: total,
             })
         };
-        let new_clusters = build_file_clusters(path, commits_for_file, commit_diffs, &mut poll)?;
+        let new_clusters = build_file_clusters(
+            lineages.label(file),
+            file,
+            &file_commits[&file],
+            commit_diffs,
+            &mut poll,
+        )?;
         clusters.extend(new_clusters);
     }
 
@@ -271,7 +243,7 @@ pub fn build_fragmap(
     }
 
     let commits: Vec<VirtualOid> = commit_diffs.iter().map(|d| d.commit.oid.clone()).collect();
-    let matrix = build_matrix(&commits, &clusters, commit_diffs, &rename_map, progress)?;
+    let matrix = build_matrix(&commits, &clusters, commit_diffs, &lineages, progress)?;
     Some(FragMap {
         commits,
         clusters,
@@ -312,28 +284,27 @@ pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
     commit_oid: &Oid,
 ) -> Option<HunkGroupAssignment> {
-    let k_idx = commit_diffs
-        .iter()
-        .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?;
+    let k = CommitPos(
+        commit_diffs
+            .iter()
+            .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?,
+    );
 
-    let rename_map = build_rename_map(commit_diffs);
-    let file_commits = collect_file_commits(commit_diffs, &rename_map);
-
-    let mut sorted_paths: Vec<&PathBuf> = file_commits.keys().collect();
-    sort_by_path_bytes(&mut sorted_paths);
+    let lineages = FileLineages::new(commit_diffs);
+    let file_commits = collect_file_commits(commit_diffs, &lineages);
 
     // Attribute every hunk, walking files alphabetically and hunks top to
     // bottom so groups appear in a stable, positional order.
-    let mut attributed: Vec<(PathBuf, Vec<Vec<attribution::AttributedFragment>>)> = Vec::new();
-    for path in &sorted_paths {
-        if let Some(per_hunk) = attribution::attribute_target_hunks(&file_commits[*path], k_idx) {
-            attributed.push(((*path).clone(), per_hunk));
+    let mut attributed: Vec<(FileId, Vec<Vec<attribution::AttributedFragment>>)> = Vec::new();
+    for file in lineages.sorted(file_commits.keys().copied()) {
+        if let Some(per_hunk) = attribution::attribute_target_hunks(&file_commits[&file], k) {
+            attributed.push((file, per_hunk));
         }
     }
 
     // A hunk's relation set is the union of its lines' relation sets.
-    let hunk_union = |fragments: &[attribution::AttributedFragment]| -> Vec<usize> {
-        let mut union: Vec<usize> = fragments
+    let hunk_union = |fragments: &[attribution::AttributedFragment]| -> Vec<CommitPos> {
+        let mut union: Vec<CommitPos> = fragments
             .iter()
             .flat_map(|f| f.related.iter().copied())
             .collect();
@@ -344,18 +315,18 @@ pub fn assign_hunk_groups(
     // Rescue check: when every hunk has the same relation set the split would
     // be refused, so pick ONE hunk with more than one distinct per-line
     // relation pattern — its fragments are then routed individually below.
-    let distinct_unions: HashSet<Vec<usize>> = attributed
+    let distinct_unions: HashSet<Vec<CommitPos>> = attributed
         .iter()
         .flat_map(|(_, per_hunk)| per_hunk.iter().map(|fragments| hunk_union(fragments)))
         .collect();
-    let mut cut_target: Option<(&Path, usize)> = None;
+    let mut cut_target: Option<(FileId, HunkPos)> = None;
     if distinct_unions.len() < 2 {
-        'search: for (path, per_hunk) in &attributed {
-            for (hunk_idx, fragments) in per_hunk.iter().enumerate() {
-                let distinct_patterns: HashSet<&Vec<usize>> =
+        'search: for &(file, ref per_hunk) in &attributed {
+            for (hunk, fragments) in per_hunk.iter().enumerate() {
+                let distinct_patterns: HashSet<&Vec<CommitPos>> =
                     fragments.iter().map(|f| &f.related).collect();
                 if distinct_patterns.len() >= 2 {
-                    cut_target = Some((path.as_path(), hunk_idx));
+                    cut_target = Some((file, HunkPos(hunk)));
                     break 'search;
                 }
             }
@@ -369,23 +340,20 @@ pub fn assign_hunk_groups(
     // this: a hunk that only inserts lines rewrites nobody's output, so every
     // such hunk comes back relating to nothing and they collapse into a single
     // group even when they are in different files entirely.
-    let mut column_of: HashMap<(PathBuf, usize), Vec<VirtualOid>> = HashMap::new();
-    let mut clusters_of: HashMap<PathBuf, Vec<(SpanCluster, Option<spg::SpgSpan>)>> =
-        HashMap::new();
-    for (path, _) in &attributed {
+    let mut column_of: HashMap<(FileId, HunkPos), Vec<VirtualOid>> = HashMap::new();
+    let mut clusters_of: HashMap<FileId, Vec<(SpanCluster, Option<spg::SpgSpan>)>> = HashMap::new();
+    for &(file, _) in &attributed {
         let Some(clusters) = build_file_clusters_with_target(
-            path,
-            &file_commits[path],
+            lineages.label(file),
+            file,
+            &file_commits[&file],
             commit_diffs,
-            Some(k_idx),
+            Some(k),
             &mut || true,
         ) else {
             continue;
         };
-        let Some((_, k_hunks)) = file_commits[path]
-            .iter()
-            .find(|(generation, _)| *generation == k_idx)
-        else {
+        let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
             continue;
         };
         for (hunk_idx, hunk) in k_hunks.iter().enumerate() {
@@ -408,17 +376,17 @@ pub fn assign_hunk_groups(
                 // different files, so hunks in them belong together.
                 let mut touching = clusters[cluster_idx].0.commit_oids.clone();
                 touching.sort();
-                column_of.insert((path.clone(), hunk_idx), touching);
+                column_of.insert((file, HunkPos(hunk_idx)), touching);
             }
         }
-        clusters_of.insert(path.clone(), clusters);
+        clusters_of.insert(file, clusters);
     }
 
-    // The column a line range in `path` sits in, for placing the cut hunk's
+    // The column a line range in `file` sits in, for placing the cut hunk's
     // fragments. A fragment and a whole hunk that belong to the same column and
     // relate to the same commits are one piece, so both must be keyed alike.
-    let column_at = |path: &Path, range: &assignment::LineRange| -> Option<Vec<VirtualOid>> {
-        let clusters = clusters_of.get(path)?;
+    let column_at = |file: FileId, range: &assignment::LineRange| -> Option<Vec<VirtualOid>> {
+        let clusters = clusters_of.get(&file)?;
         let (start, end) = (
             range.start as i64,
             (range.end as i64).max(range.start as i64 + 1),
@@ -442,7 +410,7 @@ pub fn assign_hunk_groups(
     // separable there is bounded by the hunk, not by how many columns the
     // pairings generate. Indexed in order of first appearance so the split
     // pieces come out positionally.
-    type GroupKey = (Option<Vec<VirtualOid>>, Vec<usize>);
+    type GroupKey = (Option<Vec<VirtualOid>>, Vec<CommitPos>);
     let mut patterns: Vec<GroupKey> = Vec::new();
     let group_of = |key: GroupKey, patterns: &mut Vec<GroupKey>| -> usize {
         match patterns.iter().position(|p| *p == key) {
@@ -454,19 +422,20 @@ pub fn assign_hunk_groups(
         }
     };
 
-    let mut by_file: HashMap<PathBuf, Vec<HunkAssignment>> = HashMap::new();
-    for (path, per_hunk) in &attributed {
+    let mut by_file: HashMap<FileId, Vec<HunkAssignment>> = HashMap::new();
+    for &(file, ref per_hunk) in &attributed {
         let entries: Vec<HunkAssignment> = per_hunk
             .iter()
             .enumerate()
             .map(|(hunk_idx, fragments)| {
-                if cut_target == Some((path.as_path(), hunk_idx)) {
+                let hunk = HunkPos(hunk_idx);
+                if cut_target == Some((file, hunk)) {
                     let assigned: Vec<FragmentAssignment> = fragments
                         .iter()
                         .map(|f| FragmentAssignment {
                             fragment: f.fragment,
                             group: group_of(
-                                (column_at(path, &f.fragment.new_lines), f.related.clone()),
+                                (column_at(file, &f.fragment.new_lines), f.related.clone()),
                                 &mut patterns,
                             ),
                         })
@@ -477,44 +446,28 @@ pub fn assign_hunk_groups(
                 } else {
                     HunkAssignment::Whole {
                         group: group_of(
-                            (
-                                column_of.get(&((*path).clone(), hunk_idx)).cloned(),
-                                hunk_union(fragments),
-                            ),
+                            (column_of.get(&(file, hunk)).cloned(), hunk_union(fragments)),
                             &mut patterns,
                         ),
                     }
                 }
             })
             .collect();
-        if !entries.is_empty() {
-            by_file.insert(path.clone(), entries);
-        }
+        by_file.insert(file, entries);
     }
 
-    // `by_file` is keyed by canonical (earliest-name) path, needed internally
-    // to attribute a renamed file's hunks across its history. The documented
-    // contract is to key by the 0-context full diff's own paths, so re-key to
-    // K's actual path for each file — its own `new_path`, which for a commit
-    // that renames the file differs from the canonical key. Without this,
-    // callers that look up by K's current path (as `split_commit_per_hunk_group`
-    // does) silently miss on any commit that both renames a file and needs its
-    // hunks routed to more than one group.
-    let by_file: HashMap<PathBuf, Vec<HunkAssignment>> = commit_diffs[k_idx]
-        .files
-        .iter()
-        .filter_map(|file| {
-            let new_path = file.new_path.as_ref()?;
-            let canonical = canonical_path(new_path, &rename_map);
+    let by_change = (0..commit_diffs[k.0].files.len())
+        .map(|change| {
             by_file
-                .get(canonical)
-                .map(|entries| (new_path.clone(), entries.clone()))
+                .get(&lineages.of(k, ChangePos(change)))
+                .cloned()
+                .unwrap_or_default()
         })
         .collect();
 
     Some(HunkGroupAssignment {
         group_count: patterns.len(),
-        by_file,
+        by_change,
     })
 }
 
@@ -626,7 +579,7 @@ fn build_matrix(
     commits: &[VirtualOid],
     clusters: &[SpanCluster],
     commit_diffs: &[CommitDiff],
-    rename_map: &HashMap<PathBuf, PathBuf>,
+    lineages: &FileLineages,
     progress: &mut impl FnMut(FragMapProgress) -> bool,
 ) -> Option<Vec<Vec<TouchKind>>> {
     let total = commits.len();
@@ -644,7 +597,7 @@ fn build_matrix(
         for (cluster_idx, cluster) in clusters.iter().enumerate() {
             if cluster.commit_oids.contains(commit_oid) {
                 matrix[commit_idx][cluster_idx] =
-                    determine_touch_kind(commit_diff, cluster, rename_map);
+                    determine_touch_kind(commit_idx, commit_diff, cluster, lineages);
             }
         }
     }
@@ -652,34 +605,28 @@ fn build_matrix(
     Some(matrix)
 }
 
-/// Determine how a commit touches a cluster (Added/Modified/Deleted).
-///
-/// Looks at the files in the commit that overlap with the cluster's spans
-/// to classify the type of change. Uses the rename map to match file paths
-/// across renames.
+/// Determine how a commit touches a cluster (Added/Modified/Deleted), from
+/// the status of its change to the cluster's file.
 fn determine_touch_kind(
+    commit_idx: usize,
     commit_diff: &CommitDiff,
     cluster: &SpanCluster,
-    rename_map: &HashMap<PathBuf, PathBuf>,
+    lineages: &FileLineages,
 ) -> TouchKind {
     for cluster_span in &cluster.spans {
-        let cluster_canonical = canonical_path(&cluster_span.path, rename_map);
-        for file in &commit_diff.files {
-            let file_path = file.new_path.as_ref().or(file.old_path.as_ref());
-            let matches = file_path
-                .map(|p| canonical_path(p, rename_map) == cluster_canonical)
-                .unwrap_or(false);
-            if matches {
-                // From the delta's own status, not from which paths are set:
-                // libgit2 fills in *both* `old_file` and `new_file` for an add
-                // and for a delete, so inferring from a missing path made both
-                // of those unreachable and rendered every touch as `Modified`.
-                return match file.status {
-                    crate::DeltaStatus::Added | crate::DeltaStatus::Untracked => TouchKind::Added,
-                    crate::DeltaStatus::Deleted => TouchKind::Deleted,
-                    _ => TouchKind::Modified,
-                };
-            }
+        let change = (0..commit_diff.files.len()).find(|&change| {
+            lineages.of(CommitPos(commit_idx), ChangePos(change)) == cluster_span.file
+        });
+        if let Some(change) = change {
+            // From the delta's own status, not from which paths are set:
+            // libgit2 fills in *both* `old_file` and `new_file` for an add
+            // and for a delete, so inferring from a missing path made both
+            // of those unreachable and rendered every touch as `Modified`.
+            return match commit_diff.files[change].status {
+                crate::DeltaStatus::Added | crate::DeltaStatus::Untracked => TouchKind::Added,
+                crate::DeltaStatus::Deleted => TouchKind::Deleted,
+                _ => TouchKind::Modified,
+            };
         }
     }
 

@@ -2023,3 +2023,23 @@
   failed looking up the commit id as a blob. Applying a gitlink's hunk now
   writes the pointer whole. It keeps its one hunk rather than counting as
   hunkless, so the picker still offers it and its hunk numbering still lines up.
+- [X] T253 P2 bug - Two files in one commit could collide onto one fragmap key.
+  The fragmap keyed a file by its earliest name through a rename map that did
+  not know when a rename happened, so a file added where another had been
+  renamed from shared the renamed file's key. In one commit their hunks were
+  concatenated, and splitting per hunk group read each file's hunks from the
+  wrong list — refusing the split, or misrouting hunks.
+  Settled rule: files are tracked as lineages (`src/fragmap/lineage.rs`), and
+  each commit sees the files its first parent left — the parent its diff is
+  against — taking what a merge brings in from the parent that has it. A rename
+  carries a file to its new path; a copy, and a file added at a path a rename
+  vacated, are new; a deleted file lies dormant and a later file at its path
+  restores it; a file added where one is deleted in the same commit is new.
+  Commits are walked parents first, as commit times need not grow from parent
+  to child. A first attempt walked the list in date order with one global map
+  and needed a rule per merge shape; review kept finding shapes it missed.
+  The fragmap and split diffs detect renames only, ignoring `diff.renames`, so
+  the matrix does not depend on a personal setting. No two changes in one
+  commit are then one file, so `HunkGroupAssignment` is indexed per change of
+  the split commit, the split refuses an assignment that does not match its
+  diff, and nothing is looked up by path.

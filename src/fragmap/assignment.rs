@@ -27,10 +27,9 @@
 //! of insertions would collapse into one group however many columns it
 //! occupies.
 
-use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
-
 /// Half-open `[start, end)` range of 1-based file line numbers.
+use super::position::{ChangePos, HunkPos};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRange {
     pub start: u32,
@@ -90,21 +89,27 @@ impl HunkAssignment {
 pub struct HunkGroupAssignment {
     /// Number of distinct groups (column and relation pattern).
     pub group_count: usize,
-    /// Per file path, one entry per hunk of the split commit — indexed the
-    /// same way as the 0-context full diff produced by
-    /// `GitRepo::commit_diff_for_fragmap`.
-    pub by_file: HashMap<PathBuf, Vec<HunkAssignment>>,
+    /// Per change of the split commit, one entry per hunk; see [`Self::hunk`].
+    pub(super) by_change: Vec<Vec<HunkAssignment>>,
 }
 
 impl HunkGroupAssignment {
-    /// The distinct groups that receive at least one hunk, in ascending order.
-    pub fn touched_groups(&self) -> Vec<usize> {
-        let touched: BTreeSet<usize> = self
-            .by_file
-            .values()
-            .flatten()
-            .flat_map(|a| a.groups())
-            .collect();
-        touched.into_iter().collect()
+    /// The assignment of hunk `hunk` of change `change`, both numbered as in
+    /// the split commit's 0-context, rename-detecting diff — the one
+    /// `GitRepo::commit_diff_for_fragmap` produces. `None` for a change with
+    /// no hunks.
+    pub fn hunk(&self, change: ChangePos, hunk: HunkPos) -> Option<&HunkAssignment> {
+        self.by_change.get(change.0)?.get(hunk.0)
+    }
+
+    /// Whether this covers exactly a diff whose changes have `hunk_counts`
+    /// hunks: the split must not route one diff's hunks by another's groups.
+    pub fn lines_up_with(&self, hunk_counts: &[usize]) -> bool {
+        self.by_change.len() == hunk_counts.len()
+            && self
+                .by_change
+                .iter()
+                .zip(hunk_counts)
+                .all(|(hunks, &count)| hunks.len() == count)
     }
 }

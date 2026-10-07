@@ -384,3 +384,97 @@ fn paths_differing_only_in_invalid_bytes_stay_distinct() {
     assert_eq!(paths.len(), 2, "both files are in the diff");
     assert_ne!(paths[0], paths[1]);
 }
+
+/// The fragmap of the commits from `base` (exclusive) up to HEAD.
+fn fragmap_above(test: &common::TestRepo, base: git2::Oid) -> git_tailor::fragmap::FragMap {
+    let git_repo = test.git_repo();
+    let diffs: Vec<git_tailor::CommitDiff> = test
+        .commits_from_head(base)
+        .into_iter()
+        .map(|oid| git_repo.commit_diff_for_fragmap(&Oid::from(oid)).unwrap())
+        .collect();
+    git_tailor::fragmap::build_fragmap(&diffs, false, &mut |_| true).unwrap()
+}
+
+/// With `diff.renames = copies` git reports a new file resembling one still
+/// present as copied from it. The original is untouched, so the copy is just
+/// an addition and the matrix must not depend on the setting.
+#[test]
+fn fragmap_of_a_copy_is_the_same_with_copy_detection_on_or_off() {
+    let test = common::TestRepo::new();
+    let thirty = |edit: &dyn Fn(u32) -> String| -> String { (1..=30).map(edit).collect() };
+    let base = test.commit_file("a", &thirty(&|n| format!("{n}\n")), "base");
+    test.commit_file(
+        "a",
+        &thirty(&|n| format!("{n}{}\n", if n == 10 { "x" } else { "" })),
+        "edit a",
+    );
+    let a_edited = thirty(&|n| match n {
+        10 => "10x\n".into(),
+        20 => "20x\n".into(),
+        _ => format!("{n}\n"),
+    });
+    let copy = a_edited.replacen("1\n", "1c\n", 1);
+    let with_copy = test.commit_files(&[("a", &a_edited), ("c", &copy)], "edit a, copy to c");
+    test.commit_files(
+        &[
+            ("a", &a_edited.replace("10x\n", "10y\n")),
+            ("c", &copy.replace("25\n", "25c\n")),
+        ],
+        "edit a and c",
+    );
+
+    test.set_config("diff.renames", "copies");
+    let commit = test.repo.find_commit(with_copy).unwrap();
+    let mut diff = test
+        .repo
+        .diff_tree_to_tree(
+            Some(&commit.parent(0).unwrap().tree().unwrap()),
+            Some(&commit.tree().unwrap()),
+            None,
+        )
+        .unwrap();
+    diff.find_similar(None).unwrap();
+    assert!(
+        diff.deltas().any(|d| d.status() == git2::Delta::Copied),
+        "the setting must make git report the copy"
+    );
+    let detected = fragmap_above(&test, base);
+
+    test.set_config("diff.renames", "true");
+    let undetected = fragmap_above(&test, base);
+
+    assert_eq!(detected.matrix, undetected.matrix);
+}
+
+/// The staged row follows a rename as the commit made from it will, so the
+/// matrix does not change on committing.
+#[test]
+fn staged_diff_for_fragmap_detects_a_staged_rename() {
+    let test = common::TestRepo::new();
+    let lines: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+    test.commit_file("a.txt", &lines, "add a");
+    std::fs::remove_file(test.repo.workdir().unwrap().join("a.txt")).unwrap();
+    test.write_file("b.txt", &lines.replace("line 10\n", "line ten\n"));
+    let mut index = test.repo.index().unwrap();
+    index.remove_path(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("b.txt")).unwrap();
+    index.write().unwrap();
+
+    let staged = test
+        .git_repo()
+        .staged_diff_for_fragmap()
+        .unwrap()
+        .expect("staged changes present");
+
+    assert_eq!(staged.files.len(), 1, "{:?}", staged.files);
+    assert_eq!(staged.files[0].status, git_tailor::DeltaStatus::Renamed);
+    assert_eq!(
+        staged.files[0].old_path.as_deref(),
+        Some(Path::new("a.txt"))
+    );
+    assert_eq!(
+        staged.files[0].new_path.as_deref(),
+        Some(Path::new("b.txt"))
+    );
+}

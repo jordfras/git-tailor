@@ -185,9 +185,22 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
         repo.inner
             .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
-    diff.find_similar(None)?;
+    find_renames(&mut diff)?;
 
     extract_commit_diff(&diff, &commit)
+}
+
+/// Pair up renamed files in `diff`, and nothing more, whatever git's
+/// `diff.renames` says: with `copies` a new file is described against the one
+/// it resembles rather than whole, and the fragmap, and the split that numbers
+/// hunks as it does, must not change with a personal setting. The staged row
+/// pairs them too, so the matrix does not change on committing it; the
+/// unstaged row leaves untracked files out, so it has no addition to pair.
+pub(super) fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
+    let mut opts = git2::DiffFindOptions::new();
+    opts.renames(true);
+    diff.find_similar(Some(&mut opts))?;
+    Ok(())
 }
 
 /// HEAD's tree, or `None` on an unborn branch (no commits yet).
@@ -250,9 +263,10 @@ pub(super) fn staged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Option<
 pub(super) fn staged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
     let head = head_tree(repo)?;
     let mut opts = fragmap_diff_opts();
-    let diff = repo
+    let mut diff = repo
         .inner
         .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
+    find_renames(&mut diff)?;
     build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
 }
 
