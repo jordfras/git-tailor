@@ -1437,6 +1437,35 @@ fn abandoning_a_resume_reports_an_autostash_it_cannot_restore() {
     assert!(message.contains("git stash list"), "{message}");
 }
 
+/// Giving up on a resume whose abort is refused keeps the conflict dialog, says
+/// why, and leaves the auto-stash alone: the paused operation is still there.
+#[test]
+fn abandoning_a_resume_whose_abort_is_refused_keeps_the_dialog() {
+    let mut repo = MockRepo {
+        abort_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    super::conflict::abandon_resume(
+        &mut repo,
+        &mut app,
+        &make_conflict_state(),
+        "Squash aborted: empty commit message".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "got {:?}",
+        app.mode
+    );
+    let failure = app.resume_failure.as_deref().unwrap_or("");
+    assert!(failure.contains("empty commit message"), "{failure}");
+    assert!(failure.contains("Abort failed"), "{failure}");
+    assert_eq!(repo.autostash_restore_calls.get(), 0);
+}
+
 /// A squash from a commit joins the two messages; a row has none of its own, so
 /// it starts from the target's alone rather than from a blank line under it.
 #[test]
