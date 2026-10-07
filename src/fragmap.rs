@@ -297,8 +297,9 @@ pub fn build_fragmap(
 /// to the same commit around an unrelated middle needs the middle carved out
 /// specifically, not lumped into whichever end it is compared against.)
 ///
-/// `progress` hears a [`FragMapProgress::ClusteringFile`] for each file the
-/// commit touches. Returns `Ok(None)` if `commit_oid` is not found in
+/// `progress` hears a [`FragMapProgress::ClusteringFile`] as each file the
+/// commit touches is clustered, and stops the assignment with [`Interrupted`]
+/// by returning `false`. Returns `Ok(None)` if `commit_oid` is not found in
 /// `commit_diffs`.
 pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
@@ -371,8 +372,7 @@ pub fn assign_hunk_groups(
             progress(FragMapProgress::ClusteringFile {
                 files_done,
                 files_total,
-            });
-            true
+            })
         };
         let Some(clusters) = build_file_clusters_with_target(
             lineages.label(file),
@@ -382,7 +382,7 @@ pub fn assign_hunk_groups(
             Some(k),
             &mut poll,
         ) else {
-            continue;
+            return Err(Interrupted);
         };
         let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
             continue;

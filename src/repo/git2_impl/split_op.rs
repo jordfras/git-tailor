@@ -924,10 +924,13 @@ fn compute_hunk_group_assignment(
     let commits_total = branch_commits.len();
     let mut branch_diffs = Vec::with_capacity(commits_total);
     for (commits_done, oid) in branch_commits.iter().enumerate() {
-        progress(fragmap::FragMapProgress::ReadingCommits {
+        let go_on = progress(fragmap::FragMapProgress::ReadingCommits {
             commits_done,
             commits_total,
         });
+        if !go_on {
+            return Err(fragmap::Interrupted.into());
+        }
         branch_diffs.push(reads::commit_diff_for_fragmap(repo, oid)?);
     }
 
