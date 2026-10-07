@@ -82,6 +82,7 @@ git-tailor/
 │   │   ├── assignment.rs   # Hunk-group assignment types for split per hunk group
 │   │   ├── attribution.rs  # Exact line attribution for the commit being split
 │   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
+│   │   ├── position.rs     # CommitPos, ChangePos, HunkPos: typed positions
 │   │   └── spg.rs          # Span Propagation Graph algorithm
 │   ├── views.rs            # View module declarations
 │   ├── views/

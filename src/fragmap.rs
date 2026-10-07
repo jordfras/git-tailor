@@ -27,12 +27,14 @@ use crate::{CommitDiff, Oid, VirtualOid};
 mod assignment;
 mod attribution;
 mod lineage;
+mod position;
 mod spg;
 pub use assignment::{
     FragmentAssignment, HunkAssignment, HunkFragment, HunkGroupAssignment, LineRange,
 };
 pub use lineage::FileId;
 use lineage::FileLineages;
+pub use position::{ChangePos, CommitPos, HunkPos};
 use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clusters};
 
 /// Collect each file's hunks per commit.
@@ -42,9 +44,10 @@ use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clus
 fn collect_file_commits(
     commit_diffs: &[CommitDiff],
     lineages: &FileLineages,
-) -> HashMap<FileId, Vec<(usize, Vec<HunkInfo>)>> {
-    let mut file_commits: HashMap<FileId, Vec<(usize, Vec<HunkInfo>)>> = HashMap::new();
-    for (commit_idx, diff) in commit_diffs.iter().enumerate() {
+) -> HashMap<FileId, Vec<(CommitPos, Vec<HunkInfo>)>> {
+    let mut file_commits: HashMap<FileId, Vec<(CommitPos, Vec<HunkInfo>)>> = HashMap::new();
+    for (commit, diff) in commit_diffs.iter().enumerate() {
+        let commit = CommitPos(commit);
         for (change, file) in diff.files.iter().enumerate() {
             if file.new_path.is_none() || file.hunks.is_empty() {
                 continue;
@@ -60,11 +63,11 @@ fn collect_file_commits(
                 })
                 .collect();
             let entry = file_commits
-                .entry(lineages.of(commit_idx, change))
+                .entry(lineages.of(commit, ChangePos(change)))
                 .or_default();
             match entry.last_mut() {
-                Some((last, earlier)) if *last == commit_idx => earlier.extend(hunks),
-                _ => entry.push((commit_idx, hunks)),
+                Some((last, earlier)) if *last == commit => earlier.extend(hunks),
+                _ => entry.push((commit, hunks)),
             }
         }
     }
@@ -281,9 +284,11 @@ pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
     commit_oid: &Oid,
 ) -> Option<HunkGroupAssignment> {
-    let k_idx = commit_diffs
-        .iter()
-        .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?;
+    let k = CommitPos(
+        commit_diffs
+            .iter()
+            .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?,
+    );
 
     let lineages = FileLineages::new(commit_diffs);
     let file_commits = collect_file_commits(commit_diffs, &lineages);
@@ -292,14 +297,14 @@ pub fn assign_hunk_groups(
     // bottom so groups appear in a stable, positional order.
     let mut attributed: Vec<(FileId, Vec<Vec<attribution::AttributedFragment>>)> = Vec::new();
     for file in lineages.sorted(file_commits.keys().copied()) {
-        if let Some(per_hunk) = attribution::attribute_target_hunks(&file_commits[&file], k_idx) {
+        if let Some(per_hunk) = attribution::attribute_target_hunks(&file_commits[&file], k) {
             attributed.push((file, per_hunk));
         }
     }
 
     // A hunk's relation set is the union of its lines' relation sets.
-    let hunk_union = |fragments: &[attribution::AttributedFragment]| -> Vec<usize> {
-        let mut union: Vec<usize> = fragments
+    let hunk_union = |fragments: &[attribution::AttributedFragment]| -> Vec<CommitPos> {
+        let mut union: Vec<CommitPos> = fragments
             .iter()
             .flat_map(|f| f.related.iter().copied())
             .collect();
@@ -310,18 +315,18 @@ pub fn assign_hunk_groups(
     // Rescue check: when every hunk has the same relation set the split would
     // be refused, so pick ONE hunk with more than one distinct per-line
     // relation pattern — its fragments are then routed individually below.
-    let distinct_unions: HashSet<Vec<usize>> = attributed
+    let distinct_unions: HashSet<Vec<CommitPos>> = attributed
         .iter()
         .flat_map(|(_, per_hunk)| per_hunk.iter().map(|fragments| hunk_union(fragments)))
         .collect();
-    let mut cut_target: Option<(FileId, usize)> = None;
+    let mut cut_target: Option<(FileId, HunkPos)> = None;
     if distinct_unions.len() < 2 {
         'search: for &(file, ref per_hunk) in &attributed {
-            for (hunk_idx, fragments) in per_hunk.iter().enumerate() {
-                let distinct_patterns: HashSet<&Vec<usize>> =
+            for (hunk, fragments) in per_hunk.iter().enumerate() {
+                let distinct_patterns: HashSet<&Vec<CommitPos>> =
                     fragments.iter().map(|f| &f.related).collect();
                 if distinct_patterns.len() >= 2 {
-                    cut_target = Some((file, hunk_idx));
+                    cut_target = Some((file, HunkPos(hunk)));
                     break 'search;
                 }
             }
@@ -335,7 +340,7 @@ pub fn assign_hunk_groups(
     // this: a hunk that only inserts lines rewrites nobody's output, so every
     // such hunk comes back relating to nothing and they collapse into a single
     // group even when they are in different files entirely.
-    let mut column_of: HashMap<(FileId, usize), Vec<VirtualOid>> = HashMap::new();
+    let mut column_of: HashMap<(FileId, HunkPos), Vec<VirtualOid>> = HashMap::new();
     let mut clusters_of: HashMap<FileId, Vec<(SpanCluster, Option<spg::SpgSpan>)>> = HashMap::new();
     for &(file, _) in &attributed {
         let Some(clusters) = build_file_clusters_with_target(
@@ -343,15 +348,12 @@ pub fn assign_hunk_groups(
             file,
             &file_commits[&file],
             commit_diffs,
-            Some(k_idx),
+            Some(k),
             &mut || true,
         ) else {
             continue;
         };
-        let Some((_, k_hunks)) = file_commits[&file]
-            .iter()
-            .find(|(generation, _)| *generation == k_idx)
-        else {
+        let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
             continue;
         };
         for (hunk_idx, hunk) in k_hunks.iter().enumerate() {
@@ -374,7 +376,7 @@ pub fn assign_hunk_groups(
                 // different files, so hunks in them belong together.
                 let mut touching = clusters[cluster_idx].0.commit_oids.clone();
                 touching.sort();
-                column_of.insert((file, hunk_idx), touching);
+                column_of.insert((file, HunkPos(hunk_idx)), touching);
             }
         }
         clusters_of.insert(file, clusters);
@@ -408,7 +410,7 @@ pub fn assign_hunk_groups(
     // separable there is bounded by the hunk, not by how many columns the
     // pairings generate. Indexed in order of first appearance so the split
     // pieces come out positionally.
-    type GroupKey = (Option<Vec<VirtualOid>>, Vec<usize>);
+    type GroupKey = (Option<Vec<VirtualOid>>, Vec<CommitPos>);
     let mut patterns: Vec<GroupKey> = Vec::new();
     let group_of = |key: GroupKey, patterns: &mut Vec<GroupKey>| -> usize {
         match patterns.iter().position(|p| *p == key) {
@@ -426,7 +428,8 @@ pub fn assign_hunk_groups(
             .iter()
             .enumerate()
             .map(|(hunk_idx, fragments)| {
-                if cut_target == Some((file, hunk_idx)) {
+                let hunk = HunkPos(hunk_idx);
+                if cut_target == Some((file, hunk)) {
                     let assigned: Vec<FragmentAssignment> = fragments
                         .iter()
                         .map(|f| FragmentAssignment {
@@ -443,10 +446,7 @@ pub fn assign_hunk_groups(
                 } else {
                     HunkAssignment::Whole {
                         group: group_of(
-                            (
-                                column_of.get(&(file, hunk_idx)).cloned(),
-                                hunk_union(fragments),
-                            ),
+                            (column_of.get(&(file, hunk)).cloned(), hunk_union(fragments)),
                             &mut patterns,
                         ),
                     }
@@ -456,10 +456,10 @@ pub fn assign_hunk_groups(
         by_file.insert(file, entries);
     }
 
-    let by_change = (0..commit_diffs[k_idx].files.len())
+    let by_change = (0..commit_diffs[k.0].files.len())
         .map(|change| {
             by_file
-                .get(&lineages.of(k_idx, change))
+                .get(&lineages.of(k, ChangePos(change)))
                 .cloned()
                 .unwrap_or_default()
         })
@@ -614,8 +614,9 @@ fn determine_touch_kind(
     lineages: &FileLineages,
 ) -> TouchKind {
     for cluster_span in &cluster.spans {
-        let change = (0..commit_diff.files.len())
-            .find(|&change| lineages.of(commit_idx, change) == cluster_span.file);
+        let change = (0..commit_diff.files.len()).find(|&change| {
+            lineages.of(CommitPos(commit_idx), ChangePos(change)) == cluster_span.file
+        });
         if let Some(change) = change {
             // From the delta's own status, not from which paths are set:
             // libgit2 fills in *both* `old_file` and `new_file` for an add

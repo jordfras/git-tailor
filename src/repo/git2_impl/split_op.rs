@@ -308,7 +308,7 @@ impl HunkGroupPlan {
                 (0..num_hunks)
                     .map(|h| {
                         assignment
-                            .hunk(delta_idx, h)
+                            .hunk(fragmap::ChangePos(delta_idx), fragmap::HunkPos(h))
                             .cloned()
                             .expect("checked to line up")
                     })

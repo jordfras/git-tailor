@@ -18,6 +18,7 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use super::position::{ChangePos, CommitPos};
 use crate::{CommitDiff, Oid};
 
 /// One file's identity across the commits of a fragmap.
@@ -43,9 +44,11 @@ impl FileId {
 /// first seen without an addition is a file from before the commits, the same
 /// one on every line. No two changes in one commit are then one file.
 pub(super) struct FileLineages {
-    /// Per commit, per change in that commit's diff.
+    /// The file of each change: indexed by the commit's position, then by the
+    /// change's position in that commit's diff. One row per commit, as long as
+    /// its diff.
     of: Vec<Vec<FileId>>,
-    /// Per file, the path it was first seen under.
+    /// The path each file was first seen under, indexed by its `FileId`.
     labels: Vec<PathBuf>,
 }
 
@@ -135,7 +138,7 @@ struct PathFilesStore {
 }
 
 impl PathFilesStore {
-    fn new(children_of: &[Vec<usize>]) -> Self {
+    fn new(children_of: &[Vec<CommitPos>]) -> Self {
         PathFilesStore {
             path_files: vec![None; children_of.len()],
             children: children_of.iter().map(Vec::len).collect(),
@@ -143,37 +146,32 @@ impl PathFilesStore {
     }
 
     /// What a commit with first parent `first` starts from.
-    fn start_from(&mut self, first: Option<usize>) -> PathFiles {
+    fn start_from(&mut self, first: Option<CommitPos>) -> PathFiles {
         match first {
-            Some(parent) if self.children[parent] == 1 => self.path_files[parent].take(),
-            Some(parent) => self.path_files[parent].clone(),
+            Some(parent) if self.children[parent.0] == 1 => self.path_files[parent.0].take(),
+            Some(parent) => self.path_files[parent.0].clone(),
             None => None,
         }
         .unwrap_or_default()
     }
 
-    fn merged_in(&self, others: &[usize]) -> MergedIn<'_> {
+    fn merged_in(&self, others: &[CommitPos]) -> MergedIn<'_> {
         MergedIn(
             others
                 .iter()
-                .filter_map(|&parent| self.path_files[parent].as_ref())
+                .filter_map(|parent| self.path_files[parent.0].as_ref())
                 .collect(),
         )
     }
 
-    /// Keep commit `idx`'s path-files, and drop its parents' once no child
-    /// still needs them.
-    fn keep(
-        &mut self,
-        idx: usize,
-        files: PathFiles,
-        (first, others): &(Option<usize>, Vec<usize>),
-    ) {
-        self.path_files[idx] = Some(files);
-        for &parent in first.iter().chain(others) {
-            self.children[parent] -= 1;
-            if self.children[parent] == 0 {
-                self.path_files[parent] = None;
+    /// Keep `commit`'s path-files, and drop its parents' once no child still
+    /// needs them.
+    fn keep(&mut self, commit: CommitPos, files: PathFiles, parents: &Parents) {
+        self.path_files[commit.0] = Some(files);
+        for parent in parents.all() {
+            self.children[parent.0] -= 1;
+            if self.children[parent.0] == 0 {
+                self.path_files[parent.0] = None;
             }
         }
     }
@@ -189,17 +187,17 @@ impl FileLineages {
         let children_of = children_of(&parents);
         let mut store = PathFilesStore::new(&children_of);
         let mut before_range: HashMap<PathBuf, FileId> = HashMap::new();
-        for idx in parent_first_order(&parents, &children_of) {
-            let (first, others) = &parents[idx];
-            let mut files = store.start_from(*first);
-            let merged_in = store.merged_in(others);
-            lineages.of[idx] = lineages.change_files(
-                &commit_diffs[idx],
+        for commit in parent_first_order(&parents, &children_of) {
+            let parents = &parents[commit.0];
+            let mut files = store.start_from(parents.first);
+            let merged_in = store.merged_in(&parents.others);
+            lineages.of[commit.0] = lineages.change_files(
+                &commit_diffs[commit.0],
                 &mut files,
                 &merged_in,
                 &mut before_range,
             );
-            store.keep(idx, files, &parents[idx]);
+            store.keep(commit, files, parents);
         }
         lineages
     }
@@ -316,9 +314,9 @@ impl FileLineages {
         FileId(self.labels.len() - 1)
     }
 
-    /// The file change `change` of commit `commit_idx` belongs to.
-    pub(super) fn of(&self, commit_idx: usize, change: usize) -> FileId {
-        self.of[commit_idx][change]
+    /// The file change `change` of commit `commit` belongs to.
+    pub(super) fn of(&self, commit: CommitPos, change: ChangePos) -> FileId {
+        self.of[commit.0][change.0]
     }
 
     /// The path `file` was first seen under: what its clusters are labeled with.
@@ -339,15 +337,28 @@ impl FileLineages {
     }
 }
 
-/// Each commit's first parent and other parents, as positions among the
-/// commits. The uncommitted rows have no parents and continue from the one
-/// listed before them, as does every commit of a list made without parents.
-/// A root, or a commit whose parents lie outside the commits, starts afresh.
-fn parent_positions(commit_diffs: &[CommitDiff]) -> Vec<(Option<usize>, Vec<usize>)> {
-    let position: HashMap<&Oid, usize> = commit_diffs
+/// A commit's parents among the commits: the first, which its diff is
+/// against, and the others a merge brings in.
+struct Parents {
+    first: Option<CommitPos>,
+    others: Vec<CommitPos>,
+}
+
+impl Parents {
+    fn all(&self) -> impl Iterator<Item = CommitPos> + '_ {
+        self.first.iter().chain(&self.others).copied()
+    }
+}
+
+/// Each commit's parents, by position. The uncommitted rows have no parents
+/// and continue from the one listed before them, as does every commit of a
+/// list made without parents. A root, or a commit whose parents lie outside
+/// the commits, starts afresh.
+fn parent_positions(commit_diffs: &[CommitDiff]) -> Vec<Parents> {
+    let position: HashMap<&Oid, CommitPos> = commit_diffs
         .iter()
         .enumerate()
-        .filter_map(|(idx, diff)| Some((diff.commit.oid.as_oid()?, idx)))
+        .filter_map(|(idx, diff)| Some((diff.commit.oid.as_oid()?, CommitPos(idx))))
         .collect();
     let without_parents = commit_diffs
         .iter()
@@ -359,20 +370,26 @@ fn parent_positions(commit_diffs: &[CommitDiff]) -> Vec<(Option<usize>, Vec<usiz
             let oids = &diff.commit.parent_oids;
             if oids.is_empty() {
                 let continues = diff.commit.oid.is_synthetic() || without_parents;
-                return (idx.checked_sub(1).filter(|_| continues), Vec::new());
+                return Parents {
+                    first: idx.checked_sub(1).filter(|_| continues).map(CommitPos),
+                    others: Vec::new(),
+                };
             }
             let mut listed = oids.iter().map(|oid| position.get(oid).copied());
-            (listed.next().flatten(), listed.flatten().collect())
+            Parents {
+                first: listed.next().flatten(),
+                others: listed.flatten().collect(),
+            }
         })
         .collect()
 }
 
-/// Each commit's children among the commits.
-fn children_of(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<Vec<usize>> {
-    let mut children: Vec<Vec<usize>> = vec![Vec::new(); parents.len()];
-    for (idx, (first, others)) in parents.iter().enumerate() {
-        for &parent in first.iter().chain(others) {
-            children[parent].push(idx);
+/// Each commit's children among the commits, by position.
+fn children_of(parents: &[Parents]) -> Vec<Vec<CommitPos>> {
+    let mut children: Vec<Vec<CommitPos>> = vec![Vec::new(); parents.len()];
+    for (idx, parents) in parents.iter().enumerate() {
+        for parent in parents.all() {
+            children[parent.0].push(CommitPos(idx));
         }
     }
     children
@@ -381,24 +398,21 @@ fn children_of(parents: &[(Option<usize>, Vec<usize>)]) -> Vec<Vec<usize>> {
 /// The commits in an order that puts every parent before its children:
 /// commit times need not grow from parent to child, so a date-ordered list
 /// can hold a commit before its parent. Ties keep the list's order.
-fn parent_first_order(
-    parents: &[(Option<usize>, Vec<usize>)],
-    children_of: &[Vec<usize>],
-) -> Vec<usize> {
+fn parent_first_order(parents: &[Parents], children_of: &[Vec<CommitPos>]) -> Vec<CommitPos> {
     let mut waiting: Vec<usize> = parents
         .iter()
-        .map(|(first, others)| first.iter().count() + others.len())
+        .map(|parents| parents.all().count())
         .collect();
-    let mut ready: BinaryHeap<Reverse<usize>> = (0..parents.len())
+    let mut ready: BinaryHeap<Reverse<CommitPos>> = (0..parents.len())
         .filter(|&idx| waiting[idx] == 0)
-        .map(Reverse)
+        .map(|idx| Reverse(CommitPos(idx)))
         .collect();
     let mut order = Vec::with_capacity(parents.len());
-    while let Some(Reverse(idx)) = ready.pop() {
-        order.push(idx);
-        for &child in &children_of[idx] {
-            waiting[child] -= 1;
-            if waiting[child] == 0 {
+    while let Some(Reverse(commit)) = ready.pop() {
+        order.push(commit);
+        for &child in &children_of[commit.0] {
+            waiting[child.0] -= 1;
+            if waiting[child.0] == 0 {
                 ready.push(Reverse(child));
             }
         }

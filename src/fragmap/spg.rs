@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{CommitDiff, VirtualOid};
 
-use super::{FileId, FileSpan, HunkInfo, SpanCluster};
+use super::{CommitPos, FileId, FileSpan, HunkInfo, SpanCluster};
 use std::path::Path;
 
 /// Half-open interval `[start, end)` for SPG span computations.
@@ -482,14 +482,14 @@ fn spg_all_paths(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<Vec<S
 /// `poll` is called after each commit generation. Return `false` from `poll`
 /// to interrupt early; in that case the function returns `None`.
 fn build_file_spg(
-    commits: &[(usize, Vec<HunkInfo>)],
+    commits: &[(CommitPos, Vec<HunkInfo>)],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Spg> {
     let mut spg = Spg::empty();
     let mut last_gen: Option<i32> = None;
 
-    for (commit_idx, hunks) in commits {
-        let commit_gen = *commit_idx as i32;
+    for (commit, hunks) in commits {
+        let commit_gen = commit.0 as i32;
 
         // When commits that touch this file are non-consecutive (e.g.
         // generations 0 and 5, with 1–4 not touching the file), the
@@ -616,7 +616,7 @@ pub(super) fn deduplicate_clusters(clusters: &mut Vec<SpanCluster>) {
 pub(super) fn build_file_clusters(
     path: &Path,
     file: FileId,
-    commits_for_file: &[(usize, Vec<HunkInfo>)],
+    commits_for_file: &[(CommitPos, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<SpanCluster>> {
@@ -639,9 +639,9 @@ pub(super) fn build_file_clusters(
 pub(super) fn build_file_clusters_with_target(
     path: &Path,
     file: FileId,
-    commits_for_file: &[(usize, Vec<HunkInfo>)],
+    commits_for_file: &[(CommitPos, Vec<HunkInfo>)],
     commit_diffs: &[CommitDiff],
-    target: Option<usize>,
+    target: Option<CommitPos>,
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<(SpanCluster, Option<SpgSpan>)>> {
     let spg = build_file_spg(commits_for_file, poll)?;
@@ -664,7 +664,7 @@ pub(super) fn build_file_clusters_with_target(
                     commit_oids.push(oid.clone());
                 }
                 last_active_span = Some(node.new_span);
-                if target == Some(generation) {
+                if target == Some(CommitPos(generation)) {
                     target_span = Some(node.new_span);
                 }
             }
@@ -694,7 +694,7 @@ pub(super) fn build_file_clusters_with_target(
 /// Enumerate all SPG paths for each file and the raw path count.
 /// Used by `dump_per_file_spg_stats`.
 pub(super) fn enumerate_file_spg_paths(
-    commits: &[(usize, Vec<HunkInfo>)],
+    commits: &[(CommitPos, Vec<HunkInfo>)],
 ) -> (usize, usize, usize) {
     let spg = build_file_spg(commits, &mut || true).expect("no-op poll never interrupts");
     let node_count = spg.graph.len();
@@ -715,7 +715,10 @@ pub(super) fn dump_per_file_spg_stats(commit_diffs: &[CommitDiff]) {
         let commits_for_file = &file_commits[&file];
         let (node_count, raw_path_count, deduped_path_count) =
             enumerate_file_spg_paths(commits_for_file);
-        let gens: Vec<usize> = commits_for_file.iter().map(|(g, _)| *g).collect();
+        let gens: Vec<usize> = commits_for_file
+            .iter()
+            .map(|(commit, _)| commit.0)
+            .collect();
         eprintln!(
             "FILE: {} | gens={:?} | nodes={} | raw_paths={} | deduped_paths={}",
             path.display(),

@@ -28,6 +28,8 @@
 //! occupies.
 
 /// Half-open `[start, end)` range of 1-based file line numbers.
+use super::position::{ChangePos, HunkPos};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRange {
     pub start: u32,
@@ -96,8 +98,8 @@ impl HunkGroupAssignment {
     /// the split commit's 0-context, rename-detecting diff — the one
     /// `GitRepo::commit_diff_for_fragmap` produces. `None` for a change with
     /// no hunks.
-    pub fn hunk(&self, change: usize, hunk: usize) -> Option<&HunkAssignment> {
-        self.by_change.get(change)?.get(hunk)
+    pub fn hunk(&self, change: ChangePos, hunk: HunkPos) -> Option<&HunkAssignment> {
+        self.by_change.get(change.0)?.get(hunk.0)
     }
 
     /// Whether this covers exactly a diff whose changes have `hunk_counts`

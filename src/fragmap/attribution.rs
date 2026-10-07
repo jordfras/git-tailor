@@ -29,6 +29,7 @@
 
 use super::HunkInfo;
 use super::assignment::{HunkFragment, LineRange};
+use super::position::CommitPos;
 
 /// Half-open `[start, end)` interval used for line-map arithmetic.
 type Interval = (i64, i64);
@@ -41,7 +42,7 @@ pub(super) struct AttributedFragment {
     /// Sorted, deduplicated indices (into the commit-diff list) of the other
     /// commits relating to this fragment's lines.  Empty when only the target
     /// commit itself touches them.
-    pub(super) related: Vec<usize>,
+    pub(super) related: Vec<CommitPos>,
 }
 
 /// The span of lines a hunk removes, in old-file coordinates (empty for pure
@@ -158,7 +159,7 @@ fn normalize(mut intervals: Vec<Interval>) -> Vec<Interval> {
 /// A relation of one other commit to the target commit's lines: intervals in
 /// the target's old frame (earlier commits) or new frame (later commits).
 struct CommitRelation {
-    commit_idx: usize,
+    commit: CommitPos,
     /// Intervals in the target hunks' old-file coordinates.
     old_intervals: Vec<Interval>,
     /// Intervals in the target hunks' new-file coordinates.
@@ -172,12 +173,12 @@ struct CommitRelation {
 /// the file are identity maps and need no entry.  Returns one fragment list
 /// per target hunk, or `None` when the target does not touch this file.
 pub(super) fn attribute_target_hunks(
-    commits_for_file: &[(usize, Vec<HunkInfo>)],
-    target_commit_idx: usize,
+    commits_for_file: &[(CommitPos, Vec<HunkInfo>)],
+    target: CommitPos,
 ) -> Option<Vec<Vec<AttributedFragment>>> {
     let target_pos = commits_for_file
         .iter()
-        .position(|(idx, _)| *idx == target_commit_idx)?;
+        .position(|(commit, _)| *commit == target)?;
     let target_hunks = &commits_for_file[target_pos].1;
 
     let mut relations: Vec<CommitRelation> = Vec::new();
@@ -185,13 +186,13 @@ pub(super) fn attribute_target_hunks(
     // Earlier commits: map the lines they produced forward, through every
     // intermediate diff, into the target's old frame.
     for earlier_pos in 0..target_pos {
-        let (commit_idx, hunks) = &commits_for_file[earlier_pos];
+        let (commit, hunks) = &commits_for_file[earlier_pos];
         let mut intervals: Vec<Interval> = hunks.iter().map(hunk_new_span).collect();
         for (_, between) in &commits_for_file[earlier_pos + 1..target_pos] {
             intervals = map_intervals(&intervals, between, false);
         }
         relations.push(CommitRelation {
-            commit_idx: *commit_idx,
+            commit: *commit,
             old_intervals: normalize(intervals),
             new_intervals: Vec::new(),
         });
@@ -200,13 +201,13 @@ pub(super) fn attribute_target_hunks(
     // Later commits: map the lines they consumed backward, through every
     // intermediate diff, into the target's new frame.
     for later_pos in target_pos + 1..commits_for_file.len() {
-        let (commit_idx, hunks) = &commits_for_file[later_pos];
+        let (commit, hunks) = &commits_for_file[later_pos];
         let mut intervals: Vec<Interval> = hunks.iter().map(hunk_old_span).collect();
         for (_, between) in commits_for_file[target_pos + 1..later_pos].iter().rev() {
             intervals = map_intervals(&intervals, between, true);
         }
         relations.push(CommitRelation {
-            commit_idx: *commit_idx,
+            commit: *commit,
             old_intervals: Vec::new(),
             new_intervals: normalize(intervals),
         });
@@ -241,18 +242,18 @@ fn attribute_hunk(hunk: &HunkInfo, relations: &[CommitRelation]) -> Vec<Attribut
     };
 
     // Each relation's claim on this hunk, on the unified axis.
-    let mut claims: Vec<(usize, Interval)> = Vec::new();
+    let mut claims: Vec<(CommitPos, Interval)> = Vec::new();
     for relation in relations {
         for &interval in &relation.old_intervals {
             let (a, b) = project(interval, old_span, old_len);
             if a < b {
-                claims.push((relation.commit_idx, (a, b)));
+                claims.push((relation.commit, (a, b)));
             }
         }
         for &interval in &relation.new_intervals {
             let (a, b) = project(interval, new_span, new_len);
             if a < b {
-                claims.push((relation.commit_idx, (a, b)));
+                claims.push((relation.commit, (a, b)));
             }
         }
     }
@@ -271,16 +272,16 @@ fn attribute_hunk(hunk: &HunkInfo, relations: &[CommitRelation]) -> Vec<Attribut
         .chain(cuts)
         .chain(std::iter::once(unified_len))
         .collect();
-    let mut segments: Vec<(i64, i64, Vec<usize>)> = Vec::new();
+    let mut segments: Vec<(i64, i64, Vec<CommitPos>)> = Vec::new();
     for pair in bounds.windows(2) {
         let (start, end) = (pair[0], pair[1]);
         if start >= end {
             continue;
         }
-        let mut related: Vec<usize> = claims
+        let mut related: Vec<CommitPos> = claims
             .iter()
             .filter(|&&(_, (a, b))| a < end && start < b)
-            .map(|&(commit_idx, _)| commit_idx)
+            .map(|&(commit, _)| commit)
             .collect();
         related.sort();
         related.dedup();
@@ -315,6 +316,19 @@ fn attribute_hunk(hunk: &HunkInfo, relations: &[CommitRelation]) -> Vec<Attribut
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `commits` with each commit numbered by position.
+    fn positions(commits: &[(usize, Vec<HunkInfo>)]) -> Vec<(CommitPos, Vec<HunkInfo>)> {
+        commits
+            .iter()
+            .map(|(commit, hunks)| (CommitPos(*commit), hunks.clone()))
+            .collect()
+    }
+
+    /// The positions of `related` commits, as plain numbers.
+    fn plain(related: &[CommitPos]) -> Vec<usize> {
+        related.iter().map(|commit| commit.0).collect()
+    }
 
     fn hunk(old_start: u32, old_lines: u32, new_start: u32, new_lines: u32) -> HunkInfo {
         HunkInfo {
@@ -362,7 +376,7 @@ mod tests {
     fn later_commit_consuming_part_of_a_hunk_splits_it() {
         // K (idx 0) rewrites lines 1-2; C (idx 1) edits line 2 of K's output.
         let commits = vec![(0, vec![hunk(1, 2, 1, 2)]), (1, vec![hunk(2, 1, 2, 1)])];
-        let fragments = attribute_target_hunks(&commits, 0).unwrap();
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(0)).unwrap();
         assert_eq!(
             fragments[0],
             vec![
@@ -378,7 +392,7 @@ mod tests {
                         old_lines: range(2, 3),
                         new_lines: range(2, 3),
                     },
-                    related: vec![1],
+                    related: vec![CommitPos(1)],
                 },
             ]
         );
@@ -393,9 +407,9 @@ mod tests {
             (1, vec![hunk(2, 1, 2, 1)]),
             (2, vec![hunk(1, 2, 1, 2)]),
         ];
-        let fragments = attribute_target_hunks(&commits, 2).unwrap();
-        let related: Vec<&Vec<usize>> = fragments[0].iter().map(|f| &f.related).collect();
-        assert_eq!(related, vec![&vec![0], &vec![1]]);
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(2)).unwrap();
+        let related: Vec<Vec<usize>> = fragments[0].iter().map(|f| plain(&f.related)).collect();
+        assert_eq!(related, vec![vec![0], vec![1]]);
     }
 
     #[test]
@@ -408,16 +422,16 @@ mod tests {
             (1, vec![hunk(2, 1, 2, 3)]),
             (2, vec![hunk(3, 1, 3, 1)]),
         ];
-        let fragments = attribute_target_hunks(&commits, 0).unwrap();
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(0)).unwrap();
         let with_c: Vec<_> = fragments[0]
             .iter()
-            .filter(|f| f.related.contains(&2))
+            .filter(|f| f.related.contains(&CommitPos(2)))
             .collect();
         assert_eq!(with_c.len(), 1);
         // The fragment C relates to is K's second added line — the one M's
         // replacement consumed — and M relates to it too.
         assert_eq!(with_c[0].fragment.new_lines, range(2, 3));
-        assert!(with_c[0].related.contains(&1));
+        assert!(with_c[0].related.contains(&CommitPos(1)));
     }
 
     #[test]
@@ -436,8 +450,8 @@ mod tests {
             (4, vec![hunk(1, 1, 1, 1)]), // hop4: unrelated same-size modify -> no effect
             (5, vec![hunk(3, 1, 3, 1)]), // C touches K's line at its current position
         ];
-        let fragments = attribute_target_hunks(&commits, 0).unwrap();
-        assert_eq!(fragments[0][0].related, vec![5]);
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(0)).unwrap();
+        assert_eq!(fragments[0][0].related, vec![CommitPos(5)]);
     }
 
     #[test]
@@ -452,8 +466,8 @@ mod tests {
             (1, vec![hunk(2, 1, 1, 0)]), // DEL deletes it (pure deletion)
             (2, vec![hunk(2, 1, 2, 1)]), // K touches the same position, post-deletion
         ];
-        let fragments = attribute_target_hunks(&commits, 2).unwrap();
-        assert_eq!(fragments[0][0].related, Vec::<usize>::new());
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(2)).unwrap();
+        assert_eq!(fragments[0][0].related, Vec::<CommitPos>::new());
     }
 
     #[test]
@@ -462,9 +476,9 @@ mod tests {
         // entry); C (idx 2) edits line 2.  Attribution must be exact despite
         // the gap.
         let commits = vec![(0, vec![hunk(1, 2, 1, 2)]), (2, vec![hunk(2, 1, 2, 1)])];
-        let fragments = attribute_target_hunks(&commits, 0).unwrap();
-        let related: Vec<&Vec<usize>> = fragments[0].iter().map(|f| &f.related).collect();
-        assert_eq!(related, vec![&vec![], &vec![2]]);
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(0)).unwrap();
+        let related: Vec<Vec<usize>> = fragments[0].iter().map(|f| plain(&f.related)).collect();
+        assert_eq!(related, vec![vec![], vec![2]]);
     }
 
     #[test]
@@ -478,14 +492,14 @@ mod tests {
             (1, vec![hunk(8, 2, 8, 2)]),
             (2, vec![hunk(1, 9, 1, 9)]),
         ];
-        let fragments = attribute_target_hunks(&commits, 2).unwrap();
-        let related: Vec<&Vec<usize>> = fragments[0].iter().map(|f| &f.related).collect();
-        assert_eq!(related, vec![&vec![0], &vec![], &vec![1]]);
+        let fragments = attribute_target_hunks(&positions(&commits), CommitPos(2)).unwrap();
+        let related: Vec<Vec<usize>> = fragments[0].iter().map(|f| plain(&f.related)).collect();
+        assert_eq!(related, vec![vec![0], vec![], vec![1]]);
     }
 
     #[test]
     fn target_absent_from_file_yields_none() {
         let commits = vec![(0, vec![hunk(1, 1, 1, 1)])];
-        assert!(attribute_target_hunks(&commits, 5).is_none());
+        assert!(attribute_target_hunks(&positions(&commits), CommitPos(5)).is_none());
     }
 }

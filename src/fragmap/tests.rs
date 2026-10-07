@@ -1927,10 +1927,22 @@ fn a_rename_carries_a_file_and_a_file_added_at_its_old_path_is_new() {
         vec![change(Renamed, "a", "b")],
         vec![change(Added, "a", "a"), change(Modified, "b", "b")],
     ]);
-    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
-    assert_eq!(lineages.of(2, 1), lineages.of(0, 0));
-    assert_ne!(lineages.of(2, 0), lineages.of(0, 0));
-    assert_eq!(lineages.label(lineages.of(2, 1)), Path::new("a"));
+    assert_eq!(
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_eq!(
+        lineages.of(CommitPos(2), ChangePos(1)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_ne!(
+        lineages.of(CommitPos(2), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_eq!(
+        lineages.label(lineages.of(CommitPos(2), ChangePos(1))),
+        Path::new("a")
+    );
 }
 
 #[test]
@@ -1940,7 +1952,10 @@ fn a_file_restored_in_a_later_commit_is_the_one_deleted() {
         vec![change(Deleted, "a", "a")],
         vec![change(Added, "a", "a")],
     ]);
-    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+    assert_eq!(
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
 }
 
 #[test]
@@ -1953,8 +1968,14 @@ fn a_file_added_where_one_is_deleted_in_the_same_commit_is_new() {
         ],
         vec![change(Modified, "link", "link")],
     ]);
-    assert_ne!(lineages.of(0, 1), lineages.of(0, 0));
-    assert_eq!(lineages.of(1, 0), lineages.of(0, 1));
+    assert_ne!(
+        lineages.of(CommitPos(0), ChangePos(1)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_eq!(
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(1))
+    );
 }
 
 /// A copy is a new file: the file it was copied from keeps its history.
@@ -1966,9 +1987,18 @@ fn a_copy_is_new_and_its_source_keeps_its_history() {
         vec![change(Modified, "a", "a"), change(Copied, "a", "c")],
         vec![change(Modified, "a", "a")],
     ]);
-    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
-    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
-    assert_ne!(lineages.of(1, 1), lineages.of(0, 0));
+    assert_eq!(
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_eq!(
+        lineages.of(CommitPos(2), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_ne!(
+        lineages.of(CommitPos(1), ChangePos(1)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
 }
 
 // A merge's diff against its first parent shows what its branch brought in:
@@ -1983,9 +2013,13 @@ fn a_file_a_merge_brings_in_is_the_branch_file() {
         ("m1", vec!["m0", "f2"], vec![change(Added, "a", "a")]),
         ("m2", vec!["m1"], vec![change(Modified, "a", "a")]),
     ]);
-    let a = lineages.of(1, 0);
+    let a = lineages.of(CommitPos(1), ChangePos(0));
     for commit in 2..5 {
-        assert_eq!(lineages.of(commit, 0), a, "commit {commit}");
+        assert_eq!(
+            lineages.of(CommitPos(commit), ChangePos(0)),
+            a,
+            "commit {commit}"
+        );
     }
 }
 
@@ -1999,7 +2033,11 @@ fn a_rename_a_merge_brings_in_is_the_same_file() {
         ("m2", vec!["m1"], vec![change(Modified, "y", "y")]),
     ]);
     for commit in 1..4 {
-        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+        assert_eq!(
+            lineages.of(CommitPos(commit), ChangePos(0)),
+            lineages.of(CommitPos(0), ChangePos(0)),
+            "commit {commit}"
+        );
     }
 }
 
@@ -2013,7 +2051,11 @@ fn a_deletion_a_merge_brings_in_still_lets_a_later_commit_restore_the_file() {
         ("m2", vec!["m1"], vec![change(Added, "a", "a")]),
     ]);
     for commit in 1..4 {
-        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+        assert_eq!(
+            lineages.of(CommitPos(commit), ChangePos(0)),
+            lineages.of(CommitPos(0), ChangePos(0)),
+            "commit {commit}"
+        );
     }
 }
 
@@ -2028,7 +2070,11 @@ fn an_edit_on_the_line_a_rename_has_not_reached_is_the_renamed_file() {
         ("m2", vec!["m1", "f1"], vec![change(Renamed, "x", "y")]),
     ]);
     for commit in 1..4 {
-        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+        assert_eq!(
+            lineages.of(CommitPos(commit), ChangePos(0)),
+            lineages.of(CommitPos(0), ChangePos(0)),
+            "commit {commit}"
+        );
     }
 }
 
@@ -2055,13 +2101,16 @@ fn a_merged_rename_leaves_a_new_file_at_its_old_path_alone() {
             vec![change(Modified, "a", "a"), change(Modified, "b", "b")],
         ),
     ]);
-    let (renamed, added) = (lineages.of(1, 0), lineages.of(1, 1));
-    assert_eq!(renamed, lineages.of(0, 0));
+    let (renamed, added) = (
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(1), ChangePos(1)),
+    );
+    assert_eq!(renamed, lineages.of(CommitPos(0), ChangePos(0)));
     assert_ne!(added, renamed);
-    assert_eq!(lineages.of(2, 0), renamed);
-    assert_eq!(lineages.of(2, 1), added);
-    assert_eq!(lineages.of(3, 0), added);
-    assert_eq!(lineages.of(3, 1), renamed);
+    assert_eq!(lineages.of(CommitPos(2), ChangePos(0)), renamed);
+    assert_eq!(lineages.of(CommitPos(2), ChangePos(1)), added);
+    assert_eq!(lineages.of(CommitPos(3), ChangePos(0)), added);
+    assert_eq!(lineages.of(CommitPos(3), ChangePos(1)), renamed);
 }
 
 /// A branch renames x and rewrites it past recognition, so the merge reports
@@ -2086,12 +2135,16 @@ fn a_merge_reporting_a_rewritten_rename_as_a_deletion_and_an_addition() {
             vec![change(Modified, "x", "x"), change(Modified, "y", "y")],
         ),
     ]);
-    let renamed = lineages.of(0, 0);
-    assert_eq!(lineages.of(3, 1), renamed, "the merge's y is the branch's");
-    let new_x = lineages.of(4, 0);
+    let renamed = lineages.of(CommitPos(0), ChangePos(0));
+    assert_eq!(
+        lineages.of(CommitPos(3), ChangePos(1)),
+        renamed,
+        "the merge's y is the branch's"
+    );
+    let new_x = lineages.of(CommitPos(4), ChangePos(0));
     assert_ne!(new_x, renamed);
-    assert_eq!(lineages.of(5, 0), new_x);
-    assert_eq!(lineages.of(5, 1), renamed);
+    assert_eq!(lineages.of(CommitPos(5), ChangePos(0)), new_x);
+    assert_eq!(lineages.of(CommitPos(5), ChangePos(1)), renamed);
 }
 
 /// A branch deletes x and adds y; the merge pairs them as a rename. Later
@@ -2106,9 +2159,9 @@ fn a_merge_pairing_a_branch_deletion_and_addition_as_a_rename() {
         ("m1", vec!["m0", "f2"], vec![change(Renamed, "x", "y")]),
         ("m2", vec!["m1"], vec![change(Modified, "y", "y")]),
     ]);
-    let added = lineages.of(2, 0);
-    assert_eq!(lineages.of(3, 0), added);
-    assert_eq!(lineages.of(4, 0), added);
+    let added = lineages.of(CommitPos(2), ChangePos(0));
+    assert_eq!(lineages.of(CommitPos(3), ChangePos(0)), added);
+    assert_eq!(lineages.of(CommitPos(4), ChangePos(0)), added);
 }
 
 /// Both lines rename the same file, to different paths.
@@ -2122,7 +2175,11 @@ fn a_file_renamed_differently_on_two_lines_is_one_file() {
         ("m2", vec!["m1"], vec![change(Modified, "z", "z")]),
     ]);
     for commit in 1..4 {
-        assert_eq!(lineages.of(commit, 0), lineages.of(0, 0), "commit {commit}");
+        assert_eq!(
+            lineages.of(CommitPos(commit), ChangePos(0)),
+            lineages.of(CommitPos(0), ChangePos(0)),
+            "commit {commit}"
+        );
     }
 }
 
@@ -2145,12 +2202,15 @@ fn a_merge_bringing_in_a_swap_keeps_both_sides() {
         ),
         ("m2", vec!["m1"], vec![change(Modified, "l", "l")]),
     ]);
-    let (old, new) = (lineages.of(0, 0), lineages.of(1, 1));
-    assert_eq!(lineages.of(1, 0), old);
+    let (old, new) = (
+        lineages.of(CommitPos(0), ChangePos(0)),
+        lineages.of(CommitPos(1), ChangePos(1)),
+    );
+    assert_eq!(lineages.of(CommitPos(1), ChangePos(0)), old);
     assert_ne!(new, old);
-    assert_eq!(lineages.of(2, 0), old);
-    assert_eq!(lineages.of(2, 1), new);
-    assert_eq!(lineages.of(3, 0), new);
+    assert_eq!(lineages.of(CommitPos(2), ChangePos(0)), old);
+    assert_eq!(lineages.of(CommitPos(2), ChangePos(1)), new);
+    assert_eq!(lineages.of(CommitPos(3), ChangePos(0)), new);
 }
 
 /// A side line forked after a rename and a new file at the old path edits
@@ -2165,9 +2225,9 @@ fn a_side_line_edits_the_file_its_fork_had_at_a_path() {
         ("c3", vec!["c2"], vec![change(Deleted, "x", "x")]),
         ("s1", vec!["c2"], vec![change(Modified, "x", "x")]),
     ]);
-    let new_x = lineages.of(2, 0);
-    assert_ne!(new_x, lineages.of(1, 0));
-    assert_eq!(lineages.of(4, 0), new_x);
+    let new_x = lineages.of(CommitPos(2), ChangePos(0));
+    assert_ne!(new_x, lineages.of(CommitPos(1), ChangePos(0)));
+    assert_eq!(lineages.of(CommitPos(4), ChangePos(0)), new_x);
 }
 
 /// Commit timestamps need not grow from parent to child, so a date-ordered
@@ -2180,8 +2240,14 @@ fn a_commit_listed_before_its_parent_still_continues_it() {
         ("c2", vec!["c1"], vec![change(Modified, "a", "a")]),
         ("c1", vec!["c0"], vec![change(Modified, "a", "a")]),
     ]);
-    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
-    assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
+    assert_eq!(
+        lineages.of(CommitPos(2), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
+    assert_eq!(
+        lineages.of(CommitPos(1), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
 }
 
 /// A branch renames p to q and adds a new p; the merge reports p modified and
@@ -2207,13 +2273,28 @@ fn a_merge_keeps_a_renamed_file_and_the_new_file_at_its_old_path_apart() {
         ("k2", vec!["k"], vec![change(Deleted, "q", "q")]),
         ("k3", vec!["k2"], vec![change(Added, "q", "q")]),
     ]);
-    let (renamed, new_p) = (lineages.of(0, 0), lineages.of(2, 0));
+    let (renamed, new_p) = (
+        lineages.of(CommitPos(0), ChangePos(0)),
+        lineages.of(CommitPos(2), ChangePos(0)),
+    );
     assert_ne!(new_p, renamed);
-    assert_eq!(lineages.of(3, 0), new_p, "the merge's p");
-    assert_eq!(lineages.of(3, 1), renamed, "the merge's q");
-    assert_eq!(lineages.of(4, 0), new_p);
-    assert_eq!(lineages.of(4, 1), renamed);
-    assert_eq!(lineages.of(6, 0), renamed, "q restored");
+    assert_eq!(
+        lineages.of(CommitPos(3), ChangePos(0)),
+        new_p,
+        "the merge's p"
+    );
+    assert_eq!(
+        lineages.of(CommitPos(3), ChangePos(1)),
+        renamed,
+        "the merge's q"
+    );
+    assert_eq!(lineages.of(CommitPos(4), ChangePos(0)), new_p);
+    assert_eq!(lineages.of(CommitPos(4), ChangePos(1)), renamed);
+    assert_eq!(
+        lineages.of(CommitPos(6), ChangePos(0)),
+        renamed,
+        "q restored"
+    );
 }
 
 /// A second root shares nothing with the commits listed before it.
@@ -2225,7 +2306,10 @@ fn a_root_commit_starts_afresh_wherever_it_is_listed() {
         ("a1", vec!["a0"], vec![change(Deleted, "README", "README")]),
         ("r0", vec![], vec![change(Added, "README", "README")]),
     ]);
-    assert_ne!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_ne!(
+        lineages.of(CommitPos(2), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
 }
 
 /// The staged row has no parents and continues from the commit before it.
@@ -2237,5 +2321,8 @@ fn the_staged_row_continues_from_the_commit_before_it() {
         ("c1", vec!["c0"], vec![change(Modified, "a", "a")]),
         ("staged", vec![], vec![change(Modified, "a", "a")]),
     ]);
-    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
+    assert_eq!(
+        lineages.of(CommitPos(2), ChangePos(0)),
+        lineages.of(CommitPos(0), ChangePos(0))
+    );
 }
