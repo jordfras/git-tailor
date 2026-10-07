@@ -1902,13 +1902,17 @@ fn lineages_of(commits: Vec<Vec<FileDiff>>) -> FileLineages {
 }
 
 /// Lineages of commits given as (name, parents, changes), in the order a
-/// commit list holds them. A merge's changes are against its first parent.
+/// commit list holds them. A merge's changes are against its first parent,
+/// and one named "staged" is the staged row.
 fn lineages_of_graph(commits: Vec<(&str, Vec<&str>, Vec<FileDiff>)>) -> FileLineages {
     let diffs: Vec<CommitDiff> = commits
         .into_iter()
         .map(|(name, parents, files)| {
             let mut diff = make_commit_diff(name, files);
             diff.commit.parent_oids = parents.into_iter().map(Oid::from).collect();
+            if name == "staged" {
+                diff.commit.oid = VirtualOid::Staged;
+            }
             diff
         })
         .collect();
@@ -2210,4 +2214,28 @@ fn a_merge_keeps_a_renamed_file_and_the_new_file_at_its_old_path_apart() {
     assert_eq!(lineages.of(4, 0), new_p);
     assert_eq!(lineages.of(4, 1), renamed);
     assert_eq!(lineages.of(6, 0), renamed, "q restored");
+}
+
+/// A second root shares nothing with the commits listed before it.
+#[test]
+fn a_root_commit_starts_afresh_wherever_it_is_listed() {
+    use crate::DeltaStatus::{Added, Deleted};
+    let lineages = lineages_of_graph(vec![
+        ("a0", vec![], vec![change(Added, "README", "README")]),
+        ("a1", vec!["a0"], vec![change(Deleted, "README", "README")]),
+        ("r0", vec![], vec![change(Added, "README", "README")]),
+    ]);
+    assert_ne!(lineages.of(2, 0), lineages.of(0, 0));
+}
+
+/// The staged row has no parents and continues from the commit before it.
+#[test]
+fn the_staged_row_continues_from_the_commit_before_it() {
+    use crate::DeltaStatus::{Added, Modified};
+    let lineages = lineages_of_graph(vec![
+        ("c0", vec![], vec![change(Added, "a", "a")]),
+        ("c1", vec!["c0"], vec![change(Modified, "a", "a")]),
+        ("staged", vec![], vec![change(Modified, "a", "a")]),
+    ]);
+    assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
 }
