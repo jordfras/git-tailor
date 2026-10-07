@@ -100,17 +100,25 @@ pub(crate) fn handle_rebase_continue(
                 edit_message_suspended(git_repo, terminal_guard, kb_enhanced, combined.as_bstr());
             match editor_result {
                 Err(e) => {
-                    let _ = git_repo.rebase_abort(&state);
-                    let _ = git_repo.autostash_restore();
-                    app.set_error_message(format!("Editor error: {e:#}"));
-                    return Ok(LoopAction::Reload);
+                    let headline = format!("Editor error: {e:#}");
+                    return Ok(abandon_resume(
+                        git_repo,
+                        app,
+                        &state,
+                        headline,
+                        LoopAction::Reload,
+                    ));
                 }
                 Ok(msg) if is_blank_message(msg.as_bstr()) => {
-                    let _ = git_repo.rebase_abort(&state);
-                    let _ = git_repo.autostash_restore();
                     let label = &state.operation_label;
-                    app.set_error_message(format!("{label} aborted: empty commit message"));
-                    return Ok(LoopAction::Continue);
+                    let headline = format!("{label} aborted: empty commit message");
+                    return Ok(abandon_resume(
+                        git_repo,
+                        app,
+                        &state,
+                        headline,
+                        LoopAction::Continue,
+                    ));
                 }
                 Ok(msg) => msg,
             }
@@ -241,6 +249,21 @@ fn finish_conflict_tool(
         }
     }
     LoopAction::Proceed
+}
+
+/// Abort the paused operation `state` when resuming it cannot go on, put the
+/// auto-stash back and report `headline`.
+pub(super) fn abandon_resume(
+    git_repo: &mut impl GitRepo,
+    app: &mut AppState,
+    state: &ConflictState,
+    headline: String,
+    done: LoopAction,
+) -> LoopAction {
+    let _ = git_repo.rebase_abort(state);
+    let _ = git_repo.autostash_restore();
+    app.set_error_message(headline);
+    done
 }
 
 /// Refresh the rebase-conflict dialog after `tool_name` ran (its `outcome` passed
