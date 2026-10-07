@@ -1777,6 +1777,23 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
     );
 }
 
+/// A progress callback that asks to stop ends the assignment early.
+#[test]
+fn assign_hunk_groups_stops_when_progress_asks_it_to() {
+    let earlier = make_commit_diff(
+        "aaa111",
+        vec![make_file_diff(None, Some("a.rs"), 0, 0, 1, 10)],
+    );
+    let target = make_commit_diff(
+        "bbb222",
+        vec![make_file_diff(Some("a.rs"), Some("a.rs"), 3, 1, 3, 1)],
+    );
+
+    let result = assign_hunk_groups(&[earlier, target], &Oid::from("bbb222"), &mut |_| false);
+
+    assert_eq!(result.unwrap_err(), Interrupted);
+}
+
 /// A delta with no hunks contributes no cluster.
 ///
 /// The staged/unstaged rows now appear for a change that carries no hunks — a

@@ -812,3 +812,24 @@ fn split_per_hunk_group_keeps_a_file_added_where_another_was_renamed_from_apart(
     assert_file_contents!(&test.repo, commits[1], "b", ten_lines_with("1K", "9"));
     assert_file_contents!(&test.repo, commits[2], "b", ten_lines_with("1K", "9K"));
 }
+
+/// A progress callback that asks to stop cancels counting the pieces, with an
+/// error that says it was interrupted.
+#[test]
+fn count_split_per_hunk_group_stops_when_progress_asks_it_to() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "A2\n"), ("b.txt", "B2\n")], "change");
+
+    let error = test
+        .git_repo()
+        .count_split_per_hunk_group(
+            &Oid::from(to_split),
+            &Oid::from(to_split),
+            &Oid::from(base),
+            &mut |_| false,
+        )
+        .unwrap_err();
+
+    assert!(error.is::<git_tailor::fragmap::Interrupted>(), "{error:#}");
+}
