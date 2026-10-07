@@ -80,6 +80,7 @@ impl Snapshot {
     }
 
     fn put(&mut self, path: &Path, id: FileId) {
+        self.vacate(path);
         self.at.insert(path.to_path_buf(), (id, true));
         self.live_at.insert(id, path.to_path_buf());
     }
@@ -172,6 +173,12 @@ impl FileLineages {
         before_range: &mut HashMap<PathBuf, FileId>,
     ) -> Vec<FileId> {
         let brought = |path: &Path| brought_in.iter().find_map(|parent| parent.live(path));
+        let moved_away = |id: FileId, path: &Path| {
+            brought_in.iter().find_map(|parent| {
+                let elsewhere = parent.live_at.get(&id).is_some_and(|at| at != path);
+                elsewhere.then(|| parent.live(path)).flatten()
+            })
+        };
         let mut ids: Vec<Option<FileId>> = vec![None; diff.files.len()];
         let mut deleted_now: HashSet<&Path> = HashSet::new();
         // What a commit takes away goes first, so a path it vacates is free
@@ -215,9 +222,14 @@ impl FileLineages {
                             .flatten();
                         restored.unwrap_or_else(|| self.add(path))
                     }),
-                    None => snapshot
-                        .known(path)
-                        .unwrap_or_else(|| self.before_range(before_range, path)),
+                    None => match snapshot.known(path) {
+                        // A merged-in line may have moved this path's file
+                        // away and put another one here.
+                        Some(id) => moved_away(id, path).unwrap_or(id),
+                        None => {
+                            brought(path).unwrap_or_else(|| self.before_range(before_range, path))
+                        }
+                    },
                 };
                 snapshot.put(path, id);
                 id
