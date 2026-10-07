@@ -34,12 +34,12 @@ impl FileId {
 
 /// Which file each change in a list of commit diffs belongs to.
 ///
-/// Each commit sees the files its first parent left — the parent its diff is
-/// against — and changes them: a rename carries a file to its new path, a
-/// deleted file lies dormant at its path until a later commit restores it,
-/// and anything else added is a new file, even at a path a rename left or one
-/// deleted in the same commit. A merge brings in its other parents' files: what
-/// it seems to add or rename into is the file that parent has there. A path
+/// Each commit starts from which file was at each path after its first parent
+/// — the parent its diff is against — and changes that: a rename carries a file
+/// to its new path, a deleted file is remembered at its path so a later commit
+/// can restore it, and anything else added is a new file, even at a path a
+/// rename emptied or one deleted in the same commit. What a merge seems to add
+/// or rename into is the file its merged-in parent has at that path. A path
 /// first seen without an addition is a file from before the commits, the same
 /// one on every line. No two changes in one commit are then one file.
 pub(super) struct FileLineages {
@@ -49,52 +49,61 @@ pub(super) struct FileLineages {
     labels: Vec<PathBuf>,
 }
 
-/// The files a commit leaves, by path.
+/// Which file is at each path after a commit: what its children start from.
 #[derive(Debug, Clone, Default)]
-struct Snapshot {
-    /// Each path's file, and whether it is there (`true`) or deleted.
-    at: HashMap<PathBuf, (FileId, bool)>,
-    /// Where each file that is there is.
-    live_at: HashMap<FileId, PathBuf>,
+struct PathFiles {
+    /// Each path's file, and whether it is present (`true`) or was deleted
+    /// there and is remembered for a restore.
+    files: HashMap<PathBuf, (FileId, bool)>,
+    /// The path each present file is at: tells a deleted file that lives on
+    /// under another path from one a later addition can restore, and a file a
+    /// merged-in line moved from one it left in place.
+    present_at: HashMap<FileId, PathBuf>,
 }
 
-impl Snapshot {
-    fn live(&self, path: &Path) -> Option<FileId> {
-        self.at
+impl PathFiles {
+    /// The file present at `path`.
+    fn present(&self, path: &Path) -> Option<FileId> {
+        self.files
             .get(path)
-            .filter(|&&(_, live)| live)
+            .filter(|&&(_, present)| present)
             .map(|&(id, _)| id)
     }
 
-    /// The file at `path`, there or deleted.
-    fn known(&self, path: &Path) -> Option<FileId> {
-        self.at.get(path).map(|&(id, _)| id)
+    /// The file at `path`, present or deleted.
+    fn file_at(&self, path: &Path) -> Option<FileId> {
+        self.files.get(path).map(|&(id, _)| id)
     }
 
-    /// The deleted file at `path`, unless it lives on at another path.
-    fn restorable(&self, path: &Path) -> Option<FileId> {
-        match self.at.get(path) {
-            Some(&(id, false)) if !self.live_at.contains_key(&id) => Some(id),
+    /// The file deleted at `path`, unless it is present at another path.
+    fn deleted_file_at(&self, path: &Path) -> Option<FileId> {
+        match self.files.get(path) {
+            Some(&(id, false)) if !self.present_at.contains_key(&id) => Some(id),
             _ => None,
         }
     }
 
-    fn put(&mut self, path: &Path, id: FileId) {
-        self.vacate(path);
-        self.at.insert(path.to_path_buf(), (id, true));
-        self.live_at.insert(id, path.to_path_buf());
+    /// Put file `id` at `path`, replacing whatever was there.
+    fn place(&mut self, path: &Path, id: FileId) {
+        self.remove(path);
+        self.files.insert(path.to_path_buf(), (id, true));
+        self.present_at.insert(id, path.to_path_buf());
     }
 
-    fn bury(&mut self, path: &Path, id: FileId) {
-        self.vacate(path);
-        self.at.insert(path.to_path_buf(), (id, false));
+    /// Mark file `id` deleted at `path` but keep it there, so a later commit
+    /// adding a file at `path` restores this one instead of starting anew.
+    fn mark_deleted(&mut self, path: &Path, id: FileId) {
+        self.remove(path);
+        self.files.insert(path.to_path_buf(), (id, false));
     }
 
-    fn vacate(&mut self, path: &Path) {
-        if let Some((id, true)) = self.at.remove(path)
-            && self.live_at.get(&id).is_some_and(|at| at == path)
+    /// Forget whatever is at `path`: the old path of a rename, which keeps
+    /// nothing to restore, or a path about to get another file.
+    fn remove(&mut self, path: &Path) {
+        if let Some((id, true)) = self.files.remove(path)
+            && self.present_at.get(&id).is_some_and(|at| at == path)
         {
-            self.live_at.remove(&id);
+            self.present_at.remove(&id);
         }
     }
 }
@@ -131,31 +140,31 @@ impl FileLineages {
             })
             .collect();
         let children_of = children_of(&parents);
-        // How many children have yet to start from each commit's snapshot.
+        // How many children have yet to start from each commit's path-files.
         let mut children: Vec<usize> = children_of.iter().map(Vec::len).collect();
 
-        let mut snapshots: Vec<Option<Snapshot>> = vec![None; commit_diffs.len()];
+        let mut path_files: Vec<Option<PathFiles>> = vec![None; commit_diffs.len()];
         let mut before_range: HashMap<PathBuf, FileId> = HashMap::new();
         let mut of: Vec<Vec<FileId>> = vec![Vec::new(); commit_diffs.len()];
         for idx in parent_first_order(&parents, &children_of) {
             let diff = &commit_diffs[idx];
             let (first, others) = &parents[idx];
-            let mut snapshot = match *first {
-                Some(parent) if children[parent] == 1 => snapshots[parent].take(),
-                Some(parent) => snapshots[parent].clone(),
+            let mut files = match *first {
+                Some(parent) if children[parent] == 1 => path_files[parent].take(),
+                Some(parent) => path_files[parent].clone(),
                 None => None,
             }
             .unwrap_or_default();
-            let brought_in: Vec<&Snapshot> = others
+            let merged_in: Vec<&PathFiles> = others
                 .iter()
-                .filter_map(|&parent| snapshots[parent].as_ref())
+                .filter_map(|&parent| path_files[parent].as_ref())
                 .collect();
-            of[idx] = lineages.change_files(diff, &mut snapshot, &brought_in, &mut before_range);
-            snapshots[idx] = Some(snapshot);
+            of[idx] = lineages.change_files(diff, &mut files, &merged_in, &mut before_range);
+            path_files[idx] = Some(files);
             for &parent in first.iter().chain(others) {
                 children[parent] -= 1;
                 if children[parent] == 0 {
-                    snapshots[parent] = None;
+                    path_files[parent] = None;
                 }
             }
         }
@@ -163,41 +172,41 @@ impl FileLineages {
         lineages
     }
 
-    /// The file each change of `diff` belongs to, updating `snapshot` from
-    /// what the first parent left to what the commit leaves.
+    /// The file each change of `diff` belongs to, updating `files` from the
+    /// first parent's path-files to the commit's own.
     fn change_files(
         &mut self,
         diff: &CommitDiff,
-        snapshot: &mut Snapshot,
-        brought_in: &[&Snapshot],
+        files: &mut PathFiles,
+        merged_in: &[&PathFiles],
         before_range: &mut HashMap<PathBuf, FileId>,
     ) -> Vec<FileId> {
-        let brought = |path: &Path| brought_in.iter().find_map(|parent| parent.live(path));
+        let merged_in_file = |path: &Path| merged_in.iter().find_map(|parent| parent.present(path));
         let moved_away = |id: FileId, path: &Path| {
-            brought_in.iter().find_map(|parent| {
-                let elsewhere = parent.live_at.get(&id).is_some_and(|at| at != path);
-                elsewhere.then(|| parent.live(path)).flatten()
+            merged_in.iter().find_map(|parent| {
+                let elsewhere = parent.present_at.get(&id).is_some_and(|at| at != path);
+                elsewhere.then(|| parent.present(path)).flatten()
             })
         };
         let mut ids: Vec<Option<FileId>> = vec![None; diff.files.len()];
         let mut deleted_now: HashSet<&Path> = HashSet::new();
-        // What a commit takes away goes first, so a path it vacates is free
+        // What a commit takes away goes first, so a path it empties is free
         // for what it adds.
         for (change, file) in diff.files.iter().enumerate() {
             if let Some(old) = renamed_from(file) {
                 let new = file.new_path.as_deref().unwrap_or(old);
-                let id = brought(new)
-                    .or_else(|| snapshot.known(old))
+                let id = merged_in_file(new)
+                    .or_else(|| files.file_at(old))
                     .unwrap_or_else(|| self.before_range(before_range, old));
-                snapshot.vacate(old);
+                files.remove(old);
                 ids[change] = Some(id);
             } else if file.status == crate::DeltaStatus::Deleted
                 && let Some(path) = file.old_path.as_deref().or(file.new_path.as_deref())
             {
-                let id = snapshot
-                    .known(path)
+                let id = files
+                    .file_at(path)
                     .unwrap_or_else(|| self.before_range(before_range, path));
-                snapshot.bury(path, id);
+                files.mark_deleted(path, id);
                 deleted_now.insert(path);
                 ids[change] = Some(id);
             }
@@ -216,22 +225,21 @@ impl FileLineages {
                         return deleted;
                     }
                     Some(renamed) => renamed,
-                    None if is_addition(file) => brought(path).unwrap_or_else(|| {
+                    None if is_addition(file) => merged_in_file(path).unwrap_or_else(|| {
                         let restored = (!deleted_now.contains(path))
-                            .then(|| snapshot.restorable(path))
+                            .then(|| files.deleted_file_at(path))
                             .flatten();
                         restored.unwrap_or_else(|| self.add(path))
                     }),
-                    None => match snapshot.known(path) {
+                    None => match files.file_at(path) {
                         // A merged-in line may have moved this path's file
                         // away and put another one here.
                         Some(id) => moved_away(id, path).unwrap_or(id),
-                        None => {
-                            brought(path).unwrap_or_else(|| self.before_range(before_range, path))
-                        }
+                        None => merged_in_file(path)
+                            .unwrap_or_else(|| self.before_range(before_range, path)),
                     },
                 };
-                snapshot.put(path, id);
+                files.place(path, id);
                 id
             })
             .collect()
