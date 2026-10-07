@@ -19,7 +19,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use git_tailor::repo::RepoRead;
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
-    app::{AppMode, AppState},
+    app::{AppMode, AppState, LoadingEscape},
     fragmap, views,
 };
 
@@ -129,7 +129,7 @@ pub fn load_with_progress(
             title: "Loading Commits",
             message: "Loading commits\u{2026}",
             progress: Some((0, total)),
-            skippable: false,
+            escape: None,
         },
     );
     terminal_guard
@@ -228,7 +228,7 @@ fn walk_commits(
                 title: "Loading Commits",
                 message: "Loading commits\u{2026}",
                 progress: Some((raw.len(), total)),
-                skippable: false,
+                escape: None,
             };
             terminal_guard
                 .terminal()
@@ -289,7 +289,7 @@ fn build_hunk_group_matrix(
                     title: "Hunk Group Matrix",
                     message: "Clustering files\u{2026}",
                     progress: Some((files_done, files_total)),
-                    skippable: true,
+                    escape: Some(LoadingEscape::Skip),
                 };
                 if let Err(e) = terminal_guard
                     .terminal()
@@ -314,7 +314,7 @@ fn build_hunk_group_matrix(
                     title: "Hunk Group Matrix",
                     message: "Deduplicating clusters\u{2026}",
                     progress: None,
-                    skippable: false,
+                    escape: None,
                 };
                 if let Err(e) = terminal_guard
                     .terminal()
@@ -337,7 +337,7 @@ fn build_hunk_group_matrix(
                     title: "Hunk Group Matrix",
                     message: "Building matrix\u{2026}",
                     progress: Some((commits_done, commits_total)),
-                    skippable: true,
+                    escape: Some(LoadingEscape::Skip),
                 };
                 if let Err(e) = terminal_guard
                     .terminal()
