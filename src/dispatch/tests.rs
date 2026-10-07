@@ -21,6 +21,7 @@ use git_tailor::{
 use std::path::Path;
 
 use crate::mock_repo::{MockRepo, make_conflict_state};
+use crate::progress_screen::ShowProgress;
 
 use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
@@ -165,6 +166,21 @@ fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     );
 }
 
+/// A progress screen that shows nothing and never asks to stop.
+struct NoProgress;
+
+impl ShowProgress for NoProgress {
+    fn show(
+        &mut self,
+        _: &mut AppState,
+        _: &'static str,
+        _: Option<(usize, usize)>,
+        _: Option<git_tailor::app::LoadingEscape>,
+    ) -> bool {
+        true
+    }
+}
+
 #[test]
 fn prepare_split_count_error_sets_error_message() {
     let mut repo = MockRepo {
@@ -177,6 +193,7 @@ fn prepare_split_count_error_sets_error_message() {
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),
+        &mut NoProgress,
     );
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
@@ -194,6 +211,7 @@ fn prepare_split_above_threshold_enters_confirm_mode() {
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),
+        &mut NoProgress,
     );
     assert!(matches!(app.mode, AppMode::SplitConfirm(_)));
 }

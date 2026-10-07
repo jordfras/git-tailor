@@ -39,6 +39,9 @@ pub(crate) struct MockRepo {
     pub(crate) autostash_restore_errs: bool,
     pub(crate) count_per_file: usize,
     pub(crate) count_ok: bool,
+    /// What `count_split_per_hunk_group` returns, after one progress report
+    /// that can interrupt it.
+    pub(crate) count_per_hunk_group: usize,
     pub(crate) stage_ok: bool,
     pub(crate) stage_changed: bool,
     pub(crate) undo_skips_autostash: bool,
@@ -152,6 +155,7 @@ impl Default for MockRepo {
             autostash_restore_errs: false,
             count_per_file: 0,
             count_ok: true,
+            count_per_hunk_group: 0,
             stage_ok: true,
             stage_changed: true,
             undo_skips_autostash: false,
@@ -282,9 +286,16 @@ impl RepoRead for MockRepo {
         _: &Oid,
         _: &Oid,
         _: &Oid,
-        _: &mut dyn FnMut(git_tailor::fragmap::FragMapProgress) -> bool,
+        progress: &mut dyn FnMut(git_tailor::fragmap::FragMapProgress) -> bool,
     ) -> anyhow::Result<usize> {
-        unimplemented!()
+        let go_on = progress(git_tailor::fragmap::FragMapProgress::ClusteringFile {
+            files_done: 0,
+            files_total: 1,
+        });
+        if !go_on {
+            return Err(git_tailor::fragmap::Interrupted.into());
+        }
+        Ok(self.count_per_hunk_group)
     }
 
     fn pending_undo_skips_autostash(&self) -> anyhow::Result<bool> {
