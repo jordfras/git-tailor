@@ -199,6 +199,44 @@ fn prepare_split_count_error_sets_error_message() {
     assert!(app.status.is_error);
 }
 
+/// A progress screen that asks to stop at the first report, as Esc does.
+struct Cancel;
+
+impl ShowProgress for Cancel {
+    fn show(
+        &mut self,
+        _: &mut AppState,
+        _: &'static str,
+        _: Option<(usize, usize)>,
+        _: Option<git_tailor::app::LoadingEscape>,
+    ) -> bool {
+        false
+    }
+}
+
+/// Canceling the per-hunk-group count leaves the list as it was and says so.
+#[test]
+fn prepare_split_per_hunk_group_canceled_leaves_the_list() {
+    let mut repo = MockRepo {
+        count_per_hunk_group: SPLIT_CONFIRM_THRESHOLD + 1,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split(
+        &mut repo,
+        &mut app,
+        SplitStrategy::PerHunkGroup,
+        Oid::from("a".repeat(40)),
+        &mut Cancel,
+    )
+    .unwrap();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(!app.status.is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Split canceled"));
+}
+
 #[test]
 fn prepare_split_above_threshold_enters_confirm_mode() {
     let mut repo = MockRepo {
