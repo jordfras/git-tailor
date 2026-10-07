@@ -108,67 +108,99 @@ impl PathFiles {
     }
 }
 
+/// The merged-in parents' path-files of a merge, for what it brings in.
+struct MergedIn<'a>(Vec<&'a PathFiles>);
+
+impl MergedIn<'_> {
+    /// The file a merged-in parent has present at `path`.
+    fn file_at(&self, path: &Path) -> Option<FileId> {
+        self.0.iter().find_map(|parent| parent.present(path))
+    }
+
+    /// The file a merged-in parent has at `path`, if that parent moved file
+    /// `id` from there to another path.
+    fn replacing(&self, id: FileId, path: &Path) -> Option<FileId> {
+        self.0.iter().find_map(|parent| {
+            let elsewhere = parent.present_at.get(&id).is_some_and(|at| at != path);
+            elsewhere.then(|| parent.present(path)).flatten()
+        })
+    }
+}
+
+/// Each commit's path-files, kept until the last child has started from them.
+struct PathFilesStore {
+    path_files: Vec<Option<PathFiles>>,
+    /// How many children have yet to start from each commit's path-files.
+    children: Vec<usize>,
+}
+
+impl PathFilesStore {
+    fn new(children_of: &[Vec<usize>]) -> Self {
+        PathFilesStore {
+            path_files: vec![None; children_of.len()],
+            children: children_of.iter().map(Vec::len).collect(),
+        }
+    }
+
+    /// What a commit with first parent `first` starts from.
+    fn start_from(&mut self, first: Option<usize>) -> PathFiles {
+        match first {
+            Some(parent) if self.children[parent] == 1 => self.path_files[parent].take(),
+            Some(parent) => self.path_files[parent].clone(),
+            None => None,
+        }
+        .unwrap_or_default()
+    }
+
+    fn merged_in(&self, others: &[usize]) -> MergedIn<'_> {
+        MergedIn(
+            others
+                .iter()
+                .filter_map(|&parent| self.path_files[parent].as_ref())
+                .collect(),
+        )
+    }
+
+    /// Keep commit `idx`'s path-files, and drop its parents' once no child
+    /// still needs them.
+    fn keep(
+        &mut self,
+        idx: usize,
+        files: PathFiles,
+        (first, others): &(Option<usize>, Vec<usize>),
+    ) {
+        self.path_files[idx] = Some(files);
+        for &parent in first.iter().chain(others) {
+            self.children[parent] -= 1;
+            if self.children[parent] == 0 {
+                self.path_files[parent] = None;
+            }
+        }
+    }
+}
+
 impl FileLineages {
     pub(super) fn new(commit_diffs: &[CommitDiff]) -> Self {
         let mut lineages = FileLineages {
-            of: Vec::new(),
+            of: vec![Vec::new(); commit_diffs.len()],
             labels: Vec::new(),
         };
-        let position: HashMap<&Oid, usize> = commit_diffs
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, diff)| Some((diff.commit.oid.as_oid()?, idx)))
-            .collect();
-        // The uncommitted rows have no parents and continue from the one
-        // listed before them, as does every commit of a list made without
-        // parents. A root, or a commit whose parents lie outside the commits,
-        // starts afresh.
-        let without_parents = commit_diffs
-            .iter()
-            .all(|diff| diff.commit.parent_oids.is_empty());
-        let parents: Vec<(Option<usize>, Vec<usize>)> = commit_diffs
-            .iter()
-            .enumerate()
-            .map(|(idx, diff)| {
-                let oids = &diff.commit.parent_oids;
-                if oids.is_empty() {
-                    let continues = diff.commit.oid.is_synthetic() || without_parents;
-                    return (idx.checked_sub(1).filter(|_| continues), Vec::new());
-                }
-                let mut listed = oids.iter().map(|oid| position.get(oid).copied());
-                (listed.next().flatten(), listed.flatten().collect())
-            })
-            .collect();
+        let parents = parent_positions(commit_diffs);
         let children_of = children_of(&parents);
-        // How many children have yet to start from each commit's path-files.
-        let mut children: Vec<usize> = children_of.iter().map(Vec::len).collect();
-
-        let mut path_files: Vec<Option<PathFiles>> = vec![None; commit_diffs.len()];
+        let mut store = PathFilesStore::new(&children_of);
         let mut before_range: HashMap<PathBuf, FileId> = HashMap::new();
-        let mut of: Vec<Vec<FileId>> = vec![Vec::new(); commit_diffs.len()];
         for idx in parent_first_order(&parents, &children_of) {
-            let diff = &commit_diffs[idx];
             let (first, others) = &parents[idx];
-            let mut files = match *first {
-                Some(parent) if children[parent] == 1 => path_files[parent].take(),
-                Some(parent) => path_files[parent].clone(),
-                None => None,
-            }
-            .unwrap_or_default();
-            let merged_in: Vec<&PathFiles> = others
-                .iter()
-                .filter_map(|&parent| path_files[parent].as_ref())
-                .collect();
-            of[idx] = lineages.change_files(diff, &mut files, &merged_in, &mut before_range);
-            path_files[idx] = Some(files);
-            for &parent in first.iter().chain(others) {
-                children[parent] -= 1;
-                if children[parent] == 0 {
-                    path_files[parent] = None;
-                }
-            }
+            let mut files = store.start_from(*first);
+            let merged_in = store.merged_in(others);
+            lineages.of[idx] = lineages.change_files(
+                &commit_diffs[idx],
+                &mut files,
+                &merged_in,
+                &mut before_range,
+            );
+            store.keep(idx, files, &parents[idx]);
         }
-        lineages.of = of;
         lineages
     }
 
@@ -178,24 +210,49 @@ impl FileLineages {
         &mut self,
         diff: &CommitDiff,
         files: &mut PathFiles,
-        merged_in: &[&PathFiles],
+        merged_in: &MergedIn,
         before_range: &mut HashMap<PathBuf, FileId>,
     ) -> Vec<FileId> {
-        let merged_in_file = |path: &Path| merged_in.iter().find_map(|parent| parent.present(path));
-        let moved_away = |id: FileId, path: &Path| {
-            merged_in.iter().find_map(|parent| {
-                let elsewhere = parent.present_at.get(&id).is_some_and(|at| at != path);
-                elsewhere.then(|| parent.present(path)).flatten()
-            })
-        };
-        let mut ids: Vec<Option<FileId>> = vec![None; diff.files.len()];
-        let mut deleted_now: HashSet<&Path> = HashSet::new();
         // What a commit takes away goes first, so a path it empties is free
         // for what it adds.
+        let (removed, deleted_now) = self.remove_changes(diff, files, merged_in, before_range);
+        diff.files
+            .iter()
+            .zip(removed)
+            .map(|(file, removed)| match removed {
+                Some(deleted) if file.status == crate::DeltaStatus::Deleted => deleted,
+                _ => {
+                    let path = file
+                        .new_path
+                        .as_deref()
+                        .or(file.old_path.as_deref())
+                        .expect("libgit2 sets a path on every change");
+                    let id = removed.unwrap_or_else(|| {
+                        self.placed_file(file, path, files, merged_in, &deleted_now, before_range)
+                    });
+                    files.place(path, id);
+                    id
+                }
+            })
+            .collect()
+    }
+
+    /// Take away what `diff` renames from and deletes, and return the file of
+    /// each such change, and the paths it deletes.
+    fn remove_changes<'d>(
+        &mut self,
+        diff: &'d CommitDiff,
+        files: &mut PathFiles,
+        merged_in: &MergedIn,
+        before_range: &mut HashMap<PathBuf, FileId>,
+    ) -> (Vec<Option<FileId>>, HashSet<&'d Path>) {
+        let mut ids: Vec<Option<FileId>> = vec![None; diff.files.len()];
+        let mut deleted_now: HashSet<&Path> = HashSet::new();
         for (change, file) in diff.files.iter().enumerate() {
             if let Some(old) = renamed_from(file) {
                 let new = file.new_path.as_deref().unwrap_or(old);
-                let id = merged_in_file(new)
+                let id = merged_in
+                    .file_at(new)
                     .or_else(|| files.file_at(old))
                     .unwrap_or_else(|| self.before_range(before_range, old));
                 files.remove(old);
@@ -211,38 +268,35 @@ impl FileLineages {
                 ids[change] = Some(id);
             }
         }
-        diff.files
-            .iter()
-            .zip(ids)
-            .map(|(file, id)| {
-                let path = file
-                    .new_path
-                    .as_deref()
-                    .or(file.old_path.as_deref())
-                    .expect("libgit2 sets a path on every change");
-                let id = match id {
-                    Some(deleted) if file.status == crate::DeltaStatus::Deleted => {
-                        return deleted;
-                    }
-                    Some(renamed) => renamed,
-                    None if is_addition(file) => merged_in_file(path).unwrap_or_else(|| {
-                        let restored = (!deleted_now.contains(path))
-                            .then(|| files.deleted_file_at(path))
-                            .flatten();
-                        restored.unwrap_or_else(|| self.add(path))
-                    }),
-                    None => match files.file_at(path) {
-                        // A merged-in line may have moved this path's file
-                        // away and put another one here.
-                        Some(id) => moved_away(id, path).unwrap_or(id),
-                        None => merged_in_file(path)
-                            .unwrap_or_else(|| self.before_range(before_range, path)),
-                    },
-                };
-                files.place(path, id);
-                id
-            })
-            .collect()
+        (ids, deleted_now)
+    }
+
+    /// The file a change that neither renames nor deletes puts at `path`.
+    fn placed_file(
+        &mut self,
+        file: &crate::FileDiff,
+        path: &Path,
+        files: &PathFiles,
+        merged_in: &MergedIn,
+        deleted_now: &HashSet<&Path>,
+        before_range: &mut HashMap<PathBuf, FileId>,
+    ) -> FileId {
+        if is_addition(file) {
+            return merged_in.file_at(path).unwrap_or_else(|| {
+                let restored = (!deleted_now.contains(path))
+                    .then(|| files.deleted_file_at(path))
+                    .flatten();
+                restored.unwrap_or_else(|| self.add(path))
+            });
+        }
+        match files.file_at(path) {
+            // A merged-in line may have moved this path's file away and put
+            // another one here.
+            Some(id) => merged_in.replacing(id, path).unwrap_or(id),
+            None => merged_in
+                .file_at(path)
+                .unwrap_or_else(|| self.before_range(before_range, path)),
+        }
     }
 
     /// The file at `path` from before the commits: one per path, on every line.
@@ -283,6 +337,34 @@ impl FileLineages {
         files.sort_by_cached_key(|&file| (crate::domain::path_to_bytes(self.label(file)), file));
         files
     }
+}
+
+/// Each commit's first parent and other parents, as positions among the
+/// commits. The uncommitted rows have no parents and continue from the one
+/// listed before them, as does every commit of a list made without parents.
+/// A root, or a commit whose parents lie outside the commits, starts afresh.
+fn parent_positions(commit_diffs: &[CommitDiff]) -> Vec<(Option<usize>, Vec<usize>)> {
+    let position: HashMap<&Oid, usize> = commit_diffs
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, diff)| Some((diff.commit.oid.as_oid()?, idx)))
+        .collect();
+    let without_parents = commit_diffs
+        .iter()
+        .all(|diff| diff.commit.parent_oids.is_empty());
+    commit_diffs
+        .iter()
+        .enumerate()
+        .map(|(idx, diff)| {
+            let oids = &diff.commit.parent_oids;
+            if oids.is_empty() {
+                let continues = diff.commit.oid.is_synthetic() || without_parents;
+                return (idx.checked_sub(1).filter(|_| continues), Vec::new());
+            }
+            let mut listed = oids.iter().map(|oid| position.get(oid).copied());
+            (listed.next().flatten(), listed.flatten().collect())
+        })
+        .collect()
 }
 
 /// Each commit's children among the commits.
