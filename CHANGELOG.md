@@ -10,6 +10,8 @@ The format is based on
 
 ### Changed
 
+- `--static` prints a long history's matrix much faster: on 1,000 commits it
+  took 58 seconds and now takes 9
 - The hunk group matrix follows renamed files whatever git's `diff.renames`
   setting says, staged renames included, and with that set to `copies` it now
   shows a copied file as the new file it is, rather than as more of the file
