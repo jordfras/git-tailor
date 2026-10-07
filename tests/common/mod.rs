@@ -485,9 +485,10 @@ pub fn create_fragmap(
 /// commits. Clusters with the same path are one file, and different paths
 /// different files.
 pub fn simple_cluster(path: &str, start: u32, end: u32, oids: &[&str]) -> SpanCluster {
-    let file = path.bytes().fold(0usize, |n, byte| {
-        n.wrapping_mul(31).wrapping_add(byte.into())
-    });
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    let file = hasher.finish() as usize;
     SpanCluster {
         spans: vec![FileSpan {
             path: path.into(),
