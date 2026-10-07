@@ -10,109 +10,10 @@ combining features from **tig** (interactive commit browsing) and **fragmap**
 (chunk-cluster visualization showing how commits relate). It enables users to
 browse, analyze, reorder, squash, and split commits on a branch.
 
-- **License**: Apache-2.0
-- **Language**: Rust
-- **Key crates**: `ratatui`, `crossterm`, `git2`, `clap`, `anyhow`
-
 Every `.rs` file must begin with the Apache-2.0 license header. Use the
 `new-rust-file` skill when creating new files.
 
 ## Architecture
-
-### Crate Structure
-
-```
-git-tailor/
-├── Cargo.toml              # package manifest
-├── src/
-│   ├── lib.rs              # Library root (re-exports domain types, module declarations)
-│   ├── main.rs             # Binary entry point (bootstrap, event loop, journal recovery, rendering)
-│   ├── cli.rs              # Command-line argument definitions (clap)
-│   ├── loader.rs           # Startup loading: commit walking, progress display
-│   ├── progress_screen.rs  # Loading screen a long computation keeps up to date
-│   ├── terminal_guard.rs   # RAII guard owning TUI terminal setup / teardown
-│   ├── external_tool.rs    # Suspend/restore TUI around external processes
-│   ├── dispatch.rs         # AppAction dispatch: LoopAction, dispatch_action, shared helpers
-│   ├── dispatch/
-│   │   ├── split.rs        # Split handlers (per-file/hunk/group, out-file(s)/hunk(s))
-│   │   ├── edit.rs         # Edit handler: suspend TUI, spawn $SHELL, splice result
-│   │   ├── conflict.rs     # Rebase/merge-tool/editor/stash conflict resolution handlers
-│   │   ├── rewrite.rs      # Single-commit history rewrites: drop/move/reword/squash
-│   │   ├── undo.rs         # Undo/redo handlers (operation-agnostic, journal-driven)
-│   │   ├── staging.rs      # Stage-all/unstage-all/commit-staged handlers
-│   │   ├── autofixup.rs    # Bulk autofixup handler + cursor-restoration logic
-│   │   └── tests.rs        # Dispatch-handler unit tests (MockRepo stubs)
-│   ├── app.rs              # AppMode enum, AppAction enum, SquashMode
-│   ├── app/
-│   │   ├── commit_list.rs  # CommitListState: rows, selection, list scrolling
-│   │   ├── detail.rs       # DetailState: detail-view scroll, diff context
-│   │   ├── keymap.rs       # KeyCommand enum + read_event()
-│   │   ├── operation.rs    # Operation enum (per-row available operations)
-│   │   ├── scroll.rs       # ScrollState: reusable offset/max/visible-height
-│   │   ├── search.rs       # SearchState: detail-view regex search
-│   │   └── state.rs        # AppState (composes the above) + StatusState
-│   ├── domain.rs           # Domain module declarations
-│   ├── domain/
-│   │   ├── commit.rs       # CommitInfo, Oid, VirtualOid
-│   │   ├── diff.rs         # FileDiff, Hunk, DiffLine, CommitDiff, DeltaStatus, DiffLineKind
-│   │   └── swap.rs         # SwapGroups: colliding changes a split keeps together
-│   ├── editor.rs           # External editor integration (commit message editing)
-│   ├── mergetool.rs        # External merge tool integration
-│   ├── repo.rs             # GitRepo trait definition
-│   ├── repo/
-│   │   ├── git2_impl.rs    # Git2Repo: libgit2-backed GitRepo implementation
-│   │   └── git2_impl/
-│   │       ├── autofixup_op.rs # Bulk fixup!/squash! batch operation
-│   │       ├── cherry_pick.rs  # Cherry-pick chain helpers
-│   │       ├── commit_staged_op.rs # Commit the staged changes
-│   │       ├── conflict.rs     # Conflict detection and state
-│   │       ├── drop_op.rs      # Drop commit operation
-│   │       ├── edit_op.rs      # Edit commit in a shell, then replay
-│   │       ├── hunks.rs        # Hunk extraction and patch building
-│   │       ├── journal.rs      # Crash-safety journal, undo/redo stacks, ref pins
-│   │       ├── lift_op.rs      # Lift a working-tree row into a temporary commit
-│   │       ├── move_op.rs      # Move commit operation
-│   │       ├── reads.rs        # Read-only git operations
-│   │       ├── reword_op.rs    # Reword commit operation
-│   │       ├── split_op.rs     # Split commit operation
-│   │       ├── squash_op.rs    # Squash/fixup operation
-│   │       ├── stage_op.rs     # Stage-all / unstage-all
-│   │       └── stash.rs        # Auto-stash save/restore and its conflicts
-│   ├── fragmap.rs          # Span extraction, clustering, matrix generation
-│   ├── fragmap/
-│   │   ├── assignment.rs   # Hunk-group assignment types for split per hunk group
-│   │   ├── attribution.rs  # Exact line attribution for the commit being split
-│   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
-│   │   ├── position.rs     # CommitPos, ChangePos, HunkPos: typed positions
-│   │   ├── spg.rs          # Span Propagation Graph: types and the per-file entry points
-│   │   └── spg/
-│   │       ├── build.rs    # Building a file's graph from its commits' hunks
-│   │       ├── columns.rs  # Matrix and split columns without listing every path
-│   │       ├── paths.rs    # Listing every path (--full, and the oracle for columns.rs)
-│   │       └── shared_tail_lists.rs # Tail-sharing lists for paths built backwards
-│   ├── views.rs            # View module declarations
-│   ├── views/
-│   │   ├── commit_list.rs  # Scrollable commit log with fragmap
-│   │   ├── commit_detail.rs # Commit metadata + scrollable colored diff
-│   │   ├── commit_detail/
-│   │   │   └── search.rs   # Detail-view regex search: entry, nav, highlighting
-│   │   ├── conflict.rs     # Rebase conflict resolution dialog
-│   │   ├── dialog.rs       # Shared dialog rendering helpers
-│   │   ├── drop.rs         # Drop commit confirmation
-│   │   ├── help.rs         # Help overlay
-│   │   ├── hunk_groups.rs  # Hunk group detail rendering
-│   │   ├── list_nav.rs     # Shared navigation helper for list-picker dialogs
-│   │   ├── loading.rs      # Loading screen rendering
-│   │   ├── main_view.rs    # Shared layout (commit list + fragmap + detail)
-│   │   ├── move_select.rs  # Move commit target selection
-│   │   ├── split_select.rs # Split strategy selection dialog
-│   │   ├── squash_select.rs # Squash/fixup target selection
-│   │   └── theme.rs        # Fragmap rendering theme trait and built-in themes
-│   ├── static_views.rs     # Static (non-interactive) view module declarations
-│   └── static_views/
-│       └── fragmap.rs      # CLI fragmap output (non-TUI)
-└── tests/                   # Integration tests (TempDir repos + TUI snapshots)
-```
 
 The project combines a **library** (src/lib.rs) containing all git logic, domain
 types, and the rebase engine with a **binary** (src/main.rs) providing the TUI
@@ -237,31 +138,12 @@ one.
 change — fragile, duplicated, or poorly abstracted — propose a preparatory
 refactoring commit first. Unrelated cleanup is out of scope.
 
-### Commit & Diff Types
-
-```
-CommitInfo   { oid: VirtualOid, summary, author, date, parent_oids, message,
-               author_email, author_date, committer, committer_email, commit_date }
-FileDiff     { old_path, new_path, status: DeltaStatus, hunks: Vec<Hunk> }
-Hunk         { old_start, old_lines, new_start, new_lines, lines: Vec<DiffLine> }
-CommitDiff   { commit: CommitInfo, files: Vec<FileDiff> }
-Oid          — newtype wrapper around a 40-hex-char SHA string
-VirtualOid   ∈ { Real(Oid), Staged, Unstaged }  — unifies real commits and synthetic working-tree rows
-```
-
 ### Fragmap (chunk clustering)
 
 Each hunk is represented as a **FileSpan** (file path + line range). Overlapping
 or adjacent spans across commits are merged into **SpanClusters**. A matrix of
 `commits × clusters` shows which commits touch which clusters. Two commits
 "conflict" (relate) when they share a cluster.
-
-```
-FileSpan     { path, file: FileId, start_line, end_line }
-SpanCluster  { spans: Vec<FileSpan>, commit_oids: Vec<Oid> }
-FragMap      { commits, clusters, matrix: Vec<Vec<TouchKind>> }
-TouchKind    ∈ { Added, Modified, Deleted, None }
-```
 
 **Algorithm:**
 1. For each commit, extract all hunks → convert to FileSpans.
@@ -346,46 +228,6 @@ the upstream default branch. The base is auto-detected via `origin/HEAD`
 The base branch can be overridden with a positional CLI argument, or `--all`
 can be passed to browse the complete repository history down to the root commit.
 
-### TUI state machine
-
-The application uses a modal state machine (`AppMode` enum) with these modes:
-
-- `Loading { title, message, progress, skippable }` — startup loading screen
-- `CommitList` — default view, scrollable commit log with fragmap
-- `CommitDetail` — diff + metadata for the selected commit
-- `SplitSelect { strategy_index }` — per-file / per-hunk / per-hunk-group picker
-- `SplitConfirm(PendingSplit)` — confirmation for large splits
-- `DropConfirm(PendingDrop)` — drop commit confirmation
-- `RebaseConflict(Box<ConflictState>)` — merge conflict resolution dialog
-- `SquashSelect { source_index, squash_mode: SquashMode }` — squash/fixup target picker
-- `MoveSelect { source_index, insert_before }` — move commit target selection
-- `Help(Box<AppMode>)` — help overlay (wraps previous mode)
-
-### Standard ratatui event loop
-
-```
-loop {
-    terminal.draw(|f| render(&app, f))?;
-    let event = app::read_event()?;
-    let action = app.mode.parse_key(event);
-    app.clear_status_message();
-    let result = match app.mode {
-        CommitList => views::commit_list::handle_key(action, &mut app),
-        CommitDetail => views::commit_detail::handle_key(action, &mut app),
-        // ... other modes dispatch to their view module
-    };
-    // dispatch::dispatch_action performs the git side effect the action
-    // requested (delegating to the per-operation handlers in dispatch/*),
-    // and returns a LoopAction telling main.rs what to do next.
-    match dispatch::dispatch_action(result, &mut app, &mut git_repo, ...)? {
-        LoopAction::Continue => continue,
-        LoopAction::Proceed => {}
-        LoopAction::Reload | ReloadPreserving | ReloadSelecting(_) => reload_commits(...),
-    }
-    if app.should_quit { break; }
-}
-```
-
 ### Rendering performs no I/O
 
 `render` functions draw what is already in `AppState` — no `GitRepo` call, no
@@ -412,22 +254,9 @@ the `GitRepo` trait (defined in `repo.rs`). Two implementations exist:
 
 ### Fixture repos for integration tests
 
-For testing the real `Git2Repo` implementation and end-to-end flows, use
-`tempfile::TempDir` with `git2::Repository::init()`:
-
-```rust
-pub struct TestRepo {
-    pub _temp_dir: TempDir,  // dropped = cleaned up
-    pub repo: Repository,
-}
-
-impl TestRepo {
-    pub fn new() -> Self { /* init repo, configure user, create initial state */ }
-    pub fn git_repo(&self) -> Git2Repo { /* open a Git2Repo handle */ }
-    pub fn commit_file(&self, path: &str, content: &str, message: &str) -> git2::Oid { ... }
-    pub fn create_branch(&self, name: &str) { ... }
-}
-```
+For testing the real `Git2Repo` implementation and end-to-end flows, use the
+`TestRepo` helper in `tests/common/`, which wraps `tempfile::TempDir` and
+`git2::Repository::init()`.
 
 ### What to test at each layer
 
@@ -440,10 +269,3 @@ impl TestRepo {
 | **Rebase engine e2e**          | Integration tests with `TempDir` repos                |
 | **Conflict detection**         | Integration with repos having overlapping edits       |
 | **TUI views**                  | Snapshot testing with `ratatui::backend::TestBackend` |
-
-### Test dependencies
-
-```toml
-[dev-dependencies]
-insta = "1"              # Snapshot testing (TUI + diff output)
-```
