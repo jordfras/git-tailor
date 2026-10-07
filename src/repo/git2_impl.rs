@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::domain::bytes_to_path;
+use crate::fragmap::FragMapProgress;
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
 
 use super::{RepoRead, RepoWrite};
@@ -415,8 +416,9 @@ impl RepoRead for Git2Repo {
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
+        progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<usize> {
-        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid)
+        split_op::count_split_per_hunk_group(self, commit_oid, head_oid, reference_oid, progress)
     }
 
     fn pending_undo_skips_autostash(&self) -> Result<bool> {
@@ -451,10 +453,16 @@ impl RepoWrite for Git2Repo {
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
+        progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
-        let outcome =
-            split_op::split_commit_per_hunk_group(self, commit_oid, head_oid, reference_oid);
+        let outcome = split_op::split_commit_per_hunk_group(
+            self,
+            commit_oid,
+            head_oid,
+            reference_oid,
+            progress,
+        );
         self.record_unit_undo("Split", head_oid, outcome)
     }
 

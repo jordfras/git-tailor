@@ -19,6 +19,8 @@ pub use git2_impl::Git2Repo;
 use anyhow::Result;
 use bstr::{BStr, BString};
 use serde::{Deserialize, Serialize};
+
+use crate::fragmap::FragMapProgress;
 use std::path::{Path, PathBuf};
 
 use crate::{CommitDiff, CommitInfo, Oid, app::SquashMode};
@@ -550,6 +552,7 @@ pub trait RepoRead {
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
+        progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<usize>;
 
     /// Whether the next [`undo`](RepoWrite::undo) leaves the working tree untouched (a
@@ -614,6 +617,7 @@ pub trait RepoWrite {
         commit_oid: &Oid,
         head_oid: &Oid,
         reference_oid: &Oid,
+        progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<()>;
 
     /// Peel a set of selected files out of `commit_oid` into a follow-up commit.

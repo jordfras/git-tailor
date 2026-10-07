@@ -94,7 +94,9 @@ fn split_per_hunk_group_never_loses_a_file_that_replaced_a_symlink() {
         let mut git_repo = test.git_repo();
         let head = git_repo.head_oid().unwrap();
         git_repo
-            .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+            .split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| {
+                true
+            })
             .unwrap();
 
         let modes = link_modes(&test, base);
@@ -179,10 +181,14 @@ fn split_per_hunk_group_has_nothing_to_split_when_one_group_replaces_a_binary_fi
     let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
     let count = git_repo
-        .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base))
+        .count_split_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base), &mut |_| true)
         .unwrap();
-    let result =
-        git_repo.split_commit_per_hunk_group(&Oid::from(to_split), &head, &Oid::from(base));
+    let result = git_repo.split_commit_per_hunk_group(
+        &Oid::from(to_split),
+        &head,
+        &Oid::from(base),
+        &mut |_| true,
+    );
 
     assert_eq!(count, 1);
     assert!(result.is_err(), "split with nothing to split: {result:?}");
@@ -237,7 +243,12 @@ fn split_per_hunk_group_places_a_symlink_replaced_by_a_file_by_both_its_hunks() 
 
     let mut git_repo = test.git_repo();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &Oid::from(later), &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &Oid::from(later),
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     let mut pieces = paths_per_commit(&test, base);

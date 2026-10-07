@@ -31,7 +31,12 @@ fn split_per_hunk_group_two_groups_shared_context() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 3 commits above base: commit A + K-part1 + K-part2
@@ -93,7 +98,12 @@ fn split_per_hunk_group_three_commits_two_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: A + K-part1 + K-part2 + B' (rebased B)
@@ -162,14 +172,24 @@ fn split_per_hunk_group_one_hunk_spanning_two_columns() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "the count offered to the user must match the two matrix columns"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: A + B + K-part1 + K-part2.
@@ -209,14 +229,24 @@ fn split_per_hunk_group_keeps_a_mixed_relation_hunk_whole() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "two relation sets: {{A,B}} and K-only"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: A + B + 2 split parts.
@@ -258,14 +288,24 @@ fn split_per_hunk_group_one_hunk_partially_consumed_across_a_gap_commit() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "the count offered to the user must match the two matrix columns"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: K-part1 + K-part2 + T' + C'.
@@ -312,14 +352,24 @@ fn split_per_hunk_group_cross_related_lines_yield_fewer_commits_than_columns() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "only the two physically separable pieces can become commits"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: A + K-part1 + K-part2 + C' (rebased C).
@@ -364,14 +414,24 @@ fn split_per_hunk_group_sandwiched_relation_is_still_splittable() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "the A-related ends and the unrelated middle are separable"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 3 commits above base: A + 2 split parts.
@@ -419,6 +479,7 @@ fn split_per_hunk_group_refuses_single_group() {
         &Oid::from(only_one_group),
         &head_oid,
         &Oid::from(base),
+        &mut |_| true,
     );
     assert!(
         result.is_err(),
@@ -499,7 +560,12 @@ fn split_per_hunk_group_preserves_commit_message_body() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     let commits_above_base = test.commits_from_head(base);
@@ -528,7 +594,12 @@ fn split_per_hunk_group_last_piece_has_original_tree() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     assert_eq!(
@@ -563,13 +634,23 @@ fn split_per_hunk_group_insertions_into_two_files() {
     // The confirmation dialog previews this count, so it has to agree.
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // add a + add b + two split parts.
@@ -614,8 +695,12 @@ fn split_per_hunk_group_refuses_insertions_sharing_one_column() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result =
-        git_repo.split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base));
+    let result = git_repo.split_commit_per_hunk_group(
+        &Oid::from(to_split),
+        &head_oid,
+        &Oid::from(base),
+        &mut |_| true,
+    );
     let msg = result
         .expect_err("one column means nothing to split")
         .to_string();
@@ -661,7 +746,12 @@ fn split_per_hunk_group_keeps_paths_a_single_invalid_byte_apart_separate() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     let commits_above_base = test.commits_from_head(base);
@@ -706,7 +796,12 @@ fn split_per_hunk_group_keeps_a_file_added_where_another_was_renamed_from_apart(
 
     let mut git_repo = test.git_repo();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &Oid::from(later), &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &Oid::from(later),
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // The rename, then b's second hunk alone (it relates to `later`), with
@@ -716,4 +811,25 @@ fn split_per_hunk_group_keeps_a_file_added_where_another_was_renamed_from_apart(
     assert_file_contents!(&test.repo, commits[1], "a", "new\n");
     assert_file_contents!(&test.repo, commits[1], "b", ten_lines_with("1K", "9"));
     assert_file_contents!(&test.repo, commits[2], "b", ten_lines_with("1K", "9K"));
+}
+
+/// A progress callback that asks to stop cancels counting the pieces, with an
+/// error that says it was interrupted.
+#[test]
+fn count_split_per_hunk_group_stops_when_progress_asks_it_to() {
+    let test = common::TestRepo::new();
+    let base = test.commit_files(&[("a.txt", "A\n"), ("b.txt", "B\n")], "base");
+    let to_split = test.commit_files(&[("a.txt", "A2\n"), ("b.txt", "B2\n")], "change");
+
+    let error = test
+        .git_repo()
+        .count_split_per_hunk_group(
+            &Oid::from(to_split),
+            &Oid::from(to_split),
+            &Oid::from(base),
+            &mut |_| false,
+        )
+        .unwrap_err();
+
+    assert!(error.is::<git_tailor::fragmap::Interrupted>(), "{error:#}");
 }

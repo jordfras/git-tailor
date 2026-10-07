@@ -21,6 +21,7 @@ use git_tailor::{
 use std::path::Path;
 
 use crate::mock_repo::{MockRepo, make_conflict_state};
+use crate::progress_screen::ShowProgress;
 
 use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
@@ -165,6 +166,21 @@ fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     );
 }
 
+/// A progress screen that shows nothing and never asks to stop.
+struct NoProgress;
+
+impl ShowProgress for NoProgress {
+    fn show(
+        &mut self,
+        _: &mut AppState,
+        _: &'static str,
+        _: Option<(usize, usize)>,
+        _: Option<git_tailor::app::LoadingEscape>,
+    ) -> bool {
+        true
+    }
+}
+
 #[test]
 fn prepare_split_count_error_sets_error_message() {
     let mut repo = MockRepo {
@@ -177,9 +193,48 @@ fn prepare_split_count_error_sets_error_message() {
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),
+        &mut NoProgress,
     );
     assert!(matches!(result, Ok(LoopAction::Proceed)));
     assert!(app.status.is_error);
+}
+
+/// A progress screen that asks to stop at the first report, as Esc does.
+struct Cancel;
+
+impl ShowProgress for Cancel {
+    fn show(
+        &mut self,
+        _: &mut AppState,
+        _: &'static str,
+        _: Option<(usize, usize)>,
+        _: Option<git_tailor::app::LoadingEscape>,
+    ) -> bool {
+        false
+    }
+}
+
+/// Canceling the per-hunk-group count leaves the list as it was and says so.
+#[test]
+fn prepare_split_per_hunk_group_canceled_leaves_the_list() {
+    let mut repo = MockRepo {
+        count_per_hunk_group: SPLIT_CONFIRM_THRESHOLD + 1,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split(
+        &mut repo,
+        &mut app,
+        SplitStrategy::PerHunkGroup,
+        Oid::from("a".repeat(40)),
+        &mut Cancel,
+    )
+    .unwrap();
+
+    assert_eq!(app.mode, AppMode::CommitList);
+    assert!(!app.status.is_error);
+    assert_eq!(app.status.message.as_deref(), Some("Split canceled"));
 }
 
 #[test]
@@ -194,6 +249,7 @@ fn prepare_split_above_threshold_enters_confirm_mode() {
         &mut app,
         SplitStrategy::PerFile,
         Oid::from("a".repeat(40)),
+        &mut NoProgress,
     );
     assert!(matches!(app.mode, AppMode::SplitConfirm(_)));
 }
@@ -1329,6 +1385,87 @@ fn abandoning_a_commit_source_restores_the_autostash() {
     );
 }
 
+/// Abandoning a commit source whose auto-stash will not come back says so, and
+/// where the changes are.
+#[test]
+fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+        .unwrap()
+        .unwrap();
+
+    prepared.unwind(
+        &mut repo,
+        &mut app,
+        "Squash failed: nope".to_string(),
+        LoopAction::Proceed,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Squash failed: nope"), "{message}");
+    assert!(message.contains("could not be restored"), "{message}");
+    assert!(message.contains("git stash list"), "{message}");
+}
+
+/// Giving up on resuming a paused operation reports an auto-stash it cannot
+/// put back, and where the changes are.
+#[test]
+fn abandoning_a_resume_reports_an_autostash_it_cannot_restore() {
+    let mut repo = MockRepo {
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    super::conflict::abandon_resume(
+        &mut repo,
+        &mut app,
+        &make_conflict_state(),
+        "Squash aborted: empty commit message".to_string(),
+        LoopAction::Continue,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("empty commit message"), "{message}");
+    assert!(message.contains("could not be restored"), "{message}");
+    assert!(message.contains("git stash list"), "{message}");
+}
+
+/// Giving up on a resume whose abort is refused keeps the conflict dialog, says
+/// why, and leaves the auto-stash alone: the paused operation is still there.
+#[test]
+fn abandoning_a_resume_whose_abort_is_refused_keeps_the_dialog() {
+    let mut repo = MockRepo {
+        abort_ok: false,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    super::conflict::abandon_resume(
+        &mut repo,
+        &mut app,
+        &make_conflict_state(),
+        "Squash aborted: empty commit message".to_string(),
+        LoopAction::Continue,
+    );
+
+    assert!(
+        matches!(app.mode, AppMode::RebaseConflict(_)),
+        "got {:?}",
+        app.mode
+    );
+    let failure = app.resume_failure.as_deref().unwrap_or("");
+    assert!(failure.contains("empty commit message"), "{failure}");
+    assert!(failure.contains("Abort failed"), "{failure}");
+    assert_eq!(repo.autostash_restore_calls.get(), 0);
+}
+
 /// A squash from a commit joins the two messages; a row has none of its own, so
 /// it starts from the target's alone rather than from a blank line under it.
 #[test]
@@ -1440,6 +1577,39 @@ fn execute_drop_error_reports_a_failed_autostash_restore() {
     let message = app.status.message.as_deref().unwrap_or("").to_string();
     assert!(app.status.is_error);
     assert!(message.contains("Drop failed"), "{message}");
+    assert!(
+        message.contains("could not be restored"),
+        "the restore failure must be reported too: {message}"
+    );
+    assert!(
+        message.contains("git stash list"),
+        "and the user must be told where their work is: {message}"
+    );
+}
+
+/// The same holds for a failed split: the user has to hear that their tracked
+/// work could not come back out of the stash, and where it is.
+#[test]
+fn execute_split_error_reports_a_failed_autostash_restore() {
+    let mut repo = MockRepo {
+        split_ok: false,
+        autostash_restore_errs: true,
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+    let oid = Oid::from("a".repeat(40));
+    let _ = execute_split(
+        &mut repo,
+        &mut app,
+        SplitStrategy::PerFile,
+        &oid,
+        &oid,
+        &mut NoProgress,
+    );
+
+    let message = app.status.message.as_deref().unwrap_or("").to_string();
+    assert!(app.status.is_error);
+    assert!(message.contains("Split failed"), "{message}");
     assert!(
         message.contains("could not be restored"),
         "the restore failure must be reported too: {message}"

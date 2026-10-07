@@ -29,6 +29,7 @@ git-tailor/
 │   ├── main.rs             # Binary entry point (bootstrap, event loop, journal recovery, rendering)
 │   ├── cli.rs              # Command-line argument definitions (clap)
 │   ├── loader.rs           # Startup loading: commit walking, progress display
+│   ├── progress_screen.rs  # Loading screen a long computation keeps up to date
 │   ├── terminal_guard.rs   # RAII guard owning TUI terminal setup / teardown
 │   ├── external_tool.rs    # Suspend/restore TUI around external processes
 │   ├── dispatch.rs         # AppAction dispatch: LoopAction, dispatch_action, shared helpers

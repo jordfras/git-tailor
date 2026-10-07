@@ -1754,8 +1754,9 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
     );
 
     let diffs = vec![lexer, parser, bundled];
-    let assignment =
-        assign_hunk_groups(&diffs, &Oid::from("ccc333")).expect("commit is present in the diffs");
+    let assignment = assign_hunk_groups(&diffs, &Oid::from("ccc333"), &mut |_| true)
+        .unwrap()
+        .expect("commit is present in the diffs");
 
     assert_eq!(
         assignment.group_count, 2,
@@ -1774,6 +1775,23 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
         2,
         "both groups must actually receive hunks"
     );
+}
+
+/// A progress callback that asks to stop ends the assignment early.
+#[test]
+fn assign_hunk_groups_stops_when_progress_asks_it_to() {
+    let earlier = make_commit_diff(
+        "aaa111",
+        vec![make_file_diff(None, Some("a.rs"), 0, 0, 1, 10)],
+    );
+    let target = make_commit_diff(
+        "bbb222",
+        vec![make_file_diff(Some("a.rs"), Some("a.rs"), 3, 1, 3, 1)],
+    );
+
+    let result = assign_hunk_groups(&[earlier, target], &Oid::from("bbb222"), &mut |_| false);
+
+    assert_eq!(result.unwrap_err(), Interrupted);
 }
 
 /// A delta with no hunks contributes no cluster.

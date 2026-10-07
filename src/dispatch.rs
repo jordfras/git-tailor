@@ -37,6 +37,7 @@ use git_tailor::repo::{
 use git_tailor::views;
 
 use crate::external_tool::with_tui_suspended;
+use crate::progress_screen::ProgressScreen;
 
 use autofixup::{
     handle_execute_autofixup, handle_prepare_autofixup_confirm,
@@ -153,19 +154,22 @@ pub(crate) fn dispatch_action(
         AppAction::PrepareSplit {
             strategy,
             commit_oid,
-        } => return handle_prepare_split(git_repo, app, strategy, commit_oid),
+        } => {
+            let mut screen = ProgressScreen::new(terminal_guard, "Split Per Hunk Group");
+            let action = handle_prepare_split(git_repo, app, strategy, commit_oid, &mut screen);
+            screen.finish()?;
+            return action;
+        }
         AppAction::ExecuteSplit {
             strategy,
             commit_oid,
             head_oid,
         } => {
-            return Ok(execute_split(
-                git_repo,
-                app,
-                strategy,
-                &commit_oid,
-                &head_oid,
-            ));
+            let mut screen = ProgressScreen::new(terminal_guard, "Split Per Hunk Group");
+            let action =
+                execute_split(git_repo, app, strategy, &commit_oid, &head_oid, &mut screen);
+            screen.finish()?;
+            return Ok(action);
         }
         AppAction::PrepareSplitOutFiles { commit_oid } => {
             return handle_prepare_split_out_files(git_repo, app, commit_oid);

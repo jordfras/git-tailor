@@ -14,7 +14,7 @@
 
 use ratatui::{Frame, style::Color};
 
-use crate::app::{AppMode, AppState};
+use crate::app::{AppMode, AppState, LoadingEscape};
 use crate::views::{
     commit_list,
     dialog::{Dialog, DialogKind, TextRole},
@@ -31,7 +31,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
         title,
         message,
         progress,
-        skippable,
+        escape,
     } = app.mode
     else {
         return;
@@ -46,12 +46,11 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     let mut dialog = Dialog::new(DialogKind::Info, app.colors)
         .blank()
         .styled_line(text, TextRole::Normal);
-    let hint = if skippable {
-        Some(("s", Color::Cyan, "to skip"))
-    } else if progress.is_some() {
-        Some(("Ctrl-c", Color::Cyan, "to quit"))
-    } else {
-        None
+    let hint = match escape {
+        Some(LoadingEscape::Skip) => Some(("s", Color::Cyan, "to skip")),
+        Some(LoadingEscape::Cancel) => Some(("Esc", Color::Cyan, "to cancel")),
+        None if progress.is_some() => Some(("Ctrl-c", Color::Cyan, "to quit")),
+        None => None,
     };
     if let Some((key, color, label)) = hint {
         dialog = dialog.blank().instructions(&[(key, color, label)]);

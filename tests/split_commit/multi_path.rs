@@ -55,7 +55,12 @@ fn split_per_hunk_group_multi_path_two_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 3 commits above base: A' + K-part1 + K-part2
@@ -138,7 +143,12 @@ fn split_per_hunk_group_multi_path_three_groups() {
     let head_oid = git_repo.head_oid().unwrap();
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 4 commits above base: A' + K-part1 + K-part2 + B'
@@ -189,14 +199,24 @@ fn split_per_hunk_group_four_way_single_hunk() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         4,
         "four distinct relation sets: {{A}}, {{C}}, {{D}}, {{B}}"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 8 commits above base: A + B + 4 split parts + rebased C' + D'.
@@ -251,7 +271,12 @@ fn split_multi_path_last_piece_has_original_tree() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     assert_eq!(

@@ -193,7 +193,25 @@ pub enum FragMapProgress {
         commits_done: usize,
         commits_total: usize,
     },
+    /// Reading each commit's diff, before any clustering: reported by callers
+    /// that load the diffs themselves, as the per-hunk-group split does.
+    ReadingCommits {
+        commits_done: usize,
+        commits_total: usize,
+    },
 }
+
+/// The caller's progress callback asked to stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Interrupted;
+
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("interrupted")
+    }
+}
+
+impl std::error::Error for Interrupted {}
 
 /// Build a fragmap from a list of commit diffs.
 ///
@@ -279,16 +297,22 @@ pub fn build_fragmap(
 /// to the same commit around an unrelated middle needs the middle carved out
 /// specifically, not lumped into whichever end it is compared against.)
 ///
-/// Returns `None` if `commit_oid` is not found in `commit_diffs`.
+/// `progress` hears a [`FragMapProgress::ClusteringFile`] as each file the
+/// commit touches is clustered, and stops the assignment with [`Interrupted`]
+/// by returning `false`. Returns `Ok(None)` if `commit_oid` is not found in
+/// `commit_diffs`.
 pub fn assign_hunk_groups(
     commit_diffs: &[CommitDiff],
     commit_oid: &Oid,
-) -> Option<HunkGroupAssignment> {
-    let k = CommitPos(
-        commit_diffs
-            .iter()
-            .position(|d| d.commit.oid.as_oid() == Some(commit_oid))?,
-    );
+    progress: &mut impl FnMut(FragMapProgress) -> bool,
+) -> Result<Option<HunkGroupAssignment>, Interrupted> {
+    let Some(k) = commit_diffs
+        .iter()
+        .position(|d| d.commit.oid.as_oid() == Some(commit_oid))
+        .map(CommitPos)
+    else {
+        return Ok(None);
+    };
 
     let lineages = FileLineages::new(commit_diffs);
     let file_commits = collect_file_commits(commit_diffs, &lineages);
@@ -342,16 +366,23 @@ pub fn assign_hunk_groups(
     // group even when they are in different files entirely.
     let mut column_of: HashMap<(FileId, HunkPos), Vec<VirtualOid>> = HashMap::new();
     let mut clusters_of: HashMap<FileId, Vec<(SpanCluster, Option<spg::SpgSpan>)>> = HashMap::new();
-    for &(file, _) in &attributed {
+    let files_total = attributed.len();
+    for (files_done, &(file, _)) in attributed.iter().enumerate() {
+        let mut poll = || {
+            progress(FragMapProgress::ClusteringFile {
+                files_done,
+                files_total,
+            })
+        };
         let Some(clusters) = build_file_clusters_with_target(
             lineages.label(file),
             file,
             &file_commits[&file],
             commit_diffs,
             Some(k),
-            &mut || true,
+            &mut poll,
         ) else {
-            continue;
+            return Err(Interrupted);
         };
         let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
             continue;
@@ -465,10 +496,10 @@ pub fn assign_hunk_groups(
         })
         .collect();
 
-    Some(HunkGroupAssignment {
+    Ok(Some(HunkGroupAssignment {
         group_count: patterns.len(),
         by_change,
-    })
+    }))
 }
 
 impl FragMap {

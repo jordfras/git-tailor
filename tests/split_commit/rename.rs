@@ -58,14 +58,24 @@ fn split_per_hunk_group_rename_and_edit_in_the_same_commit() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "line 1 (A-related) and line 20 (unrelated) are separable groups"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 3 commits above base: A + 2 split parts.
@@ -138,14 +148,24 @@ fn split_per_hunk_group_survives_a_two_hop_rename_chain() {
 
     assert_eq!(
         git_repo
-            .count_split_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+            .count_split_per_hunk_group(
+                &Oid::from(to_split),
+                &head_oid,
+                &Oid::from(base),
+                &mut |_| true
+            )
             .unwrap(),
         2,
         "line 1 (A-related, through 2 renames) and line 20 (unrelated) are separable"
     );
 
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     // 6 commits above base: A + rename1 + mid + rename2 + 2 split parts.
@@ -199,7 +219,12 @@ fn split_rename_last_piece_has_original_tree() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     git_repo
-        .split_commit_per_hunk_group(&Oid::from(to_split), &head_oid, &Oid::from(base))
+        .split_commit_per_hunk_group(
+            &Oid::from(to_split),
+            &head_oid,
+            &Oid::from(base),
+            &mut |_| true,
+        )
         .unwrap();
 
     assert_eq!(

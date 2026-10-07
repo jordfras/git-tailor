@@ -180,6 +180,7 @@ pub(super) fn split_commit_per_hunk_group(
     commit_oid: &Oid,
     head_oid: &Oid,
     reference_oid: &Oid,
+    progress: &mut dyn FnMut(fragmap::FragMapProgress) -> bool,
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
@@ -187,7 +188,8 @@ pub(super) fn split_commit_per_hunk_group(
     // this commit interacts with its neighbors in the branch.  In --all mode
     // the root commit IS the reference point, so the commit being split must
     // be kept even when it equals `reference_oid`.
-    let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
+    let assignment =
+        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
 
     let full_diff = hunk_group_diff(repo, &target)?;
 
@@ -269,8 +271,10 @@ pub(super) fn count_split_per_hunk_group(
     commit_oid: &Oid,
     head_oid: &Oid,
     reference_oid: &Oid,
+    progress: &mut dyn FnMut(fragmap::FragMapProgress) -> bool,
 ) -> Result<usize> {
-    let assignment = compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid)?;
+    let assignment =
+        compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
     let target = load_split_commit(repo, commit_oid)?;
     let diff = hunk_group_diff(repo, &target)?;
     Ok(HunkGroupPlan::new(&assignment, &diff)?.piece_count())
@@ -910,27 +914,28 @@ fn compute_hunk_group_assignment(
     commit_oid: &Oid,
     head_oid: &Oid,
     reference_oid: &Oid,
+    mut progress: &mut dyn FnMut(fragmap::FragMapProgress) -> bool,
 ) -> Result<fragmap::HunkGroupAssignment> {
-    let branch_commits = reads::list_commits(repo, head_oid, reference_oid)?;
-    let branch_diffs: Vec<crate::CommitDiff> = branch_commits
-        .iter()
-        .filter(|c| {
-            let is_reference = c.oid.as_oid() == Some(reference_oid);
-            let is_split_commit = c.oid.as_oid() == Some(commit_oid);
-            (!is_reference || is_split_commit) && !c.oid.is_synthetic()
-        })
-        .map(|c| {
-            c.oid
-                .as_oid()
-                .map(|oid| reads::commit_diff_for_fragmap(repo, oid))
-                .transpose()
-        })
-        .collect::<Result<Vec<_>>>()?
+    let branch_commits: Vec<Oid> = reads::list_commits(repo, head_oid, reference_oid)?
         .into_iter()
-        .flatten()
+        .filter_map(|c| c.oid.as_oid().cloned())
+        .filter(|oid| oid != reference_oid || oid == commit_oid)
         .collect();
+    let commits_total = branch_commits.len();
+    let mut branch_diffs = Vec::with_capacity(commits_total);
+    for (commits_done, oid) in branch_commits.iter().enumerate() {
+        let go_on = progress(fragmap::FragMapProgress::ReadingCommits {
+            commits_done,
+            commits_total,
+        });
+        if !go_on {
+            return Err(fragmap::Interrupted.into());
+        }
+        branch_diffs.push(reads::commit_diff_for_fragmap(repo, oid)?);
+    }
 
-    fragmap::assign_hunk_groups(&branch_diffs, commit_oid)
+    fragmap::assign_hunk_groups(&branch_diffs, commit_oid, &mut progress)
+        .map_err(anyhow::Error::new)?
         .ok_or_else(|| anyhow::anyhow!("Commit {} not found in branch diff list", commit_oid))
 }
 
@@ -1087,7 +1092,9 @@ mod tests {
             },
             files: vec![added("a")],
         };
-        let assignment = fragmap::assign_hunk_groups(&[commit], &oid).unwrap();
+        let assignment = fragmap::assign_hunk_groups(&[commit], &oid, &mut |_| true)
+            .unwrap()
+            .unwrap();
 
         assert!(HunkGroupPlan::new(&assignment, &diff).is_err());
     }

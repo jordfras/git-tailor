@@ -167,7 +167,13 @@ impl RepoRead for StubRepo {
     fn count_split_per_hunk(&self, _commit_oid: &Oid) -> Result<usize> {
         unimplemented!()
     }
-    fn count_split_per_hunk_group(&self, _: &Oid, _: &Oid, _: &Oid) -> Result<usize> {
+    fn count_split_per_hunk_group(
+        &self,
+        _: &Oid,
+        _: &Oid,
+        _: &Oid,
+        _: &mut dyn FnMut(git_tailor::fragmap::FragMapProgress) -> bool,
+    ) -> Result<usize> {
         unimplemented!()
     }
     fn pending_undo_skips_autostash(&self) -> Result<bool> {

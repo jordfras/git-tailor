@@ -265,6 +265,15 @@ impl SquashMode {
     }
 }
 
+/// The key that leaves a loading screen early, and what leaving does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadingEscape {
+    /// `s` skips the current phase.
+    Skip,
+    /// Esc cancels the operation.
+    Cancel,
+}
+
 /// Application display mode.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AppMode {
@@ -274,9 +283,9 @@ pub enum AppMode {
         message: &'static str,
         /// `Some((done, total))` when progress is known, `None` for indeterminate phases.
         progress: Option<(usize, usize)>,
-        /// When `true`, pressing `s` skips the current phase. When `false`,
-        /// Ctrl-C is the quit key and is shown as the hint instead.
-        skippable: bool,
+        /// The key that leaves early, if any. Without one, Ctrl-C is the quit
+        /// key and is shown as the hint instead.
+        escape: Option<LoadingEscape>,
     },
     /// Commit list view with fragmap.
     #[default]

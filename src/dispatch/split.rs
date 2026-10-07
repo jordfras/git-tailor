@@ -15,29 +15,42 @@
 // Side-effect handlers for the split operations.
 
 use anyhow::Result;
-use git_tailor::app::{AppState, HunkPickerEntry, SplitStrategy};
+use git_tailor::app::{AppState, HunkPickerEntry, LoadingEscape, SplitStrategy};
+use git_tailor::fragmap::{FragMapProgress, Interrupted};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
-use crate::dispatch::{LoopAction, settle_autostash};
+use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
+use crate::progress_screen::ShowProgress;
 use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
+
+const SPLIT_CANCELED: &str = "Split canceled";
 
 pub(crate) fn handle_prepare_split(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     strategy: SplitStrategy,
     commit_oid: Oid,
+    screen: &mut impl ShowProgress,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     let count_result = match strategy {
         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
         SplitStrategy::PerHunkGroup => {
-            git_repo.count_split_per_hunk_group(&commit_oid, &head_oid, &app.reference_oid)
+            let reference_oid = app.reference_oid.clone();
+            with_hunk_group_progress(screen, app, |progress| {
+                git_repo.count_split_per_hunk_group(
+                    &commit_oid,
+                    &head_oid,
+                    &reference_oid,
+                    progress,
+                )
+            })
         }
         // "Split out file(s)" and "split out hunk(s)" each open their own
         // picker dialog instead, dispatched before reaching here.
@@ -45,6 +58,7 @@ pub(crate) fn handle_prepare_split(
         SplitStrategy::OutHunks => unreachable!("OutHunks uses PrepareSplitOutHunks"),
     };
     match count_result {
+        Err(e) if e.is::<Interrupted>() => app.set_success_message(SPLIT_CANCELED),
         Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(count) if count > SPLIT_CONFIRM_THRESHOLD => {
             app.enter_split_confirm(strategy, commit_oid, head_oid, count);
@@ -56,6 +70,7 @@ pub(crate) fn handle_prepare_split(
                 strategy,
                 &commit_oid,
                 &head_oid,
+                screen,
             ));
         }
     }
@@ -172,6 +187,7 @@ pub(crate) fn execute_split(
     strategy: SplitStrategy,
     commit_oid: &Oid,
     head_oid: &Oid,
+    screen: &mut impl ShowProgress,
 ) -> LoopAction {
     // Stash dirty state first so a split whose files overlap uncommitted changes
     // is not refused: a split reproduces the same final tree, so reapplying the
@@ -184,7 +200,10 @@ pub(crate) fn execute_split(
         SplitStrategy::PerFile => git_repo.split_commit_per_file(commit_oid, head_oid),
         SplitStrategy::PerHunk => git_repo.split_commit_per_hunk(commit_oid, head_oid),
         SplitStrategy::PerHunkGroup => {
-            git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &app.reference_oid)
+            let reference_oid = app.reference_oid.clone();
+            with_hunk_group_progress(screen, app, |progress| {
+                git_repo.split_commit_per_hunk_group(commit_oid, head_oid, &reference_oid, progress)
+            })
         }
         // "Split out file(s)" and "split out hunk(s)" never reach
         // PrepareSplit/ExecuteSplit at all — each is executed via its own
@@ -193,6 +212,33 @@ pub(crate) fn execute_split(
         SplitStrategy::OutHunks => unreachable!("OutHunks uses ExecuteSplitOutHunks"),
     };
     settle_split_autostash(git_repo, app, result)
+}
+
+/// Run `compute` with a progress callback that shows the per-hunk-group
+/// computation on `screen`, which stops it with `Interrupted` once the user
+/// presses Esc, and put `app` back in the mode it was in.
+fn with_hunk_group_progress<T>(
+    screen: &mut impl ShowProgress,
+    app: &mut AppState,
+    compute: impl FnOnce(&mut dyn FnMut(FragMapProgress) -> bool) -> T,
+) -> T {
+    let mode = app.mode.clone();
+    let result = compute(&mut |phase| {
+        let (message, progress) = match phase {
+            FragMapProgress::ReadingCommits {
+                commits_done,
+                commits_total,
+            } => ("Reading commits\u{2026}", (commits_done, commits_total)),
+            FragMapProgress::ClusteringFile {
+                files_done,
+                files_total,
+            } => ("Grouping hunks\u{2026}", (files_done, files_total)),
+            _ => return true,
+        };
+        screen.show(app, message, Some(progress), Some(LoadingEscape::Cancel))
+    });
+    app.mode = mode;
+    result
 }
 
 /// Restore the auto-stash after a split. On success, reapply the stash and show
@@ -211,10 +257,19 @@ fn settle_split_autostash(
             "Commit split",
             LoopAction::Reload,
         ),
-        Err(e) => {
-            let _ = git_repo.autostash_restore();
-            app.set_error_message(format!("Split failed: {e:#}"));
-            LoopAction::Proceed
-        }
+        Err(e) if e.is::<Interrupted>() => settle_autostash(
+            app,
+            git_repo.autostash_restore(),
+            "Split",
+            SPLIT_CANCELED,
+            LoopAction::Proceed,
+        ),
+        Err(e) => settle_autostash_after_failure(
+            git_repo,
+            app,
+            "Split",
+            format!("Split failed: {e:#}"),
+            LoopAction::Proceed,
+        ),
     }
 }

@@ -21,6 +21,7 @@ mod external_tool;
 mod loader;
 #[cfg(test)]
 mod mock_repo;
+mod progress_screen;
 mod recovery;
 mod session_lock;
 mod terminal_guard;

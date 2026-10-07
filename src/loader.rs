@@ -19,11 +19,13 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use git_tailor::repo::RepoRead;
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
-    app::{AppMode, AppState},
-    fragmap, views,
+    app::{AppMode, AppState, LoadingEscape},
+    fragmap::{self, FragMapProgress},
+    views,
 };
 
 use crate::cli::Cli;
+use crate::progress_screen::{ProgressScreen, ShowProgress};
 use crate::terminal_guard::TerminalGuard;
 
 /// Commits as loaded from git, before synthetic working-tree rows and virtual
@@ -129,7 +131,7 @@ pub fn load_with_progress(
             title: "Loading Commits",
             message: "Loading commits\u{2026}",
             progress: Some((0, total)),
-            skippable: false,
+            escape: None,
         },
     );
     terminal_guard
@@ -228,7 +230,7 @@ fn walk_commits(
                 title: "Loading Commits",
                 message: "Loading commits\u{2026}",
                 progress: Some((raw.len(), total)),
-                skippable: false,
+                escape: None,
             };
             terminal_guard
                 .terminal()
@@ -266,103 +268,32 @@ fn build_hunk_group_matrix(
     };
     diffs.extend_from_slice(extra_diffs);
 
-    let render_interval = std::time::Duration::from_millis(16);
-    let mut last_render = std::time::Instant::now()
-        .checked_sub(render_interval)
-        .unwrap_or_else(std::time::Instant::now);
-    let mut render_error: Option<anyhow::Error> = None;
-
-    let result = fragmap::build_fragmap(&diffs, !full, &mut |phase| {
-        use fragmap::FragMapProgress;
-        let now = std::time::Instant::now();
-
-        match phase {
-            FragMapProgress::ClusteringFile {
-                files_done,
-                files_total,
-            } => {
-                if now.duration_since(last_render) < render_interval {
-                    return true;
-                }
-                last_render = now;
-                app.mode = AppMode::Loading {
-                    title: "Hunk Group Matrix",
-                    message: "Clustering files\u{2026}",
-                    progress: Some((files_done, files_total)),
-                    skippable: true,
-                };
-                if let Err(e) = terminal_guard
-                    .terminal()
-                    .draw(|frame| views::loading::render(app, frame))
-                {
-                    render_error = Some(e.into());
-                    return false;
-                }
-                if crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
-                    && let Ok(Event::Key(KeyEvent {
-                        code: KeyCode::Char('s') | KeyCode::Char('S'),
-                        kind: KeyEventKind::Press,
-                        ..
-                    })) = crossterm::event::read()
-                {
-                    return false;
-                }
-                true
-            }
-            FragMapProgress::Deduplicating => {
-                app.mode = AppMode::Loading {
-                    title: "Hunk Group Matrix",
-                    message: "Deduplicating clusters\u{2026}",
-                    progress: None,
-                    skippable: false,
-                };
-                if let Err(e) = terminal_guard
-                    .terminal()
-                    .draw(|frame| views::loading::render(app, frame))
-                {
-                    render_error = Some(e.into());
-                    return false;
-                }
-                true
-            }
-            FragMapProgress::BuildingMatrix {
-                commits_done,
-                commits_total,
-            } => {
-                if now.duration_since(last_render) < render_interval {
-                    return true;
-                }
-                last_render = now;
-                app.mode = AppMode::Loading {
-                    title: "Hunk Group Matrix",
-                    message: "Building matrix\u{2026}",
-                    progress: Some((commits_done, commits_total)),
-                    skippable: true,
-                };
-                if let Err(e) = terminal_guard
-                    .terminal()
-                    .draw(|frame| views::loading::render(app, frame))
-                {
-                    render_error = Some(e.into());
-                    return false;
-                }
-                if crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false)
-                    && let Ok(Event::Key(KeyEvent {
-                        code: KeyCode::Char('s') | KeyCode::Char('S'),
-                        kind: KeyEventKind::Press,
-                        ..
-                    })) = crossterm::event::read()
-                {
-                    return false;
-                }
-                true
-            }
+    let mut screen = ProgressScreen::new(terminal_guard, "Hunk Group Matrix");
+    let result = fragmap::build_fragmap(&diffs, !full, &mut |phase| match phase {
+        FragMapProgress::ClusteringFile {
+            files_done,
+            files_total,
+        } => screen.show(
+            app,
+            "Clustering files\u{2026}",
+            Some((files_done, files_total)),
+            Some(LoadingEscape::Skip),
+        ),
+        FragMapProgress::Deduplicating => {
+            screen.show(app, "Deduplicating clusters\u{2026}", None, None)
         }
+        FragMapProgress::BuildingMatrix {
+            commits_done,
+            commits_total,
+        } => screen.show(
+            app,
+            "Building matrix\u{2026}",
+            Some((commits_done, commits_total)),
+            Some(LoadingEscape::Skip),
+        ),
+        FragMapProgress::ReadingCommits { .. } => true,
     });
-
-    if let Some(e) = render_error {
-        return Err(e);
-    }
+    screen.finish()?;
     Ok(result)
 }
 
