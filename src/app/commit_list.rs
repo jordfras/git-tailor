@@ -269,6 +269,33 @@ mod tests {
         }
     }
 
+    /// The offset that would be rendered for the current state.
+    ///
+    /// The one line the behavior tests below go through, so they read the
+    /// viewport the same way before and after it becomes stored state.
+    fn offset(app: &mut CommitListState, height: usize) -> usize {
+        app.effective_offset(height)
+    }
+
+    /// Steps taken from a settled viewport before `step` first moves it.
+    ///
+    /// This is what the user feels as "the cursor moves, then the list
+    /// scrolls", so it is the number that must match in both directions.
+    fn steps_before_the_viewport_moves(
+        app: &mut CommitListState,
+        height: usize,
+        step: fn(&mut CommitListState),
+    ) -> usize {
+        let settled = offset(app, height);
+        for taken in 0..app.commits.len() {
+            step(app);
+            if offset(app, height) != settled {
+                return taken;
+            }
+        }
+        app.commits.len()
+    }
+
     /// The selected row's display index must lie within the visible window.
     fn selection_visible(app: &CommitListState, offset: usize, height: usize) -> bool {
         let total = app.commits.len();
@@ -278,6 +305,49 @@ mod tests {
             app.selection_index
         };
         offset <= visual && visual < offset + height
+    }
+
+    #[test]
+    fn stepping_forward_from_the_top_moves_the_cursor_before_the_viewport() {
+        let mut app = app_with(10, 0, 4);
+        app.move_down();
+        assert_eq!(
+            offset(&mut app, 4),
+            0,
+            "the second row is on screen already, so nothing should scroll"
+        );
+    }
+
+    #[test]
+    fn stepping_back_from_the_bottom_moves_the_cursor_before_the_viewport() {
+        let mut app = app_with(10, 9, 4);
+        let settled = offset(&mut app, 4);
+        app.move_up();
+        assert_eq!(
+            offset(&mut app, 4),
+            settled,
+            "the row above is on screen already, so nothing should scroll"
+        );
+    }
+
+    #[test]
+    fn both_directions_move_the_cursor_equally_far_before_scrolling() {
+        for reverse in [false, true] {
+            let mut from_top = app_with(10, 0, 4);
+            from_top.reverse = reverse;
+            let down =
+                steps_before_the_viewport_moves(&mut from_top, 4, CommitListState::move_down);
+
+            let mut from_bottom = app_with(10, 9, 4);
+            from_bottom.reverse = reverse;
+            let up = steps_before_the_viewport_moves(&mut from_bottom, 4, CommitListState::move_up);
+
+            assert_eq!(
+                down, up,
+                "the cursor travels {down} rows away from one end but {up} from the other \
+                 (reverse={reverse})"
+            );
+        }
     }
 
     #[test]
