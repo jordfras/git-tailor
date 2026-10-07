@@ -2179,3 +2179,35 @@ fn a_commit_listed_before_its_parent_still_continues_it() {
     assert_eq!(lineages.of(2, 0), lineages.of(0, 0));
     assert_eq!(lineages.of(1, 0), lineages.of(0, 0));
 }
+
+/// A branch renames p to q and adds a new p; the merge reports p modified and
+/// q added. q is the renamed file and p the new one, and neither may become
+/// the other.
+#[test]
+fn a_merge_keeps_a_renamed_file_and_the_new_file_at_its_old_path_apart() {
+    use crate::DeltaStatus::{Added, Deleted, Modified, Renamed};
+    let lineages = lineages_of_graph(vec![
+        ("m0", vec![], vec![change(Modified, "p", "p")]),
+        ("f1", vec!["m0"], vec![change(Renamed, "p", "q")]),
+        ("f2", vec!["f1"], vec![change(Added, "p", "p")]),
+        (
+            "m1",
+            vec!["m0", "f2"],
+            vec![change(Modified, "p", "p"), change(Added, "q", "q")],
+        ),
+        (
+            "k",
+            vec!["m1"],
+            vec![change(Modified, "p", "p"), change(Modified, "q", "q")],
+        ),
+        ("k2", vec!["k"], vec![change(Deleted, "q", "q")]),
+        ("k3", vec!["k2"], vec![change(Added, "q", "q")]),
+    ]);
+    let (renamed, new_p) = (lineages.of(0, 0), lineages.of(2, 0));
+    assert_ne!(new_p, renamed);
+    assert_eq!(lineages.of(3, 0), new_p, "the merge's p");
+    assert_eq!(lineages.of(3, 1), renamed, "the merge's q");
+    assert_eq!(lineages.of(4, 0), new_p);
+    assert_eq!(lineages.of(4, 1), renamed);
+    assert_eq!(lineages.of(6, 0), renamed, "q restored");
+}
