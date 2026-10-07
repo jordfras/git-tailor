@@ -193,8 +193,9 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
 /// Pair up renamed files in `diff`, and nothing more, whatever git's
 /// `diff.renames` says: with `copies` a new file is described against the one
 /// it resembles rather than whole, and the fragmap, and the split that numbers
-/// hunks as it does, must not change with a personal setting. The uncommitted
-/// rows pair them too, so the matrix does not change on committing them.
+/// hunks as it does, must not change with a personal setting. The staged row
+/// pairs them too, so the matrix does not change on committing it; the
+/// unstaged row leaves untracked files out, so it has no addition to pair.
 pub(super) fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
     let mut opts = git2::DiffFindOptions::new();
     opts.renames(true);
@@ -281,8 +282,7 @@ pub(super) fn unstaged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Optio
 /// Unstaged changes with 0-context tight spans, for the fragmap matrix.
 pub(super) fn unstaged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
     let mut opts = fragmap_diff_opts();
-    let mut diff = repo.inner.diff_index_to_workdir(None, Some(&mut opts))?;
-    find_renames(&mut diff)?;
+    let diff = repo.inner.diff_index_to_workdir(None, Some(&mut opts))?;
     build_synthetic_diff(&diff, VirtualOid::Unstaged, "(unstaged changes)")
 }
 
