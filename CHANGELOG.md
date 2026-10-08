@@ -10,6 +10,10 @@ The format is based on
 
 ### Changed
 
+- The hunk group matrix is computed much faster. On 1,000 commits it takes
+  about a second at startup instead of eight, `--static` takes 5 seconds
+  instead of 58, and `--all` on a 1,231-commit history finishes in 18 seconds
+  where it ran for more than five minutes before
 - The hunk group matrix follows renamed files whatever git's `diff.renames`
   setting says, staged renames included, and with that set to `copies` it now
   shows a copied file as the new file it is, rather than as more of the file

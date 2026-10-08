@@ -35,7 +35,10 @@ pub use assignment::{
 pub use lineage::FileId;
 use lineage::FileLineages;
 pub use position::{ChangePos, CommitPos, HunkPos};
-use spg::{build_file_clusters, build_file_clusters_with_target, deduplicate_clusters};
+use spg::{
+    TargetColumn, build_file_clusters, build_file_columns, build_target_columns,
+    deduplicate_clusters,
+};
 
 /// Collect each file's hunks per commit.
 ///
@@ -243,13 +246,12 @@ pub fn build_fragmap(
                 files_total: total,
             })
         };
-        let new_clusters = build_file_clusters(
-            lineages.label(file),
-            file,
-            &file_commits[&file],
-            commit_diffs,
-            &mut poll,
-        )?;
+        let (label, hunks) = (lineages.label(file), &file_commits[&file]);
+        let new_clusters = if deduplicate {
+            build_file_columns(label, file, hunks, commit_diffs, &mut poll)?
+        } else {
+            build_file_clusters(label, file, hunks, commit_diffs, &mut poll)?
+        };
         clusters.extend(new_clusters);
     }
 
@@ -365,7 +367,7 @@ pub fn assign_hunk_groups(
     // such hunk comes back relating to nothing and they collapse into a single
     // group even when they are in different files entirely.
     let mut column_of: HashMap<(FileId, HunkPos), Vec<VirtualOid>> = HashMap::new();
-    let mut clusters_of: HashMap<FileId, Vec<(SpanCluster, Option<spg::SpgSpan>)>> = HashMap::new();
+    let mut columns_of: HashMap<FileId, Vec<TargetColumn>> = HashMap::new();
     let files_total = attributed.len();
     for (files_done, &(file, _)) in attributed.iter().enumerate() {
         let mut poll = || {
@@ -374,14 +376,8 @@ pub fn assign_hunk_groups(
                 files_total,
             })
         };
-        let Some(clusters) = build_file_clusters_with_target(
-            lineages.label(file),
-            file,
-            &file_commits[&file],
-            commit_diffs,
-            Some(k),
-            &mut poll,
-        ) else {
+        let Some(columns) = build_target_columns(&file_commits[&file], commit_diffs, k, &mut poll)
+        else {
             return Err(Interrupted);
         };
         let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
@@ -392,48 +388,22 @@ pub fn assign_hunk_groups(
             let end = start + (hunk.new_lines.max(1)) as i64;
             // A hunk can graze several columns; it belongs to the one it
             // overlaps most, since it is kept whole.
-            let mut best: Option<(i64, usize)> = None;
-            for (cluster_idx, (_, target_span)) in clusters.iter().enumerate() {
-                let Some(span) = target_span else { continue };
-                let overlap = end.min(span.end) - start.max(span.start);
-                if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
-                    best = Some((overlap, cluster_idx));
-                }
-            }
-            if let Some((_, cluster_idx)) = best {
-                // Identified by the set of commits touching the cluster, which
-                // is precisely what the matrix deduplicates columns on: two
-                // regions touched by the same commits are one column, even in
-                // different files, so hunks in them belong together.
-                let mut touching = clusters[cluster_idx].0.commit_oids.clone();
-                touching.sort();
-                column_of.insert((file, HunkPos(hunk_idx)), touching);
+            if let Some(touching) = most_overlapped(&columns, start, end) {
+                column_of.insert((file, HunkPos(hunk_idx)), touching.clone());
             }
         }
-        clusters_of.insert(file, clusters);
+        columns_of.insert(file, columns);
     }
 
     // The column a line range in `file` sits in, for placing the cut hunk's
     // fragments. A fragment and a whole hunk that belong to the same column and
     // relate to the same commits are one piece, so both must be keyed alike.
     let column_at = |file: FileId, range: &assignment::LineRange| -> Option<Vec<VirtualOid>> {
-        let clusters = clusters_of.get(&file)?;
         let (start, end) = (
             range.start as i64,
             (range.end as i64).max(range.start as i64 + 1),
         );
-        let mut best: Option<(i64, usize)> = None;
-        for (cluster_idx, (_, target_span)) in clusters.iter().enumerate() {
-            let Some(span) = target_span else { continue };
-            let overlap = end.min(span.end) - start.max(span.start);
-            if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
-                best = Some((overlap, cluster_idx));
-            }
-        }
-        let (_, cluster_idx) = best?;
-        let mut touching = clusters[cluster_idx].0.commit_oids.clone();
-        touching.sort();
-        Some(touching)
+        most_overlapped(columns_of.get(&file)?, start, end).cloned()
     };
 
     // Group hunks by column and relation set — and the cut hunk's sides by
@@ -600,6 +570,19 @@ impl FragMap {
 
         Some(self.squash_target(commit_idx).is_some_and(|t| t == earlier))
     }
+}
+
+/// The commits touching the column whose span overlaps `[start, end)` most,
+/// the first of them on a tie.
+fn most_overlapped(columns: &[TargetColumn], start: i64, end: i64) -> Option<&Vec<VirtualOid>> {
+    let mut best: Option<(i64, &Vec<VirtualOid>)> = None;
+    for column in columns {
+        let overlap = end.min(column.span.end) - start.max(column.span.start);
+        if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
+            best = Some((overlap, &column.touching));
+        }
+    }
+    best.map(|(_, touching)| touching)
 }
 
 /// Build the commits × clusters matrix with TouchKind values.

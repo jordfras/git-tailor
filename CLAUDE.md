@@ -84,7 +84,12 @@ git-tailor/
 │   │   ├── attribution.rs  # Exact line attribution for the commit being split
 │   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
 │   │   ├── position.rs     # CommitPos, ChangePos, HunkPos: typed positions
-│   │   └── spg.rs          # Span Propagation Graph algorithm
+│   │   ├── spg.rs          # Span Propagation Graph: types and the per-file entry points
+│   │   └── spg/
+│   │       ├── build.rs    # Building a file's graph from its commits' hunks
+│   │       ├── columns.rs  # Matrix and split columns without listing every path
+│   │       ├── paths.rs    # Listing every path (--full, and the oracle for columns.rs)
+│   │       └── shared_tail_lists.rs # Tail-sharing lists for paths built backwards
 │   ├── views.rs            # View module declarations
 │   ├── views/
 │   │   ├── commit_list.rs  # Scrollable commit log with fragmap
@@ -155,6 +160,11 @@ function's doc, or the test's name already says.
 **Put it on what it describes.** When adding a function or statement, check you
 haven't stranded an existing comment above the wrong thing.
 
+**No separator comments.** A banner such as `// ===== Section =====` marks a
+boundary the module structure should draw. When a file seems to want one, split
+it into submodules instead: a banner goes stale as code moves around it, and a
+module boundary does not.
+
 Don't reference the current task, a review, or a PR discussion; that context is
 gone once the commit lands.
 
@@ -193,6 +203,19 @@ commit messages, code comments, identifiers, and status-bar strings all use
 `color`, `behavior`, `canceled`, `gray`, `normalize`, `center`. British spelling
 in an identifier is worse than in prose, because it has to be matched exactly
 from then on.
+
+### Newtypes for Indices and Ids
+
+An index or id into one particular collection gets a newtype, not a bare
+`usize` or `u32`: a commit position, a hunk position, a file lineage, a list in
+a `SharedTailLists`. The compiler then rejects passing a hunk position where a
+commit position is expected, or a list id where a node index is expected. As
+bare integers those mistakes type-check, and the bug is silent. `CommitPos`,
+`ChangePos`, `HunkPos` (`src/fragmap/position.rs`), `FileId` and `ListId` are
+examples.
+
+Not every integer needs one: a count, or a loop index used within a few lines,
+stays plain.
 
 ### Code Quality
 

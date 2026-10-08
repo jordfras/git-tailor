@@ -14,7 +14,7 @@
 
 use super::*;
 use crate::{CommitDiff, CommitInfo, FileDiff, Hunk, Oid, VirtualOid};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn make_commit_info() -> CommitInfo {
     CommitInfo {
@@ -2343,4 +2343,93 @@ fn the_staged_row_continues_from_the_commit_before_it() {
         lineages.of(CommitPos(2), ChangePos(0)),
         lineages.of(CommitPos(0), ChangePos(0))
     );
+}
+
+/// A small deterministic generator, so a failing history can be replayed from
+/// its seed.
+pub(super) struct XorShift(pub(super) u64);
+
+impl XorShift {
+    pub(super) fn below(&mut self, n: u32) -> u32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % n as u64) as u32
+    }
+}
+
+/// Hunks for one change to a file of `len` lines, close together so that
+/// commits overlap often, with pure insertions and pure deletions among them.
+fn random_hunks(rng: &mut XorShift, len: &mut u32) -> Vec<Hunk> {
+    let mut hunks = Vec::new();
+    let mut at = 1 + rng.below(4);
+    let mut delta: i64 = 0;
+    loop {
+        let old_lines = rng.below(4);
+        let new_lines = if old_lines == 0 {
+            1 + rng.below(3)
+        } else {
+            rng.below(4)
+        };
+        if (old_lines > 0 && at + old_lines - 1 > *len) || (old_lines == 0 && at > *len + 1) {
+            break;
+        }
+        let new_at = (at as i64 + delta) as u32;
+        hunks.push(Hunk {
+            old_start: if old_lines > 0 { at } else { at - 1 },
+            old_lines,
+            new_start: if new_lines > 0 { new_at } else { new_at - 1 },
+            new_lines,
+            lines: vec![],
+        });
+        delta += new_lines as i64 - old_lines as i64;
+        at += old_lines + 1 + rng.below(6);
+        if rng.below(3) == 0 {
+            break;
+        }
+    }
+    *len = (*len as i64 + delta) as u32;
+    hunks
+}
+
+pub(super) fn random_history(seed: u64) -> Vec<CommitDiff> {
+    let mut rng = XorShift(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+    let files = ["a.txt", "b.txt", "c.txt"];
+    let mut lengths = vec![12 + rng.below(12); files.len()];
+    let commits = 2 + rng.below(7);
+    (0..commits)
+        .map(|commit| {
+            let mut changes = Vec::new();
+            for (path, len) in files.iter().zip(lengths.iter_mut()) {
+                if rng.below(3) == 0 {
+                    continue;
+                }
+                let hunks = random_hunks(&mut rng, len);
+                if !hunks.is_empty() {
+                    changes.push(FileDiff {
+                        old_path: Some(PathBuf::from(path)),
+                        new_path: Some(PathBuf::from(path)),
+                        status: crate::DeltaStatus::Modified,
+                        is_binary: false,
+                        hunks,
+                    });
+                }
+            }
+            make_commit_diff(&format!("{:040x}", commit + 1), changes)
+        })
+        .collect()
+}
+
+/// The deduplicated matrix is computed without listing every path through
+/// the span propagation graph; it must keep exactly what listing them and
+/// deduplicating would.
+#[test]
+fn deduplicated_columns_match_deduplicating_every_path() {
+    for seed in 0..2000 {
+        let diffs = random_history(seed);
+        let columns = build_fragmap(&diffs, true, &mut |_| true).unwrap();
+        let mut every_path = build_fragmap(&diffs, false, &mut |_| true).unwrap();
+        deduplicate_clusters(&mut every_path.clusters);
+        assert_eq!(columns.clusters, every_path.clusters, "seed {seed}");
+    }
 }

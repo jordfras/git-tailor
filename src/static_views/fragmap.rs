@@ -101,6 +101,19 @@ pub fn render(
     let fmap = fm::build_fragmap(commit_diffs, !full, &mut |_| true)
         .expect("no-op callback never cancels");
     let n_clusters = fmap.clusters.len();
+    // Every cell would otherwise rescan its column and recompute the squash
+    // target of the commit below it, which is cubic in the history.
+    let squash_targets: Vec<Option<usize>> = (0..commit_diffs.len())
+        .map(|i| fmap.squash_target(i))
+        .collect();
+    let mut touches: Vec<Vec<usize>> = vec![Vec::new(); n_clusters];
+    for (commit_idx, row) in fmap.matrix.iter().enumerate() {
+        for (cluster_idx, touch) in row.iter().enumerate() {
+            if *touch != fm::TouchKind::None {
+                touches[cluster_idx].push(commit_idx);
+            }
+        }
+    }
 
     // Compute the title column width following the original fragmap tool's
     // layout algorithm (fragmap/console_ui.py):
@@ -154,7 +167,7 @@ pub fn render(
         out.push_str(s.reset);
         out.push(' ');
 
-        if fmap.is_fully_squashable(commit_idx) {
+        if squash_targets[commit_idx].is_some() {
             out.push_str(s.gray_start);
             out.push_str(&title_padded);
             out.push_str(s.reset);
@@ -162,24 +175,21 @@ pub fn render(
             out.push_str(&title_padded);
         }
 
-        for cluster_idx in 0..fmap.clusters.len() {
+        for (cluster_idx, touching) in touches.iter().enumerate() {
             if fmap.matrix[commit_idx][cluster_idx] != fm::TouchKind::None {
                 out.push_str(s.cell_touch);
-            } else {
-                let has_above =
-                    (0..commit_idx).any(|i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None);
-                let below = ((commit_idx + 1)..commit_diffs.len())
-                    .find(|&i| fmap.matrix[i][cluster_idx] != fm::TouchKind::None);
-
-                if has_above && let Some(below_idx) = below {
-                    match fmap.connector_squashable(below_idx, cluster_idx) {
-                        Some(true) => out.push_str(s.cell_squashable),
-                        Some(false) => out.push_str(s.cell_conflicting),
-                        None => out.push_str(s.cell_empty),
+                continue;
+            }
+            let below = touching.partition_point(|&i| i < commit_idx);
+            match (below.checked_sub(1), touching.get(below)) {
+                (Some(above), Some(&below_idx)) => {
+                    if squash_targets[below_idx] == Some(touching[above]) {
+                        out.push_str(s.cell_squashable);
+                    } else {
+                        out.push_str(s.cell_conflicting);
                     }
-                } else {
-                    out.push_str(s.cell_empty);
                 }
+                _ => out.push_str(s.cell_empty),
             }
         }
 
