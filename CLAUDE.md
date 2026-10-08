@@ -160,6 +160,11 @@ function's doc, or the test's name already says.
 **Put it on what it describes.** When adding a function or statement, check you
 haven't stranded an existing comment above the wrong thing.
 
+**No separator comments.** A banner such as `// ===== Section =====` marks a
+boundary the module structure should draw. When a file seems to want one, split
+it into submodules instead: a banner goes stale as code moves around it, and a
+module boundary does not.
+
 Don't reference the current task, a review, or a PR discussion; that context is
 gone once the commit lands.
 
