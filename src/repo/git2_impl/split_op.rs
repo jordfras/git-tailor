@@ -716,11 +716,6 @@ fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTa
     if commit.parent_count() > 1 {
         anyhow::bail!("Cannot split a merge commit");
     }
-    if commit.parent_count() == 0 {
-        // The first piece would become an orphan root, which behind a graft
-        // severs the branch from the history that was never fetched.
-        repo.refuse_shallow_root(oid)?;
-    }
     let parent_tree = if commit.parent_count() == 0 {
         repo.empty_tree()?
     } else {

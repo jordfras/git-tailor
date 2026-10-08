@@ -39,6 +39,20 @@ pub(super) fn autofixup(
     reference_oid: &Oid,
     message_overrides: &HashMap<String, BString>,
 ) -> Result<RebaseOutcome> {
+    // The pairs are squashed one at a time, so a refusal part-way would leave
+    // the earlier ones landed with no undo entry. Every pair rewrites from its
+    // target up, so the oldest target covers the whole batch.
+    let commits = reads::list_commits(repo, head_oid, reference_oid)?;
+    let targets: Vec<Oid> = autofixup::plan_autofixup(&commits)
+        .into_iter()
+        .map(|pair| pair.target_oid)
+        .collect();
+    if let Some(oldest) = commits
+        .iter()
+        .find_map(|c| c.oid.as_oid().filter(|oid| targets.contains(oid)))
+    {
+        repo.refuse_rewriting_from(oldest, head_oid)?;
+    }
     run_batch(
         repo,
         head_oid.clone(),
