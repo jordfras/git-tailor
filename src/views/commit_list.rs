@@ -223,6 +223,9 @@ struct LayoutInfo {
     footer_area: Rect,
     h_scrollbar_area: Option<Rect>,
     available_height: usize,
+    /// Rows the commit list itself may draw: `available_height`, less the row a
+    /// move separator takes.
+    commit_rows: usize,
     has_v_scrollbar: bool,
     visible_clusters: Vec<usize>,
     display_clusters: Vec<usize>,
@@ -406,6 +409,25 @@ fn compute_column_widths(
     (title_width, fragmap_available_width)
 }
 
+/// Whether `MoveSelect` is showing its separator row, which spends one of the
+/// table's rows on something other than a commit.
+///
+/// Decided from the mode alone rather than from whether the separator is on
+/// screen: the viewport is settled against the separator's own position, so
+/// asking would be circular. It is always on screen when it exists, because
+/// `MoveSelect` pins the cursor beside it on every move and binds no
+/// viewport-scroll key. Over-reserving a row would only cost a row of context;
+/// under-reserving clips the commit the separator has to be drawn before.
+fn reserves_move_separator_row(mode: &AppMode) -> bool {
+    match *mode {
+        AppMode::MoveSelect {
+            source_index,
+            insert_before,
+        } => insert_before != source_index && insert_before != source_index + 1,
+        _ => false,
+    }
+}
+
 /// Compute all layout dimensions, scroll offsets, and visible cluster indices.
 fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
@@ -455,7 +477,12 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
 
     let visual_selection = app.list.visual_selection();
 
-    app.list.follow_selection(available_height);
+    let commit_rows = if reserves_move_separator_row(&app.mode) {
+        available_height.saturating_sub(1)
+    } else {
+        available_height
+    };
+    app.list.follow_selection(commit_rows);
     let scroll_offset = app.list.scroll.offset;
 
     LayoutInfo {
@@ -463,6 +490,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         footer_area,
         h_scrollbar_area,
         available_height,
+        commit_rows,
         has_v_scrollbar,
         visible_clusters,
         display_clusters,
@@ -588,25 +616,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let visible_commits = if display_commits.is_empty() {
         &display_commits[..]
     } else {
-        // When a move separator row is visible it occupies one table row,
-        // so we show one fewer commit to keep everything within bounds.
-        let separator_visible = match app.mode {
-            AppMode::MoveSelect {
-                source_index,
-                insert_before,
-            } if insert_before != source_index && insert_before != source_index + 1 => {
-                let vis_start = layout.scroll_offset;
-                let vis_end = (vis_start + layout.available_height).min(display_commits.len());
-                insert_before >= vis_start && insert_before <= vis_end
-            }
-            _ => false,
-        };
-        let height = if separator_visible {
-            layout.available_height.saturating_sub(1)
-        } else {
-            layout.available_height
-        };
-        let end = (layout.scroll_offset + height).min(display_commits.len());
+        let end = (layout.scroll_offset + layout.commit_rows).min(display_commits.len());
         &display_commits[layout.scroll_offset..end]
     };
 
