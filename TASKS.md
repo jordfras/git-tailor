@@ -182,19 +182,6 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [ ] T252 P2 fix - Bound the span-propagation graph's path enumeration.
-  `spg_enumerate_paths` (`src/fragmap/spg.rs`) enumerates every path through the
-  graph eagerly and recursively with no cap. Measured: 34 commits produce
-  149,931 deduped clusters in 4.1s release; a 2,000-commit disjoint file takes
-  104s. `assign_hunk_groups` hardwires its `poll` closure to `|| true`, so none
-  of it is interruptible — the event loop is simply gone for the duration, with
-  no way to cancel and no progress shown.
-  Two halves, and the second is worth doing even if the first is hard: cap or
-  restructure the enumeration (the consumer only needs cluster membership, not
-  the paths themselves, so a reachability computation may replace the
-  enumeration outright), and thread a real `poll` through so a user can abort.
-  Not a patch — the enumeration is the algorithm, which is why this is filed
-  rather than fixed.
 - [ ] T255 P2 bug - A pure deletion belongs to no fragmap column.
   `spg::SpgSpan::from_new_hunk` and `attribution::hunk_new_span` both return the
   **empty** interval `[new_start+1, new_start+1)` when `new_lines == 0`, while

@@ -2043,3 +2043,29 @@
   commit are then one file, so `HunkGroupAssignment` is indexed per change of
   the split commit, the split refuses an assignment that does not match its
   diff, and nothing is looked up by path.
+- [X] T252 P2 fix - Bound the span-propagation graph's path enumeration.
+  `spg_enumerate_paths` (`src/fragmap/spg.rs`) enumerates every path through the
+  graph eagerly and recursively with no cap. Measured: 34 commits produce
+  149,931 deduped clusters in 4.1s release; a 2,000-commit disjoint file takes
+  104s. `assign_hunk_groups` hardwires its `poll` closure to `|| true`, so none
+  of it is interruptible — the event loop is simply gone for the duration, with
+  no way to cancel and no progress shown.
+  Two halves, and the second is worth doing even if the first is hard: cap or
+  restructure the enumeration (the consumer only needs cluster membership, not
+  the paths themselves, so a reachability computation may replace the
+  enumeration outright), and thread a real `poll` through so a user can abort.
+  Not a patch — the enumeration is the algorithm, which is why this is filed
+  rather than fixed.
+  Done in both halves. The hunk-group computation reports progress and can
+  be canceled with Esc (`FragMapProgress`, `fragmap::Interrupted`,
+  `progress_screen.rs`). The deduplicated matrix and split per hunk group no
+  longer list paths: the matrix keeps, per node, the best suffix per commit
+  set (`spg_columns`), and a split takes the best prefix and suffix through
+  each of the commit's hunks (`spg_target_columns`) — exactly what the listing
+  kept, checked against it by randomized oracle tests. With the listing gone
+  the graph's own construction dominated, so its nodes are numbered rather
+  than hashed, and `--static` draws from per-commit squash targets instead of
+  rescanning columns per cell. On this repository: building the matrix for
+  999 commits 8.2 s → 1.2 s, `--static` 58 s → 5.5 s, `--static --all` over
+  1,231 commits from killed after five minutes and 4 GB to 18 s.
+  `--full` still lists every path, since every distinct path is what it shows.
