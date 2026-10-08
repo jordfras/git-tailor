@@ -116,6 +116,54 @@ fn squash_across_rename_with_descendant() {
     assert_rebase_complete!(result);
 }
 
+/// Squashing into a commit before a rename can conflict in the old name, which
+/// the paused conflict writes to disk. Finishing must take it back: left
+/// behind, it is an untracked file the next operation refuses to overwrite.
+#[test]
+fn a_squash_resolved_across_a_rename_leaves_no_old_name_behind() {
+    let content = make_content();
+    let with_line_5 = |line: &str| content.replacen("line 5\n", &format!("{line}\n"), 1);
+    let test = common::TestRepo::new();
+    test.commit_file("foo.txt", &content, "base");
+    let target = test.commit_file("foo.txt", &with_line_5("target"), "target");
+    test.commit_file("foo.txt", &with_line_5("middle"), "middle");
+    test.rename_file("foo.txt", "bar.txt", None, "rename foo to bar");
+    let source = test.commit_file("bar.txt", &with_line_5("source"), "source");
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    let state = git_repo
+        .squash_try_combine(
+            &Oid::from(source),
+            &Oid::from(target),
+            "target".into(),
+            SquashMode::Fixup,
+            &head,
+        )
+        .unwrap()
+        .expect("source's edit does not apply to the target's line");
+
+    // Keeping the target's line lets the descendants replay without conflict.
+    let workdir = test.repo.workdir().unwrap().to_path_buf();
+    test.write_file("foo.txt", &with_line_5("target"));
+    let _ = std::fs::remove_file(workdir.join("bar.txt"));
+    git_repo
+        .auto_stage_resolved_conflicts(&state.conflicting_files)
+        .unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("expected a squash-tree conflict, got {:?}", state.resume);
+    };
+    let result = git_repo
+        .squash_finalize(ctx, "target".into(), &state.original_branch_oid, None)
+        .unwrap();
+
+    assert_rebase_complete!(result);
+    assert!(
+        !workdir.join("foo.txt").exists(),
+        "the old name is not in the result and must not be left on disk"
+    );
+}
+
 /// Regression test using the exact commits from test_repo_3 where the bug was
 /// first observed. Skipped when the repo is not present on the machine.
 #[test]
