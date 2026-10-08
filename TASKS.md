@@ -159,18 +159,6 @@ Guidelines:
   the user put them — so this is a choice about one behavior rather than a
   reconciliation of two. A product decision about defaults, not a mechanical
   one, which is why it carries HUMAN INPUT.
-- [ ] T245 P3 bug - Work out what grafts and `refs/replace` do to the
-  rewrite engine. 3.1.0 fixed a shallow clone's graft boundary being mistaken
-  for a true root — rewriting it built a parentless commit and cut the branch
-  off from everything upstream, and pushed, it would truncate shared history.
-  Grafts (`.git/info/grafts`) and `refs/replace` have the same shape: a commit
-  whose parentage is not what the object says. But `is_shallow()` does not
-  report them, and libgit2's replace handling differs from git's own.
-  Deliberately not chased at the time, because a guard written without
-  understanding that difference would be guessing.
-  Scope: first establish what libgit2 actually does — does `parent_ids()` follow
-  a replacement? — then decide whether a guard is warranted and what it refuses.
-  The answer may be that nothing is needed, which is a fine outcome to record.
 - [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that
@@ -206,6 +194,15 @@ Guidelines:
   Narrow in practice: it needs two commits in range whose summaries differ only
   in undecodable bytes, and an edited override. The consequence is a message
   written to the wrong commit.
+- [ ] T259 P3 bug - An error part-way through an autofixup batch loses undo.
+  `run_batch` (`autofixup_op.rs`) squashes the pairs one at a time with `?`,
+  and the `journaled` wrapper records an undo entry only on `Ok`. So any error
+  after the first pair has landed — a refused squash, a failed checkout, a
+  journal write — leaves the earlier squashes on the branch with no undo entry
+  and only an error to show for it. The false-parents guard is checked for the
+  whole batch up front, so it no longer causes this, but nothing stops the next
+  error that does. Likely shape: on `Err` after progress, record the undo entry
+  for what landed (or restore the batch's original tip) before returning it.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

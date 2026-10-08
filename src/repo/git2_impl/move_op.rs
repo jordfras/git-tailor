@@ -44,6 +44,25 @@ pub(super) fn move_commit(
         commit.parent_count()
     };
 
+    // Everything above the commit that stays put is rebuilt: moving later, that
+    // is the moved commit's parent; moving earlier, the insertion point; to the
+    // root, nothing.
+    let kept = match insert_after_oid {
+        None => None,
+        Some(insert_after) => {
+            let insert_after = git2::Oid::from(insert_after);
+            if repo
+                .inner
+                .graph_descendant_of(insert_after, commit_git_oid)?
+            {
+                repo.inner.find_commit(commit_git_oid)?.parent_ids().next()
+            } else {
+                Some(insert_after)
+            }
+        }
+    };
+    repo.refuse_false_parents(kept, head_git_oid)?;
+
     let original_branch_oid = head_oid.clone();
 
     // Moving the root commit to a later position needs special handling
@@ -52,7 +71,6 @@ pub(super) fn move_commit(
     if let Some(insert_after) = insert_after_oid
         && parent_count == 0
     {
-        repo.refuse_shallow_root(commit_git_oid)?;
         return move_root_to_later(
             repo,
             commit_git_oid,
@@ -69,18 +87,7 @@ pub(super) fn move_commit(
     // new root commit" (used by --all mode when the user moves a commit
     // before the first visible entry).
     let (chain_base, reordered) = match insert_after_oid {
-        None => {
-            // Only refuse when this commit already presents as a root: an
-            // ordinary commit becoming the new root is discarding a parent
-            // git-tailor can see, the user's own choice, not the graft
-            // mistaking a boundary for one. A commit that already reports no
-            // parents locally, though, is exactly the case the graft can lie
-            // about.
-            if parent_count == 0 {
-                repo.refuse_shallow_root(commit_git_oid)?;
-            }
-            plan_move_to_root(repo, commit_git_oid, head_git_oid)?
-        }
+        None => plan_move_to_root(repo, commit_git_oid, head_git_oid)?,
         Some(insert_after) => plan_reorder(
             repo,
             commit_git_oid,

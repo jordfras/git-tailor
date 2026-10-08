@@ -45,6 +45,14 @@ The format is based on
 
 ### Fixed
 
+- Rewording or editing the oldest commit of a shallow clone is refused, as
+  dropping, moving, splitting and squashing it already were. It wrote a commit
+  with no parents, cutting the branch off from the history behind it. Moving a
+  commit to the very start of the branch with `--all` is refused there too,
+  since that rebuilds the oldest commit as well
+- A commit that `.git/info/grafts` gives other parents is no longer rewritten.
+  Rewriting it made the graft permanent: a commit grafted to have no parents
+  became a real root, and removing the graft no longer brought the history back
 - Finishing an operation after resolving a conflict no longer leaves a renamed
   file under its old name. When the conflict was in a commit from before the
   rename, the old name stayed behind as an untracked file, and the next

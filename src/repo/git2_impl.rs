@@ -438,12 +438,14 @@ impl RepoRead for Git2Repo {
 impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_file(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_hunk(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
@@ -456,6 +458,7 @@ impl RepoWrite for Git2Repo {
         progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_hunk_group(
             self,
             commit_oid,
@@ -473,6 +476,7 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
@@ -485,6 +489,7 @@ impl RepoWrite for Git2Repo {
         context_lines: u32,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome =
             split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines);
         self.record_unit_undo("Split", head_oid, outcome)
@@ -497,18 +502,21 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
         self.record_unit_undo("Reword", head_oid, outcome)
     }
 
     fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
         self.journaled("Drop", head_oid, outcome)
     }
 
     fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_rewriting_from(commit_oid, head_oid)?;
         edit_op::begin_edit(self, commit_oid, head_oid)
     }
 
@@ -1109,29 +1117,82 @@ impl Git2Repo {
         Self::check_branch_tip(&Oid::from(actual_oid), &state.new_tip_oid)
     }
 
-    /// Refuse to treat `commit` as a root when it is only one by accident of a
-    /// shallow fetch.
+    /// Refuse to rewrite the commits on `head`'s first-parent line down to
+    /// where `kept` reaches — the whole line when `kept` is empty — if any has
+    /// parents other than the ones its object records. A merge's other parents
+    /// are kept as they are, so their history is not rebuilt and not checked.
     ///
-    /// `git clone --depth` grafts the history: the oldest fetched commit reports
-    /// no parents while upstream it has plenty. Every "is this the root?" test
-    /// in the rewrite engine asks `parent_count() == 0`, so in a shallow clone
-    /// they all get the wrong answer and build a genuinely parentless commit —
-    /// severing the branch from everything behind the graft. Undoable locally;
-    /// pushed, it truncates the history everyone shares.
-    ///
-    /// Only the boundary is refused. Commits above it are ordinary, and a
-    /// shallow clone is a normal way to work on a large repository.
-    pub(super) fn refuse_shallow_root(&self, commit: git2::Oid) -> Result<()> {
-        if !self.inner.is_shallow() {
-            return Ok(());
+    /// A shallow clone's boundary reports no parents and `.git/info/grafts`
+    /// substitutes others, while the object keeps its real ones. Rebuilding
+    /// such a commit takes the reported parents and writes them for real: the
+    /// boundary becomes a genuine root, severing the branch from the history
+    /// behind it, and a graft is baked into the branch. Undoable locally;
+    /// pushed, it rewrites the history everyone shares. Replace refs need no
+    /// guard: libgit2 does not follow them.
+    pub(super) fn refuse_false_parents(
+        &self,
+        kept: impl IntoIterator<Item = git2::Oid>,
+        head: git2::Oid,
+    ) -> Result<()> {
+        let mut walk = self.inner.revwalk()?;
+        walk.simplify_first_parent()?;
+        walk.push(head)?;
+        for commit in kept {
+            walk.hide(commit)?;
         }
-        anyhow::bail!(
-            "Cannot rewrite {} as a root commit: this is a shallow clone, so it \
-             only looks like the root — upstream it has history behind it that \
-             was never fetched. Rewriting it here would cut the branch off from \
-             that history. Run `git fetch --unshallow` first.",
-            Oid::from(commit).short()
-        )
+        for commit in walk {
+            let commit = commit?;
+            let reported: Vec<git2::Oid> = self.inner.find_commit(commit)?.parent_ids().collect();
+            if reported != self.recorded_parents(commit)? {
+                return Err(self.false_parents_error(commit, reported.is_empty()));
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::refuse_false_parents`] for rewriting `commit` and everything
+    /// above it up to `head`. All its parents stay put, a merge's second one
+    /// included.
+    pub(super) fn refuse_rewriting_from(&self, commit: &Oid, head: &Oid) -> Result<()> {
+        let parents: Vec<git2::Oid> = self
+            .inner
+            .find_commit(git2::Oid::from(commit))?
+            .parent_ids()
+            .collect();
+        self.refuse_false_parents(parents, git2::Oid::from(head))
+    }
+
+    /// The parents `commit`'s object names, whatever a graft says.
+    fn recorded_parents(&self, commit: git2::Oid) -> Result<Vec<git2::Oid>> {
+        let odb = self.inner.odb()?;
+        let object = odb.read(commit)?;
+        let header = object
+            .data()
+            .split(|&b| b == b'\n')
+            .take_while(|line| !line.is_empty());
+        header
+            .filter_map(|line| line.strip_prefix(b"parent "))
+            .map(|hex| Ok(git2::Oid::from_str(std::str::from_utf8(hex)?)?))
+            .collect()
+    }
+
+    fn false_parents_error(&self, commit: git2::Oid, reports_none: bool) -> anyhow::Error {
+        let short = Oid::from(commit).short().to_string();
+        if reports_none && self.inner.is_shallow() {
+            anyhow::anyhow!(
+                "Cannot rewrite {short}: this is a shallow clone, so it only looks \
+                 like the root — upstream it has history behind it that was never \
+                 fetched. Rewriting it here would cut the branch off from that \
+                 history. Run `git fetch --unshallow` first."
+            )
+        } else {
+            anyhow::anyhow!(
+                "Cannot rewrite {short}: a graft in .git/info/grafts gives it \
+                 parents other than its own, and rewriting it would make them \
+                 permanent. Remove the graft first, or turn it into a replace ref \
+                 with `git replace --convert-graft-file`."
+            )
+        }
     }
 
     /// Create a commit whose message is written **byte for byte**.
