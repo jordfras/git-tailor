@@ -41,6 +41,10 @@ The format is based on
 
 ### Fixed
 
+- Splitting a commit per hunk group puts a region the commit only deletes from
+  in the group the matrix shows it with. Such a region belonged to no column,
+  so it was cut off from the hunks sharing its column, or lumped in with
+  unrelated deletions elsewhere
 - Resuming a paused operation that gives up — the editor failed, or the
   message was empty — keeps the conflict dialog open and says why when the
   abort itself is refused. It used to report the operation aborted and put
