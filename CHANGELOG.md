@@ -41,7 +41,7 @@ The format is based on
 - `--scroll-margin` keeps rows visible past the cursor in the commit list, so
   there is always context in the direction you are moving. `auto` (the
   default) scales with the window height, a number sets it exactly, and `0`
-  lets the cursor reach the edge as before
+  scrolls only once the cursor is at the edge, as before
 
 ### Fixed
 
