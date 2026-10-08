@@ -2069,3 +2069,32 @@
   999 commits 8.2 s → 1.2 s, `--static` 58 s → 5.5 s, `--static --all` over
   1,231 commits from killed after five minutes and 4 GB to 18 s.
   `--full` still lists every path, since every distinct path is what it shows.
+- [X] T255 P2 bug - A pure deletion belongs to no fragmap column.
+  `spg::SpgSpan::from_new_hunk` and `attribution::hunk_new_span` both return the
+  **empty** interval `[new_start+1, new_start+1)` when `new_lines == 0`, while
+  `assign_hunk_groups`'s column probe (`fragmap.rs`, `column_of`) measures the
+  same hunk as `[new_start, new_start + max(new_lines, 1))` and requires
+  `overlap > 0`. An empty span can never satisfy that, so a deletion-only hunk
+  gets `column_of == None`.
+  Concrete symptom: split a commit that deletes lines in two unrelated files
+  where neither region is touched by a neighbour. Both hunks key on `(None, [])`
+  and collapse into one hunk group — the merge the comment above `column_of`
+  says must never happen.
+  **Do not fix this in `extract_spans`.** That function is `#[cfg(test)]` and
+  documented "(legacy) ... Kept for tests"; an earlier attempt changed it, added
+  a passing test, and shipped nothing. Its whole test block covers code the
+  binary does not run, which is worth cleaning up separately.
+  The fix is in the two production span builders or in the probe, and it is a
+  change to the span-propagation algorithm's core: an empty interval for a
+  deletion may be load-bearing for propagation arithmetic, where a zero-width
+  point is not. Establish that before changing it.
+  The concrete symptom above is not the bug: two deletions in untouched files
+  both sit in the column only the split commit touches, so with the same
+  relations they are one group by design. The bug is that a deletion's group
+  disagreed with the matrix — split off from the hunks sharing its column, or
+  merged with deletions in other columns. Fixed in the probe, not the spans:
+  each hunk of the split commit is the graph node built from it, so its column
+  is found by matching that node's span instead of by overlap, and a cut hunk's
+  fragments take their hunk's column. Propagation and the matrix are
+  untouched; on main~40, 93 of 544 commits regroup, all with deletions, and no
+  other hunk's grouping changes.

@@ -182,25 +182,6 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [ ] T255 P2 bug - A pure deletion belongs to no fragmap column.
-  `spg::SpgSpan::from_new_hunk` and `attribution::hunk_new_span` both return the
-  **empty** interval `[new_start+1, new_start+1)` when `new_lines == 0`, while
-  `assign_hunk_groups`'s column probe (`fragmap.rs`, `column_of`) measures the
-  same hunk as `[new_start, new_start + max(new_lines, 1))` and requires
-  `overlap > 0`. An empty span can never satisfy that, so a deletion-only hunk
-  gets `column_of == None`.
-  Concrete symptom: split a commit that deletes lines in two unrelated files
-  where neither region is touched by a neighbour. Both hunks key on `(None, [])`
-  and collapse into one hunk group — the merge the comment above `column_of`
-  says must never happen.
-  **Do not fix this in `extract_spans`.** That function is `#[cfg(test)]` and
-  documented "(legacy) ... Kept for tests"; an earlier attempt changed it, added
-  a passing test, and shipped nothing. Its whole test block covers code the
-  binary does not run, which is worth cleaning up separately.
-  The fix is in the two production span builders or in the probe, and it is a
-  change to the span-propagation algorithm's core: an empty interval for a
-  deletion may be load-bearing for propagation arithmetic, where a zero-width
-  point is not. Establish that before changing it.
 - [ ] T257 P3 bug - Autofixup identifies a target by its decoded summary.
   `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
   the target's summary, and that summary is `CommitInfo::summary` — the lossy
