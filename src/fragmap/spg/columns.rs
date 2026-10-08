@@ -111,9 +111,7 @@ impl ColumnLists {
                     .interned_sets
                     .entry((node.generation, set))
                     .or_insert_with(|| self.sets.prepend(node.generation, set));
-                let key = self
-                    .keys
-                    .prepend((node.generation, node.new_span.start), key);
+                let key = self.keys.prepend(path_key(node), key);
                 (set, (key, span.or(Some(node.new_span))))
             })
             .collect()
@@ -204,67 +202,10 @@ pub(super) fn spg_target_columns(
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<(SpgSpan, Vec<i32>)>> {
     let graph = IndexedSpg::new(spg);
-    let mut keys: SharedTailLists<(i32, i64)> = SharedTailLists::new();
-    let key_of = |node: &SpgNode| (node.generation, node.new_span.start);
-
-    // From each node to the sink, the node included.
-    let mut suffix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
-    suffix[SINK] = Some(ListId::EMPTY);
-    for &at in graph.by_generation.iter().rev() {
-        if at == SINK {
-            continue;
-        }
-        if !poll() {
-            return None;
-        }
-        let mut best: Option<ListId> = None;
-        for &next in &graph.succs[at] {
-            if let Some(key) = suffix[next]
-                && best.is_none_or(|current| keys.cmp(key, current).is_lt())
-            {
-                best = Some(key);
-            }
-        }
-        let node = &graph.nodes[at];
-        suffix[at] = best.map(|key| match node.is_active {
-            true => keys.prepend(key_of(node), key),
-            false => key,
-        });
-    }
-
-    // From the source to each node, the node excluded, last element first.
-    let mut reversed: SharedTailLists<(i32, i64)> = SharedTailLists::new();
-    let in_order = |reversed: &SharedTailLists<(i32, i64)>, list: ListId| {
-        let mut elements: Vec<(i32, i64)> = reversed.iter(list).collect();
-        elements.reverse();
-        elements
-    };
-    let ends_first =
-        |a: &[(i32, i64)], b: &[(i32, i64)]| match a.iter().zip(b).find(|(x, y)| x != y) {
-            Some((x, y)) => x < y,
-            None => a.len() > b.len(),
-        };
-    let mut prefix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
-    prefix[SOURCE] = Some(ListId::EMPTY);
-    for &at in &graph.by_generation {
-        let Some(before) = prefix[at] else { continue };
-        if !poll() {
-            return None;
-        }
-        let node = &graph.nodes[at];
-        let through = match node.is_active {
-            true => reversed.prepend(key_of(node), before),
-            false => before,
-        };
-        let through_in_order = in_order(&reversed, through);
-        for &next in &graph.succs[at] {
-            let better = prefix[next]
-                .is_none_or(|current| ends_first(&through_in_order, &in_order(&reversed, current)));
-            if better {
-                prefix[next] = Some(through);
-            }
-        }
-    }
+    let mut keys = SharedTailLists::new();
+    let suffix = best_suffixes(&graph, &mut keys, poll)?;
+    let mut reversed = SharedTailLists::new();
+    let prefix = best_prefixes(&graph, &mut reversed, poll)?;
 
     let mut columns: Vec<(Vec<(i32, i64)>, SpgSpan)> = graph
         .nodes
@@ -291,6 +232,93 @@ pub(super) fn spg_target_columns(
             })
             .collect(),
     )
+}
+
+/// What a node adds to the key `spg_all_paths` sorts paths by.
+fn path_key(node: &SpgNode) -> (i32, i64) {
+    (node.generation, node.new_span.start)
+}
+
+/// From each node to the sink, the node included: the key of the first such
+/// path, or `None` where no path reaches the sink.
+fn best_suffixes(
+    graph: &IndexedSpg,
+    keys: &mut SharedTailLists<(i32, i64)>,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<PerNode<Option<ListId>>> {
+    let mut suffix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
+    suffix[SINK] = Some(ListId::EMPTY);
+    for &at in graph.by_generation.iter().rev() {
+        if at == SINK {
+            continue;
+        }
+        if !poll() {
+            return None;
+        }
+        let mut best: Option<ListId> = None;
+        for &next in &graph.succs[at] {
+            if let Some(key) = suffix[next]
+                && best.is_none_or(|current| keys.cmp(key, current).is_lt())
+            {
+                best = Some(key);
+            }
+        }
+        let node = &graph.nodes[at];
+        suffix[at] = best.map(|key| match node.is_active {
+            true => keys.prepend(path_key(node), key),
+            false => key,
+        });
+    }
+    Some(suffix)
+}
+
+/// From the source to each node, the node excluded: the key of the first such
+/// path, stored last element first, or `None` where the source does not reach
+/// the node.
+fn best_prefixes(
+    graph: &IndexedSpg,
+    reversed: &mut SharedTailLists<(i32, i64)>,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<PerNode<Option<ListId>>> {
+    let mut prefix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
+    prefix[SOURCE] = Some(ListId::EMPTY);
+    for &at in &graph.by_generation {
+        let Some(before) = prefix[at] else { continue };
+        if !poll() {
+            return None;
+        }
+        let node = &graph.nodes[at];
+        let through = match node.is_active {
+            true => reversed.prepend(path_key(node), before),
+            false => before,
+        };
+        let through_in_order = in_order(reversed, through);
+        for &next in &graph.succs[at] {
+            let better = prefix[next].is_none_or(|current| {
+                prefix_sorts_first(&through_in_order, &in_order(reversed, current))
+            });
+            if better {
+                prefix[next] = Some(through);
+            }
+        }
+    }
+    Some(prefix)
+}
+
+/// A list stored last element first, in order.
+fn in_order(reversed: &SharedTailLists<(i32, i64)>, list: ListId) -> Vec<(i32, i64)> {
+    let mut elements: Vec<(i32, i64)> = reversed.iter(list).collect();
+    elements.reverse();
+    elements
+}
+
+/// Whether prefix `a` sorts before `b` given that the same suffix follows
+/// both: a prefix that stops early sorts after one that continues it.
+fn prefix_sorts_first(a: &[(i32, i64)], b: &[(i32, i64)]) -> bool {
+    match a.iter().zip(b).find(|(x, y)| x != y) {
+        Some((x, y)) => x < y,
+        None => a.len() > b.len(),
+    }
 }
 
 #[cfg(test)]
