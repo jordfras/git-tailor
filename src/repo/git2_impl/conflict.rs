@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use super::super::{ConflictState, InProgress, RebaseOutcome, Resume};
 use super::Git2Repo;
 use super::cherry_pick::{ChainCtx, advance_and_finish};
+use crate::Oid;
 
 pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Result<RebaseOutcome> {
     let tip_oid = git2::Oid::from(&state.new_tip_oid);
@@ -96,10 +97,13 @@ pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Res
     };
     let result = repo.cherry_pick_chain(new_tip, &remaining, &ctx)?;
     let label = state.operation_label.to_lowercase();
+    // The working tree holds the resolution, not the original tip: a path only
+    // the conflict wrote, such as a file's name before a later rename, must be
+    // removed from there.
     advance_and_finish(
         repo,
         result,
-        &state.original_branch_oid,
+        &Oid::from(new_tip),
         &format!("git-tailor: {label} (continue)"),
     )
 }

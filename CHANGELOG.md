@@ -41,10 +41,14 @@ The format is based on
 - `--scroll-margin` keeps rows visible past the cursor in the commit list, so
   there is always context in the direction you are moving. `auto` (the
   default) scales with the window height, a number sets it exactly, and `0`
-  lets the cursor reach the edge as before
+  scrolls only once the cursor is at the edge, as before
 
 ### Fixed
 
+- Finishing an operation after resolving a conflict no longer leaves a renamed
+  file under its old name. When the conflict was in a commit from before the
+  rename, the old name stayed behind as an untracked file, and the next
+  operation that would write it refused to go ahead
 - Splitting a commit per hunk group puts a region the commit only deletes from
   in the group the matrix shows it with. Such a region belonged to no column,
   so it was cut off from the hunks sharing its column, or lumped in with

@@ -15,6 +15,8 @@
 #[allow(dead_code)]
 mod common;
 
+#[path = "move_commit/conflict.rs"]
+mod conflict;
 #[path = "move_commit/dirty_state.rs"]
 mod dirty_state;
 #[path = "move_commit/happy_path.rs"]

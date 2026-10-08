@@ -215,19 +215,19 @@ pub(super) enum CherryPickResult {
 }
 
 /// Finish a cherry-pick chain: on success, advance the branch ref to the new
-/// tip (logging `reflog_msg`) and restore the working tree to `checkout_target`,
-/// returning `RebaseOutcome::Complete`; on conflict, surface the (already
-/// journaled) state. The single tail shared by drop, move, squash, and
-/// conflict-resume.
+/// tip (logging `reflog_msg`) and check it out over `on_disk`, the commit the
+/// working tree reflects now, returning `RebaseOutcome::Complete`; on conflict,
+/// surface the (already journaled) state. The single tail shared by drop, move,
+/// squash, and conflict-resume.
 pub(super) fn advance_and_finish(
     repo: &mut Git2Repo,
     result: CherryPickResult,
-    checkout_target: &Oid,
+    on_disk: &Oid,
     reflog_msg: &str,
 ) -> Result<RebaseOutcome> {
     match result {
         CherryPickResult::Complete(tip) => {
-            repo.advance_and_checkout(tip, checkout_target, reflog_msg)?;
+            repo.advance_and_checkout(tip, on_disk, reflog_msg)?;
             Ok(RebaseOutcome::Complete)
         }
         CherryPickResult::Conflict(state) => Ok(RebaseOutcome::Conflict(state)),

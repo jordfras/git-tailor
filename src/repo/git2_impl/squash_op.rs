@@ -89,6 +89,7 @@ pub(super) fn squash_commits(
                 squash_oid,
                 &descendants,
                 head_oid.clone(),
+                head_oid,
                 "Squash",
                 "git-tailor: squash commits",
             );
@@ -132,6 +133,7 @@ pub(super) fn squash_commits(
         squash_oid,
         &descendants,
         head_oid.clone(),
+        head_oid,
         "Squash",
         "git-tailor: squash commits",
     )
@@ -223,11 +225,13 @@ pub(super) fn squash_finalize(
 
     let descendants: Vec<git2::Oid> = ctx.descendant_oids.iter().map(git2::Oid::from).collect();
 
+    // The working tree holds the resolution, not the original tip.
     replay_and_advance(
         repo,
         squash_oid,
         &descendants,
         original_branch_oid.clone(),
+        &Oid::from(squash_oid),
         ctx.squash_mode.label(),
         "git-tailor: squash commits (finalize)",
     )
@@ -327,6 +331,7 @@ fn replay_and_advance(
     squash_oid: git2::Oid,
     descendants: &[git2::Oid],
     original_branch_oid: Oid,
+    on_disk: &Oid,
     label: &str,
     advance_msg: &str,
 ) -> Result<RebaseOutcome> {
@@ -336,7 +341,7 @@ fn replay_and_advance(
         moved_commit_oid: None,
     };
     let result = repo.cherry_pick_chain(squash_oid, descendants, &ctx)?;
-    advance_and_finish(repo, result, &original_branch_oid, advance_msg)
+    advance_and_finish(repo, result, on_disk, advance_msg)
 }
 
 /// Apply source's changes onto the target tree, accounting for renames between
