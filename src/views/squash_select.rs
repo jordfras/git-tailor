@@ -38,7 +38,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     };
 
     let len = app.list.commits.len();
-    let page_size = app.list.visible_height;
+    let page_size = app.list.scroll.visible_height;
     let reverse = app.list.reverse;
     let mut cursor = app.list.selection_index;
 

@@ -59,13 +59,30 @@ impl ScrollState {
     /// Does nothing before the first render, when `visible_height` is still 0
     /// and there is no viewport to reason about.
     pub fn ensure_visible(&mut self, start: usize, height: usize) {
+        self.ensure_visible_with_margin(start, height, 0);
+    }
+
+    /// [`ensure_visible`][Self::ensure_visible], keeping `margin` further rows
+    /// on screen either side of the item.
+    ///
+    /// A margin needs `2 * margin` rows of viewport beyond the item to hold on
+    /// both sides, so it is capped at half of what is spare: past that the item
+    /// centers rather than the offset flipping between the two conditions.
+    ///
+    /// The ends of the content are not padded — `clamp_offset` gives the margin
+    /// up there instead of scrolling past the last row, so the first and last
+    /// item still reach the top and bottom row.
+    pub fn ensure_visible_with_margin(&mut self, start: usize, height: usize, margin: usize) {
         if self.visible_height == 0 {
             return;
         }
-        if start < self.offset {
-            self.offset = start;
-        } else if start + height > self.offset + self.visible_height {
-            self.offset = start + height - self.visible_height;
+        let margin = margin.min(self.visible_height.saturating_sub(height) / 2);
+        let lo = start.saturating_sub(margin);
+        let hi = start + height + margin;
+        if lo < self.offset {
+            self.offset = lo;
+        } else if hi > self.offset + self.visible_height {
+            self.offset = hi - self.visible_height;
         }
         self.clamp_offset();
     }
@@ -185,5 +202,50 @@ mod tests {
         let mut s = state(0, 0, 0);
         s.ensure_visible(30, 1);
         assert_eq!(s.offset, 0);
+    }
+
+    #[test]
+    fn a_margin_scrolls_early_to_keep_rows_beyond_the_item() {
+        let mut s = state(0, 20, 10);
+        s.ensure_visible_with_margin(8, 1, 2);
+        assert_eq!(s.offset, 1, "row 10 must be on screen, not just row 8");
+    }
+
+    #[test]
+    fn a_margin_applies_the_same_way_scrolling_back() {
+        let mut s = state(8, 20, 10);
+        s.ensure_visible_with_margin(9, 1, 2);
+        assert_eq!(s.offset, 7, "row 7 must be on screen, not just row 9");
+    }
+
+    #[test]
+    fn a_margin_leaves_an_item_with_room_to_spare_alone() {
+        let mut s = state(4, 20, 10);
+        s.ensure_visible_with_margin(7, 1, 2);
+        assert_eq!(s.offset, 4, "rows 5..10 are all on screen already");
+    }
+
+    #[test]
+    fn a_margin_wider_than_the_viewport_centers_instead_of_oscillating() {
+        let mut s = state(0, 40, 9);
+        s.ensure_visible_with_margin(20, 1, 99);
+        assert_eq!(s.offset, 16, "capped to 4, which centers row 20 of 9");
+        // The second call must agree with the first, or the view would flicker.
+        s.ensure_visible_with_margin(20, 1, 99);
+        assert_eq!(s.offset, 16);
+    }
+
+    #[test]
+    fn a_margin_is_given_up_at_the_start_of_the_content() {
+        let mut s = state(5, 20, 10);
+        s.ensure_visible_with_margin(0, 1, 3);
+        assert_eq!(s.offset, 0, "nothing above row 0 to keep on screen");
+    }
+
+    #[test]
+    fn a_margin_is_given_up_at_the_end_of_the_content() {
+        let mut s = state(0, 3, 10);
+        s.ensure_visible_with_margin(12, 1, 3);
+        assert_eq!(s.offset, 3, "clamped to max, so row 12 is the last row");
     }
 }

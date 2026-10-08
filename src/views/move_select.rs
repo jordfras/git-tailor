@@ -33,7 +33,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
     };
 
     let max_insert = app.list.commits.len();
-    let page_size = crate::app::scroll::page_size(app.list.visible_height);
+    let page_size = crate::app::scroll::page_size(app.list.scroll.visible_height);
 
     // Resolve the display order once; below, `up` means "toward older commits".
     let nav = match action.with_vertical_mirroring(app.list.reverse) {
@@ -135,26 +135,14 @@ fn advance_insert(pos: usize, source_index: usize, max: usize, step: usize, up: 
     if is_noop(next) { pos } else { next }
 }
 
-/// Compute the `selection_index` value that keeps the move separator visible.
-///
-/// The scroll formula puts `selection_index` at the *bottom* of the viewport.
-/// But `build_rows` reduces `visible_commits` by one row when `separator_visible`
-/// is true, which would exclude the commit the separator must be drawn *before*.
-/// Setting `selection_index` one logical step below the separator (in visual
-/// terms) places the separator at the second-to-last row instead, so the
-/// trigger commit is always included in `visible_commits`.
-///
-/// The returned value may equal `commits.len()` when `insert_before` is the
-/// last commit index. That is intentional and safe: the footer renderer
-/// guards against it with a mode check, and the scroll math still works.
+/// The `selection_index` that keeps the move separator on screen: one visual
+/// step past `insert_before`, so the commit after the separator is visible too.
+/// May equal `commits.len()`, which the scroll math tolerates.
 fn viewport_selection_for_separator(insert_before: usize, reverse: bool) -> usize {
     if reverse {
-        // In reverse mode, visual position = n - logical_index.
-        // One step "below" visually means a lower logical index.
+        // Reverse lists run backwards, so a step down lowers the index.
         insert_before.saturating_sub(1)
     } else {
-        // One step below visually means a higher logical index.
-        // May equal commits.len() at the boundary — safe in MoveSelect mode.
         insert_before + 1
     }
 }

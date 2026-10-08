@@ -493,7 +493,7 @@ fn test_move_navigation_pages_in_both_display_orders() {
             let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
             let mut app = common::app_state_from_commit_summaries(&refs);
             app.list.selection_index = 2;
-            app.list.visible_height = 5; // a page is 4 rows
+            app.list.follow_selection(5); // a page is 4 rows
             app.list.reverse = reverse;
             app.mode = AppMode::MoveSelect {
                 source_index: 2,
@@ -510,5 +510,43 @@ fn test_move_navigation_pages_in_both_display_orders() {
                 ref other => panic!("expected MoveSelect, got {other:?}"),
             }
         }
+    }
+}
+
+/// The move separator takes a table row, so the list can draw one fewer
+/// commit — including the commit the separator is drawn *before*. Landing on
+/// the last commit of a list taller than the window used to clip exactly that
+/// row, leaving no separator on screen at all.
+#[test]
+fn test_move_separator_is_drawn_at_every_landing_spot() {
+    let summaries: Vec<String> = (0..40).map(|i| format!("commit {i}")).collect();
+    let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
+
+    for insert_before in [0usize, 1, 20, 38, 39, 40] {
+        let source_index = 2;
+        if insert_before == source_index || insert_before == source_index + 1 {
+            continue;
+        }
+        let mut harness = TuiTestHarness::typical();
+        let mut app = common::app_state_from_commit_summaries(&refs);
+        // The anchor views::move_select keeps the separator visible with.
+        app.list.selection_index = if insert_before == 0 {
+            0
+        } else {
+            insert_before + 1
+        };
+        app.mode = AppMode::MoveSelect {
+            source_index,
+            insert_before,
+        };
+
+        let buffer = harness.render(|frame| views::commit_list::render(&mut app, frame));
+        let drawn = (0..buffer.area.height).any(|y| {
+            (0..buffer.area.width).any(|x| buffer.cell((x, y)).unwrap().symbol() == "\u{25b6}")
+        });
+        assert!(
+            drawn,
+            "no move separator on screen for insert_before={insert_before}"
+        );
     }
 }

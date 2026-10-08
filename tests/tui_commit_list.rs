@@ -152,6 +152,36 @@ fn test_commit_list_scrolled_to_bottom() {
     }));
 }
 
+/// Stepping into the bottom margin scrolls the list although the cursor's own
+/// row is still on screen, so the rows past it stay visible.
+#[test]
+fn test_commit_list_scrolls_early_within_the_margin() {
+    use git_tailor::app::ScrollMargin;
+
+    let mut harness = TuiTestHarness::narrow();
+
+    let mut app = AppState::new();
+    app.list.commits = (0..20)
+        .map(|i| {
+            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+        })
+        .collect();
+    app.list.scroll_margin = ScrollMargin::Fixed(2);
+    app.list.selection_index = 7;
+
+    // Settle the viewport, then step the cursor into the bottom margin.
+    let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let settled = app.list.scroll.offset;
+    app.list.move_down();
+
+    let buffer = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    assert!(
+        app.list.scroll.offset > settled,
+        "the margin must scroll the list before the cursor reaches the edge"
+    );
+    insta::assert_debug_snapshot!(buffer);
+}
+
 #[test]
 fn test_commit_list_reversed_with_commits() {
     let mut harness = TuiTestHarness::typical();
@@ -484,7 +514,7 @@ fn test_commit_list_navigation_keys_in_both_display_orders() {
             let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
             let mut app = common::app_state_from_commit_summaries(&refs);
             app.list.selection_index = 5;
-            app.list.visible_height = 5;
+            app.list.follow_selection(5);
             app.list.reverse = reverse;
 
             views::commit_list::handle_key(key, &mut app);
@@ -509,10 +539,10 @@ fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
         let refs: Vec<&str> = summaries.iter().map(String::as_str).collect();
         let mut app = common::app_state_from_commit_summaries(&refs);
         app.list.selection_index = 5;
-        app.list.visible_height = 5;
         app.list.reverse = reverse;
+        app.list.follow_selection(5);
 
-        let before = app.list.effective_offset(5);
+        let before = app.list.scroll.offset;
         views::commit_list::handle_key(KeyCommand::ScrollListDown, &mut app);
 
         assert_eq!(
@@ -520,8 +550,8 @@ fn test_commit_list_viewport_scroll_keys_are_not_mirrored() {
             "scrolling must not move the selection (reverse={reverse})"
         );
         assert_eq!(
-            app.list.scroll_override,
-            Some(before + 1),
+            app.list.scroll.offset,
+            before + 1,
             "scrolling goes one display row down regardless of order (reverse={reverse})"
         );
     }
@@ -550,4 +580,41 @@ fn a_non_ascii_summary_does_not_panic_the_action_footer() {
         };
         harness.render(|frame| views::commit_list::render(&mut app, frame));
     }
+}
+
+/// `compute_fragmap_sep_x` measures a column for the *full-width* layout with
+/// the fragmap present, while the frame is then drawn from a narrower layout
+/// with it taken away — so the two disagree about whether a horizontal
+/// scrollbar steals a row. Measuring must therefore leave the viewport alone,
+/// or the probe's height decides where the list is scrolled.
+#[test]
+fn test_measuring_the_fragmap_separator_leaves_the_viewport_alone() {
+    use git_tailor::fragmap::{SpanCluster, TouchKind};
+
+    let mut app = AppState::new();
+    let oids: Vec<String> = (0..40).map(|i| format!("{:012x}", i)).collect();
+    app.list.commits = oids
+        .iter()
+        .enumerate()
+        .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit number {i}")))
+        .collect();
+    // Enough clusters that the fragmap needs a horizontal scrollbar.
+    let refs: Vec<&str> = oids.iter().map(String::as_str).collect();
+    let clusters: Vec<SpanCluster> = (0..60)
+        .map(|i| common::simple_cluster(&format!("f{i}.txt"), 1, 2, &refs[..1]))
+        .collect();
+    let matrix = vec![vec![TouchKind::Modified; 60]; 40];
+    app.fragmap = Some(common::create_fragmap(refs.clone(), clusters, matrix));
+    app.list.selection_index = 23;
+
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    app.list.follow_selection(22);
+    let before = app.list.scroll;
+
+    let _ = views::commit_list::compute_fragmap_sep_x(&mut app, area);
+
+    assert_eq!(
+        app.list.scroll, before,
+        "measuring must not scroll the list"
+    );
 }
