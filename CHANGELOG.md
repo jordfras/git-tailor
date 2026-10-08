@@ -140,6 +140,9 @@ The format is based on
   cursor was stuck on the last row and the list scrolled from the first
   keypress; it now travels inside the window first, as it already did going
   the other way
+- Moving a commit to just before the last one now shows the "move here"
+  marker. On a list taller than the window that one landing spot drew no
+  marker at all, so there was nothing to confirm against
 
 ## [3.1.0] - 2026-09-12
 
