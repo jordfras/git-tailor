@@ -196,8 +196,12 @@ impl CommitListState {
     }
 
     /// Scroll one row up (toward earlier display rows) without moving the
-    /// selection. The next render pulls the viewport back if this would have
-    /// scrolled the selected row off screen.
+    /// selection.
+    ///
+    /// The next render pulls the viewport back as far as the margin wants the
+    /// cursor from the edge, not merely far enough to keep it on screen — so
+    /// with a margin these keys stop short of the list ends, and the outermost
+    /// rows can only be brought on screen by moving the cursor.
     pub fn scroll_up(&mut self) {
         self.scroll.step_back();
     }

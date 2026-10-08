@@ -142,11 +142,17 @@ fn advance_insert(pos: usize, source_index: usize, max: usize, step: usize, up: 
 /// when `separator_visible` is true — so the anchor itself can fall on the
 /// clipped row, excluding the commit the separator must be drawn *before*.
 /// Setting `selection_index` one logical step below the separator (in visual
-/// terms) keeps that commit inside `visible_commits` either way.
+/// terms) buys back that row in every case but one.
 ///
 /// The returned value may equal `commits.len()` when `insert_before` is the
 /// last commit index. That is intentional and safe: the footer renderer
 /// guards against it with a mode check, and the scroll math still works.
+///
+/// The exception is `insert_before == commits.len() - 1` on a list longer than
+/// the window: the anchor is the clamped last row, so the offset is already at
+/// `max` and there is no row left to buy, and the separator is not drawn at
+/// all. Predates the stored viewport and is not about the margin — it
+/// reproduces with `--scroll-margin 0` — and is still open.
 fn viewport_selection_for_separator(insert_before: usize, reverse: bool) -> usize {
     if reverse {
         // In reverse mode, visual position = n - logical_index.
