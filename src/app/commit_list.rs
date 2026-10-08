@@ -476,6 +476,51 @@ mod tests {
     }
 
     #[test]
+    fn viewport_scrolling_reaches_both_ends_despite_the_margin() {
+        let mut app = app_with(40, 20, 22);
+        app.scroll_margin = ScrollMargin::Fixed(3);
+
+        let mut lowest = offset(&mut app, 22);
+        for _ in 0..40 {
+            app.scroll_up();
+            lowest = lowest.min(offset(&mut app, 22));
+        }
+        assert_eq!(lowest, 0, "Ctrl-Up must reach the first row of the list");
+
+        let mut highest = lowest;
+        for _ in 0..60 {
+            app.scroll_down();
+            highest = highest.max(offset(&mut app, 22));
+        }
+        assert_eq!(
+            highest, app.scroll.max,
+            "Ctrl-Down must reach the last row of the list"
+        );
+        assert_eq!(
+            app.selection_index, 20,
+            "scrolling the viewport must not move the cursor"
+        );
+    }
+
+    #[test]
+    fn moving_the_cursor_after_a_viewport_scroll_restores_the_margin() {
+        let mut app = app_with(40, 20, 22);
+        app.scroll_margin = ScrollMargin::Fixed(3);
+        for _ in 0..30 {
+            app.scroll_up();
+            offset(&mut app, 22);
+        }
+        assert_eq!(app.scroll.offset, 0, "scrolled to the top, cursor held");
+
+        app.move_up();
+        assert_eq!(
+            offset(&mut app, 22),
+            1,
+            "the margin governs the cursor again as soon as it moves"
+        );
+    }
+
+    #[test]
     fn a_margin_does_not_stop_either_end_being_reached() {
         let mut app = app_with(20, 10, 9);
         app.scroll_margin = ScrollMargin::Fixed(3);
