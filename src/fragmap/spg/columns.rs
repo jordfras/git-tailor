@@ -47,6 +47,14 @@ impl<'a> IndexedSpg<'a> {
             by_generation,
         }
     }
+    /// How many edges lead into each node, counting duplicates.
+    fn predecessor_counts(&self) -> PerNode<usize> {
+        let mut counts = PerNode::like(self.nodes, 0);
+        for &to in self.succs.0.iter().flatten() {
+            counts[to] += 1;
+        }
+        counts
+    }
 }
 
 /// One column of a file: the generations of the commits touching it, and the
@@ -56,6 +64,79 @@ pub(super) struct SpgColumn {
     pub(super) last_span: SpgSpan,
 }
 
+/// Per commit set: the best suffix's key and its last active span.
+type Suffixes = HashMap<ListId, (ListId, Option<SpgSpan>)>;
+
+/// The lists the column program builds, and commit sets interned so that
+/// equal sets are one id.
+struct ColumnLists {
+    keys: SharedTailLists<(i32, i64)>,
+    sets: SharedTailLists<i32>,
+    interned_sets: HashMap<(i32, ListId), ListId>,
+}
+
+impl ColumnLists {
+    fn new() -> Self {
+        ColumnLists {
+            keys: SharedTailLists::new(),
+            sets: SharedTailLists::new(),
+            interned_sets: HashMap::new(),
+        }
+    }
+
+    /// Merges `from` into `best`, keeping per commit set the smaller key.
+    /// Only a smaller key replaces the best, so when successors are merged
+    /// in enumeration order, of tied paths the one `spg_all_paths` keeps
+    /// wins.
+    fn keep_best(&self, best: &mut Suffixes, from: &Suffixes) {
+        for (&set, &(key, span)) in from {
+            let better = best
+                .get(&set)
+                .is_none_or(|&(current, _)| self.keys.cmp(key, current).is_lt());
+            if better {
+                best.insert(set, (key, span));
+            }
+        }
+    }
+
+    /// The suffixes through `node`: `best` with the node prepended when it is
+    /// active.
+    fn through(&mut self, node: &SpgNode, best: Suffixes) -> Suffixes {
+        if !node.is_active {
+            return best;
+        }
+        best.into_iter()
+            .map(|(set, (key, span))| {
+                let set = *self
+                    .interned_sets
+                    .entry((node.generation, set))
+                    .or_insert_with(|| self.sets.prepend(node.generation, set));
+                let key = self
+                    .keys
+                    .prepend((node.generation, node.new_span.start), key);
+                (set, (key, span.or(Some(node.new_span))))
+            })
+            .collect()
+    }
+
+    /// The source's suffixes as columns, in path order. A suffix without an
+    /// active node touches no commit and is no column.
+    fn into_columns(self, at_source: Suffixes) -> Vec<SpgColumn> {
+        let mut columns: Vec<(ListId, ListId, SpgSpan)> = at_source
+            .into_iter()
+            .filter_map(|(set, (key, span))| Some((key, set, span?)))
+            .collect();
+        columns.sort_by(|(a, _, _), (b, _, _)| self.keys.cmp(*a, *b));
+        columns
+            .into_iter()
+            .map(|(_, set, last_span)| SpgColumn {
+                generations: self.sets.iter(set).collect(),
+                last_span,
+            })
+            .collect()
+    }
+}
+
 /// Every distinct set of commits a path through the graph touches, each with
 /// the first such path in `spg_all_paths` order, listed in that order.
 ///
@@ -63,22 +144,11 @@ pub(super) struct SpgColumn {
 /// without listing the paths: for each node, from the sink back, the best
 /// suffix per commit set, keyed like `spg_all_paths` sorts. Two paths of one
 /// set compare as their suffixes do when their prefixes agree, so the best
-/// suffix per set is all a node needs. Successors are visited in enumeration
-/// order and only a smaller key replaces the best, so of tied paths the one
-/// `spg_all_paths` keeps wins; paths of different sets never tie.
+/// suffix per set is all a node needs. Paths of different sets never tie.
 pub(super) fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColumn>> {
     let graph = IndexedSpg::new(spg);
-    let mut keys: SharedTailLists<(i32, i64)> = SharedTailLists::new();
-    let mut sets: SharedTailLists<i32> = SharedTailLists::new();
-    let mut interned_sets: HashMap<(i32, ListId), ListId> = HashMap::new();
-
-    let mut pending_preds: PerNode<usize> = PerNode::like(graph.nodes, 0);
-    for to in graph.succs.0.iter().flatten() {
-        pending_preds[*to] += 1;
-    }
-
-    // Per commit set: the best suffix's key and its last active span.
-    type Suffixes = HashMap<ListId, (ListId, Option<SpgSpan>)>;
+    let mut lists = ColumnLists::new();
+    let mut pending_preds = graph.predecessor_counts();
     let mut suffixes: PerNode<Option<Suffixes>> = PerNode::like(graph.nodes, None);
     suffixes[SINK] = Some(HashMap::from([(ListId::EMPTY, (ListId::EMPTY, None))]));
 
@@ -89,60 +159,33 @@ pub(super) fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<
         if !poll() {
             return None;
         }
-        // Keyed by the successor's set and holding the successor's key: the
-        // node itself is prepended to all of them alike once the best is known.
-        let mut best: Suffixes = HashMap::new();
+        let mut best = Suffixes::new();
         for &next in &graph.succs[at] {
             let next_suffixes = suffixes[next].as_ref().expect("successors come first");
-            for (&set, &(key, span)) in next_suffixes {
-                let better = best
-                    .get(&set)
-                    .is_none_or(|&(current, _)| keys.cmp(key, current).is_lt());
-                if better {
-                    best.insert(set, (key, span));
-                }
-            }
+            lists.keep_best(&mut best, next_suffixes);
         }
-
-        let node = &graph.nodes[at];
-        suffixes[at] = Some(if !node.is_active {
-            best
-        } else {
-            best.into_iter()
-                .map(|(set, (key, span))| {
-                    let set = *interned_sets
-                        .entry((node.generation, set))
-                        .or_insert_with(|| sets.prepend(node.generation, set));
-                    let key = keys.prepend((node.generation, node.new_span.start), key);
-                    (set, (key, span.or(Some(node.new_span))))
-                })
-                .collect()
-        });
-
-        for &next in &graph.succs[at] {
-            pending_preds[next] -= 1;
-            if pending_preds[next] == 0 {
-                suffixes[next] = None;
-            }
-        }
+        suffixes[at] = Some(lists.through(&graph.nodes[at], best));
+        release_successors(&graph, at, &mut pending_preds, &mut suffixes);
     }
 
-    let mut columns: Vec<(ListId, ListId, SpgSpan)> = suffixes[SOURCE]
-        .take()
-        .expect("source is never freed")
-        .into_iter()
-        .filter_map(|(set, (key, span))| Some((key, set, span?)))
-        .collect();
-    columns.sort_by(|(a, _, _), (b, _, _)| keys.cmp(*a, *b));
-    Some(
-        columns
-            .into_iter()
-            .map(|(_, set, last_span)| SpgColumn {
-                generations: sets.iter(set).collect(),
-                last_span,
-            })
-            .collect(),
-    )
+    let at_source = suffixes[SOURCE].take().expect("source is never freed");
+    Some(lists.into_columns(at_source))
+}
+
+/// Frees the suffixes of `at`'s successors that no other predecessor still
+/// needs.
+fn release_successors(
+    graph: &IndexedSpg,
+    at: NodeId,
+    pending_preds: &mut PerNode<usize>,
+    suffixes: &mut PerNode<Option<Suffixes>>,
+) {
+    for &next in &graph.succs[at] {
+        pending_preds[next] -= 1;
+        if pending_preds[next] == 0 {
+            suffixes[next] = None;
+        }
+    }
 }
 
 /// For each of `target`'s hunk spans — its active nodes — the generations of the
