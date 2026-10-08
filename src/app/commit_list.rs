@@ -178,7 +178,12 @@ impl CommitListState {
     /// Record the list bounds measured during render and move the viewport the
     /// minimum needed to keep the cursor on screen.
     ///
-    /// Idempotent, so the extra call split-pane mode makes each frame is free.
+    /// Idempotent at a fixed `available_height`, but *not* across two different
+    /// ones: it only ever moves the minimum, so a call with a shorter height
+    /// scrolls further than the taller one would and the taller one will not
+    /// bring it back. Only the layout actually being drawn may call this —
+    /// `compute_fragmap_sep_x` measures a hypothetical one and restores the
+    /// viewport for that reason.
     pub fn follow_selection(&mut self, available_height: usize) {
         let max_scroll = self.commits.len().saturating_sub(available_height);
         self.scroll.set_bounds(max_scroll, available_height);
@@ -426,8 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn following_the_selection_twice_in_a_frame_changes_nothing() {
-        // Split-pane mode measures the layout twice per frame.
+    fn following_the_selection_twice_at_one_height_changes_nothing() {
         let mut app = app_with(10, 7, 4);
         let once = app.scroll.offset;
         app.follow_selection(4);

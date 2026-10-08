@@ -258,10 +258,16 @@ pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame
 /// clusters are visible (no data to split on).
 ///
 /// As a side effect, updates `app.separator_offset` to the clamped value for
-/// this area — the same value that `render_in_area` would produce.
+/// this area — the same value that `render_in_area` would produce. The
+/// viewport is explicitly *not* a side effect: this layout is measured with
+/// the fragmap present, while the split view draws the list without it, so the
+/// two disagree about the horizontal scrollbar's row and this one's height
+/// belongs to a frame that is never drawn.
 pub fn compute_fragmap_sep_x(app: &mut AppState, area: Rect) -> Option<u16> {
     app.fragmap.as_ref()?;
+    let saved_scroll = app.list.scroll;
     let layout = compute_layout(app, area);
+    app.list.scroll = saved_scroll;
     if layout.fragmap_col_width == 0 {
         return None;
     }
