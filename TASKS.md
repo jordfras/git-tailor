@@ -194,6 +194,15 @@ Guidelines:
   Narrow in practice: it needs two commits in range whose summaries differ only
   in undecodable bytes, and an edited override. The consequence is a message
   written to the wrong commit.
+- [ ] T259 P3 bug - An error part-way through an autofixup batch loses undo.
+  `run_batch` (`autofixup_op.rs`) squashes the pairs one at a time with `?`,
+  and the `journaled` wrapper records an undo entry only on `Ok`. So any error
+  after the first pair has landed — a refused squash, a failed checkout, a
+  journal write — leaves the earlier squashes on the branch with no undo entry
+  and only an error to show for it. The false-parents guard is checked for the
+  whole batch up front, so it no longer causes this, but nothing stops the next
+  error that does. Likely shape: on `Err` after progress, record the undo entry
+  for what landed (or restore the batch's original tip) before returning it.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
