@@ -136,6 +136,46 @@ fn moving_the_graft_boundary_is_refused() {
     assert!(error.contains("shallow"), "{error}");
 }
 
+/// Rewording the boundary copies the parents it reports, which is none, and so
+/// severs the branch just like rebuilding it as a root does.
+#[test]
+fn rewording_the_graft_boundary_is_refused() {
+    let Some(s) = shallow_clone("3", "reword") else {
+        return;
+    };
+    let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
+
+    let result = git_repo.reword_commit(
+        &Oid::from(s.boundary),
+        "reworded".into(),
+        &Oid::from(s.head),
+    );
+
+    let error = format!("{:#}", result.expect_err("this must be refused"));
+    assert!(error.contains("shallow"), "{error}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        Oid::from(s.head),
+        "and nothing may have moved"
+    );
+}
+
+/// Editing the boundary rewinds the branch onto it and splices the result back
+/// in place of it, so it is refused on the same grounds.
+#[test]
+fn editing_the_graft_boundary_is_refused() {
+    let Some(s) = shallow_clone("3", "edit") else {
+        return;
+    };
+    let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
+
+    let result = git_repo.begin_edit(&Oid::from(s.boundary), &Oid::from(s.head));
+
+    let error = format!("{:#}", result.expect_err("this must be refused"));
+    assert!(error.contains("shallow"), "{error}");
+    assert_eq!(git_repo.head_oid().unwrap(), Oid::from(s.head));
+}
+
 /// Commits above the boundary are ordinary and must still be rewritable —
 /// refusing the whole repository would make git-tailor useless on a shallow
 /// clone, which is a perfectly normal way to work.
@@ -198,12 +238,12 @@ fn squashing_into_the_graft_boundary_is_refused() {
     );
 }
 
-/// Moving an ordinary commit to the very beginning of the branch (`--all`
-/// mode's "insert before the first visible entry") must not be refused just
-/// because the repository happens to be shallow somewhere. The commit being
-/// moved is not the graft boundary, so nothing behind it is at risk.
+/// Moving any commit to the very beginning of the branch (`--all` mode's
+/// "insert before the first visible entry") replays everything above the new
+/// root, the boundary included, so the boundary ends up on the new root rather
+/// than its own parents — cut off just the same.
 #[test]
-fn moving_an_ordinary_commit_to_root_is_unaffected() {
+fn moving_a_commit_to_root_rebuilds_the_boundary_and_is_refused() {
     let Some(s) = shallow_clone("3", "move-root") else {
         return;
     };
@@ -214,10 +254,9 @@ fn moving_an_ordinary_commit_to_root_is_unaffected() {
     let mut git_repo = Git2Repo::open(s.dir.clone()).unwrap();
     let result = git_repo.move_commit(&Oid::from(just_below), None, &Oid::from(s.head));
 
-    assert!(
-        result.is_ok(),
-        "moving an ordinary commit to root must not be refused: {result:?}"
-    );
+    let error = format!("{:#}", result.expect_err("this must be refused"));
+    assert!(error.contains("shallow"), "{error}");
+    assert_eq!(git_repo.head_oid().unwrap(), Oid::from(s.head));
 }
 
 /// A repository that is not shallow keeps its real root rewritable — the guard
