@@ -194,6 +194,19 @@ commit messages, code comments, identifiers, and status-bar strings all use
 in an identifier is worse than in prose, because it has to be matched exactly
 from then on.
 
+### Newtypes for Indices and Ids
+
+An index or id into one particular collection gets a newtype, not a bare
+`usize` or `u32`: a commit position, a hunk position, a file lineage, a list in
+a `SharedTailLists`. The compiler then rejects passing a hunk position where a
+commit position is expected, or a list id where a node index is expected. As
+bare integers those mistakes type-check, and the bug is silent. `CommitPos`,
+`ChangePos`, `HunkPos` (`src/fragmap/position.rs`), `FileId` and `ListId` are
+examples.
+
+Not every integer needs one: a count, or a loop index used within a few lines,
+stays plain.
+
 ### Code Quality
 
 After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and
