@@ -135,30 +135,14 @@ fn advance_insert(pos: usize, source_index: usize, max: usize, step: usize, up: 
     if is_noop(next) { pos } else { next }
 }
 
-/// Compute the `selection_index` value that anchors the viewport beside the
-/// move separator.
-///
-/// The separator is drawn immediately before the commit at `insert_before`, so
-/// that commit has to be on screen. Anchoring one logical step below it (in
-/// visual terms) puts the separator on the second-to-last row, leaving the
-/// trigger commit room on the last.
-///
-/// The row the separator itself occupies is accounted for by the layout, which
-/// settles the viewport against `commit_rows` rather than the full height — not
-/// here. Anchoring alone cannot cover `insert_before == commits.len() - 1`,
-/// where the anchor clamps to the last row and the offset is already at `max`.
-///
-/// The returned value may equal `commits.len()` when `insert_before` is the
-/// last commit index. That is intentional and safe: the footer renderer
-/// guards against it with a mode check, and the scroll math still works.
+/// The `selection_index` that keeps the move separator on screen: one visual
+/// step past `insert_before`, so the commit after the separator is visible too.
+/// May equal `commits.len()`, which the scroll math tolerates.
 fn viewport_selection_for_separator(insert_before: usize, reverse: bool) -> usize {
     if reverse {
-        // In reverse mode, visual position = n - logical_index.
-        // One step "below" visually means a lower logical index.
+        // Reverse lists run backwards, so a step down lowers the index.
         insert_before.saturating_sub(1)
     } else {
-        // One step below visually means a higher logical index.
-        // May equal commits.len() at the boundary — safe in MoveSelect mode.
         insert_before + 1
     }
 }
