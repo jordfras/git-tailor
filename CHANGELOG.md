@@ -143,6 +143,10 @@ The format is based on
 - Moving a commit to just before the last one now shows the "move here"
   marker. On a list taller than the window that one landing spot drew no
   marker at all, so there was nothing to confirm against
+- `Ctrl-Up` and `Ctrl-Down` reach the first and last row of the commit list
+  again. They scroll without moving the cursor, and the scroll margin was
+  pulling the view back toward it, leaving the outermost rows unreachable
+  until you moved the cursor as well
 
 ## [3.1.0] - 2026-09-12
 
