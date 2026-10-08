@@ -84,7 +84,12 @@ git-tailor/
 │   │   ├── attribution.rs  # Exact line attribution for the commit being split
 │   │   ├── lineage.rs      # FileId, FileLineages: which file each change belongs to
 │   │   ├── position.rs     # CommitPos, ChangePos, HunkPos: typed positions
-│   │   └── spg.rs          # Span Propagation Graph algorithm
+│   │   ├── spg.rs          # Span Propagation Graph: types and the per-file entry points
+│   │   └── spg/
+│   │       ├── build.rs    # Building a file's graph from its commits' hunks
+│   │       ├── columns.rs  # Matrix and split columns without listing every path
+│   │       ├── paths.rs    # Listing every path (--full, and the oracle for columns.rs)
+│   │       └── shared_tail_lists.rs # Tail-sharing lists for paths built backwards
 │   ├── views.rs            # View module declarations
 │   ├── views/
 │   │   ├── commit_list.rs  # Scrollable commit log with fragmap
