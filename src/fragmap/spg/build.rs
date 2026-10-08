@@ -14,7 +14,7 @@
 
 //! Building a file's span propagation graph from its commits' hunks.
 
-use super::{SINK, Spg, SpgNode, SpgOverlap, SpgSpan};
+use super::{NodeId, SINK, Spg, SpgNode, SpgOverlap, SpgSpan};
 use crate::fragmap::{CommitPos, HunkInfo};
 
 /// Map the START (inclusive) of a surviving span forward through hunks.
@@ -128,7 +128,7 @@ pub(super) fn spg_moved_span(prev_new_span: &SpgSpan, hunks: &[HunkInfo]) -> Vec
 /// 1. Register ALL prev_nodes with interval overlap
 ///
 /// 2–5. Fallback levels with point-overlap filters (register at most one)
-fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[usize], node: SpgNode) {
+fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[NodeId], node: SpgNode) {
     let cur_range = node.old_span;
     let node = spg.node(node);
     let mut registered = false;
@@ -209,7 +209,7 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[usize], node: SpgNode) {
 
 /// Handle prev_nodes that still point to SINK after all `add_on_top_of`
 /// calls. Creates simple propagated copies so they remain reachable.
-fn spg_update_dangling(spg: &mut Spg, prev_nodes: &[usize], generation: i32) {
+fn spg_update_dangling(spg: &mut Spg, prev_nodes: &[NodeId], generation: i32) {
     for &prev in prev_nodes {
         if spg.succs[prev].contains(&SINK) {
             let span = spg.nodes[prev].new_span;

@@ -137,27 +137,71 @@ fn sink_node() -> SpgNode {
     }
 }
 
-const SOURCE: usize = 0;
-const SINK: usize = 1;
+/// A node of an [`Spg`], numbered in the order it was first seen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct NodeId(usize);
 
-/// The Span Propagation Graph for one file. Nodes are numbered in the order
-/// they are first seen; equal nodes are one node.
+const SOURCE: NodeId = NodeId(0);
+const SINK: NodeId = NodeId(1);
+
+/// One value per node of an [`Spg`].
+#[derive(Clone)]
+struct PerNode<T>(Vec<T>);
+
+impl<T> PerNode<T> {
+    /// As many of `value` as `like` has nodes.
+    fn like<U>(like: &PerNode<U>, value: T) -> Self
+    where
+        T: Clone,
+    {
+        PerNode(vec![value; like.0.len()])
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn ids(&self) -> impl Iterator<Item = NodeId> + use<T> {
+        (0..self.0.len()).map(NodeId)
+    }
+
+    fn push(&mut self, value: T) -> NodeId {
+        self.0.push(value);
+        NodeId(self.0.len() - 1)
+    }
+}
+
+impl<T> std::ops::Index<NodeId> for PerNode<T> {
+    type Output = T;
+
+    fn index(&self, node: NodeId) -> &T {
+        &self.0[node.0]
+    }
+}
+
+impl<T> std::ops::IndexMut<NodeId> for PerNode<T> {
+    fn index_mut(&mut self, node: NodeId) -> &mut T {
+        &mut self.0[node.0]
+    }
+}
+
+/// The Span Propagation Graph for one file. Equal nodes are one node.
 struct Spg {
-    nodes: Vec<SpgNode>,
-    index: HashMap<SpgNode, usize>,
-    succs: Vec<Vec<usize>>,
-    downstream_from_active: Vec<bool>,
+    nodes: PerNode<SpgNode>,
+    index: HashMap<SpgNode, NodeId>,
+    succs: PerNode<Vec<NodeId>>,
+    downstream_from_active: PerNode<bool>,
     /// Every node that has had an edge to SINK, possibly since replaced.
-    frontier: Vec<usize>,
+    frontier: Vec<NodeId>,
 }
 
 impl Spg {
     fn empty() -> Self {
         let mut spg = Spg {
-            nodes: Vec::new(),
+            nodes: PerNode(Vec::new()),
             index: HashMap::new(),
-            succs: Vec::new(),
-            downstream_from_active: Vec::new(),
+            succs: PerNode(Vec::new()),
+            downstream_from_active: PerNode(Vec::new()),
             frontier: Vec::new(),
         };
         let source = spg.node(source_node());
@@ -167,22 +211,21 @@ impl Spg {
         spg
     }
 
-    fn node(&mut self, node: SpgNode) -> usize {
+    fn node(&mut self, node: SpgNode) -> NodeId {
         if let Some(&existing) = self.index.get(&node) {
             return existing;
         }
-        let id = self.nodes.len();
         self.downstream_from_active.push(node.is_active);
         self.succs.push(Vec::new());
-        self.index.insert(node.clone(), id);
-        self.nodes.push(node);
+        let id = self.nodes.push(node.clone());
+        self.index.insert(node, id);
         id
     }
 
     /// Register an edge from `from` to `to`, removing any existing SINK edge
     /// from `from`. This is the core SPG mutation: when a node gets a real
     /// successor, it no longer points directly to SINK.
-    fn register(&mut self, from: usize, to: usize) {
+    fn register(&mut self, from: NodeId, to: NodeId) {
         let succs = &mut self.succs[from];
         succs.retain(|&n| n != SINK);
         succs.push(to);
@@ -193,7 +236,7 @@ impl Spg {
     }
 
     /// Find all nodes that have SINK as a direct successor (the current frontier).
-    fn sink_connected_nodes(&mut self) -> Vec<usize> {
+    fn sink_connected_nodes(&mut self) -> Vec<NodeId> {
         self.frontier.sort_unstable();
         self.frontier.dedup();
         let succs = &self.succs;

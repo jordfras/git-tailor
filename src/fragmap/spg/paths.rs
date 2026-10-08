@@ -17,10 +17,10 @@
 
 use std::collections::HashSet;
 
-use super::{SINK, SOURCE, Spg, SpgNode, SpgSpan};
+use super::{NodeId, SINK, SOURCE, Spg, SpgNode, SpgSpan};
 
 /// `node`'s successors in the order paths through them are listed.
-pub(super) fn sorted_succs(spg: &Spg, node: usize) -> Vec<usize> {
+pub(super) fn sorted_succs(spg: &Spg, node: NodeId) -> Vec<NodeId> {
     let mut sorted = spg.succs[node].clone();
     sorted.sort_by_key(|&n| {
         let n = &spg.nodes[n];
@@ -37,7 +37,7 @@ pub(super) fn sorted_succs(spg: &Spg, node: usize) -> Vec<usize> {
 /// Recursively enumerate all paths from `from` to SINK through the DAG.
 pub(super) fn spg_enumerate_paths(
     spg: &Spg,
-    from: usize,
+    from: NodeId,
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<Vec<SpgNode>>> {
     if from == SINK {

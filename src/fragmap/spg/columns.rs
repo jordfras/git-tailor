@@ -19,35 +19,32 @@ use std::collections::{HashMap, HashSet};
 
 use super::paths::sorted_succs;
 use super::shared_tail_lists::{ListId, SharedTailLists};
-use super::{SINK, SOURCE, Spg, SpgNode, SpgSpan};
+use super::{NodeId, PerNode, SINK, SOURCE, Spg, SpgNode, SpgSpan};
 
 /// The graph's nodes, each node's successors in the order
 /// `spg_enumerate_paths` visits them, and the nodes in generation order —
 /// a topological order, since every edge leads to a later generation.
 struct IndexedSpg<'a> {
-    nodes: &'a [SpgNode],
-    succs: Vec<Vec<usize>>,
-    by_generation: Vec<usize>,
-    source: usize,
-    sink: usize,
+    nodes: &'a PerNode<SpgNode>,
+    succs: PerNode<Vec<NodeId>>,
+    by_generation: Vec<NodeId>,
 }
 
 impl<'a> IndexedSpg<'a> {
     fn new(spg: &'a Spg) -> Self {
-        let nodes = &spg.nodes[..];
-        let succs: Vec<Vec<usize>> = (0..nodes.len()).map(|n| sorted_succs(spg, n)).collect();
-        let mut by_generation: Vec<usize> = (0..nodes.len()).collect();
-        by_generation.sort_by_key(|&i| nodes[i].generation);
-        debug_assert!(succs.iter().enumerate().all(|(from, to)| {
-            to.iter()
+        let nodes = &spg.nodes;
+        let succs = PerNode(nodes.ids().map(|n| sorted_succs(spg, n)).collect());
+        let mut by_generation: Vec<NodeId> = nodes.ids().collect();
+        by_generation.sort_by_key(|&n| nodes[n].generation);
+        debug_assert!(nodes.ids().all(|from| {
+            succs[from]
+                .iter()
                 .all(|&to| nodes[to].generation > nodes[from].generation)
         }));
         IndexedSpg {
             nodes,
             succs,
             by_generation,
-            source: SOURCE,
-            sink: SINK,
         }
     }
 }
@@ -75,18 +72,18 @@ pub(super) fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<
     let mut sets: SharedTailLists<i32> = SharedTailLists::new();
     let mut interned_sets: HashMap<(i32, ListId), ListId> = HashMap::new();
 
-    let mut pending_preds = vec![0usize; graph.nodes.len()];
-    for to in graph.succs.iter().flatten() {
+    let mut pending_preds: PerNode<usize> = PerNode::like(graph.nodes, 0);
+    for to in graph.succs.0.iter().flatten() {
         pending_preds[*to] += 1;
     }
 
     // Per commit set: the best suffix's key and its last active span.
     type Suffixes = HashMap<ListId, (ListId, Option<SpgSpan>)>;
-    let mut suffixes: Vec<Option<Suffixes>> = (0..graph.nodes.len()).map(|_| None).collect();
-    suffixes[graph.sink] = Some(HashMap::from([(ListId::EMPTY, (ListId::EMPTY, None))]));
+    let mut suffixes: PerNode<Option<Suffixes>> = PerNode::like(graph.nodes, None);
+    suffixes[SINK] = Some(HashMap::from([(ListId::EMPTY, (ListId::EMPTY, None))]));
 
     for &at in graph.by_generation.iter().rev() {
-        if at == graph.sink {
+        if at == SINK {
             continue;
         }
         if !poll() {
@@ -130,7 +127,7 @@ pub(super) fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<
         }
     }
 
-    let mut columns: Vec<(ListId, ListId, SpgSpan)> = suffixes[graph.source]
+    let mut columns: Vec<(ListId, ListId, SpgSpan)> = suffixes[SOURCE]
         .take()
         .expect("source is never freed")
         .into_iter()
@@ -168,10 +165,10 @@ pub(super) fn spg_target_columns(
     let key_of = |node: &SpgNode| (node.generation, node.new_span.start);
 
     // From each node to the sink, the node included.
-    let mut suffix: Vec<Option<ListId>> = vec![None; graph.nodes.len()];
-    suffix[graph.sink] = Some(ListId::EMPTY);
+    let mut suffix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
+    suffix[SINK] = Some(ListId::EMPTY);
     for &at in graph.by_generation.iter().rev() {
-        if at == graph.sink {
+        if at == SINK {
             continue;
         }
         if !poll() {
@@ -204,8 +201,8 @@ pub(super) fn spg_target_columns(
             Some((x, y)) => x < y,
             None => a.len() > b.len(),
         };
-    let mut prefix: Vec<Option<ListId>> = vec![None; graph.nodes.len()];
-    prefix[graph.source] = Some(ListId::EMPTY);
+    let mut prefix: PerNode<Option<ListId>> = PerNode::like(graph.nodes, None);
+    prefix[SOURCE] = Some(ListId::EMPTY);
     for &at in &graph.by_generation {
         let Some(before) = prefix[at] else { continue };
         if !poll() {
@@ -226,7 +223,9 @@ pub(super) fn spg_target_columns(
         }
     }
 
-    let mut columns: Vec<(Vec<(i32, i64)>, SpgSpan)> = (0..graph.nodes.len())
+    let mut columns: Vec<(Vec<(i32, i64)>, SpgSpan)> = graph
+        .nodes
+        .ids()
         .filter(|&at| graph.nodes[at].is_active && graph.nodes[at].generation == target)
         .filter_map(|at| {
             let mut path = in_order(&reversed, prefix[at]?);
