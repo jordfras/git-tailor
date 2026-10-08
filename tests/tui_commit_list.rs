@@ -581,3 +581,40 @@ fn a_non_ascii_summary_does_not_panic_the_action_footer() {
         harness.render(|frame| views::commit_list::render(&mut app, frame));
     }
 }
+
+/// `compute_fragmap_sep_x` measures a column for the *full-width* layout with
+/// the fragmap present, while the frame is then drawn from a narrower layout
+/// with it taken away — so the two disagree about whether a horizontal
+/// scrollbar steals a row. Measuring must therefore leave the viewport alone,
+/// or the probe's height decides where the list is scrolled.
+#[test]
+fn test_measuring_the_fragmap_separator_leaves_the_viewport_alone() {
+    use git_tailor::fragmap::{SpanCluster, TouchKind};
+
+    let mut app = AppState::new();
+    let oids: Vec<String> = (0..40).map(|i| format!("{:012x}", i)).collect();
+    app.list.commits = oids
+        .iter()
+        .enumerate()
+        .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit number {i}")))
+        .collect();
+    // Enough clusters that the fragmap needs a horizontal scrollbar.
+    let refs: Vec<&str> = oids.iter().map(String::as_str).collect();
+    let clusters: Vec<SpanCluster> = (0..60)
+        .map(|i| common::simple_cluster(&format!("f{i}.txt"), 1, 2, &refs[..1]))
+        .collect();
+    let matrix = vec![vec![TouchKind::Modified; 60]; 40];
+    app.fragmap = Some(common::create_fragmap(refs.clone(), clusters, matrix));
+    app.list.selection_index = 23;
+
+    let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+    app.list.follow_selection(22);
+    let before = app.list.scroll;
+
+    let _ = views::commit_list::compute_fragmap_sep_x(&mut app, area);
+
+    assert_eq!(
+        app.list.scroll, before,
+        "measuring must not scroll the list"
+    );
+}
