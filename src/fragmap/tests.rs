@@ -1777,6 +1777,51 @@ fn test_assign_hunk_groups_insertions_into_two_files_split_by_column() {
     );
 }
 
+/// A hunk that only deletes lines sits in a matrix column like any other, so
+/// it must group with the hunks sharing that column and those relations.
+///
+/// Its own span in the graph is empty — nothing is left of it in the new
+/// file — which is no reason for it to belong to no column.
+#[test]
+fn a_deleted_region_groups_with_the_hunks_of_its_column() {
+    let hunk = |old_start, old_lines, new_start, new_lines| Hunk {
+        old_start,
+        old_lines,
+        new_start,
+        new_lines,
+        lines: vec![],
+    };
+    // One commit, nobody else touching the file: it modifies line 3 and
+    // deletes lines 15-16. Both regions are its own column alone.
+    let target = make_commit_diff(
+        "aaa111",
+        vec![FileDiff {
+            old_path: Some(PathBuf::from("a.rs")),
+            new_path: Some(PathBuf::from("a.rs")),
+            status: crate::DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![hunk(3, 1, 3, 1), hunk(15, 2, 14, 0)],
+        }],
+    );
+
+    let assignment = assign_hunk_groups(&[target], &Oid::from("aaa111"), &mut |_| true)
+        .unwrap()
+        .expect("commit is present in the diffs");
+
+    let group_of = |hunk| {
+        assignment
+            .hunk(ChangePos(0), HunkPos(hunk))
+            .unwrap()
+            .groups()
+    };
+    assert_eq!(
+        group_of(1),
+        group_of(0),
+        "the deletion shares the modification's column and relations"
+    );
+    assert_eq!(assignment.group_count, 1);
+}
+
 /// A progress callback that asks to stop ends the assignment early.
 #[test]
 fn assign_hunk_groups_stops_when_progress_asks_it_to() {
