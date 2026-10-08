@@ -35,10 +35,7 @@ pub use assignment::{
 pub use lineage::FileId;
 use lineage::FileLineages;
 pub use position::{ChangePos, CommitPos, HunkPos};
-use spg::{
-    TargetColumn, build_file_clusters, build_file_columns, build_target_columns,
-    deduplicate_clusters,
-};
+use spg::{build_file_clusters, build_file_columns, build_target_columns, deduplicate_clusters};
 
 /// Collect each file's hunks per commit.
 ///
@@ -367,7 +364,6 @@ pub fn assign_hunk_groups(
     // such hunk comes back relating to nothing and they collapse into a single
     // group even when they are in different files entirely.
     let mut column_of: HashMap<(FileId, HunkPos), Vec<VirtualOid>> = HashMap::new();
-    let mut columns_of: HashMap<FileId, Vec<TargetColumn>> = HashMap::new();
     let files_total = attributed.len();
     for (files_done, &(file, _)) in attributed.iter().enumerate() {
         let mut poll = || {
@@ -383,28 +379,15 @@ pub fn assign_hunk_groups(
         let Some((_, k_hunks)) = file_commits[&file].iter().find(|(commit, _)| *commit == k) else {
             continue;
         };
+        // Each hunk is the graph node built from it, so its column is that
+        // node's. Matched by span, not overlap: a deletion's span is empty.
         for (hunk_idx, hunk) in k_hunks.iter().enumerate() {
-            let start = hunk.new_start as i64;
-            let end = start + (hunk.new_lines.max(1)) as i64;
-            // A hunk can graze several columns; it belongs to the one it
-            // overlaps most, since it is kept whole.
-            if let Some(touching) = most_overlapped(&columns, start, end) {
-                column_of.insert((file, HunkPos(hunk_idx)), touching.clone());
+            let span = spg::SpgSpan::from_new_hunk(hunk);
+            if let Some(column) = columns.iter().find(|column| column.span == span) {
+                column_of.insert((file, HunkPos(hunk_idx)), column.touching.clone());
             }
         }
-        columns_of.insert(file, columns);
     }
-
-    // The column a line range in `file` sits in, for placing the cut hunk's
-    // fragments. A fragment and a whole hunk that belong to the same column and
-    // relate to the same commits are one piece, so both must be keyed alike.
-    let column_at = |file: FileId, range: &assignment::LineRange| -> Option<Vec<VirtualOid>> {
-        let (start, end) = (
-            range.start as i64,
-            (range.end as i64).max(range.start as i64 + 1),
-        );
-        most_overlapped(columns_of.get(&file)?, start, end).cloned()
-    };
 
     // Group hunks by column and relation set — and the cut hunk's sides by
     // relation set alone, since they are pieces of one hunk and what is
@@ -436,7 +419,7 @@ pub fn assign_hunk_groups(
                         .map(|f| FragmentAssignment {
                             fragment: f.fragment,
                             group: group_of(
-                                (column_at(file, &f.fragment.new_lines), f.related.clone()),
+                                (column_of.get(&(file, hunk)).cloned(), f.related.clone()),
                                 &mut patterns,
                             ),
                         })
@@ -570,19 +553,6 @@ impl FragMap {
 
         Some(self.squash_target(commit_idx).is_some_and(|t| t == earlier))
     }
-}
-
-/// The commits touching the column whose span overlaps `[start, end)` most,
-/// the first of them on a tie.
-fn most_overlapped(columns: &[TargetColumn], start: i64, end: i64) -> Option<&Vec<VirtualOid>> {
-    let mut best: Option<(i64, &Vec<VirtualOid>)> = None;
-    for column in columns {
-        let overlap = end.min(column.span.end) - start.max(column.span.start);
-        if overlap > 0 && best.is_none_or(|(most, _)| overlap > most) {
-            best = Some((overlap, &column.touching));
-        }
-    }
-    best.map(|(_, touching)| touching)
 }
 
 /// Build the commits × clusters matrix with TouchKind values.
