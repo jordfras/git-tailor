@@ -130,58 +130,68 @@ fn sink_node() -> SpgNode {
     }
 }
 
-/// The Span Propagation Graph for one file.
+const SOURCE: usize = 0;
+const SINK: usize = 1;
+
+/// The Span Propagation Graph for one file. Nodes are numbered in the order
+/// they are first seen; equal nodes are one node.
 struct Spg {
-    graph: HashMap<SpgNode, Vec<SpgNode>>,
-    downstream_from_active: HashMap<SpgNode, bool>,
+    nodes: Vec<SpgNode>,
+    index: HashMap<SpgNode, usize>,
+    succs: Vec<Vec<usize>>,
+    downstream_from_active: Vec<bool>,
+    /// Every node that has had an edge to SINK, possibly since replaced.
+    frontier: Vec<usize>,
 }
 
 impl Spg {
     fn empty() -> Self {
-        let source = source_node();
-        let sink = sink_node();
-        let mut graph = HashMap::new();
-        graph.insert(source.clone(), vec![sink]);
-        let mut dfa = HashMap::new();
-        dfa.insert(source, false);
-        Spg {
-            graph,
-            downstream_from_active: dfa,
+        let mut spg = Spg {
+            nodes: Vec::new(),
+            index: HashMap::new(),
+            succs: Vec::new(),
+            downstream_from_active: Vec::new(),
+            frontier: Vec::new(),
+        };
+        let source = spg.node(source_node());
+        let sink = spg.node(sink_node());
+        debug_assert_eq!((source, sink), (SOURCE, SINK));
+        spg.register(SOURCE, SINK);
+        spg
+    }
+
+    fn node(&mut self, node: SpgNode) -> usize {
+        if let Some(&existing) = self.index.get(&node) {
+            return existing;
         }
+        let id = self.nodes.len();
+        self.downstream_from_active.push(node.is_active);
+        self.succs.push(Vec::new());
+        self.index.insert(node.clone(), id);
+        self.nodes.push(node);
+        id
     }
 
     /// Register an edge from `from` to `to`, removing any existing SINK edge
     /// from `from`. This is the core SPG mutation: when a node gets a real
     /// successor, it no longer points directly to SINK.
-    fn register(&mut self, from: &SpgNode, to: &SpgNode) {
-        let sink = sink_node();
-        let succs = self.graph.entry(from.clone()).or_default();
-        succs.retain(|n| *n != sink);
-        succs.push(to.clone());
-
-        let from_dfa = self
-            .downstream_from_active
-            .get(from)
-            .copied()
-            .unwrap_or(from.is_active);
-        self.downstream_from_active
-            .entry(from.clone())
-            .or_insert(from.is_active);
-        let node_dfa = self
-            .downstream_from_active
-            .entry(to.clone())
-            .or_insert(to.is_active);
-        *node_dfa |= from_dfa;
+    fn register(&mut self, from: usize, to: usize) {
+        let succs = &mut self.succs[from];
+        succs.retain(|&n| n != SINK);
+        succs.push(to);
+        if to == SINK {
+            self.frontier.push(from);
+        }
+        self.downstream_from_active[to] |= self.downstream_from_active[from];
     }
 
     /// Find all nodes that have SINK as a direct successor (the current frontier).
-    fn sink_connected_nodes(&self) -> Vec<SpgNode> {
-        let sink = sink_node();
-        self.graph
-            .iter()
-            .filter(|(_, succs)| succs.contains(&sink))
-            .map(|(node, _)| node.clone())
-            .collect()
+    fn sink_connected_nodes(&mut self) -> Vec<usize> {
+        self.frontier.sort_unstable();
+        self.frontier.dedup();
+        let succs = &self.succs;
+        self.frontier.retain(|&n| succs[n].contains(&SINK));
+        self.frontier.clone()
     }
 }
 
@@ -296,13 +306,14 @@ pub(super) fn spg_moved_span(prev_new_span: &SpgSpan, hunks: &[HunkInfo]) -> Vec
 /// 1. Register ALL prev_nodes with interval overlap
 ///
 /// 2–5. Fallback levels with point-overlap filters (register at most one)
-fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
-    let cur_range = &node.old_span;
+fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[usize], node: SpgNode) {
+    let cur_range = node.old_span;
+    let node = spg.node(node);
     let mut registered = false;
 
     // Level 1: register ALL prev_nodes with INTERVAL_OVERLAP
-    for prev in prev_nodes {
-        if cur_range.overlap(&prev.new_span) == SpgOverlap::Interval {
+    for &prev in prev_nodes {
+        if cur_range.overlap(&spg.nodes[prev].new_span) == SpgOverlap::Interval {
             spg.register(prev, node);
             registered = true;
         }
@@ -310,16 +321,13 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
 
     // Level 2: any overlap, excluding point-on-border to downstream-from-active
     if !registered {
-        for prev in prev_nodes {
-            let ov = cur_range.overlap(&prev.new_span);
+        for &prev in prev_nodes {
+            let prev_span = spg.nodes[prev].new_span;
+            let ov = cur_range.overlap(&prev_span);
             if ov != SpgOverlap::None {
                 let on_border =
-                    cur_range.start == prev.new_span.start || cur_range.end == prev.new_span.end;
-                let is_dfa = spg
-                    .downstream_from_active
-                    .get(prev)
-                    .copied()
-                    .unwrap_or(false);
+                    cur_range.start == prev_span.start || cur_range.end == prev_span.end;
+                let is_dfa = spg.downstream_from_active[prev];
                 if !(ov == SpgOverlap::Point && on_border && is_dfa) {
                     spg.register(prev, node);
                     registered = true;
@@ -331,12 +339,13 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
 
     // Level 3: any overlap, excluding point-on-border to active nodes
     if !registered {
-        for prev in prev_nodes {
-            let ov = cur_range.overlap(&prev.new_span);
+        for &prev in prev_nodes {
+            let prev_node = &spg.nodes[prev];
+            let ov = cur_range.overlap(&prev_node.new_span);
             if ov != SpgOverlap::None {
-                let on_border =
-                    cur_range.start == prev.new_span.start || cur_range.end == prev.new_span.end;
-                if !(ov == SpgOverlap::Point && on_border && prev.is_active) {
+                let on_border = cur_range.start == prev_node.new_span.start
+                    || cur_range.end == prev_node.new_span.end;
+                if !(ov == SpgOverlap::Point && on_border && prev_node.is_active) {
                     spg.register(prev, node);
                     registered = true;
                     break;
@@ -347,8 +356,9 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
 
     // Level 4: any overlap to inactive nodes only
     if !registered {
-        for prev in prev_nodes {
-            if cur_range.overlap(&prev.new_span) != SpgOverlap::None && !prev.is_active {
+        for &prev in prev_nodes {
+            let prev_node = &spg.nodes[prev];
+            if cur_range.overlap(&prev_node.new_span) != SpgOverlap::None && !prev_node.is_active {
                 spg.register(prev, node);
                 registered = true;
                 break;
@@ -358,8 +368,8 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
 
     // Level 5: any overlap at all
     if !registered {
-        for prev in prev_nodes {
-            if cur_range.overlap(&prev.new_span) != SpgOverlap::None {
+        for &prev in prev_nodes {
+            if cur_range.overlap(&spg.nodes[prev].new_span) != SpgOverlap::None {
                 spg.register(prev, node);
                 registered = true;
                 break;
@@ -367,55 +377,37 @@ fn spg_add_on_top_of(spg: &mut Spg, prev_nodes: &[SpgNode], node: &SpgNode) {
         }
     }
 
-    spg.register(node, &sink_node());
+    spg.register(node, SINK);
     debug_assert!(
         registered,
         "SPG: node {:?} has no overlap with any prev_node",
-        node
+        spg.nodes[node]
     );
 }
 
 /// Handle prev_nodes that still point to SINK after all `add_on_top_of`
 /// calls. Creates simple propagated copies so they remain reachable.
-fn spg_update_dangling(spg: &mut Spg, prev_nodes: &[SpgNode], generation: i32) {
-    let sink = sink_node();
-    for prev in prev_nodes {
-        let still_has_sink = spg
-            .graph
-            .get(prev)
-            .map(|succs| succs.contains(&sink))
-            .unwrap_or(false);
-        if still_has_sink {
-            let propagated = SpgNode {
+fn spg_update_dangling(spg: &mut Spg, prev_nodes: &[usize], generation: i32) {
+    for &prev in prev_nodes {
+        if spg.succs[prev].contains(&SINK) {
+            let span = spg.nodes[prev].new_span;
+            let propagated = spg.node(SpgNode {
                 generation,
                 is_active: false,
-                old_span: prev.new_span,
-                new_span: prev.new_span,
-            };
-            spg.register(prev, &propagated);
-            spg.register(&propagated, &sink);
+                old_span: span,
+                new_span: span,
+            });
+            spg.register(prev, propagated);
+            spg.register(propagated, SINK);
         }
     }
 }
 
-/// Recursively enumerate all paths from `source` to `sink` through the DAG.
-fn spg_enumerate_paths(
-    graph: &HashMap<SpgNode, Vec<SpgNode>>,
-    source: &SpgNode,
-    sink: &SpgNode,
-    poll: &mut impl FnMut() -> bool,
-) -> Option<Vec<Vec<SpgNode>>> {
-    if source == sink {
-        return Some(vec![vec![sink.clone()]]);
-    }
-
-    let succs = match graph.get(source) {
-        Some(s) => s,
-        None => return Some(vec![]),
-    };
-
-    let mut sorted_succs = succs.clone();
-    sorted_succs.sort_by_key(|n| {
+/// `node`'s successors in the order paths through them are listed.
+fn sorted_succs(spg: &Spg, node: usize) -> Vec<usize> {
+    let mut sorted = spg.succs[node].clone();
+    sorted.sort_by_key(|&n| {
+        let n = &spg.nodes[n];
         (
             n.new_span.start,
             n.old_span.start,
@@ -423,14 +415,26 @@ fn spg_enumerate_paths(
             n.old_span.end,
         )
     });
+    sorted
+}
+
+/// Recursively enumerate all paths from `from` to SINK through the DAG.
+fn spg_enumerate_paths(
+    spg: &Spg,
+    from: usize,
+    poll: &mut impl FnMut() -> bool,
+) -> Option<Vec<Vec<SpgNode>>> {
+    if from == SINK {
+        return Some(vec![vec![spg.nodes[SINK].clone()]]);
+    }
 
     let mut paths = Vec::new();
-    for succ in &sorted_succs {
+    for succ in sorted_succs(spg, from) {
         if !poll() {
             return None;
         }
-        for mut sub_path in spg_enumerate_paths(graph, succ, sink, poll)? {
-            sub_path.insert(0, source.clone());
+        for mut sub_path in spg_enumerate_paths(spg, succ, poll)? {
+            sub_path.insert(0, spg.nodes[from].clone());
             paths.push(sub_path);
         }
     }
@@ -442,10 +446,7 @@ fn spg_enumerate_paths(
 /// signature and filtered to exclude empty paths (no active nodes).
 /// Output is sorted by earliest active node position for deterministic ordering.
 fn spg_all_paths(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<Vec<SpgNode>>> {
-    let source = source_node();
-    let sink = sink_node();
-
-    let raw_paths = spg_enumerate_paths(&spg.graph, &source, &sink, poll)?;
+    let raw_paths = spg_enumerate_paths(spg, SOURCE, poll)?;
 
     let mut seen: HashSet<Vec<(i32, SpgSpan)>> = HashSet::new();
     let mut result = Vec::new();
@@ -522,11 +523,11 @@ impl<T: Copy + Ord> ConsArena<T> {
     }
 }
 
-/// The graph with nodes numbered, each node's successors in the order
+/// The graph's nodes, each node's successors in the order
 /// `spg_enumerate_paths` visits them, and the nodes in generation order —
 /// a topological order, since every edge leads to a later generation.
 struct IndexedSpg<'a> {
-    nodes: Vec<&'a SpgNode>,
+    nodes: &'a [SpgNode],
     succs: Vec<Vec<usize>>,
     by_generation: Vec<usize>,
     source: usize,
@@ -534,29 +535,9 @@ struct IndexedSpg<'a> {
 }
 
 impl<'a> IndexedSpg<'a> {
-    fn new(spg: &'a Spg, sink: &'a SpgNode) -> Self {
-        let mut nodes: Vec<&SpgNode> = spg.graph.keys().collect();
-        if !spg.graph.contains_key(sink) {
-            nodes.push(sink);
-        }
-        let index: HashMap<&SpgNode, usize> =
-            nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-        let succs: Vec<Vec<usize>> = nodes
-            .iter()
-            .map(|node| {
-                let mut sorted: Vec<&SpgNode> =
-                    spg.graph.get(*node).into_iter().flatten().collect();
-                sorted.sort_by_key(|n| {
-                    (
-                        n.new_span.start,
-                        n.old_span.start,
-                        n.new_span.end,
-                        n.old_span.end,
-                    )
-                });
-                sorted.into_iter().map(|n| index[n]).collect()
-            })
-            .collect();
+    fn new(spg: &'a Spg) -> Self {
+        let nodes = &spg.nodes[..];
+        let succs: Vec<Vec<usize>> = (0..nodes.len()).map(|n| sorted_succs(spg, n)).collect();
         let mut by_generation: Vec<usize> = (0..nodes.len()).collect();
         by_generation.sort_by_key(|&i| nodes[i].generation);
         debug_assert!(succs.iter().enumerate().all(|(from, to)| {
@@ -564,11 +545,11 @@ impl<'a> IndexedSpg<'a> {
                 .all(|&to| nodes[to].generation > nodes[from].generation)
         }));
         IndexedSpg {
-            source: index[&source_node()],
-            sink: index[sink],
             nodes,
             succs,
             by_generation,
+            source: SOURCE,
+            sink: SINK,
         }
     }
 }
@@ -591,8 +572,7 @@ struct SpgColumn {
 /// order and only a smaller key replaces the best, so of tied paths the one
 /// `spg_all_paths` keeps wins; paths of different sets never tie.
 fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColumn>> {
-    let sink = sink_node();
-    let graph = IndexedSpg::new(spg, &sink);
+    let graph = IndexedSpg::new(spg);
     let mut keys: ConsArena<(i32, i64)> = ConsArena::new();
     let mut sets: ConsArena<i32> = ConsArena::new();
     let mut interned_sets: HashMap<(i32, u32), u32> = HashMap::new();
@@ -629,7 +609,7 @@ fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColu
             }
         }
 
-        let node = graph.nodes[at];
+        let node = &graph.nodes[at];
         suffixes[at] = Some(if !node.is_active {
             best
         } else {
@@ -685,8 +665,7 @@ fn spg_target_columns(
     target: i32,
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<(SpgSpan, Vec<i32>)>> {
-    let sink = sink_node();
-    let graph = IndexedSpg::new(spg, &sink);
+    let graph = IndexedSpg::new(spg);
     let mut keys: ConsArena<(i32, i64)> = ConsArena::new();
     let key_of = |node: &SpgNode| (node.generation, node.new_span.start);
 
@@ -708,7 +687,7 @@ fn spg_target_columns(
                 best = Some(key);
             }
         }
-        let node = graph.nodes[at];
+        let node = &graph.nodes[at];
         suffix[at] = best.map(|key| match node.is_active {
             true => keys.cons(key_of(node), key),
             false => key,
@@ -734,7 +713,7 @@ fn spg_target_columns(
         if !poll() {
             return None;
         }
-        let node = graph.nodes[at];
+        let node = &graph.nodes[at];
         let through = match node.is_active {
             true => reversed.cons(key_of(node), before),
             false => before,
@@ -807,25 +786,27 @@ fn build_file_spg(
         if commit_gen > prev_gen + 1 {
             let gap_nodes = spg.sink_connected_nodes();
             let gap_gen = commit_gen - 1;
-            for node in &gap_nodes {
-                if node.new_span.is_empty() {
+            for node in gap_nodes {
+                let span = spg.nodes[node].new_span;
+                if span.is_empty() {
                     continue;
                 }
-                let propagated = SpgNode {
+                let propagated = spg.node(SpgNode {
                     generation: gap_gen,
                     is_active: false,
-                    old_span: node.new_span,
-                    new_span: node.new_span,
-                };
-                spg.register(node, &propagated);
-                spg.register(&propagated, &sink_node());
+                    old_span: span,
+                    new_span: span,
+                });
+                spg.register(node, propagated);
+                spg.register(propagated, SINK);
             }
         }
         last_gen = Some(commit_gen);
 
         let mut prev_nodes = spg.sink_connected_nodes();
-        prev_nodes.retain(|n| !n.new_span.is_empty());
-        prev_nodes.sort_by_key(|n| {
+        prev_nodes.retain(|&n| !spg.nodes[n].new_span.is_empty());
+        prev_nodes.sort_by_key(|&n| {
+            let n = &spg.nodes[n];
             (
                 n.new_span.start,
                 n.old_span.start,
@@ -847,12 +828,13 @@ fn build_file_spg(
 
         // Propagate prev_nodes: split surviving parts around hunks
         let mut propagated_nodes: Vec<SpgNode> = Vec::new();
-        for prev in &prev_nodes {
-            for m in spg_moved_span(&prev.new_span, hunks) {
+        for &prev in &prev_nodes {
+            let prev_span = spg.nodes[prev].new_span;
+            for m in spg_moved_span(&prev_span, hunks) {
                 propagated_nodes.push(SpgNode {
                     generation: commit_gen,
                     is_active: false,
-                    old_span: prev.new_span,
+                    old_span: prev_span,
                     new_span: m,
                 });
             }
@@ -870,7 +852,7 @@ fn build_file_spg(
             )
         });
 
-        for cur_node in &all_new_nodes {
+        for cur_node in all_new_nodes {
             spg_add_on_top_of(&mut spg, &prev_nodes, cur_node);
             if !poll() {
                 return None;
@@ -1031,9 +1013,9 @@ pub(super) fn enumerate_file_spg_paths(
     commits: &[(CommitPos, Vec<HunkInfo>)],
 ) -> (usize, usize, usize) {
     let spg = build_file_spg(commits, &mut || true).expect("no-op poll never interrupts");
-    let node_count = spg.graph.len();
-    let raw_paths = spg_enumerate_paths(&spg.graph, &source_node(), &sink_node(), &mut || true)
-        .expect("no-op poll never interrupts");
+    let node_count = spg.nodes.len();
+    let raw_paths =
+        spg_enumerate_paths(&spg, SOURCE, &mut || true).expect("no-op poll never interrupts");
     let deduped_paths = spg_all_paths(&spg, &mut || true).expect("no-op poll never interrupts");
     (node_count, raw_paths.len(), deduped_paths.len())
 }
@@ -1362,26 +1344,26 @@ mod tests {
             })
             .collect();
         let mut spg = Spg::empty();
-        spg.graph.clear();
-        let mut froms = vec![source_node()];
+        spg.succs[SOURCE].clear();
+        let mut froms = vec![SOURCE];
         for (depth, layer) in layers.iter().enumerate() {
-            for from in &froms {
-                let succs = spg.graph.entry(from.clone()).or_default();
+            for &from in &froms {
                 for to in layers[depth..].iter().flatten() {
                     for _ in 0..rng.below(4).saturating_sub(1) {
-                        if to.generation > from.generation {
-                            succs.push(to.clone());
+                        if to.generation > spg.nodes[from].generation {
+                            let to = spg.node(to.clone());
+                            spg.succs[from].push(to);
                         }
                     }
                 }
-                if rng.below(3) == 0 || succs.is_empty() {
-                    succs.push(sink_node());
+                if rng.below(3) == 0 || spg.succs[from].is_empty() {
+                    spg.succs[from].push(SINK);
                 }
             }
-            froms = layer.clone();
+            froms = layer.iter().map(|n| spg.node(n.clone())).collect();
         }
-        for from in &froms {
-            spg.graph.entry(from.clone()).or_default().push(sink_node());
+        for from in froms {
+            spg.succs[from].push(SINK);
         }
         spg
     }
