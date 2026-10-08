@@ -479,41 +479,47 @@ fn spg_all_paths(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<Vec<S
     Some(result)
 }
 
-const NIL: u32 = u32::MAX;
+/// A list in a [`SharedTailLists`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ListId(u32);
 
-/// Singly linked lists in one arena, sharing tails, so that extending a path
-/// by one node does not copy the rest of it.
-struct ConsArena<T> {
-    cells: Vec<(T, u32)>,
+impl ListId {
+    const EMPTY: ListId = ListId(u32::MAX);
 }
 
-impl<T: Copy + Ord> ConsArena<T> {
+/// Many lists stored in one vector, where prepending shares the old list as
+/// the tail, so extending a path by one node does not copy the rest of it.
+struct SharedTailLists<T> {
+    cells: Vec<(T, ListId)>,
+}
+
+impl<T: Copy + Ord> SharedTailLists<T> {
     fn new() -> Self {
-        ConsArena { cells: Vec::new() }
+        SharedTailLists { cells: Vec::new() }
     }
 
-    fn cons(&mut self, head: T, tail: u32) -> u32 {
+    fn prepend(&mut self, head: T, tail: ListId) -> ListId {
         self.cells.push((head, tail));
-        (self.cells.len() - 1) as u32
+        ListId((self.cells.len() - 1) as u32)
     }
 
-    fn iter(&self, mut list: u32) -> impl Iterator<Item = T> + '_ {
+    fn iter(&self, mut list: ListId) -> impl Iterator<Item = T> + '_ {
         std::iter::from_fn(move || {
-            let (head, tail) = *self.cells.get(list as usize)?;
+            let (head, tail) = *self.cells.get(list.0 as usize)?;
             list = tail;
             Some(head)
         })
     }
 
-    fn cmp(&self, mut a: u32, mut b: u32) -> Ordering {
+    fn cmp(&self, mut a: ListId, mut b: ListId) -> Ordering {
         while a != b {
             match (a, b) {
-                (NIL, _) => return Ordering::Less,
-                (_, NIL) => return Ordering::Greater,
+                (ListId::EMPTY, _) => return Ordering::Less,
+                (_, ListId::EMPTY) => return Ordering::Greater,
                 _ => {}
             }
-            let (head_a, tail_a) = self.cells[a as usize];
-            let (head_b, tail_b) = self.cells[b as usize];
+            let (head_a, tail_a) = self.cells[a.0 as usize];
+            let (head_b, tail_b) = self.cells[b.0 as usize];
             match head_a.cmp(&head_b) {
                 Ordering::Equal => (a, b) = (tail_a, tail_b),
                 unequal => return unequal,
@@ -573,9 +579,9 @@ struct SpgColumn {
 /// `spg_all_paths` keeps wins; paths of different sets never tie.
 fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColumn>> {
     let graph = IndexedSpg::new(spg);
-    let mut keys: ConsArena<(i32, i64)> = ConsArena::new();
-    let mut sets: ConsArena<i32> = ConsArena::new();
-    let mut interned_sets: HashMap<(i32, u32), u32> = HashMap::new();
+    let mut keys: SharedTailLists<(i32, i64)> = SharedTailLists::new();
+    let mut sets: SharedTailLists<i32> = SharedTailLists::new();
+    let mut interned_sets: HashMap<(i32, ListId), ListId> = HashMap::new();
 
     let mut pending_preds = vec![0usize; graph.nodes.len()];
     for to in graph.succs.iter().flatten() {
@@ -583,9 +589,9 @@ fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColu
     }
 
     // Per commit set: the best suffix's key and its last active span.
-    type Suffixes = HashMap<u32, (u32, Option<SpgSpan>)>;
+    type Suffixes = HashMap<ListId, (ListId, Option<SpgSpan>)>;
     let mut suffixes: Vec<Option<Suffixes>> = (0..graph.nodes.len()).map(|_| None).collect();
-    suffixes[graph.sink] = Some(HashMap::from([(NIL, (NIL, None))]));
+    suffixes[graph.sink] = Some(HashMap::from([(ListId::EMPTY, (ListId::EMPTY, None))]));
 
     for &at in graph.by_generation.iter().rev() {
         if at == graph.sink {
@@ -617,8 +623,8 @@ fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColu
                 .map(|(set, (key, span))| {
                     let set = *interned_sets
                         .entry((node.generation, set))
-                        .or_insert_with(|| sets.cons(node.generation, set));
-                    let key = keys.cons((node.generation, node.new_span.start), key);
+                        .or_insert_with(|| sets.prepend(node.generation, set));
+                    let key = keys.prepend((node.generation, node.new_span.start), key);
                     (set, (key, span.or(Some(node.new_span))))
                 })
                 .collect()
@@ -632,7 +638,7 @@ fn spg_columns(spg: &Spg, poll: &mut impl FnMut() -> bool) -> Option<Vec<SpgColu
         }
     }
 
-    let mut columns: Vec<(u32, u32, SpgSpan)> = suffixes[graph.source]
+    let mut columns: Vec<(ListId, ListId, SpgSpan)> = suffixes[graph.source]
         .take()
         .expect("source is never freed")
         .into_iter()
@@ -666,12 +672,12 @@ fn spg_target_columns(
     poll: &mut impl FnMut() -> bool,
 ) -> Option<Vec<(SpgSpan, Vec<i32>)>> {
     let graph = IndexedSpg::new(spg);
-    let mut keys: ConsArena<(i32, i64)> = ConsArena::new();
+    let mut keys: SharedTailLists<(i32, i64)> = SharedTailLists::new();
     let key_of = |node: &SpgNode| (node.generation, node.new_span.start);
 
     // From each node to the sink, the node included.
-    let mut suffix: Vec<Option<u32>> = vec![None; graph.nodes.len()];
-    suffix[graph.sink] = Some(NIL);
+    let mut suffix: Vec<Option<ListId>> = vec![None; graph.nodes.len()];
+    suffix[graph.sink] = Some(ListId::EMPTY);
     for &at in graph.by_generation.iter().rev() {
         if at == graph.sink {
             continue;
@@ -679,7 +685,7 @@ fn spg_target_columns(
         if !poll() {
             return None;
         }
-        let mut best: Option<u32> = None;
+        let mut best: Option<ListId> = None;
         for &next in &graph.succs[at] {
             if let Some(key) = suffix[next]
                 && best.is_none_or(|current| keys.cmp(key, current).is_lt())
@@ -689,14 +695,14 @@ fn spg_target_columns(
         }
         let node = &graph.nodes[at];
         suffix[at] = best.map(|key| match node.is_active {
-            true => keys.cons(key_of(node), key),
+            true => keys.prepend(key_of(node), key),
             false => key,
         });
     }
 
     // From the source to each node, the node excluded, last element first.
-    let mut reversed: ConsArena<(i32, i64)> = ConsArena::new();
-    let in_order = |reversed: &ConsArena<(i32, i64)>, list: u32| {
+    let mut reversed: SharedTailLists<(i32, i64)> = SharedTailLists::new();
+    let in_order = |reversed: &SharedTailLists<(i32, i64)>, list: ListId| {
         let mut elements: Vec<(i32, i64)> = reversed.iter(list).collect();
         elements.reverse();
         elements
@@ -706,8 +712,8 @@ fn spg_target_columns(
             Some((x, y)) => x < y,
             None => a.len() > b.len(),
         };
-    let mut prefix: Vec<Option<u32>> = vec![None; graph.nodes.len()];
-    prefix[graph.source] = Some(NIL);
+    let mut prefix: Vec<Option<ListId>> = vec![None; graph.nodes.len()];
+    prefix[graph.source] = Some(ListId::EMPTY);
     for &at in &graph.by_generation {
         let Some(before) = prefix[at] else { continue };
         if !poll() {
@@ -715,7 +721,7 @@ fn spg_target_columns(
         }
         let node = &graph.nodes[at];
         let through = match node.is_active {
-            true => reversed.cons(key_of(node), before),
+            true => reversed.prepend(key_of(node), before),
             false => before,
         };
         let through_in_order = in_order(&reversed, through);
