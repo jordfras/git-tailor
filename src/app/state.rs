@@ -118,11 +118,7 @@ impl AppState {
     pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
         let selection_index = commits.len().saturating_sub(1);
         Self {
-            list: CommitListState {
-                commits,
-                selection_index,
-                ..Default::default()
-            },
+            list: CommitListState::with_selection(commits, selection_index),
             ..Self::default()
         }
     }

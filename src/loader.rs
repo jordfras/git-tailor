@@ -185,7 +185,7 @@ pub fn load_with_progress(
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
     app.detail.v.offset = 0;
-    app.list.scroll.offset = 0;
+    app.list.reset_viewport();
     app.list.selection_index = select_initial_index(&app.list.commits);
     app.mode = AppMode::CommitList;
 

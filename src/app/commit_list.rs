@@ -65,9 +65,36 @@ pub struct CommitListState {
     pub scroll: ScrollState,
     /// Rows kept between the cursor and the top or bottom of the list.
     pub scroll_margin: ScrollMargin,
+    /// Selection the viewport was last settled against, so `follow_selection`
+    /// can tell the cursor having moved from the viewport having been scrolled
+    /// under a standing cursor. Bookkeeping, so unlike its neighbors it is
+    /// private: setting it by hand silently turns the margin off for a frame.
+    settled_for: Option<usize>,
+}
+
+/// Everything [`follow_selection`][CommitListState::follow_selection] writes.
+///
+/// A caller that has to measure a layout it will not draw takes one of these
+/// first and puts it back after, so the measurement cannot decide where the
+/// list is scrolled — see `views::commit_list::compute_fragmap_sep_x`.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewportSnapshot {
+    scroll: ScrollState,
+    settled_for: Option<usize>,
 }
 
 impl CommitListState {
+    /// A list of `commits` with `selection_index` selected, everything else
+    /// left at its default. A constructor rather than struct-update syntax
+    /// because the viewport bookkeeping above is private.
+    pub fn with_selection(commits: Vec<CommitInfo>, selection_index: usize) -> Self {
+        Self {
+            commits,
+            selection_index,
+            ..Default::default()
+        }
+    }
+
     /// The selected row, if the index is in range.
     pub fn selected(&self) -> Option<&CommitInfo> {
         self.commits.get(self.selection_index)
@@ -190,9 +217,43 @@ impl CommitListState {
         if self.commits.is_empty() {
             return;
         }
-        let margin = self.scroll_margin.rows(available_height);
+        // The margin says where the cursor should sit *as it moves*. When the
+        // cursor stood still the viewport is wherever Ctrl-Up/Ctrl-Down put it,
+        // and dragging it back to honor the margin would make those keys dead
+        // `margin` rows from each end — so then only keep the cursor on screen.
+        // A resize lands here too, and holding the view still is right there as
+        // well; the margin reasserts itself on the next cursor move.
+        let margin = if self.settled_for == Some(self.selection_index) {
+            0
+        } else {
+            self.scroll_margin.rows(available_height)
+        };
         self.scroll
             .ensure_visible_with_margin(self.visual_selection(), 1, margin);
+        self.settled_for = Some(self.selection_index);
+    }
+
+    /// Take everything `follow_selection` writes, to put back with
+    /// [`restore_viewport`][Self::restore_viewport].
+    pub fn viewport_snapshot(&self) -> ViewportSnapshot {
+        ViewportSnapshot {
+            scroll: self.scroll,
+            settled_for: self.settled_for,
+        }
+    }
+
+    /// Put back a [`viewport_snapshot`][Self::viewport_snapshot].
+    pub fn restore_viewport(&mut self, snapshot: ViewportSnapshot) {
+        self.scroll = snapshot.scroll;
+        self.settled_for = snapshot.settled_for;
+    }
+
+    /// Send the viewport back to the top and forget what it was settled
+    /// against, so the next render places the cursor from scratch. For a
+    /// reload, where the rows and the selection are both replaced.
+    pub fn reset_viewport(&mut self) {
+        self.scroll.offset = 0;
+        self.settled_for = None;
     }
 
     /// Scroll one row up (toward earlier display rows) without moving the
@@ -449,12 +510,16 @@ mod tests {
         assert_eq!(app.scroll.offset, 0, "no viewport to reason about yet");
     }
 
-    /// The offset after settling a 20-row list in a 9-row window that is
-    /// showing rows 6..15, with the cursor on `selection` and margin `margin`.
+    /// The offset after the cursor *moves* to `selection` in a 20-row list
+    /// whose 9-row window is showing rows 6..15, with margin `margin`.
+    ///
+    /// The move matters: the margin only governs a settle the cursor caused,
+    /// so the selection is assigned after the viewport is placed.
     fn settled_at(selection: usize, margin: usize) -> usize {
-        let mut app = app_with(20, selection, 9);
+        let mut app = app_with(20, 0, 9);
         app.scroll_margin = ScrollMargin::Fixed(margin);
         app.scroll.offset = 6;
+        app.selection_index = selection;
         offset(&mut app, 9)
     }
 

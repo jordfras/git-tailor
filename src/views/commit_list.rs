@@ -268,9 +268,9 @@ pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame
 /// belongs to a frame that is never drawn.
 pub fn compute_fragmap_sep_x(app: &mut AppState, area: Rect) -> Option<u16> {
     app.fragmap.as_ref()?;
-    let saved_scroll = app.list.scroll;
+    let saved_viewport = app.list.viewport_snapshot();
     let layout = compute_layout(app, area);
-    app.list.scroll = saved_scroll;
+    app.list.restore_viewport(saved_viewport);
     if layout.fragmap_col_width == 0 {
         return None;
     }
