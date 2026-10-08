@@ -159,18 +159,6 @@ Guidelines:
   the user put them — so this is a choice about one behavior rather than a
   reconciliation of two. A product decision about defaults, not a mechanical
   one, which is why it carries HUMAN INPUT.
-- [ ] T245 P3 bug - Work out what grafts and `refs/replace` do to the
-  rewrite engine. 3.1.0 fixed a shallow clone's graft boundary being mistaken
-  for a true root — rewriting it built a parentless commit and cut the branch
-  off from everything upstream, and pushed, it would truncate shared history.
-  Grafts (`.git/info/grafts`) and `refs/replace` have the same shape: a commit
-  whose parentage is not what the object says. But `is_shallow()` does not
-  report them, and libgit2's replace handling differs from git's own.
-  Deliberately not chased at the time, because a guard written without
-  understanding that difference would be guessing.
-  Scope: first establish what libgit2 actually does — does `parent_ids()` follow
-  a replacement? — then decide whether a guard is warranted and what it refuses.
-  The answer may be that nothing is needed, which is a fine outcome to record.
 - [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that

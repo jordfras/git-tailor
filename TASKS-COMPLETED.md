@@ -2098,3 +2098,27 @@
   fragments take their hunk's column. Propagation and the matrix are
   untouched; on main~40, 93 of 544 commits regroup, all with deletions, and no
   other hunk's grouping changes.
+- [X] T245 P3 bug - Work out what grafts and `refs/replace` do to the
+  rewrite engine. 3.1.0 fixed a shallow clone's graft boundary being mistaken
+  for a true root — rewriting it built a parentless commit and cut the branch
+  off from everything upstream, and pushed, it would truncate shared history.
+  Grafts (`.git/info/grafts`) and `refs/replace` have the same shape: a commit
+  whose parentage is not what the object says. But `is_shallow()` does not
+  report them, and libgit2's replace handling differs from git's own.
+  Deliberately not chased at the time, because a guard written without
+  understanding that difference would be guessing.
+  Scope: first establish what libgit2 actually does — does `parent_ids()` follow
+  a replacement? — then decide whether a guard is warranted and what it refuses.
+  The answer may be that nothing is needed, which is a fine outcome to record.
+  Established by experiment against libgit2 1.9.7 (git2 0.21): replace refs
+  are not followed — `parent_ids()` gives the object's own parents — so
+  git-tailor lists and rewrites the real history, and a rewritten commit simply
+  stops being replaced. Nothing is lost; no guard. Grafts are followed, and
+  rewriting a grafted commit (reachable with `--all`) wrote the fake parentage
+  for real. The spike also found the shallow guard incomplete: reword and edit
+  never called it, so rewording the boundary severed the branch. One check now
+  covers both: `refuse_false_parents` compares each commit to be rebuilt —
+  everything above what stays put, up to HEAD — with the `parent` lines in its
+  own object, and refuses on a mismatch, naming the shallow clone or the graft.
+  It replaced the `is_shallow()` root check. Moving a commit to root under
+  `--all` in a shallow clone is now refused, as it rebuilds the boundary.
