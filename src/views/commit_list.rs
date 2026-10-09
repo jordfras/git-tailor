@@ -363,12 +363,12 @@ fn split_vertical_areas(frame_area: Rect, needs_h_scrollbar: bool) -> (Rect, Opt
 
 /// Compute title and fragmap column widths, clamping `separator_offset` to valid bounds.
 ///
-/// Returns `(title_width, fragmap_available_width)`.
+/// Returns `(title_width, fragmap_available_width, clamped separator_offset)`.
 fn compute_column_widths(
-    app: &mut AppState,
+    app: &AppState,
     effective_width: u16,
     visible_clusters: &[usize],
-) -> (u16, usize) {
+) -> (u16, usize, i16) {
     // Establish the natural (separator_offset=0) baseline: title is whatever
     // fits after allocating maximum fragmap space.
     let natural_fragmap_w =
@@ -388,17 +388,16 @@ fn compute_column_widths(
         .saturating_sub(SHA_COL_WIDTH + COL_GAPS + natural_frag_col_w)
         .min(MAX_TITLE_WIDTH);
 
-    // Apply separator_offset on top of the natural baseline. Clamp and write
-    // back immediately so reversing direction takes effect without delay.
+    // Apply separator_offset on top of the natural baseline. The clamped
+    // offset goes back to the caller so reversing direction takes effect
+    // without delay.
     let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + 1) as i32;
     let min_title: i32 = 10;
-    let title_width: u16 = if max_title >= min_title {
+    let (title_width, separator_offset): (u16, i16) = if max_title >= min_title {
         let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
-        app.separator_offset = (w - natural_title as i32) as i16;
-        w as u16
+        (w as u16, (w - natural_title as i32) as i16)
     } else {
-        app.separator_offset = 0;
-        0
+        (0, 0)
     };
 
     // Derive fragmap width from title_width so the table constraints
@@ -406,7 +405,54 @@ fn compute_column_widths(
     let fragmap_available_width =
         effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + title_width) as usize;
 
-    (title_width, fragmap_available_width)
+    (title_width, fragmap_available_width, separator_offset)
+}
+
+/// The areas and widths that follow from `frame_area` once it is known whether
+/// a row goes to the horizontal scrollbar.
+struct Geometry {
+    table_area: Rect,
+    h_scrollbar_area: Option<Rect>,
+    footer_area: Rect,
+    available_height: usize,
+    has_v_scrollbar: bool,
+    title_width: u16,
+    fragmap_available_width: usize,
+    /// `app.separator_offset` clamped to *this* measurement's bounds. Only the
+    /// first measurement's belongs in the state.
+    separator_offset: i16,
+}
+
+fn measure_geometry(
+    app: &AppState,
+    frame_area: Rect,
+    visible_clusters: &[usize],
+    with_h_scrollbar: bool,
+) -> Geometry {
+    let (table_area, h_scrollbar_area, footer_area) =
+        split_vertical_areas(frame_area, with_h_scrollbar);
+
+    let available_height = table_area.height.saturating_sub(1) as usize;
+    let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
+    let effective_width = if has_v_scrollbar {
+        table_area.width.saturating_sub(1)
+    } else {
+        table_area.width
+    };
+
+    let (title_width, fragmap_available_width, separator_offset) =
+        compute_column_widths(app, effective_width, visible_clusters);
+
+    Geometry {
+        table_area,
+        h_scrollbar_area,
+        footer_area,
+        available_height,
+        has_v_scrollbar,
+        title_width,
+        fragmap_available_width,
+        separator_offset,
+    }
 }
 
 /// Whether `MoveSelect` is showing its separator row, which spends one of the
@@ -438,26 +484,24 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         vec![]
     };
 
-    let preliminary_fragmap_width = frame_area
-        .width
-        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH + 1)
-        as usize;
-    let needs_h_scrollbar =
-        !visible_clusters.is_empty() && visible_clusters.len() > preliminary_fragmap_width;
-
-    let (table_area, h_scrollbar_area, footer_area) =
-        split_vertical_areas(frame_area, needs_h_scrollbar);
-
-    let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
-    let effective_width = if has_v_scrollbar {
-        table_area.width.saturating_sub(1)
-    } else {
-        table_area.width
-    };
-
-    let (title_width, fragmap_available_width) =
-        compute_column_widths(app, effective_width, &visible_clusters);
+    // Whether the columns fit is only known from the title width, which in
+    // turn depends on whether a row went to the scrollbar — so measure without
+    // one and reserve the row only if the columns overflow. The second
+    // measurement cannot reverse that answer: spending the row can only
+    // shorten the table, which can only add the vertical scrollbar, which can
+    // only narrow the matrix further.
+    let mut geometry = measure_geometry(app, frame_area, &visible_clusters, false);
+    // Read before the second measurement and stored after it, because the next
+    // frame's first measurement starts from whatever is in the state. Storing
+    // what the second clamped to a narrower title would send that measurement
+    // to a different answer, and the layout would move with nothing to prompt
+    // it.
+    let offset_for_next_frame = geometry.separator_offset;
+    if visible_clusters.len() > geometry.fragmap_available_width {
+        geometry = measure_geometry(app, frame_area, &visible_clusters, true);
+    }
+    app.separator_offset = offset_for_next_frame;
+    let fragmap_available_width = geometry.fragmap_available_width;
 
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
@@ -478,24 +522,24 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     let visual_selection = app.list.visual_selection();
 
     let commit_rows = if reserves_move_separator_row(&app.mode) {
-        available_height.saturating_sub(1)
+        geometry.available_height.saturating_sub(1)
     } else {
-        available_height
+        geometry.available_height
     };
     app.list.follow_selection(commit_rows);
     let scroll_offset = app.list.scroll.offset;
 
     LayoutInfo {
-        table_area,
-        footer_area,
-        h_scrollbar_area,
-        available_height,
+        table_area: geometry.table_area,
+        footer_area: geometry.footer_area,
+        h_scrollbar_area: geometry.h_scrollbar_area,
+        available_height: geometry.available_height,
         commit_rows,
-        has_v_scrollbar,
+        has_v_scrollbar: geometry.has_v_scrollbar,
         visible_clusters,
         display_clusters,
         fragmap_col_width,
-        title_width,
+        title_width: geometry.title_width,
         fragmap_available_width,
         h_scroll_offset,
         visual_selection,
