@@ -194,6 +194,13 @@ The format is based on
   branch as it stood when the operation was chosen, so a commit made in another
   terminal could be rewritten without the list ever showing it — and with
   another branch checked out on the same commit, that branch was rewritten
+- Moving the separator bar with `Ctrl-←`/`Ctrl-→` now shows or hides the hunk
+  group matrix's horizontal scrollbar, as resizing the window already did.
+  Widening the titles clipped columns with nothing to say so, and narrowing
+  them until every column fit left an empty row where the scrollbar had been
+- The hunk group matrix's horizontal scrollbar now sits under the columns it
+  scrolls. With a vertical scrollbar beside the commit list it was one column
+  to the left, over the separator bar
 
 ## [3.1.0] - 2026-09-12
 
