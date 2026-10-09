@@ -459,6 +459,42 @@ fn test_fragmap_h_scrollbar_goes_when_separator_frees_room() {
     );
 }
 
+/// The horizontal scrollbar sits under the columns it scrolls, which are one
+/// column further right when the commit list has a vertical scrollbar.
+#[test]
+fn test_fragmap_h_scrollbar_aligns_past_vertical_scrollbar() {
+    let mut harness = TuiTestHarness::narrow();
+    let mut app = app_with_clusters(12, 30);
+
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let rows = buffer_rows(&buf);
+
+    let separator_x = rows[0].chars().position(|c| c == '│').expect("separator");
+    let bar_start = rows[8]
+        .chars()
+        .position(|c| c != ' ' && c != '│')
+        .expect("scrollbar");
+    assert_eq!(
+        bar_start,
+        separator_x + 1,
+        "the scrollbar should start on the matrix's first column: {:?}",
+        rows[8]
+    );
+    assert_eq!(
+        rows[8].chars().nth(separator_x),
+        Some('│'),
+        "the scrollbar should leave the separator column alone: {:?}",
+        rows[8]
+    );
+    // The 27 columns fill the window to its right edge, so the bar has to too.
+    assert_ne!(
+        rows[8].chars().last(),
+        Some(' '),
+        "the scrollbar should be as wide as the columns it scrolls: {:?}",
+        rows[8]
+    );
+}
+
 /// Redrawing without input must draw the same thing: the separator offset
 /// written back while settling the scrollbar has to be the one the next
 /// frame's first measurement reproduces.
