@@ -365,3 +365,117 @@ fn test_fragmap_default_highlight_theme() {
         harness.render(|frame| views::commit_list::render(&mut app, frame))
     );
 }
+
+/// Every row of a rendered buffer as a string, padded to the full width.
+fn buffer_rows(buf: &ratatui::buffer::Buffer) -> Vec<String> {
+    (0..buf.area.height)
+        .map(|y| {
+            (0..buf.area.width)
+                .map(|x| buf.cell((x, y)).map_or(" ", |c| c.symbol()))
+                .collect()
+        })
+        .collect()
+}
+
+/// `commits` commits and `clusters` clusters, each cluster touched by one
+/// commit so none of them is filtered out of the matrix.
+fn app_with_clusters(commits: usize, clusters: usize) -> AppState {
+    let oids: Vec<String> = (0..commits).map(|i| format!("c{i:03}")).collect();
+    let mut app = AppState::new();
+    app.theme = Theme::Plain;
+    app.list.commits = oids
+        .iter()
+        .enumerate()
+        .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit {i}")))
+        .collect();
+    app.list.selection_index = 0;
+
+    let spans: Vec<SpanCluster> = (0..clusters)
+        .map(|i| {
+            let start = i as u32 * 10;
+            simple_cluster("file.rs", start, start + 5, &[&oids[i % commits]])
+        })
+        .collect();
+    let matrix: Vec<Vec<TouchKind>> = (0..commits)
+        .map(|commit| {
+            (0..clusters)
+                .map(|cluster| {
+                    if cluster % commits == commit {
+                        TouchKind::Added
+                    } else {
+                        TouchKind::None
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    app.fragmap = Some(create_fragmap(
+        oids.iter().map(String::as_str).collect(),
+        spans,
+        matrix,
+    ));
+    app
+}
+
+/// Moving the separator right squeezes the matrix until its columns no longer
+/// fit, which has to bring the horizontal scrollbar out — the window size is
+/// not the only thing that decides the matrix's width.
+#[test]
+fn test_fragmap_h_scrollbar_appears_when_separator_squeezes_matrix() {
+    let mut harness = TuiTestHarness::narrow();
+    // At width 60 the title is 38 columns wide and all 10 clusters fit; +8
+    // leaves the matrix 2 columns.
+    let mut app = app_with_clusters(3, 10);
+    app.separator_offset = 8;
+
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let rows = buffer_rows(&buf);
+
+    assert!(
+        rows[8].contains('█'),
+        "the row above the footer should hold the horizontal scrollbar: {:?}",
+        rows[8]
+    );
+}
+
+/// Moving the separator left frees enough room for every column, which has to
+/// give the row the scrollbar took back to the commit list.
+#[test]
+fn test_fragmap_h_scrollbar_goes_when_separator_frees_room() {
+    let mut harness = TuiTestHarness::narrow();
+    // Eight commits is exactly what fits without a scrollbar row, and -16
+    // clamps the title to 10 columns, leaving room for all 30 clusters.
+    let mut app = app_with_clusters(8, 30);
+    app.separator_offset = -16;
+
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let rows = buffer_rows(&buf);
+
+    assert!(
+        rows[8].contains("Commit 7"),
+        "the last commit should have the row no scrollbar needs: {:?}",
+        rows[8]
+    );
+}
+
+/// Redrawing without input must draw the same thing: the separator offset
+/// written back while settling the scrollbar has to be the one the next
+/// frame's first measurement reproduces.
+#[test]
+fn test_fragmap_h_scrollbar_layout_is_steady_across_redraws() {
+    let mut harness = TuiTestHarness::short();
+    // Eight commits is exactly what fits without a scrollbar row, so spending
+    // the row brings in the vertical scrollbar and narrows the title by one.
+    let mut app = app_with_clusters(8, 2);
+    app.separator_offset = 8;
+
+    let first = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let second = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    assert_eq!(
+        buffer_rows(&first),
+        buffer_rows(&second),
+        "the second frame moved the layout with no input"
+    );
+}
