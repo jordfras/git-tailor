@@ -196,13 +196,12 @@ pub fn build_fragmap_cell<'a>(
 pub fn render_horizontal_scrollbar(
     frame: &mut Frame,
     hs_area: Rect,
-    title_width: u16,
+    fragmap_x: u16,
     fragmap_col_width: u16,
     total_clusters: usize,
     fragmap_available_width: usize,
     h_scroll_offset: usize,
 ) {
-    let fragmap_x = hs_area.x + 10 + 1 + title_width + 1;
     let area = Rect {
         x: fragmap_x,
         width: fragmap_col_width,

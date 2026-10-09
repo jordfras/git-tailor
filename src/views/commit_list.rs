@@ -305,8 +305,9 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     let table = Table::new(rows, constraints).header(header);
     frame.render_widget(table, content_area);
 
+    let sep_x = content_area.x + SHA_COL_WIDTH + 1 + layout.title_width;
+
     if layout.fragmap_col_width > 0 {
-        let sep_x = content_area.x + SHA_COL_WIDTH + 1 + layout.title_width;
         let sep_height = if layout.h_scrollbar_area.is_some() {
             content_area.height + 1
         } else {
@@ -335,7 +336,7 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
         hunk_groups::render_horizontal_scrollbar(
             frame,
             hs_area,
-            layout.title_width,
+            sep_x + 1,
             layout.fragmap_col_width,
             layout.visible_clusters.len(),
             layout.fragmap_available_width,
