@@ -54,6 +54,16 @@ mod squash_op;
 mod stage_op;
 mod stash;
 
+/// What the working tree held when a rewrite started.
+#[derive(Clone, Copy)]
+enum StartedFrom {
+    /// Only the branch's own content: the operation refused or stashed
+    /// anything else.
+    Clean,
+    /// Possibly changes of the user's own, which the operation works around.
+    UserChanges,
+}
+
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
@@ -113,8 +123,9 @@ impl Git2Repo {
         resumed_from: &Oid,
         outcome: Result<super::RebaseOutcome>,
     ) -> Result<super::RebaseOutcome> {
-        let outcome =
-            outcome.map_err(|e| self.record_landed_partway(label, tip_before, resumed_from, e));
+        let outcome = outcome.map_err(|e| {
+            self.record_landed_partway(label, tip_before, resumed_from, StartedFrom::Clean, e)
+        });
         if let Ok(out) = &outcome {
             match out {
                 super::RebaseOutcome::Conflict(state) => {
@@ -178,6 +189,7 @@ impl Git2Repo {
         label: &str,
         tip_before: &Oid,
         resumed_from: &Oid,
+        started_from: StartedFrom,
         e: anyhow::Error,
     ) -> anyhow::Error {
         let Ok(tip) = reads::head_oid(self) else {
@@ -196,12 +208,17 @@ impl Git2Repo {
             Ok(Some(super::InProgress::Conflict(_))) => true,
             _ => false,
         };
-        let recorded = if stale_conflict {
-            journal::clear_in_progress(self)
-        } else {
-            Ok(())
-        }
-        .and_then(|()| self.record_landed_undo(label, tip_before, &tip));
+        // Undo first: a conflict cleared with nothing recorded in its place
+        // would leave neither a way to resume nor a way back.
+        let recorded = self
+            .record_landed_undo(label, tip_before, &tip, started_from)
+            .and_then(|()| {
+                if stale_conflict {
+                    journal::clear_in_progress(self)
+                } else {
+                    Ok(())
+                }
+            });
         match recorded {
             Ok(()) => e.context(super::LandedPartway {
                 label: label.to_string(),
@@ -216,8 +233,18 @@ impl Git2Repo {
     /// failed. A checkout cut short leaves files and index out of step with
     /// `tip`, which a hard reset back would refuse as uncommitted changes — so
     /// that case resets the index alone and leaves the files as they are.
-    fn record_landed_undo(&mut self, label: &str, tip_before: &Oid, tip: &Oid) -> Result<()> {
-        if !self.is_worktree_dirty()? {
+    ///
+    /// Only an operation that started clean can tell its own leftovers that
+    /// way: anywhere else they may be the user's, and resetting the index would
+    /// unstage them.
+    fn record_landed_undo(
+        &mut self,
+        label: &str,
+        tip_before: &Oid,
+        tip: &Oid,
+        started_from: StartedFrom,
+    ) -> Result<()> {
+        if matches!(started_from, StartedFrom::UserChanges) || !self.is_worktree_dirty()? {
             return journal::record_undo(self, label, tip_before, tip);
         }
         let index_tree = journal::current_index_tree(self)?;
@@ -326,7 +353,13 @@ impl Git2Repo {
         result: Result<()>,
     ) -> Result<()> {
         if let Err(e) = result {
-            return Err(self.record_landed_partway(label, tip_before, tip_before, e));
+            return Err(self.record_landed_partway(
+                label,
+                tip_before,
+                tip_before,
+                StartedFrom::UserChanges,
+                e,
+            ));
         }
         self.record_undo_if_changed(label, tip_before)
     }
