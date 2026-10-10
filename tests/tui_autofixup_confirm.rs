@@ -319,6 +319,39 @@ fn autofixup_confirm_dialog_lists_fixups_left_in_place() {
     }));
 }
 
+/// The groups scroll to follow the selection, so the section has to come before
+/// them: below, more groups than fit would keep it out of view for good.
+#[test]
+fn fixups_left_in_place_show_when_the_groups_overflow() {
+    let mut harness = TuiTestHarness::new(80, 16);
+    let pairs: Vec<AutofixupPair> = (1..=8)
+        .map(|n| {
+            pair(
+                &format!("{n}{n}{n}{n}aaaaaaaa"),
+                &format!("fixup! Change {n}"),
+                &format!("{n}{n}{n}{n}bbbbbbbb"),
+                &format!("Change {n}"),
+                SquashMode::Fixup,
+            )
+        })
+        .collect();
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+
+    assert!(screen.contains("Left in place"), "{screen}");
+}
+
 /// A fixup can name its target by hash or by the start of a summary, so the
 /// dialog shows what each one says: that is how to check where it will land.
 #[test]
