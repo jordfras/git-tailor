@@ -94,20 +94,14 @@ impl BatchPlan {
                     .expect("a planned pair names listed commits"),
             )
         };
-        let mut steps: Vec<PlannedStep> = Vec::with_capacity(pairs.len());
-        for pair in pairs {
-            // A fixup of a fixup: by the time it runs, the commit it names has
-            // been folded away, into the target it was aimed at.
-            let mut target = pos(&pair.target_oid);
-            while let Some(earlier) = steps.iter().find(|step| step.source == target) {
-                target = earlier.target;
-            }
-            steps.push(PlannedStep {
+        let steps = pairs
+            .iter()
+            .map(|pair| PlannedStep {
                 source: pos(&pair.source_oid),
-                target,
+                target: pos(&pair.target_oid),
                 mode: pair.mode,
-            });
-        }
+            })
+            .collect();
         Self { commits, steps }
     }
 
@@ -270,19 +264,30 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
 /// place. Pairs come oldest fixup first.
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
+    // Where each commit folds into, for those that are fixups themselves.
+    let mut folds_into: Vec<Option<usize>> = vec![None; commits.len()];
     for (i, commit) in commits.iter().enumerate() {
         let Some((mode, named)) = split_prefixes(&commit.summary_key) else {
             continue;
         };
         let earlier = &commits[..i];
-        let Some(target) = earlier
+        let Some(named_index) = earlier
             .iter()
-            .find(|c| c.summary_key == named)
+            .position(|c| c.summary_key == named)
             .or_else(|| abbreviated(earlier, named))
-            .or_else(|| earlier.iter().find(|c| c.summary_key.starts_with(named)))
+            .or_else(|| {
+                earlier
+                    .iter()
+                    .position(|c| c.summary_key.starts_with(named))
+            })
         else {
             continue;
         };
+        // A fixup that names another fixup: that one has folded away by the
+        // time this runs, into the original target.
+        let target_index = folds_into[named_index].unwrap_or(named_index);
+        folds_into[i] = Some(target_index);
+        let target = &commits[target_index];
 
         pairs.push(AutofixupPair {
             source_oid: commit.oid.expect_real_oid(),
@@ -319,18 +324,18 @@ fn strip_prefix(text: &[u8]) -> Option<(SquashMode, &[u8])> {
 
 /// The one commit whose hash starts with `named`, when `named` reads as an
 /// abbreviated hash: four or more hex digits and nothing else, as git requires.
-fn abbreviated<'a>(commits: &'a [CommitInfo], named: &[u8]) -> Option<&'a CommitInfo> {
+fn abbreviated(commits: &[CommitInfo], named: &[u8]) -> Option<usize> {
     if named.len() < 4 || !named.iter().all(u8::is_ascii_hexdigit) {
         return None;
     }
     let named = named.to_ascii_lowercase();
-    let mut matching = commits.iter().filter(|c| {
+    let mut matching = commits.iter().enumerate().filter(|(_, c)| {
         c.oid
             .as_oid()
-            .is_some_and(|oid| oid.to_string().as_bytes().starts_with(&named))
+            .is_some_and(|oid| oid.long().as_bytes().starts_with(&named))
     });
     match (matching.next(), matching.next()) {
-        (Some(only), None) => Some(only),
+        (Some((index, _)), None) => Some(index),
         _ => None,
     }
 }
