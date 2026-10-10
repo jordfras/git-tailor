@@ -710,6 +710,56 @@ mod tests {
         assert_eq!(plan_autofixup(&commits).pairs, vec![]);
     }
 
+    /// A fixup's summary starts with its prefix, so "fix" would start most of
+    /// them: only commits that are not fixups count as what a prefix names.
+    #[test]
+    fn the_start_of_a_summary_does_not_name_a_fixup() {
+        let commits = vec![
+            commit("a", "fix parser"),
+            commit("b", "Other"),
+            commit("c", "fixup! Other"),
+            commit("d", "fixup! fix"),
+        ];
+        let plan = plan_autofixup(&commits);
+        assert_eq!(plan.ambiguous, vec![]);
+        assert_eq!(plan.pairs[1].target_oid, commits[0].oid.expect_real_oid());
+    }
+
+    #[test]
+    fn a_hash_several_commits_start_with_is_ambiguous() {
+        let with_oid = |oid: String, summary: &str| CommitInfo {
+            oid: crate::VirtualOid::Real(Oid::new(oid)),
+            ..commit("a", summary)
+        };
+        let commits = vec![
+            with_oid(format!("abcd{}", "1".repeat(36)), "One"),
+            with_oid(format!("abcd{}", "2".repeat(36)), "Two"),
+            commit("c", "fixup! abcd"),
+        ];
+        let plan = plan_autofixup(&commits);
+        assert_eq!(plan.pairs, vec![]);
+        assert_eq!(oids_of(&plan.ambiguous), oids(&commits[2..]));
+    }
+
+    /// The fixup it names stays where it is, so following it there would fold
+    /// this one into a commit that is itself left in place.
+    #[test]
+    fn a_fixup_naming_an_ambiguous_fixup_is_ambiguous_too() {
+        let commits = vec![
+            commit("a", "Tweak"),
+            commit("b", "Tweak"),
+            commit("c", "fixup! Tweak"),
+            commit("d", "fixup! cccc"),
+        ];
+        let plan = plan_autofixup(&commits);
+        assert_eq!(plan.pairs, vec![]);
+        assert_eq!(oids_of(&plan.ambiguous), oids(&commits[2..]));
+    }
+
+    fn oids_of(fixups: &[AmbiguousFixup]) -> Vec<Oid> {
+        fixups.iter().map(|f| f.oid.clone()).collect()
+    }
+
     #[test]
     fn the_start_of_several_summaries_names_no_target() {
         let commits = vec![
