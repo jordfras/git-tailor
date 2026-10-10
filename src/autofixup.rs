@@ -301,33 +301,25 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
     kept.join(&b'\n').trim_ascii().into()
 }
 
-/// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest-first,
-/// as returned by `list_commits`) to the nearest earlier commit whose summary
-/// its prefix names. Commits with no resolvable target are omitted — they are
-/// left in place by the caller. Pairs are returned oldest-fixup-first, so
-/// applying them in order naturally stacks multiple fixups aimed at the same
-/// target (each squash keeps the target's summary, so later matches still
-/// resolve correctly against the rewritten commit).
+/// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest first,
+/// as returned by `list_commits`) to the earlier commit it names, by the rules
+/// `git rebase --autosquash` follows: the oldest commit with exactly that
+/// summary, else the one that hash abbreviates, else the oldest whose summary
+/// starts with it. Repeated prefixes name the original target, and the first
+/// sets the mode. Commits with no target are omitted — the caller leaves them in
+/// place. Pairs come oldest fixup first.
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
     for (i, commit) in commits.iter().enumerate() {
-        let Some((mode, target_bytes)) = [SquashMode::Fixup, SquashMode::Squash]
-            .into_iter()
-            .find_map(|mode| {
-                commit
-                    .summary_key
-                    .strip_prefix(mode.prefix().as_bytes())
-                    .map(|bytes| (mode, bytes))
-            })
-        else {
+        let Some((mode, named)) = split_prefixes(&commit.summary_key) else {
             continue;
         };
-
-        // Nearest preceding commit wins, in case of duplicate summaries.
-        let Some(target) = commits[..i]
+        let earlier = &commits[..i];
+        let Some(target) = earlier
             .iter()
-            .rev()
-            .find(|c| c.summary_key == target_bytes)
+            .find(|c| c.summary_key == named)
+            .or_else(|| abbreviated(earlier, named))
+            .or_else(|| earlier.iter().find(|c| c.summary_key.starts_with(named)))
         else {
             continue;
         };
@@ -344,6 +336,44 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         });
     }
     pairs
+}
+
+/// The mode the first `fixup!`/`squash!` prefix sets, and what is left once
+/// every one of them is stripped. `None` when there is no prefix, or nothing
+/// after it to name a target by.
+fn split_prefixes(summary: &[u8]) -> Option<(SquashMode, &[u8])> {
+    let (mode, mut named) = strip_prefix(summary)?;
+    while let Some((_, rest)) = strip_prefix(named) {
+        named = rest;
+    }
+    (!named.is_empty()).then_some((mode, named))
+}
+
+fn strip_prefix(text: &[u8]) -> Option<(SquashMode, &[u8])> {
+    [SquashMode::Fixup, SquashMode::Squash]
+        .into_iter()
+        .find_map(|mode| {
+            text.strip_prefix(mode.prefix().as_bytes())
+                .map(|rest| (mode, rest))
+        })
+}
+
+/// The one commit whose hash starts with `named`, when `named` reads as an
+/// abbreviated hash: four or more hex digits and nothing else, as git requires.
+fn abbreviated<'a>(commits: &'a [CommitInfo], named: &[u8]) -> Option<&'a CommitInfo> {
+    if named.len() < 4 || !named.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    let named = named.to_ascii_lowercase();
+    let mut matching = commits.iter().filter(|c| {
+        c.oid
+            .as_oid()
+            .is_some_and(|oid| oid.to_string().as_bytes().starts_with(&named))
+    });
+    match (matching.next(), matching.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
