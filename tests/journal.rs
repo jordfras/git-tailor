@@ -472,6 +472,49 @@ fn a_v2_journal_with_a_fold_in_flight_is_left_for_the_older_build() {
     assert_eq!(doc["version"], 2, "the file must not have been rewritten");
 }
 
+/// A v2 build re-matched a paused autofixup batch by summary after every step;
+/// this one follows the plan it made at the start, which a v2 record lacks. So
+/// the file is left for the build that started the batch.
+#[test]
+fn a_v2_journal_with_an_autofixup_in_flight_is_left_for_the_older_build() {
+    let test = common::TestRepo::new();
+    let v2 = r#"{
+        "version": 2,
+        "in_progress": {
+            "Conflict": {
+                "operation_label": "Squash",
+                "original_branch_oid": "aaaa",
+                "new_tip_oid": "bbbb",
+                "conflicting_commit_oid": "cccc",
+                "conflicting_files": ["a.txt"],
+                "still_unresolved": false,
+                "resume": { "Chain": { "remaining_oids": [], "orphan_root": false, "moved_commit_oid": null } },
+                "autofixup_context": {
+                    "reference_oid": "dddd",
+                    "message_overrides": { "Add parser": "Edited\n" }
+                }
+            }
+        },
+        "undo": [],
+        "redo": [],
+        "autostash": null
+    }"#;
+    write_raw_journal(&test, v2);
+
+    let mut git_repo = test.git_repo();
+    match git_repo.read_journal().unwrap() {
+        JournalStatus::UpgradeInterrupted { op } => assert!(
+            op.contains("autofixup"),
+            "the refusal must name what is unfinished, got: {op}"
+        ),
+        other => panic!("expected UpgradeInterrupted, got {other:?}"),
+    }
+
+    let raw = std::fs::read_to_string(journal_path(&test)).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(doc["version"], 2, "the file must not have been rewritten");
+}
+
 /// This build reads that slot as an `--autostash`, so the row would come back as
 /// if the operation around it had finished. No version separates them: v3 never
 /// shipped, so its shape changed under the same number.

@@ -68,6 +68,33 @@ fn multiple_fixups_for_the_same_target_stack_correctly() {
     assert_file_contents_at_head!(&test.repo, "a.txt", "base\ntarget\nfix1\nfix2\n");
 }
 
+/// The commit a fixup of a fixup names is gone by the time it runs, folded into
+/// the target the first fixup was aimed at — so that is where it goes too.
+#[test]
+fn a_fixup_of_a_fixup_folds_into_the_original_target() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("a.txt", "base\ntarget\n", "Add target line");
+    test.commit_file("b.txt", "other\n", "Unrelated");
+    test.commit_file("a.txt", "base\ntarget\nfix1\n", "fixup! Add target line");
+    test.commit_file(
+        "a.txt",
+        "base\ntarget\nfix1\nfix2\n",
+        "fixup! fixup! Add target line",
+    );
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &Default::default())
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    assert_history!(&test, base, &["Add target line", "Unrelated"]);
+    assert_file_contents_at_head!(&test.repo, "a.txt", "base\ntarget\nfix1\nfix2\n");
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
