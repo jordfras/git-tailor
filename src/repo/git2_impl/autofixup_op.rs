@@ -72,6 +72,7 @@ pub(super) fn continue_autofixup(
         .autofixup_context
         .clone()
         .expect("continue_autofixup only called for an autofixup batch");
+    refuse_without_a_plan(&ctx)?;
     let batch_original_oid = state.original_branch_oid.clone();
     let step = conflict::rebase_continue(repo, state);
     continue_after_step(repo, step, &batch_original_oid, &ctx)
@@ -88,8 +89,23 @@ pub(super) fn continue_autofixup_after_squash_finalize(
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
+    refuse_without_a_plan(autofixup_ctx)?;
     let step = squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid);
     continue_after_step(repo, step, batch_original_oid, autofixup_ctx)
+}
+
+/// A batch with no steps never pauses, so a context without them was paused by
+/// a build that re-matched by summary after every step, and this one cannot tell
+/// how far that batch had got. Checked before the paused step is finished, so
+/// the build that wrote it can still resume it.
+fn refuse_without_a_plan(ctx: &AutofixupContext) -> Result<()> {
+    if ctx.plan.steps.is_empty() {
+        anyhow::bail!(
+            "This autofixup was paused by an older git-tailor. \
+             Finish or abort it with that version."
+        );
+    }
+    Ok(())
 }
 
 /// Shared continuation: if the just-finished step completed, keep going
@@ -102,15 +118,6 @@ fn continue_after_step(
     batch_original_oid: &Oid,
     ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    // A batch with no steps never pauses, so a context without them was paused
-    // by a build that re-matched by summary after every step. This one cannot
-    // tell how far that batch had got.
-    if ctx.plan.steps.is_empty() {
-        anyhow::bail!(
-            "This autofixup was paused by an older git-tailor. \
-             Finish or abort it with that version."
-        );
-    }
     match step_outcome? {
         RebaseOutcome::Complete => run_batch(repo, batch_original_oid, ctx.clone()),
         RebaseOutcome::Conflict(new_state) => {
