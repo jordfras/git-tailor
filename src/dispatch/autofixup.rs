@@ -33,8 +33,10 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     app: &mut AppState,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let pairs = git_tailor::autofixup::plan_autofixup(&app.list.commits);
-    let left_in_place = git_tailor::autofixup::ambiguous_fixups(&app.list.commits);
+    let git_tailor::autofixup::AutofixupPlan {
+        pairs,
+        ambiguous: left_in_place,
+    } = git_tailor::autofixup::plan_autofixup(&app.list.commits);
     if pairs.is_empty() {
         if left_in_place.is_empty() {
             app.set_success_message("Nothing to autofixup");

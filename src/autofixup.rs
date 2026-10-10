@@ -276,24 +276,49 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
     kept.join(&b'\n').trim_ascii().into()
 }
 
+/// A fixup whose target is ambiguous: what it names, several earlier commits
+/// answer to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmbiguousFixup {
+    pub oid: Oid,
+    pub summary: String,
+}
+
+/// What [`plan_autofixup`] makes of a branch.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AutofixupPlan {
+    /// Oldest fixup first.
+    pub pairs: Vec<AutofixupPair>,
+    /// Left in place rather than folded into a guess.
+    pub ambiguous: Vec<AmbiguousFixup>,
+}
+
 /// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest first,
 /// as returned by `list_commits`) to the earlier commit it names, by the rules
 /// `git rebase --autosquash` follows: the commit with exactly that summary,
 /// else the one that hash abbreviates, else the one whose summary starts with
 /// it. Where git takes the oldest of several, this takes none: the fix may not
 /// be meant for that one, and a hash still names it. Repeated prefixes name the
-/// original target, and the first sets the mode. Commits with no target are
-/// omitted — the caller leaves them in place. Pairs come oldest fixup first.
-pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
-    let mut pairs = Vec::new();
+/// original target, and the first sets the mode. A fixup that names nothing is
+/// in neither list — the caller leaves it in place.
+pub fn plan_autofixup(commits: &[CommitInfo]) -> AutofixupPlan {
+    let mut plan = AutofixupPlan::default();
     // Where each commit folds into, for those that are fixups themselves.
     let mut folds_into: Vec<Option<usize>> = vec![None; commits.len()];
     for (i, commit) in commits.iter().enumerate() {
         let Some((mode, named)) = split_prefixes(&commit.summary_key) else {
             continue;
         };
-        let Named::One(named_index) = named_target(&commits[..i], named) else {
-            continue;
+        let named_index = match named_target(&commits[..i], named) {
+            Named::One(index) => index,
+            Named::Several => {
+                plan.ambiguous.push(AmbiguousFixup {
+                    oid: commit.oid.expect_real_oid(),
+                    summary: commit.summary.clone(),
+                });
+                continue;
+            }
+            Named::Nothing => continue,
         };
         // A fixup that names another fixup: that one has folded away by the
         // time this runs, into the original target.
@@ -301,7 +326,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         folds_into[i] = Some(target_index);
         let target = &commits[target_index];
 
-        pairs.push(AutofixupPair {
+        plan.pairs.push(AutofixupPair {
             source_oid: commit.oid.expect_real_oid(),
             target_oid: target.oid.expect_real_oid(),
             source_summary: commit.summary.clone(),
@@ -311,33 +336,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
             mode,
         });
     }
-    pairs
-}
-
-/// A fixup whose text names several earlier commits: a summary they share, or
-/// the start of theirs. It is left in place rather than folded into a guess.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AmbiguousFixup {
-    pub oid: Oid,
-    pub summary: String,
-}
-
-/// The fixups in `commits` that [`plan_autofixup`] leaves in place because
-/// what they name, several earlier commits answer to.
-pub fn ambiguous_fixups(commits: &[CommitInfo]) -> Vec<AmbiguousFixup> {
-    commits
-        .iter()
-        .enumerate()
-        .filter(|(i, commit)| {
-            split_prefixes(&commit.summary_key).is_some_and(|(_, named)| {
-                matches!(named_target(&commits[..*i], named), Named::Several)
-            })
-        })
-        .map(|(_, commit)| AmbiguousFixup {
-            oid: commit.oid.expect_real_oid(),
-            summary: commit.summary.clone(),
-        })
-        .collect()
+    plan
 }
 
 /// What the text after a fixup's prefix names among the commits before it.
@@ -507,7 +506,7 @@ mod tests {
             commit_with_raw_summary("b", FAR),
             fixup_of("c", FOR),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, Oid::new("a".repeat(40)));
     }
@@ -520,7 +519,7 @@ mod tests {
             fixup_of("c", FOR),
             fixup_of("d", FAR),
         ];
-        let groups = group_by_target(&plan_autofixup(&commits));
+        let groups = group_by_target(&plan_autofixup(&commits).pairs);
         assert_eq!(groups.len(), 2);
 
         let mut overrides = MessageOverrides::default();
@@ -531,7 +530,7 @@ mod tests {
     #[test]
     fn matches_a_fixup_to_its_target() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].source_summary, "fixup! Add parser");
         assert_eq!(pairs[0].target_summary, "Add parser");
@@ -541,7 +540,7 @@ mod tests {
     #[test]
     fn matches_a_squash_to_its_target() {
         let commits = vec![commit("a", "Add parser"), commit("b", "squash! Add parser")];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].mode, SquashMode::Squash);
     }
@@ -549,7 +548,7 @@ mod tests {
     #[test]
     fn a_fixup_with_no_matching_target_is_skipped() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Nope")];
-        assert_eq!(plan_autofixup(&commits), vec![]);
+        assert_eq!(plan_autofixup(&commits).pairs, vec![]);
     }
 
     #[test]
@@ -560,7 +559,7 @@ mod tests {
             commit("c", "Unrelated"),
             commit("d", "fixup! Add parser"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[0].source_summary, "fixup! Add parser");
         assert_eq!(pairs[1].source_summary, "fixup! Add parser");
@@ -576,7 +575,7 @@ mod tests {
             commit("c", "fixup! Add parser"),
             commit("d", "squash! Add lexer"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[0].mode, SquashMode::Fixup);
         assert_eq!(pairs[1].mode, SquashMode::Squash);
@@ -592,7 +591,7 @@ mod tests {
             commit("c", "fixup! aaaaaaa"),
             commit("d", "fixup! bbbbbbb"),
         ];
-        let groups = group_by_target(&plan_autofixup(&commits));
+        let groups = group_by_target(&plan_autofixup(&commits).pairs);
         let targets: Vec<Oid> = groups.iter().map(|g| g.target_oid.clone()).collect();
         assert_eq!(targets, oids(&commits[..2]));
 
@@ -611,7 +610,7 @@ mod tests {
             commit("b", "fixup! Add parser"),
             commit("c", "fixup! bbbbbbb"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[1].target_oid, commits[0].oid.expect_real_oid());
         assert_eq!(group_by_target(&pairs).len(), 1);
@@ -624,7 +623,7 @@ mod tests {
             commit("b", "fixup!  Add parser"),
             commit("c", "fixup! amend! Add parser"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 2);
         assert!(
             pairs
@@ -640,7 +639,7 @@ mod tests {
             commit("b", "fixup! Add parser"),
             commit("c", "fixup! fixup! Add parser"),
         ];
-        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits)).unwrap();
+        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits).pairs).unwrap();
         assert!(plan.steps.iter().all(|step| step.target == PlannedPos(0)));
     }
 
@@ -652,7 +651,7 @@ mod tests {
             commit("c", "Add lexer"),
             commit("d", "fixup! Add lexer"),
         ];
-        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits)).unwrap();
+        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits).pairs).unwrap();
         let after_one: Vec<Oid> = ["a", "c", "d"]
             .iter()
             .map(|oid| Oid::new(oid.repeat(40)))
@@ -708,7 +707,7 @@ mod tests {
             commit("b", "Tweak"),
             commit("c", "fixup! Tweak"),
         ];
-        assert_eq!(plan_autofixup(&commits), vec![]);
+        assert_eq!(plan_autofixup(&commits).pairs, vec![]);
     }
 
     #[test]
@@ -718,7 +717,7 @@ mod tests {
             commit("b", "Add lexer"),
             commit("c", "fixup! Add"),
         ];
-        assert_eq!(plan_autofixup(&commits), vec![]);
+        assert_eq!(plan_autofixup(&commits).pairs, vec![]);
     }
 
     #[test]
@@ -728,7 +727,7 @@ mod tests {
             commit("b", "Tweak"),
             commit("c", "fixup! bbbbbbb"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, commits[1].oid.expect_real_oid());
     }
@@ -736,7 +735,7 @@ mod tests {
     #[test]
     fn a_fixup_can_name_its_target_by_the_start_of_its_summary() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add pa")];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
     }
@@ -748,7 +747,7 @@ mod tests {
             commit("b", "Ot"),
             commit("c", "fixup! Ot"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, commits[1].oid.expect_real_oid());
     }
@@ -759,7 +758,7 @@ mod tests {
             commit("a", "Add parser"),
             commit("b", "squash! fixup! Add parser"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
         assert_eq!(pairs[0].mode, SquashMode::Squash);
@@ -774,7 +773,7 @@ mod tests {
             commit("d", "fixup! Add parser"),
             commit("e", "squash! Add lexer"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         let groups = group_by_target(&pairs);
 
         assert_eq!(groups.len(), 2);
@@ -820,7 +819,7 @@ mod tests {
     #[test]
     fn edit_template_comments_out_every_source() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         let group = &group_by_target(&pairs)[0];
 
         let template = template_for(group);
@@ -845,7 +844,7 @@ mod tests {
             commit("b", "fixup! Add parser"),
             commit("c", "fixup! Add parser"),
         ];
-        let pairs = plan_autofixup(&commits);
+        let pairs = plan_autofixup(&commits).pairs;
         let group = &group_by_target(&pairs)[0];
 
         let template = template_for(group);

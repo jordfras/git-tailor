@@ -378,7 +378,7 @@ fn bulk_autofixup_tells_apart_targets_that_render_alike() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let commits = git_repo.list_commits(&head_oid, &Oid::from(base)).unwrap();
-    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits).pairs);
     let for_group = groups
         .iter()
         .find(|g| g.target_oid == Oid::from(for_target))

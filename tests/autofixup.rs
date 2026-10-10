@@ -31,7 +31,7 @@ fn overrides_for(
     messages: &[(&str, bstr::BString)],
 ) -> MessageOverrides {
     let commits = git_repo.list_commits(head_oid, &Oid::from(base)).unwrap();
-    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits).pairs);
     let mut overrides = MessageOverrides::default();
     for (summary, message) in messages {
         let group = groups
@@ -149,7 +149,7 @@ fn a_message_edited_for_one_of_two_same_named_targets_lands_on_that_one() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
     let commits = git_repo.list_commits(&head_oid, &Oid::from(base)).unwrap();
-    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits).pairs);
     let second_group = groups
         .iter()
         .find(|g| g.target_oid == Oid::from(second))

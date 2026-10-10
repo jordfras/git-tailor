@@ -359,7 +359,7 @@ pub fn autofixup_as_shown(
         .into_iter()
         .filter(|c| c.oid.as_oid() != Some(&Oid::from(base)))
         .collect();
-    let pairs = git_tailor::autofixup::plan_autofixup(&shown);
+    let pairs = git_tailor::autofixup::plan_autofixup(&shown).pairs;
     git_repo.autofixup(head, &Oid::from(base), &pairs, overrides)
 }
 
