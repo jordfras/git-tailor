@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn nearest_preceding_match_wins_on_duplicate_summaries() {
+    fn the_oldest_match_wins_on_duplicate_summaries() {
         let commits = vec![
             commit("a", "Tweak"),
             commit("b", "Tweak"),
@@ -572,7 +572,51 @@ mod tests {
         ];
         let pairs = plan_autofixup(&commits);
         assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
+    }
+
+    #[test]
+    fn a_fixup_can_name_its_target_by_hash() {
+        let commits = vec![
+            commit("a", "Tweak"),
+            commit("b", "Tweak"),
+            commit("c", "fixup! bbbbbbb"),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].target_oid, commits[1].oid.expect_real_oid());
+    }
+
+    #[test]
+    fn a_fixup_can_name_its_target_by_the_start_of_its_summary() {
+        let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add pa")];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
+    }
+
+    #[test]
+    fn a_whole_summary_wins_over_an_earlier_one_it_only_starts() {
+        let commits = vec![
+            commit("a", "Other"),
+            commit("b", "Ot"),
+            commit("c", "fixup! Ot"),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].target_oid, commits[1].oid.expect_real_oid());
+    }
+
+    #[test]
+    fn repeated_prefixes_name_the_original_target() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "squash! fixup! Add parser"),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
+        assert_eq!(pairs[0].mode, SquashMode::Squash);
     }
 
     #[test]

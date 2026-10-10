@@ -95,6 +95,39 @@ fn a_fixup_of_a_fixup_folds_into_the_original_target() {
     assert_file_contents_at_head!(&test.repo, "a.txt", "base\ntarget\nfix1\nfix2\n");
 }
 
+/// Of two commits with the same summary, a fixup reaches the later one only by
+/// its hash — and must still find it after an earlier step rewrote it.
+#[test]
+fn a_fixup_named_by_hash_finds_its_target_after_earlier_steps_rewrote_it() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("a.txt", "base\ntarget\n", "Add target line");
+    test.commit_file("t1.txt", "first\n", "Tweak");
+    let second = test.commit_file("t2.txt", "second\n", "Tweak");
+    test.commit_file("a.txt", "base\ntarget\nfix\n", "fixup! Add target line");
+    let short = &second.to_string()[..7];
+    test.commit_file("t2.txt", "second\nfixed\n", &format!("fixup! {short}"));
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &Default::default())
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    assert_history!(&test, base, &["Add target line", "Tweak", "Tweak"]);
+    assert_file_contents_at_head!(&test.repo, "t2.txt", "second\nfixed\n");
+    let commits = test.commits_from_head(base);
+    let first_tweak = test.repo.find_commit(commits[1]).unwrap().tree().unwrap();
+    assert!(
+        first_tweak
+            .get_path(std::path::Path::new("t2.txt"))
+            .is_err(),
+        "the fix belongs to the second Tweak, not the first"
+    );
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
