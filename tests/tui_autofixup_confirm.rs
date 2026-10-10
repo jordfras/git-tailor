@@ -299,6 +299,29 @@ fn test_autofixup_confirm_move_down_clamps_at_the_last_group() {
     assert_eq!(selected_group_index(&app), 1);
 }
 
+/// A fixup can name its target by hash or by the start of a summary, so the
+/// dialog shows what each one says: that is how to check where it will land.
+#[test]
+fn each_source_shows_what_it_names_its_target_by() {
+    let mut harness = TuiTestHarness::typical();
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! def456g",
+        "def456ghi789",
+        "Add parser",
+        SquashMode::Fixup,
+    )];
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+
+    assert!(screen.contains("fixup! def456g"), "{screen}");
+}
+
 #[test]
 fn test_autofixup_confirm_reword_targets_the_selected_group() {
     let mut app = make_app_in_autofixup_confirm(two_target_groups(), 1, Default::default());
