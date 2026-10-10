@@ -32,7 +32,8 @@ use bstr::{BStr, BString};
 use git_tailor::app::{AppAction, AppState, ResumeFailure};
 use git_tailor::editor;
 use git_tailor::repo::{
-    AutostashRestore, GitRepo, LandedPartway, RebaseOutcome, StageOutcome, StashConflictState,
+    AutostashRestore, BranchMoved, GitRepo, LandedPartway, RebaseOutcome, StageOutcome,
+    StashConflictState,
 };
 use git_tailor::views;
 
@@ -487,15 +488,20 @@ pub(crate) fn handle_resume_outcome(
             // the operation resolves or aborts, both of which reload.
             app.reenter_rebase_conflict_after_failure(
                 state.clone(),
-                ResumeFailure {
-                    why: format!("{e:#}"),
-                    branch_moved: false,
-                },
+                resume_failure(format!("{e:#}"), &e),
                 retry_message,
             );
             LoopAction::Continue
         }
         ok => handle_rebase_outcome(git_repo, app, ok, op_label, success_msg),
+    }
+}
+
+/// Why resuming failed, as the conflict dialog shows it.
+pub(crate) fn resume_failure(why: String, e: &anyhow::Error) -> ResumeFailure {
+    ResumeFailure {
+        why,
+        branch_moved: e.downcast_ref::<BranchMoved>().is_some(),
     }
 }
 

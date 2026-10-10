@@ -17,14 +17,14 @@
 
 use anyhow::Result;
 use bstr::ByteSlice;
-use git_tailor::app::{AppMode, AppState, ResumeFailure};
+use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
 
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_resume_outcome,
-    is_blank_message, settle_autostash, settle_autostash_after_failure,
+    is_blank_message, resume_failure, settle_autostash, settle_autostash_after_failure,
 };
 use crate::external_tool::with_tui_suspended;
 
@@ -56,10 +56,7 @@ pub(crate) fn handle_rebase_abort(
             // the way here, leaving no way back into the dialog.
             app.reenter_rebase_conflict_after_failure(
                 state,
-                ResumeFailure {
-                    why: format!("Abort failed: {e:#}"),
-                    branch_moved: false,
-                },
+                resume_failure(format!("Abort failed: {e:#}"), &e),
                 None,
             );
             Ok(LoopAction::Continue)
@@ -262,10 +259,7 @@ pub(super) fn abandon_resume(
     if let Err(e) = git_repo.rebase_abort(state) {
         app.reenter_rebase_conflict_after_failure(
             state.clone(),
-            ResumeFailure {
-                why: format!("{headline}. Abort failed: {e:#}"),
-                branch_moved: false,
-            },
+            resume_failure(format!("{headline}. Abort failed: {e:#}"), &e),
             None,
         );
         return LoopAction::Continue;

@@ -155,18 +155,29 @@ pub fn truncate_summary(text: &str, width: usize) -> String {
 /// Placed directly under the heading, above the operation's own prose: it has
 /// to be the first thing read, and anything below the file list can scroll out
 /// of view — taking the instructions that say how to get out with it.
+///
+/// `what_is_left` is the way out while the branch is on `paused_tip`. Once it
+/// has moved, both ways out refuse, so that text would be untrue.
 pub fn push_resume_failure(
     mut dialog: Dialog,
     app: &AppState,
     iw: usize,
     what_is_left: &str,
+    paused_tip: &crate::Oid,
 ) -> Dialog {
     let Some(failure) = &app.resume_failure else {
         return dialog;
     };
-    // The operation is still paused and the branch is still on the commit it
-    // paused at, which is not obvious from a dialog that otherwise looks exactly
-    // as it did before the attempt.
+    let what_is_left = if failure.branch_moved {
+        format!(
+            "Enter and Esc both refuse until the branch is back on {}. Put it back, or quit: the next start drops this operation and leaves your files as they are.",
+            paused_tip.short()
+        )
+    } else {
+        what_is_left.to_string()
+    };
+    // The operation is still paused, which is not obvious from a dialog that
+    // otherwise looks exactly as it did before the attempt.
     dialog = dialog
         .wrapped_styled_bold(
             " ! Could not finish — nothing was lost",
@@ -175,7 +186,7 @@ pub fn push_resume_failure(
         )
         .wrapped(&failure.why, iw.saturating_sub(1))
         .blank()
-        .wrapped(what_is_left, iw.saturating_sub(1));
+        .wrapped(&what_is_left, iw.saturating_sub(1));
     dialog
 }
 
