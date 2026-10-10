@@ -384,10 +384,8 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author = commit.author();
     let committer = commit.committer();
     let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
-    let summary = comparable_summary(
-        commit.summary_bytes().unwrap_or_default(),
-        commit.message_encoding().ok().flatten(),
-    );
+    let encoding = commit.message_encoding().ok().flatten();
+    let summary = as_git_reads(commit.summary_bytes().unwrap_or_default(), encoding);
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
@@ -396,7 +394,7 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
-        message: lossy(commit.message_bytes()),
+        message: lossy(&as_git_reads(commit.message_bytes(), encoding)),
         author_email: Some(lossy(author.email_bytes())),
         author_date: Some(git_time_to_offset_datetime(author_time)),
         committer: Some(lossy(committer.name_bytes())),
@@ -405,18 +403,18 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     })
 }
 
-/// A summary as git compares one: decoded to UTF-8 through the commit's
-/// `encoding` header, as `git rebase --autosquash` does, and left as stored
-/// where there is no header or it cannot be honored.
-fn comparable_summary(summary: &[u8], encoding: Option<&str>) -> BString {
+/// Message text as git reads it — for `git log`, and for matching subjects in
+/// `git rebase --autosquash`: decoded to UTF-8 through the commit's `encoding`
+/// header, and left as stored where there is no header or it cannot be honored.
+fn as_git_reads(text: &[u8], encoding: Option<&str>) -> BString {
     encoding
         .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
         .filter(|&encoding| encoding != encoding_rs::UTF_8)
         .and_then(|encoding| {
-            let (text, had_errors) = encoding.decode_without_bom_handling(summary);
-            (!had_errors).then(|| BString::from(text.into_owned()))
+            let (decoded, had_errors) = encoding.decode_without_bom_handling(text);
+            (!had_errors).then(|| BString::from(decoded.into_owned()))
         })
-        .unwrap_or_else(|| BString::from(summary))
+        .unwrap_or_else(|| BString::from(text))
 }
 
 pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInfo {
@@ -526,25 +524,22 @@ fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
 
 #[cfg(test)]
 mod tests {
-    use super::{comparable_summary, git_time_to_offset_datetime};
+    use super::{as_git_reads, git_time_to_offset_datetime};
 
     #[test]
-    fn a_latin1_summary_compares_as_utf8() {
-        assert_eq!(
-            comparable_summary(b"Fix f\xf6r", Some("ISO-8859-1")),
-            "Fix för"
-        );
+    fn latin1_reads_as_utf8() {
+        assert_eq!(as_git_reads(b"Fix f\xf6r", Some("ISO-8859-1")), "Fix för");
     }
 
     #[test]
-    fn a_summary_without_a_header_compares_as_stored() {
-        assert_eq!(comparable_summary(b"Fix f\xf6r", None), &b"Fix f\xf6r"[..]);
+    fn text_without_a_header_reads_as_stored() {
+        assert_eq!(as_git_reads(b"Fix f\xf6r", None), &b"Fix f\xf6r"[..]);
     }
 
     #[test]
-    fn an_encoding_nobody_knows_leaves_the_summary_as_stored() {
+    fn an_encoding_nobody_knows_leaves_the_text_as_stored() {
         assert_eq!(
-            comparable_summary(b"Fix f\xf6r", Some("x-no-such-encoding")),
+            as_git_reads(b"Fix f\xf6r", Some("x-no-such-encoding")),
             &b"Fix f\xf6r"[..]
         );
     }
