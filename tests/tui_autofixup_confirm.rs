@@ -352,6 +352,54 @@ fn fixups_left_in_place_show_when_the_groups_overflow() {
     assert!(screen.contains("Left in place"), "{screen}");
 }
 
+/// Scrolling down to the last group and back to the first brings the fixups
+/// left in place back into view, not just the first group.
+#[test]
+fn fixups_left_in_place_come_back_with_the_first_group() {
+    let mut harness = TuiTestHarness::new(80, 16);
+    let pairs: Vec<AutofixupPair> = (1..=8)
+        .map(|n| {
+            pair(
+                &format!("{n}{n}{n}{n}aaaaaaaa"),
+                &format!("fixup! Change {n}"),
+                &format!("{n}{n}{n}{n}bbbbbbbb"),
+                &format!("Change {n}"),
+                SquashMode::Fixup,
+            )
+        })
+        .collect();
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+    let mut render = |app: &mut AppState| {
+        let buffer = harness.render(|frame| {
+            views::commit_list::render(app, frame);
+            views::autofixup::render_autofixup_confirm(app, frame);
+        });
+        buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+
+    render(&mut app);
+    for _ in 0..7 {
+        views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+        render(&mut app);
+    }
+    for _ in 0..7 {
+        views::autofixup::handle_confirm_key(KeyCommand::MoveUp, &mut app);
+    }
+    let screen = render(&mut app);
+
+    assert!(screen.contains("Left in place"), "{screen}");
+}
+
 /// A fixup can name its target by hash or by the start of a summary, so the
 /// dialog shows what each one says: that is how to check where it will land.
 #[test]
