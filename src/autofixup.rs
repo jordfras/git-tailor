@@ -31,9 +31,9 @@ pub struct AutofixupPair {
     pub target_oid: Oid,
     pub source_summary: String,
     pub target_summary: String,
-    /// Full commit message (summary + body) of the source/target, needed to
-    /// build the non-interactive squash message; the confirmation dialog
-    /// only shows the summaries.
+    /// Full commit message (summary + body) of the source/target as the list
+    /// renders it: what the message editor falls back to when the repository
+    /// cannot be read.
     pub source_message: String,
     pub target_message: String,
     pub mode: SquashMode,

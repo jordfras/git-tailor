@@ -1323,9 +1323,8 @@ impl JournalDocV1 {
 /// tree over the changes v2 deliberately left sitting in it. The file is left
 /// untouched so the build that started the fold can still finish it.
 ///
-/// A paused bulk autofixup cannot carry over either: v2 re-matched the batch by
-/// summary after every step, and v3 follows the plan it made at the start, which
-/// a v2 record does not have.
+/// A paused bulk autofixup cannot carry over either: v3 resumes from the plan the
+/// batch recorded when it started, and a v2 record has none.
 ///
 /// Everything else — undo, redo, a paused conflict that is neither, an
 /// auto-stash — means the same in both versions and carries over unchanged.

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Bulk autofixup (mirrors `git rebase --autosquash`): repeatedly match and
-//! squash `fixup!`/`squash!`-prefixed commits into their targets, reusing the
-//! single-squash primitive in `squash_op` as the building block. The whole
-//! batch runs as one undoable operation: `original_branch_oid` on any
+//! Bulk autofixup (mirrors `git rebase --autosquash`): squash each
+//! `fixup!`/`squash!`-prefixed commit into its target, one step at a time,
+//! following the [`BatchPlan`] made when the batch starts and reusing the
+//! single-squash primitive in `squash_op` for each step. The whole batch runs
+//! as one undoable operation: `original_branch_oid` on any
 //! `ConflictState` this produces is always the tip before the *batch* started
 //! (not the current step), so the trait-level `journaled()` wrapper
 //! records a single undo entry for the whole batch — once every pair has been
