@@ -176,7 +176,7 @@ pub fn push_resume_failure(
             .strip_prefix("refs/heads/")
             .unwrap_or("the branch");
         format!(
-            "Enter and Esc both refuse until {branch} is checked out on {} again.",
+            "Enter and Esc both refuse until {branch} is checked out on {} again — or quit and run gt --clean-journal to drop the operation.",
             paused.new_tip_oid.short()
         )
     } else {
