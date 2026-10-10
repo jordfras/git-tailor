@@ -125,25 +125,14 @@ pub(super) fn list_commits(
     from_oid: &Oid,
     to_oid: &Oid,
 ) -> Result<Vec<CommitInfo>> {
-    let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
-
-    let mut commits = Vec::new();
-
-    for oid_result in revwalk {
-        let oid = oid_result?;
-        let commit = repo.inner.find_commit(oid)?;
-        commits.push(commit_info_from(&commit)?);
-
-        if oid == to_commit_oid {
-            break;
-        }
-    }
-
-    commits.reverse();
-    Ok(commits)
+    list_oids(repo, from_oid, to_oid)?
+        .iter()
+        .map(|oid| commit_info_from(&repo.inner.find_commit(git2::Oid::from(oid))?))
+        .collect()
 }
 
-/// The OIDs [`list_commits`] would list, without reading the commits.
+/// The commits [`list_commits`] lists, by OID alone: from `from_oid` back to
+/// `to_oid` inclusive, oldest first.
 pub(super) fn list_oids(repo: &Git2Repo, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<Oid>> {
     let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
 
