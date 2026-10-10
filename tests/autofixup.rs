@@ -370,6 +370,46 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     assert_history!(&test, base, &["Custom final message", "Unrelated edit"]);
 }
 
+/// The first pair lands; the second then refuses. The landed squash must still
+/// be undoable, or the user is left with a rewrite they cannot get back from.
+#[test]
+fn an_error_after_a_pair_has_landed_still_records_undo() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("a.txt", "base\nT1\n", "Add T1");
+    test.commit_file("a.txt", "base\nT1\nF1\n", "fixup! Add T1");
+    test.commit_file("t.txt", "T2\n", "Add T2");
+    test.commit_file("c.txt", "c\n", "Add c");
+    // Folding this deletion into "Add T2" lets the replayed "Add c" bring
+    // c.txt back, so the second pair's checkout runs into the untracked file.
+    test.delete_file("c.txt", "fixup! Add T2");
+    test.write_file("c.txt", "untracked\n");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+
+    let result = git_repo.autofixup(&head_oid, &Oid::from(base), &Default::default());
+    assert!(result.is_err(), "expected a refusal, got {result:?}");
+    assert_history!(&test, base, &["Add T1", "Add T2", "Add c", "fixup! Add T2"]);
+
+    match git_repo.undo().unwrap() {
+        UndoOutcome::Done { label } => assert_eq!(label, "Autofixup"),
+        other => panic!("expected Done, got {other:?}"),
+    }
+    assert_history!(
+        &test,
+        base,
+        &[
+            "Add T1",
+            "fixup! Add T1",
+            "Add T2",
+            "Add c",
+            "fixup! Add T2"
+        ]
+    );
+}
+
 #[test]
 fn nothing_to_autofixup_is_a_clean_no_op() {
     let test = common::TestRepo::new();
