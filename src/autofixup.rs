@@ -175,6 +175,7 @@ mod tests {
         CommitInfo {
             oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
             summary: summary.to_string(),
+            summary_bytes: summary.into(),
             author: None,
             date: None,
             parent_oids: vec![],

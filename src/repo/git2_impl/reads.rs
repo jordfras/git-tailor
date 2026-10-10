@@ -16,6 +16,7 @@
 //! diff extraction (committed, staged, unstaged), index/config inspection.
 
 use anyhow::{Context, Result};
+use bstr::BString;
 
 use super::Git2Repo;
 
@@ -383,10 +384,12 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author = commit.author();
     let committer = commit.committer();
     let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let summary_bytes = BString::from(commit.summary_bytes().unwrap_or_default());
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: commit.summary_bytes().map(lossy).unwrap_or_default(),
+        summary: lossy(&summary_bytes),
+        summary_bytes,
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
@@ -403,6 +406,7 @@ pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInf
     CommitInfo {
         oid,
         summary: summary.to_string(),
+        summary_bytes: BString::from(summary),
         author: None,
         date: None,
         parent_oids: vec![],

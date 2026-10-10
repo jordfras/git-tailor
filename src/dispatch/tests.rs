@@ -283,6 +283,7 @@ fn three_hunk_commit_diff() -> CommitDiff {
         commit: CommitInfo {
             oid: VirtualOid::Real(Oid::from("a".repeat(40))),
             summary: String::new(),
+            summary_bytes: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -467,6 +468,7 @@ fn three_file_commit_diff() -> CommitDiff {
         commit: CommitInfo {
             oid: VirtualOid::Real(Oid::from("a".repeat(40))),
             summary: String::new(),
+            summary_bytes: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -1038,6 +1040,7 @@ mod autofixup_selection {
         CommitInfo {
             oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
             summary: String::new(),
+            summary_bytes: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -1054,6 +1057,7 @@ mod autofixup_selection {
         CommitInfo {
             oid,
             summary: String::new(),
+            summary_bytes: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
