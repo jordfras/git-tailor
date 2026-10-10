@@ -190,6 +190,8 @@ impl Serialize for Message<'_> {
     }
 }
 
+/// A [`Message`] read back from the journal, in either shape it may have been
+/// written in.
 struct OwnedMessage(BString);
 
 impl<'de> Deserialize<'de> for OwnedMessage {
