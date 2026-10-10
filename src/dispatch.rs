@@ -466,11 +466,11 @@ pub(crate) fn handle_resume_outcome(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     outcome: anyhow::Result<RebaseOutcome>,
-    op_label: &str,
     success_msg: &str,
     state: &git_tailor::repo::ConflictState,
     retry_message: Option<BString>,
 ) -> LoopAction {
+    let op_label = &state.operation_label;
     match outcome {
         // Resuming and aborting both refuse once the branch has left the tip
         // the conflict paused on, so the dialog could only trap the user.

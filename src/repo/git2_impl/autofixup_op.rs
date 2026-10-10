@@ -34,6 +34,9 @@ use crate::Oid;
 use crate::app::SquashMode;
 use crate::autofixup::{self, AutofixupPair};
 
+/// What the batch is called in its undo entry, its conflicts and its reflog.
+pub(super) const LABEL: &str = "Autofixup";
+
 pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
@@ -119,6 +122,7 @@ fn continue_after_step(
         }
         RebaseOutcome::Conflict(new_state) => {
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: LABEL.to_string(),
                 original_branch_oid: batch_original_oid.clone(),
                 autofixup_context: Some(ctx.clone()),
                 ..*new_state
@@ -156,6 +160,7 @@ fn run_batch(
             }
             RebaseOutcome::Conflict(state) => {
                 return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                    operation_label: LABEL.to_string(),
                     original_branch_oid: batch_original_oid.clone(),
                     autofixup_context: Some(AutofixupContext {
                         reference_oid: reference_oid.clone(),

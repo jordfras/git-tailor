@@ -137,7 +137,6 @@ pub(crate) fn handle_rebase_continue(
             git_repo,
             app,
             outcome,
-            "Squash",
             &success_msg,
             &state,
             Some(final_msg),
@@ -150,22 +149,14 @@ pub(crate) fn handle_rebase_continue(
     }
     // A carry conflict finishes the fold it belongs to, not a commit: the
     // rewrite landed before the dialog opened, and what the user just resolved
-    // is where the other row's changes ended up.
-    let success_msg = if state.is_carry_conflict() {
+    // is where the other row's changes ended up. An autofixup finishes its batch.
+    let success_msg = if state.is_carry_conflict() || is_autofixup {
         format!("{} complete", state.operation_label)
     } else {
         format!("Commit {} complete", state.operation_label.to_lowercase())
     };
     let outcome = git_repo.rebase_continue(&state);
-    let result = handle_resume_outcome(
-        git_repo,
-        app,
-        outcome,
-        "Continue",
-        &success_msg,
-        &state,
-        None,
-    );
+    let result = handle_resume_outcome(git_repo, app, outcome, &success_msg, &state, None);
     Ok(apply_pending_autofixup_selection(
         pending,
         is_autofixup,

@@ -172,14 +172,14 @@ impl Git2Repo {
         outcome: Result<super::RebaseOutcome>,
     ) -> Result<super::RebaseOutcome> {
         let Err(e) = outcome else {
-            return self.journaled("Autofixup", batch_original, outcome);
+            return self.journaled(autofixup_op::LABEL, batch_original, outcome);
         };
         match reads::head_oid(self) {
             Ok(tip) if &tip != resumed_from => {
                 // Any paused conflict was on `resumed_from`, so it can no
                 // longer be resumed or aborted.
                 journal::clear_in_progress(self)?;
-                journal::record_undo(self, "Autofixup", batch_original, &tip)?;
+                journal::record_undo(self, autofixup_op::LABEL, batch_original, &tip)?;
                 Err(e.context("autofixup stopped part-way; undo reverts the squashes that landed"))
             }
             _ => Err(e),

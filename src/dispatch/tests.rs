@@ -792,7 +792,6 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         Err(anyhow::anyhow!(
             "This would overwrite untracked files: later.rs"
         )),
-        "Continue",
         "Commit squash complete",
         &make_conflict_state(),
         Some("the message the user typed\n".into()),
@@ -911,7 +910,6 @@ fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
         Err(anyhow::anyhow!(
             "This would overwrite untracked files: later.rs"
         )),
-        "Continue",
         "Commit squash complete",
         &git_tailor::repo::ConflictState {
             operation_label: "Autofixup".to_string(),
