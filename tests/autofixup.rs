@@ -128,6 +128,38 @@ fn a_fixup_named_by_hash_finds_its_target_after_earlier_steps_rewrote_it() {
     );
 }
 
+/// Two commits share a summary, and each has its own fixup. A message edited
+/// for one of them lands on that one only.
+#[test]
+fn a_message_edited_for_one_of_two_same_named_targets_lands_on_that_one() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("t1.txt", "first\n", "Tweak");
+    let second = test.commit_file("t2.txt", "second\n", "Tweak");
+    test.commit_file("t1.txt", "first\nfixed\n", "fixup! Tweak");
+    let short = &second.to_string()[..7];
+    test.commit_file("t2.txt", "second\nfixed\n", &format!("fixup! {short}"));
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let commits = git_repo.list_commits(&head_oid, &Oid::from(base)).unwrap();
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let second_group = groups
+        .iter()
+        .find(|g| g.target_oid == Oid::from(second))
+        .expect("the hash names the second Tweak");
+    let mut overrides = MessageOverrides::default();
+    overrides.set(second_group, bstr::BString::from("Second tweak\n"));
+
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &overrides)
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    assert_history!(&test, base, &["Tweak", "Second tweak"]);
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();

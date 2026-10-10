@@ -594,6 +594,22 @@ mod tests {
     }
 
     #[test]
+    fn targets_with_the_same_summary_keep_their_own_groups_and_messages() {
+        let commits = vec![
+            commit("a", "Tweak"),
+            commit("b", "Tweak"),
+            commit("c", "fixup! Tweak"),
+            commit("d", "fixup! bbbbbbb"),
+        ];
+        let groups = group_by_target(&plan_autofixup(&commits));
+        assert_eq!(groups.len(), 2);
+
+        let mut overrides = MessageOverrides::default();
+        overrides.set(&groups[1], BString::from("Edited\n"));
+        assert_eq!(overrides.for_group(&groups[0]), None);
+    }
+
+    #[test]
     fn the_oldest_match_wins_on_duplicate_summaries() {
         let commits = vec![
             commit("a", "Tweak"),
