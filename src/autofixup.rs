@@ -314,6 +314,32 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     pairs
 }
 
+/// A fixup whose text names several earlier commits: a summary they share, or
+/// the start of theirs. It is left in place rather than folded into a guess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmbiguousFixup {
+    pub oid: Oid,
+    pub summary: String,
+}
+
+/// The fixups in `commits` that [`plan_autofixup`] leaves in place because
+/// what they name, several earlier commits answer to.
+pub fn ambiguous_fixups(commits: &[CommitInfo]) -> Vec<AmbiguousFixup> {
+    commits
+        .iter()
+        .enumerate()
+        .filter(|(i, commit)| {
+            split_prefixes(&commit.summary_key).is_some_and(|(_, named)| {
+                matches!(named_target(&commits[..*i], named), Named::Several)
+            })
+        })
+        .map(|(_, commit)| AmbiguousFixup {
+            oid: commit.oid.expect_real_oid(),
+            summary: commit.summary.clone(),
+        })
+        .collect()
+}
+
 /// What the text after a fixup's prefix names among the commits before it.
 enum Named {
     One(usize),

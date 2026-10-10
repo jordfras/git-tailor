@@ -88,7 +88,8 @@ selected you can:
   `fixup!`/`squash!` commit on the branch into the commit its message names, in
   one pass, after a confirmation showing what will happen. A fixup names its
   target as `git rebase --autosquash` reads it: by exact summary, abbreviated
-  hash, or the start of the summary. Each target's final message can be edited
+  hash, or the start of the summary. One that several commits answer to is left
+  in place and listed, rather than folded into the oldest as git does. Each target's final message can be edited
   before the batch runs
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`

@@ -166,9 +166,11 @@ The format is based on
   rewrite whose final checkout failed left the branch moved with nothing to
   undo and the list showing the history from before
 - Bulk autofixup matches a `fixup!` or `squash!` to its target the way
-  `git rebase --autosquash` does: the oldest commit with that exact summary,
-  else the commit an abbreviated hash names, else the oldest whose summary
-  starts with the text. Summaries are compared as git reads them, decoded
+  `git rebase --autosquash` does: the commit with that exact summary, else the
+  commit an abbreviated hash names, else the commit whose summary starts with
+  the text. Where several commits answer to it, git takes the oldest; git-tailor
+  leaves the fixup in place and lists it in the confirmation, to be named by
+  hash instead. Summaries are compared as git reads them, decoded
   through the commit's `encoding` header. It used to take the nearest commit
   with the summary as decoded for display, so a fixup could fold into the wrong
   one of two lookalikes, a fixup written in UTF-8 never found a target committed

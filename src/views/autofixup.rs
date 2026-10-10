@@ -153,6 +153,23 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             );
         }
     }
+    if !pending.left_in_place.is_empty() {
+        dialog = dialog.blank().wrapped_styled(
+            " Left in place — several commits are named that:",
+            line_width,
+            TextRole::Danger,
+        );
+        for fixup in &pending.left_in_place {
+            let sha = fixup.oid.short();
+            let used = INDENT.len() + sha.len() + 2;
+            let summary = truncate_summary(&fixup.summary, line_width.saturating_sub(used));
+            dialog = dialog.wrapped_styled(
+                &format!("{INDENT}{sha}  {summary}"),
+                line_width,
+                TextRole::Muted,
+            );
+        }
+    }
 
     let (max_scroll, visible_height) = dialog
         .blank()

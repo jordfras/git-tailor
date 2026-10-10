@@ -34,12 +34,21 @@ pub(crate) fn handle_prepare_autofixup_confirm(
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
     let pairs = git_tailor::autofixup::plan_autofixup(&app.list.commits);
+    let left_in_place = git_tailor::autofixup::ambiguous_fixups(&app.list.commits);
     if pairs.is_empty() {
-        app.set_success_message("Nothing to autofixup");
+        if left_in_place.is_empty() {
+            app.set_success_message("Nothing to autofixup");
+        } else {
+            app.set_error_message(format!(
+                "Nothing to autofixup: {} fixup(s) name a commit several share — \
+                 name the target by hash instead",
+                left_in_place.len()
+            ));
+        }
         return Ok(LoopAction::Proceed);
     }
     let reference_oid = app.reference_oid.clone();
-    app.enter_autofixup_confirm(pairs, head_oid, reference_oid);
+    app.enter_autofixup_confirm(pairs, left_in_place, head_oid, reference_oid);
     Ok(LoopAction::Proceed)
 }
 

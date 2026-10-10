@@ -421,6 +421,8 @@ pub struct PendingDrop {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingAutofixup {
     pub pairs: Vec<AutofixupPair>,
+    /// Fixups left in place, listed so they are not left behind unnoticed.
+    pub left_in_place: Vec<crate::autofixup::AmbiguousFixup>,
     pub head_oid: Oid,
     pub reference_oid: Oid,
     /// Index into `group_by_target(&pairs)` of the highlighted target group.

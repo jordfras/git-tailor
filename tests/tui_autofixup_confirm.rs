@@ -68,6 +68,7 @@ fn make_app_in_autofixup_confirm(
     app.list.selection_index = 0;
     app.mode = AppMode::AutofixupConfirm(PendingAutofixup {
         pairs,
+        left_in_place: vec![],
         head_oid: Oid::from("def456ghi789abcdef012"),
         reference_oid: Oid::from("000000000000abcdef012"),
         selected_group,
@@ -297,6 +298,25 @@ fn test_autofixup_confirm_move_down_clamps_at_the_last_group() {
     let result = views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
     assert!(matches!(result, AppAction::Handled));
     assert_eq!(selected_group_index(&app), 1);
+}
+
+/// A fixup whose target is ambiguous is listed under the groups, so it is not
+/// left behind unnoticed.
+#[test]
+fn autofixup_confirm_dialog_lists_fixups_left_in_place() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
 }
 
 /// A fixup can name its target by hash or by the start of a summary, so the
