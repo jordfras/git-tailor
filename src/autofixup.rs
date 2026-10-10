@@ -559,6 +559,21 @@ mod tests {
         assert_eq!(overrides.for_group(&groups[0]), None);
     }
 
+    /// The fixup it names is folded away first, into the original target, so
+    /// that is the target the dialog shows and the batch uses.
+    #[test]
+    fn a_fixup_naming_another_fixup_targets_the_original() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup! Add parser"),
+            commit("c", "fixup! bbbbbbb"),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[1].target_oid, commits[0].oid.expect_real_oid());
+        assert_eq!(group_by_target(&pairs).len(), 1);
+    }
+
     #[test]
     fn the_oldest_match_wins_on_duplicate_summaries() {
         let commits = vec![
