@@ -30,7 +30,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{self, AutofixupPair, MessageOverrides};
+use crate::autofixup::{self, BatchPlan, MessageOverrides};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -41,27 +41,21 @@ pub(super) fn autofixup(
     reference_oid: &Oid,
     message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
+    let commits = reads::list_commits(repo, head_oid, reference_oid)?;
+    let plan = BatchPlan::new(&commits, &autofixup::plan_autofixup(&commits));
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
-    let commits = reads::list_commits(repo, head_oid, reference_oid)?;
-    let targets: Vec<Oid> = autofixup::plan_autofixup(&commits)
-        .into_iter()
-        .map(|pair| pair.target_oid)
-        .collect();
-    if let Some(oldest) = commits
-        .iter()
-        .find_map(|c| c.oid.as_oid().filter(|oid| targets.contains(oid)))
-    {
-        repo.refuse_rewriting_from(oldest, head_oid)?;
+    if let Some(oldest) = plan.steps.iter().map(|step| step.target.0).min() {
+        repo.refuse_rewriting_from(&plan.commits[oldest], head_oid)?;
     }
-    run_batch(
-        repo,
-        head_oid.clone(),
-        head_oid,
-        reference_oid,
-        message_overrides,
-    )
+    let ctx = AutofixupContext {
+        reference_oid: reference_oid.clone(),
+        message_overrides: message_overrides.clone(),
+        plan,
+        landed: 0,
+    };
+    run_batch(repo, head_oid, ctx)
 }
 
 /// Resume an in-progress autofixup batch through a *descendant* conflict
@@ -107,17 +101,17 @@ fn continue_after_step(
     batch_original_oid: &Oid,
     ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
+    // A batch with no steps never pauses, so a context without them was paused
+    // by a build that re-matched by summary after every step. This one cannot
+    // tell how far that batch had got.
+    if ctx.plan.steps.is_empty() {
+        anyhow::bail!(
+            "This autofixup was paused by an older git-tailor. \
+             Finish or abort it with that version."
+        );
+    }
     match step_outcome? {
-        RebaseOutcome::Complete => {
-            let current_tip = reads::head_oid(repo)?;
-            run_batch(
-                repo,
-                current_tip,
-                batch_original_oid,
-                &ctx.reference_oid,
-                &ctx.message_overrides,
-            )
-        }
+        RebaseOutcome::Complete => run_batch(repo, batch_original_oid, ctx.clone()),
         RebaseOutcome::Conflict(new_state) => {
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: LABEL.to_string(),
@@ -129,79 +123,77 @@ fn continue_after_step(
     }
 }
 
+/// Apply `ctx.plan`'s steps from `ctx.landed` on, pausing on a conflict with
+/// the context that resumes the batch where it stopped.
 fn run_batch(
     repo: &mut Git2Repo,
-    mut current_tip: Oid,
     batch_original_oid: &Oid,
-    reference_oid: &Oid,
-    message_overrides: &MessageOverrides,
+    mut ctx: AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    loop {
-        let commits = reads::list_commits(repo, &current_tip, reference_oid)?;
-        let plan = autofixup::plan_autofixup(&commits);
-        let Some(pair) = plan.first() else {
-            return Ok(RebaseOutcome::Complete);
-        };
-        let more_pending_for_target = plan[1..]
+    while ctx.landed < ctx.plan.steps.len() {
+        let current_tip = reads::head_oid(repo)?;
+        let commits = reads::list_commits(repo, &current_tip, &ctx.reference_oid)?;
+        if commits.len() + ctx.landed != ctx.plan.commits.len() {
+            anyhow::bail!("The branch no longer matches the autofixup that was planned for it.");
+        }
+        let step = &ctx.plan.steps[ctx.landed];
+        let source_oid = commits[ctx.plan.current_index(step.source, ctx.landed)]
+            .oid
+            .expect_real_oid();
+        let target = &commits[ctx.plan.current_index(step.target, ctx.landed)];
+        let target_oid = target.oid.expect_real_oid();
+        let more_pending_for_target = ctx.plan.steps[ctx.landed + 1..]
             .iter()
-            .any(|p| p.target_summary_key == pair.target_summary_key);
-        let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
-        match squash_op::squash_commits(
+            .any(|later| later.target == step.target);
+        let overridden = if more_pending_for_target {
+            None
+        } else {
+            ctx.message_overrides
+                .for_summary_key(target.summary_key.as_bstr())
+                .cloned()
+        };
+        let message = match overridden {
+            Some(message) => message,
+            None => step_message(repo, &source_oid, &target_oid, step.mode)?,
+        };
+        let outcome = squash_op::squash_commits(
             repo,
-            &pair.source_oid,
-            &pair.target_oid,
+            &source_oid,
+            &target_oid,
             message.as_bstr(),
             &current_tip,
-        )? {
-            RebaseOutcome::Complete => {
-                current_tip = reads::head_oid(repo)?;
-            }
-            RebaseOutcome::Conflict(state) => {
-                return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                    operation_label: LABEL.to_string(),
-                    original_branch_oid: batch_original_oid.clone(),
-                    autofixup_context: Some(AutofixupContext {
-                        reference_oid: reference_oid.clone(),
-                        message_overrides: message_overrides.clone(),
-                    }),
-                    ..*state
-                })));
-            }
+        )?;
+        ctx.landed += 1;
+        if let RebaseOutcome::Conflict(state) = outcome {
+            return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: LABEL.to_string(),
+                original_branch_oid: batch_original_oid.clone(),
+                autofixup_context: Some(ctx),
+                ..*state
+            })));
         }
     }
+    Ok(RebaseOutcome::Complete)
 }
 
-/// The commit message for one autofixup pair.
-///
-/// If the user pinned a final message for this target in the confirmation
-/// dialog, it's used — but only once `more_pending_for_target` is `false`,
-/// i.e. this is the last fixup/squash still queued for that target. Applying
-/// it earlier would rename the target before the remaining pairs in the same
-/// group get a chance to match it (matching is by summary, since OIDs churn
-/// with every squash in the batch).
-///
-/// Otherwise falls back to the default: `fixup!` keeps the target's message
+/// The default message for one step: `fixup!` keeps the target's message
 /// unchanged; `squash!` combines target + source with the same default text
 /// the manual squash editor starts from (`src/main.rs::handle_prepare_squash`).
 ///
-/// Read from the repository, not from `pair.target_message`/`source_message`:
-/// those are cloned from the commit list's lossy display rendering, and
-/// writing them back would replace a message git-tailor cannot read with one
-/// it can.
-fn pair_message(
+/// Read from the repository, not from the commit list: that holds the lossy
+/// display rendering, and writing it back would replace a message git-tailor
+/// cannot read with one it can.
+fn step_message(
     repo: &Git2Repo,
-    pair: &AutofixupPair,
-    more_pending_for_target: bool,
-    message_overrides: &MessageOverrides,
+    source_oid: &Oid,
+    target_oid: &Oid,
+    mode: SquashMode,
 ) -> Result<BString> {
-    if !more_pending_for_target && let Some(overridden) = message_overrides.for_pair(pair) {
-        return Ok(overridden.clone());
-    }
-    let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;
-    match pair.mode {
+    let target_bytes = repo.commit_message_bytes(target_oid)?;
+    match mode {
         SquashMode::Fixup => Ok(target_bytes),
         SquashMode::Squash => {
-            let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
+            let source_bytes = repo.commit_message_bytes(source_oid)?;
             Ok(crate::domain::combine_messages(
                 target_bytes.as_bstr(),
                 Some(source_bytes.as_bstr()),

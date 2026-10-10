@@ -59,6 +59,76 @@ pub struct AutofixupGroup {
     pub sources: Vec<AutofixupPair>,
 }
 
+/// A commit's position in the branch a batch was planned against, oldest
+/// first. Unlike its OID, it survives the rewrites of the steps before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PlannedPos(pub usize);
+
+/// One squash in a planned batch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlannedStep {
+    pub source: PlannedPos,
+    pub target: PlannedPos,
+    pub mode: SquashMode,
+}
+
+/// A batch planned once against the branch as it stood, the way git plans a
+/// rebase todo list.
+///
+/// Each step folds its source into its target and replays everything above,
+/// dropping nothing else, so once some steps have landed the branch is these
+/// commits minus those steps' sources, in the same order. That is how a
+/// planned position finds its commit again after every OID has changed.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BatchPlan {
+    /// The branch's commits when the batch was planned, oldest first.
+    pub commits: Vec<Oid>,
+    pub steps: Vec<PlannedStep>,
+}
+
+impl BatchPlan {
+    pub fn new(commits: &[CommitInfo], pairs: &[AutofixupPair]) -> Self {
+        let commits: Vec<Oid> = commits
+            .iter()
+            .filter_map(|c| c.oid.as_oid().cloned())
+            .collect();
+        let pos = |oid: &Oid| {
+            PlannedPos(
+                commits
+                    .iter()
+                    .position(|c| c == oid)
+                    .expect("a planned pair names listed commits"),
+            )
+        };
+        let mut steps: Vec<PlannedStep> = Vec::with_capacity(pairs.len());
+        for pair in pairs {
+            // A fixup of a fixup: by the time it runs, the commit it names has
+            // been folded away, into the target it was aimed at.
+            let mut target = pos(&pair.target_oid);
+            while let Some(earlier) = steps.iter().find(|step| step.source == target) {
+                target = earlier.target;
+            }
+            steps.push(PlannedStep {
+                source: pos(&pair.source_oid),
+                target,
+                mode: pair.mode,
+            });
+        }
+        Self { commits, steps }
+    }
+
+    /// Where `pos` sits in the branch once the first `landed` steps are in.
+    pub fn current_index(&self, pos: PlannedPos, landed: usize) -> usize {
+        let removed_below = self.steps[..landed]
+            .iter()
+            .filter(|step| step.source.0 < pos.0)
+            .count();
+        pos.0 - removed_below
+    }
+}
+
 /// Group `pairs` by target, preserving the order each target first appears
 /// in and each group's internal (oldest-first) order.
 pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
@@ -97,6 +167,10 @@ impl MessageOverrides {
 
     pub fn for_pair(&self, pair: &AutofixupPair) -> Option<&BString> {
         self.0.get(&pair.target_summary_key)
+    }
+
+    pub fn for_summary_key(&self, summary_key: &BStr) -> Option<&BString> {
+        self.0.get(summary_key)
     }
 
     pub fn set(&mut self, group: &AutofixupGroup, message: BString) {
@@ -270,6 +344,54 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         });
     }
     pairs
+}
+
+#[cfg(test)]
+mod batch_plan_tests {
+    use super::*;
+    use crate::VirtualOid;
+
+    fn commit(oid: &str, summary: &str) -> CommitInfo {
+        CommitInfo {
+            oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
+            summary: summary.to_string(),
+            summary_key: summary.into(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: summary.to_string(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        }
+    }
+
+    #[test]
+    fn a_fixup_of_a_fixup_lands_on_the_target_the_first_one_folded_into() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup! Add parser"),
+            commit("c", "fixup! fixup! Add parser"),
+        ];
+        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        assert!(plan.steps.iter().all(|step| step.target == PlannedPos(0)));
+    }
+
+    #[test]
+    fn a_position_moves_down_past_each_source_removed_below_it() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup! Add parser"),
+            commit("c", "Add lexer"),
+            commit("d", "fixup! Add lexer"),
+        ];
+        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        assert_eq!(plan.current_index(PlannedPos(2), 0), 2);
+        assert_eq!(plan.current_index(PlannedPos(2), 1), 1);
+        assert_eq!(plan.current_index(PlannedPos(0), 1), 0);
+    }
 }
 
 #[cfg(test)]

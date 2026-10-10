@@ -366,6 +366,10 @@ pub struct AutofixupContext {
     /// an intermediate step in a multi-fixup group never renames the target
     /// before the remaining fixups in that group have had a chance to match it.
     pub message_overrides: crate::autofixup::MessageOverrides,
+    /// The batch as planned when it started.
+    pub plan: crate::autofixup::BatchPlan,
+    /// How many of `plan`'s steps are in once the paused one completes.
+    pub landed: usize,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash

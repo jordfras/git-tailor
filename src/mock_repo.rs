@@ -581,7 +581,7 @@ impl RepoWrite for MockRepo {
                 conflicting_files: vec![],
                 autofixup_context: Some(git_tailor::repo::AutofixupContext {
                     reference_oid: Oid::from("d".repeat(40)),
-                    message_overrides: Default::default(),
+                    ..Default::default()
                 }),
                 ..Default::default()
             })));
