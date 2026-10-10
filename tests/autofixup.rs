@@ -170,6 +170,10 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
         "conflict should carry the batch's true starting tip, not the mid-batch one"
     );
     assert!(state.autofixup_context.is_some());
+    assert_eq!(
+        state.operation_label, "Autofixup",
+        "the dialog names the batch the user started, not the step it paused in"
+    );
 
     // The first pair (F1 -> T1) already squashed cleanly before the conflict;
     // T2's own descendants (the unrelated edit and the second fixup) are

@@ -913,7 +913,10 @@ fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
         )),
         "Continue",
         "Commit squash complete",
-        &make_conflict_state(),
+        &git_tailor::repo::ConflictState {
+            operation_label: "Autofixup".to_string(),
+            ..make_conflict_state()
+        },
         None,
     );
 
@@ -922,12 +925,10 @@ fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
         "no dialog for a conflict that is over"
     );
     assert!(matches!(action, LoopAction::Reload));
+    let message = app.status.message.as_deref().unwrap_or_default();
     assert!(
-        app.status
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("overwrite untracked")
+        message.starts_with("Autofixup failed:") && message.contains("overwrite untracked"),
+        "the failure is named after the operation, not the resume step: {message:?}"
     );
     assert_eq!(
         repo.autostash_restore_calls.get(),
