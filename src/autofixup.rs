@@ -303,12 +303,21 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
 }
 
 /// The mode the first `fixup!`/`squash!` prefix sets, and what is left once
-/// every one of them is stripped. `None` when there is no prefix, or nothing
-/// after it to name a target by.
+/// every prefix and the whitespace after each is stripped. `None` when there is
+/// no prefix, or nothing after it to name a target by.
 fn split_prefixes(summary: &[u8]) -> Option<(SquashMode, &[u8])> {
     let (mode, mut named) = strip_prefix(summary)?;
-    while let Some((_, rest)) = strip_prefix(named) {
-        named = rest;
+    loop {
+        named = named.trim_ascii_start();
+        // git also folds an inner `amend!`, though an `amend!` commit is not
+        // one git-tailor can apply.
+        let inner = strip_prefix(named)
+            .map(|(_, rest)| rest)
+            .or_else(|| named.strip_prefix(b"amend! "));
+        match inner {
+            Some(rest) => named = rest,
+            None => break,
+        }
     }
     (!named.is_empty()).then_some((mode, named))
 }
