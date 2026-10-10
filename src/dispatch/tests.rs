@@ -780,7 +780,10 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     // commit it paused at, so dropping to the commit list shows history the
     // branch has moved off with no way back into the dialog — which is how a
     // user ends up quitting with an operation still in progress.
-    let mut repo = MockRepo::default();
+    let mut repo = MockRepo {
+        head: make_conflict_state().new_tip_oid,
+        ..Default::default()
+    };
     let mut app = AppState::default();
 
     let action = handle_resume_outcome(
@@ -888,6 +891,48 @@ fn conflict_tool_no_merge_tool_sets_error() {
             .as_deref()
             .unwrap_or("")
             .contains("No merge tool configured")
+    );
+}
+
+/// A resume that fails after moving the branch has nothing left to resume or
+/// abort: both refuse a branch that left the paused tip, so the dialog would
+/// trap the user.
+#[test]
+fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
+    let mut repo = MockRepo {
+        head: Oid::from("e".repeat(40)),
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let action = handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(anyhow::anyhow!(
+            "This would overwrite untracked files: later.rs"
+        )),
+        "Continue",
+        "Commit squash complete",
+        &make_conflict_state(),
+        None,
+    );
+
+    assert!(
+        !matches!(app.mode, AppMode::RebaseConflict(_)),
+        "no dialog for a conflict that is over"
+    );
+    assert!(matches!(action, LoopAction::Reload));
+    assert!(
+        app.status
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("overwrite untracked")
+    );
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        1,
+        "the operation is over, so the auto-stash comes back"
     );
 }
 
@@ -1081,6 +1126,39 @@ mod autofixup_selection {
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
         assert_eq!(app.status.message.as_deref(), Some("Commits autofixed up"));
+    }
+
+    #[test]
+    fn execute_autofixup_that_fails_after_moving_the_branch_reloads() {
+        let mut repo = MockRepo {
+            autofixup_ok: false,
+            head: Oid::from("e".repeat(40)),
+            ..Default::default()
+        };
+        let mut app = AppState {
+            list: CommitListState::with_selection(commits(), 4),
+            ..Default::default()
+        };
+        let mut pending = PendingAutofixupSelection::default();
+
+        let result = handle_execute_autofixup(
+            &mut repo,
+            &mut app,
+            &mut pending,
+            Oid::from("a".repeat(40)),
+            Oid::from("b".repeat(40)),
+            pairs(),
+            std::collections::HashMap::new(),
+        );
+
+        assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
+        assert!(
+            app.status
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("autofixup failed")
+        );
     }
 
     #[test]

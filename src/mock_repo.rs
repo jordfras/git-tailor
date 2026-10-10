@@ -27,6 +27,8 @@ use git_tailor::{CommitDiff, CommitInfo};
 /// Minimal `GitRepo` stub for testing terminal-free binary-crate helpers.
 pub(crate) struct MockRepo {
     pub(crate) head_ok: bool,
+    /// What `head_oid` answers when `head_ok` is set.
+    pub(crate) head: Oid,
     pub(crate) drop_ok: bool,
     pub(crate) move_ok: bool,
     pub(crate) autofixup_ok: bool,
@@ -148,6 +150,7 @@ impl Default for MockRepo {
     fn default() -> Self {
         Self {
             head_ok: true,
+            head: Oid::from("a".repeat(40)),
             drop_ok: true,
             move_ok: true,
             autofixup_ok: true,
@@ -205,7 +208,7 @@ pub(crate) fn mock_stage_outcome(
 impl RepoRead for MockRepo {
     fn head_oid(&self) -> anyhow::Result<Oid> {
         if self.head_ok {
-            Ok(Oid::from("a".repeat(40)))
+            Ok(self.head.clone())
         } else {
             Err(anyhow::anyhow!("head error"))
         }
