@@ -92,7 +92,15 @@ fn scroll_to_group(app: &mut AppState, groups: &[AutofixupGroup], index: usize) 
     let Some(group) = groups.get(index) else {
         return;
     };
+    // A heading, one row each and a blank, when there are any.
+    let left_in_place_lines = match &app.mode {
+        AppMode::AutofixupConfirm(pending) if !pending.left_in_place.is_empty() => {
+            2 + pending.left_in_place.len()
+        }
+        _ => 0,
+    };
     let start: usize = HEADER_LINES
+        + left_in_place_lines
         + groups[..index]
             .iter()
             .map(|g| 1 + g.sources.len())
@@ -113,25 +121,46 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
     const PREFERRED_WIDTH: u16 = 70;
     let iw = inner_width(PREFERRED_WIDTH, frame.area().width);
 
-    let mut dialog = Dialog::new(DialogKind::Confirm, app.colors)
-        .heading(
-            format!(
-                "Squash {} commit(s) into {} target(s)?",
-                pending.pairs.len(),
-                groups.len()
-            ),
-            TextRole::Highlight,
-        )
+    // Sources sit one level in from their target row.
+    const INDENT: &str = "    ";
+    let line_width = iw.saturating_sub(1);
+
+    let mut dialog = Dialog::new(DialogKind::Confirm, app.colors).heading(
+        format!(
+            "Squash {} commit(s) into {} target(s)?",
+            pending.pairs.len(),
+            groups.len()
+        ),
+        TextRole::Highlight,
+    );
+    // Above the groups, which scroll to follow the selection: below them, it
+    // could fall out of view for good.
+    if !pending.left_in_place.is_empty() {
+        dialog = dialog.wrapped_styled(
+            " Left in place — several commits are named that:",
+            line_width,
+            TextRole::Danger,
+        );
+        for fixup in &pending.left_in_place {
+            let sha = fixup.oid.short();
+            let used = INDENT.len() + sha.len() + 2;
+            let summary = truncate_summary(&fixup.summary, line_width.saturating_sub(used));
+            dialog = dialog.wrapped_styled(
+                &format!("{INDENT}{sha}  {summary}"),
+                line_width,
+                TextRole::Muted,
+            );
+        }
+        dialog = dialog.blank();
+    }
+    dialog = dialog
         .wrapped_styled(
             " \u{2191}/\u{2193} to select a target, r to edit its final message:",
-            iw.saturating_sub(1),
+            line_width,
             TextRole::Muted,
         )
         .blank();
 
-    // Sources sit one level in from their target row.
-    const INDENT: &str = "    ";
-    let line_width = iw.saturating_sub(1);
     for (i, group) in groups.iter().enumerate() {
         dialog = dialog.push_line(target_line(
             app,
@@ -153,24 +182,6 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             );
         }
     }
-    if !pending.left_in_place.is_empty() {
-        dialog = dialog.blank().wrapped_styled(
-            " Left in place — several commits are named that:",
-            line_width,
-            TextRole::Danger,
-        );
-        for fixup in &pending.left_in_place {
-            let sha = fixup.oid.short();
-            let used = INDENT.len() + sha.len() + 2;
-            let summary = truncate_summary(&fixup.summary, line_width.saturating_sub(used));
-            dialog = dialog.wrapped_styled(
-                &format!("{INDENT}{sha}  {summary}"),
-                line_width,
-                TextRole::Muted,
-            );
-        }
-    }
-
     let (max_scroll, visible_height) = dialog
         .blank()
         .instructions(&[
