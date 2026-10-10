@@ -81,28 +81,29 @@ pub struct BatchPlan {
 }
 
 impl BatchPlan {
-    pub fn new(commits: &[CommitInfo], pairs: &[AutofixupPair]) -> Self {
-        let commits: Vec<Oid> = commits
-            .iter()
-            .filter_map(|c| c.oid.as_oid().cloned())
-            .collect();
+    /// `pairs` placed in `commits`, the branch oldest first. Fails when a pair
+    /// names a commit the branch does not hold.
+    pub fn new(commits: Vec<Oid>, pairs: &[AutofixupPair]) -> anyhow::Result<Self> {
         let pos = |oid: &Oid| {
-            PlannedPos(
-                commits
-                    .iter()
-                    .position(|c| c == oid)
-                    .expect("a planned pair names listed commits"),
-            )
+            commits
+                .iter()
+                .position(|c| c == oid)
+                .map(PlannedPos)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("The autofixup names {oid}, which is not on the branch.")
+                })
         };
         let steps = pairs
             .iter()
-            .map(|pair| PlannedStep {
-                source: pos(&pair.source_oid),
-                target: pos(&pair.target_oid),
-                mode: pair.mode,
+            .map(|pair| {
+                Ok(PlannedStep {
+                    source: pos(&pair.source_oid)?,
+                    target: pos(&pair.target_oid)?,
+                    mode: pair.mode,
+                })
             })
-            .collect();
-        Self { commits, steps }
+            .collect::<anyhow::Result<_>>()?;
+        Ok(Self { commits, steps })
     }
 
     /// The commit at `pos` as the batch was planned.
@@ -399,6 +400,10 @@ mod tests {
     use crate::VirtualOid;
     use bstr::ByteSlice;
 
+    fn oids(commits: &[CommitInfo]) -> Vec<Oid> {
+        commits.iter().map(|c| c.oid.expect_real_oid()).collect()
+    }
+
     fn commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
             oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
@@ -569,7 +574,7 @@ mod tests {
             commit("b", "fixup! Add parser"),
             commit("c", "fixup! fixup! Add parser"),
         ];
-        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits)).unwrap();
         assert!(plan.steps.iter().all(|step| step.target == PlannedPos(0)));
     }
 
@@ -581,7 +586,7 @@ mod tests {
             commit("c", "Add lexer"),
             commit("d", "fixup! Add lexer"),
         ];
-        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        let plan = BatchPlan::new(oids(&commits), &plan_autofixup(&commits)).unwrap();
         let after_one: Vec<Oid> = ["a", "c", "d"]
             .iter()
             .map(|oid| Oid::new(oid.repeat(40)))

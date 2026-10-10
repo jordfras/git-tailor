@@ -42,8 +42,7 @@ pub(super) fn autofixup(
     pairs: &[AutofixupPair],
     message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
-    let commits = reads::list_commits(repo, head_oid, reference_oid)?;
-    let plan = BatchPlan::new(&commits, pairs);
+    let plan = BatchPlan::new(reads::list_oids(repo, head_oid, reference_oid)?, pairs)?;
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
