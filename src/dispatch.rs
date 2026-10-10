@@ -29,7 +29,7 @@ mod tests;
 
 use anyhow::Result;
 use bstr::{BStr, BString};
-use git_tailor::app::{AppAction, AppState};
+use git_tailor::app::{AppAction, AppState, ResumeFailure};
 use git_tailor::editor;
 use git_tailor::repo::{
     AutostashRestore, GitRepo, LandedPartway, RebaseOutcome, StageOutcome, StashConflictState,
@@ -487,7 +487,10 @@ pub(crate) fn handle_resume_outcome(
             // the operation resolves or aborts, both of which reload.
             app.reenter_rebase_conflict_after_failure(
                 state.clone(),
-                format!("{e:#}"),
+                ResumeFailure {
+                    why: format!("{e:#}"),
+                    branch_moved: false,
+                },
                 retry_message,
             );
             LoopAction::Continue

@@ -159,7 +159,8 @@ fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     );
     assert!(
         app.resume_failure
-            .as_deref()
+            .as_ref()
+            .map(|f| f.why.as_str())
             .unwrap_or("")
             .contains("Abort failed"),
         "and must say why"
@@ -808,7 +809,8 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     );
     assert!(
         app.resume_failure
-            .as_deref()
+            .as_ref()
+            .map(|f| f.why.as_str())
             .unwrap_or_default()
             .contains("overwrite untracked"),
         "the dialog needs the reason, not just the status bar"
@@ -1544,7 +1546,7 @@ fn abandoning_a_resume_whose_abort_is_refused_keeps_the_dialog() {
         "got {:?}",
         app.mode
     );
-    let failure = app.resume_failure.as_deref().unwrap_or("");
+    let failure = app.resume_failure.as_ref().map_or("", |f| f.why.as_str());
     assert!(failure.contains("empty commit message"), "{failure}");
     assert!(failure.contains("Abort failed"), "{failure}");
     assert_eq!(repo.autostash_restore_calls.get(), 0);

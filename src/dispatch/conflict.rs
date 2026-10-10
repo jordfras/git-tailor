@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use bstr::ByteSlice;
-use git_tailor::app::{AppMode, AppState};
+use git_tailor::app::{AppMode, AppState, ResumeFailure};
 use git_tailor::repo::{AutostashContinue, ConflictState, GitRepo, Resume, StashConflictState};
 use git_tailor::{editor, mergetool};
 
@@ -54,7 +54,14 @@ pub(crate) fn handle_rebase_abort(
             // The abort refused, so the conflict is still journaled — but
             // `handle_conflict_key` already dropped the mode to `CommitList` on
             // the way here, leaving no way back into the dialog.
-            app.reenter_rebase_conflict_after_failure(state, format!("Abort failed: {e:#}"), None);
+            app.reenter_rebase_conflict_after_failure(
+                state,
+                ResumeFailure {
+                    why: format!("Abort failed: {e:#}"),
+                    branch_moved: false,
+                },
+                None,
+            );
             Ok(LoopAction::Continue)
         }
     }
@@ -255,7 +262,10 @@ pub(super) fn abandon_resume(
     if let Err(e) = git_repo.rebase_abort(state) {
         app.reenter_rebase_conflict_after_failure(
             state.clone(),
-            format!("{headline}. Abort failed: {e:#}"),
+            ResumeFailure {
+                why: format!("{headline}. Abort failed: {e:#}"),
+                branch_moved: false,
+            },
             None,
         );
         return LoopAction::Continue;

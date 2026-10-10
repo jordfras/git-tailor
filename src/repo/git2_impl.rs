@@ -1136,7 +1136,7 @@ impl Git2Repo {
         if expected.is_empty() || actual == expected {
             return Ok(());
         }
-        anyhow::bail!(
+        Err(super::BranchMoved(format!(
             "This operation belongs to {expected}, but HEAD is on {} now. \
              Switch back before continuing or aborting it.",
             if actual.is_empty() {
@@ -1144,7 +1144,8 @@ impl Git2Repo {
             } else {
                 actual
             }
-        )
+        ))
+        .into())
     }
 
     /// Refuse when the branch no longer holds what the caller was told it did.
@@ -1177,13 +1178,14 @@ impl Git2Repo {
         if actual == expected {
             return Ok(());
         }
-        anyhow::bail!(
+        Err(super::BranchMoved(format!(
             "The branch moved since this was loaded — it is at {} now, not {}. \
              Something else wrote to the repository, or HEAD was switched to \
              another branch. Reload and try again.",
             actual.short(),
             expected.short()
-        )
+        ))
+        .into())
     }
 
     /// Refuse to resume or abort a paused conflict when the branch it belongs

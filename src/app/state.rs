@@ -55,6 +55,15 @@ impl StatusState {
     }
 }
 
+/// Why the last attempt to resume a paused conflict failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeFailure {
+    pub why: String,
+    /// The branch is no longer where the operation paused, so neither resuming
+    /// nor aborting can run until it is back.
+    pub branch_moved: bool,
+}
+
 /// Application state for the TUI.
 ///
 /// Manages the overall state of the interactive terminal interface,
@@ -93,7 +102,7 @@ pub struct AppState {
     /// Why the last attempt to resume a paused conflict failed, shown inside the
     /// conflict dialog. Not in `ConflictState`, which is journaled and describes
     /// the operation rather than one attempt at it.
-    pub resume_failure: Option<String>,
+    pub resume_failure: Option<ResumeFailure>,
     /// A commit message the user wrote for a resume that then failed, so the
     /// retry can seed the editor with it rather than throwing it away and
     /// starting from the computed default again.
@@ -211,7 +220,7 @@ impl AppState {
     pub fn reenter_rebase_conflict_after_failure(
         &mut self,
         state: ConflictState,
-        why: String,
+        failure: ResumeFailure,
         retry_message: Option<BString>,
     ) {
         // The attempt only ran because the markers were resolved, so a
@@ -223,7 +232,7 @@ impl AppState {
             ..state
         };
         self.enter_rebase_conflict(state);
-        self.resume_failure = Some(why);
+        self.resume_failure = Some(failure);
         self.resume_message = retry_message;
     }
 

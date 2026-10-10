@@ -161,7 +161,7 @@ pub fn push_resume_failure(
     iw: usize,
     what_is_left: &str,
 ) -> Dialog {
-    let Some(why) = app.resume_failure.clone() else {
+    let Some(failure) = &app.resume_failure else {
         return dialog;
     };
     // The operation is still paused and the branch is still on the commit it
@@ -173,7 +173,7 @@ pub fn push_resume_failure(
             iw.saturating_sub(1),
             TextRole::Danger,
         )
-        .wrapped(&why, iw.saturating_sub(1))
+        .wrapped(&failure.why, iw.saturating_sub(1))
         .blank()
         .wrapped(what_is_left, iw.saturating_sub(1));
     dialog

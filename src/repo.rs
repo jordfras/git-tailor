@@ -190,6 +190,19 @@ impl std::fmt::Display for LandedPartway {
     }
 }
 
+/// The refusal when the branch is no longer where an operation left or found
+/// it: moved on, or HEAD switched to another branch.
+#[derive(Debug)]
+pub struct BranchMoved(pub String);
+
+impl std::fmt::Display for BranchMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BranchMoved {}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
