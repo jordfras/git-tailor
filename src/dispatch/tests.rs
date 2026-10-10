@@ -780,10 +780,7 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     // commit it paused at, so dropping to the commit list shows history the
     // branch has moved off with no way back into the dialog — which is how a
     // user ends up quitting with an operation still in progress.
-    let mut repo = MockRepo {
-        head: make_conflict_state().new_tip_oid,
-        ..Default::default()
-    };
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
 
     let action = handle_resume_outcome(
@@ -894,22 +891,23 @@ fn conflict_tool_no_merge_tool_sets_error() {
 }
 
 /// A resume that fails after moving the branch has nothing left to resume or
-/// abort: both refuse a branch that left the paused tip, so the dialog would
-/// trap the user.
+/// abort: the repository recorded what landed and dropped the conflict, so the
+/// dialog would trap the user.
 #[test]
 fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
-    let mut repo = MockRepo {
-        head: Oid::from("e".repeat(40)),
-        ..Default::default()
-    };
+    let mut repo = MockRepo::default();
     let mut app = AppState::default();
 
     let action = handle_resume_outcome(
         &mut repo,
         &mut app,
-        Err(anyhow::anyhow!(
-            "This would overwrite untracked files: later.rs"
-        )),
+        Err(
+            anyhow::anyhow!("This would overwrite untracked files: later.rs").context(
+                git_tailor::repo::LandedPartway {
+                    label: "Autofixup".to_string(),
+                },
+            ),
+        ),
         "Commit squash complete",
         &git_tailor::repo::ConflictState {
             operation_label: "Autofixup".to_string(),
@@ -933,6 +931,23 @@ fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
         1,
         "the operation is over, so the auto-stash comes back"
     );
+}
+
+#[test]
+fn an_operation_that_fails_after_moving_the_branch_reloads_the_list() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        failure_landed_partway: true,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let outcome = repo.drop_commit(&Oid::from("c".repeat(40)), &Oid::from("a".repeat(40)));
+    let action = handle_rebase_outcome(&mut repo, &mut app, outcome, "Drop", "Dropped");
+
+    assert!(matches!(action, LoopAction::ReloadPreserving));
+    let message = app.status.message.as_deref().unwrap_or_default();
+    assert!(message.contains("drop failed"), "{message:?}");
 }
 
 #[test]
@@ -1131,7 +1146,7 @@ mod autofixup_selection {
     fn execute_autofixup_that_fails_after_moving_the_branch_reloads() {
         let mut repo = MockRepo {
             autofixup_ok: false,
-            head: Oid::from("e".repeat(40)),
+            failure_landed_partway: true,
             ..Default::default()
         };
         let mut app = AppState {

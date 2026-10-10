@@ -27,12 +27,13 @@ use git_tailor::{CommitDiff, CommitInfo};
 /// Minimal `GitRepo` stub for testing terminal-free binary-crate helpers.
 pub(crate) struct MockRepo {
     pub(crate) head_ok: bool,
-    /// What `head_oid` answers when `head_ok` is set.
-    pub(crate) head: Oid,
     pub(crate) drop_ok: bool,
     pub(crate) move_ok: bool,
     pub(crate) autofixup_ok: bool,
     pub(crate) autofixup_conflicts: bool,
+    /// Marks the error of a failing autofixup or drop as having moved the
+    /// branch first.
+    pub(crate) failure_landed_partway: bool,
     pub(crate) abort_ok: bool,
     pub(crate) autostash_restore_ok: bool,
     /// Makes `autostash_restore` fail outright rather than report a conflict —
@@ -129,6 +130,18 @@ pub(crate) fn make_conflict_state() -> ConflictState {
     }
 }
 
+impl MockRepo {
+    fn failure(&self, e: anyhow::Error, label: &str) -> anyhow::Error {
+        if self.failure_landed_partway {
+            e.context(git_tailor::repo::LandedPartway {
+                label: label.to_string(),
+            })
+        } else {
+            e
+        }
+    }
+}
+
 /// The temporary commit [`LiftOutcome::Lifted`] pretends to have made.
 pub(crate) fn mock_temp_oid() -> Oid {
     Oid::from("c".repeat(40))
@@ -150,11 +163,11 @@ impl Default for MockRepo {
     fn default() -> Self {
         Self {
             head_ok: true,
-            head: Oid::from("a".repeat(40)),
             drop_ok: true,
             move_ok: true,
             autofixup_ok: true,
             autofixup_conflicts: false,
+            failure_landed_partway: false,
             abort_ok: true,
             autostash_restore_ok: true,
             autostash_restore_errs: false,
@@ -208,7 +221,7 @@ pub(crate) fn mock_stage_outcome(
 impl RepoRead for MockRepo {
     fn head_oid(&self) -> anyhow::Result<Oid> {
         if self.head_ok {
-            Ok(self.head.clone())
+            Ok(Oid::from("a".repeat(40)))
         } else {
             Err(anyhow::anyhow!("head error"))
         }
@@ -318,7 +331,7 @@ impl RepoWrite for MockRepo {
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)
         } else {
-            Err(anyhow::anyhow!("drop failed"))
+            Err(self.failure(anyhow::anyhow!("drop failed"), "Drop"))
         }
     }
     fn move_commit(&mut self, _: &Oid, _: Option<&Oid>, _: &Oid) -> anyhow::Result<RebaseOutcome> {
@@ -576,7 +589,7 @@ impl RepoWrite for MockRepo {
         if self.autofixup_ok {
             Ok(RebaseOutcome::Complete)
         } else {
-            Err(anyhow::anyhow!("autofixup failed"))
+            Err(self.failure(anyhow::anyhow!("autofixup failed"), "Autofixup"))
         }
     }
     fn stage_file(&mut self, _: &std::path::Path) -> anyhow::Result<()> {
