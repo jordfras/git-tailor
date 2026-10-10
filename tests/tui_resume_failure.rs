@@ -25,15 +25,16 @@ use git_tailor::{
     views,
 };
 
-/// With the branch elsewhere, Enter and Esc both refuse until it is back, so
-/// the dialog must not claim it is still on the paused commit.
+/// With the branch moved or another one checked out, Enter and Esc both refuse
+/// until it is back, so the dialog says which branch, on which commit.
 #[test]
-fn a_moved_branch_names_the_commit_to_put_it_back_on() {
+fn a_moved_branch_names_the_branch_and_commit_to_return_to() {
     let mut harness = TuiTestHarness::typical();
     let mut app = AppState::new();
     app.list.commits = vec![common::create_test_commit("abc123def456", "Add head line")];
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Drop".to_string(),
+        branch_refname: "refs/heads/feature".to_string(),
         new_tip_oid: Oid::from("c5068579".to_string() + &"0".repeat(32)),
         conflicting_commit_oid: Oid::from("abc123def456"),
         conflicting_files: vec![std::path::PathBuf::from("a.txt")],
@@ -51,6 +52,6 @@ fn a_moved_branch_names_the_commit_to_put_it_back_on() {
     let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
 
     assert!(!screen.contains("on the commit it paused"), "{screen}");
+    assert!(screen.contains("feature"), "{screen}");
     assert!(screen.contains("c5068579"), "{screen}");
-    assert!(screen.contains("next start"), "{screen}");
 }
