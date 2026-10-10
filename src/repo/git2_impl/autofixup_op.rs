@@ -31,7 +31,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides};
+use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides, PlannedPos};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -48,7 +48,13 @@ pub(super) fn autofixup(
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
     if let Some(oldest) = plan.steps.iter().map(|step| step.target.0).min() {
-        repo.refuse_rewriting_from(&plan.commits[oldest], head_oid)?;
+        let oldest = plan.planned_oid(PlannedPos(oldest));
+        repo.refuse_rewriting_from(oldest, head_oid)?;
+        // A step finds its commits by their place in the branch, which only a
+        // single line of history defines.
+        if repo.range_has_merge(Some(git2::Oid::from(oldest)), git2::Oid::from(head_oid))? {
+            anyhow::bail!("Cannot autofixup: a merge commit lies between a target and HEAD");
+        }
     }
     let ctx = AutofixupContext {
         reference_oid: reference_oid.clone(),
