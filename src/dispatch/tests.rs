@@ -1142,6 +1142,51 @@ mod autofixup_selection {
         assert!(idx < commits().len());
     }
 
+    fn named(oid: &str, summary: &str) -> CommitInfo {
+        CommitInfo {
+            summary: summary.to_string(),
+            summary_key: summary.into(),
+            ..commit(oid)
+        }
+    }
+
+    /// A fixup naming a summary two commits share is left in place, and the
+    /// dialog says so — otherwise it silently stays behind.
+    #[test]
+    fn the_dialog_lists_a_fixup_left_in_place_because_its_target_is_ambiguous() {
+        let mut repo = MockRepo::default();
+        let mut app = AppState {
+            list: CommitListState::with_selection(
+                vec![
+                    named("1", "Tweak"),
+                    named("2", "Tweak"),
+                    named("3", "Add parser"),
+                    named("4", "fixup! Add parser"),
+                    named("5", "fixup! Tweak"),
+                ],
+                0,
+            ),
+            ..Default::default()
+        };
+
+        crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| git_tailor::views::autofixup::render_autofixup_confirm(&mut app, frame))
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(screen.contains("Left in place"), "{screen}");
+        assert!(screen.contains("fixup! Tweak"), "{screen}");
+    }
+
     #[test]
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
