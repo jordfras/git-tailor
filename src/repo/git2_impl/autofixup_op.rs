@@ -17,9 +17,10 @@
 //! single-squash primitive in `squash_op` as the building block. The whole
 //! batch runs as one undoable operation: `original_branch_oid` on any
 //! `ConflictState` this produces is always the tip before the *batch* started
-//! (not the current step), so the trait-level `journaled()` wrapper records a
-//! single undo entry once every pair has been applied, and `rebase_abort`
-//! unwinds the whole batch rather than just the in-progress step.
+//! (not the current step), so the trait-level `journaled_batch()` wrapper
+//! records a single undo entry for the whole batch — once every pair has been
+//! applied, or as soon as an error stops it with some landed — and
+//! `rebase_abort` unwinds the whole batch rather than just the in-progress step.
 
 use std::collections::HashMap;
 
@@ -39,8 +40,8 @@ pub(super) fn autofixup(
     reference_oid: &Oid,
     message_overrides: &HashMap<String, BString>,
 ) -> Result<RebaseOutcome> {
-    // The pairs are squashed one at a time, so a refusal part-way would leave
-    // the earlier ones landed with no undo entry. Every pair rewrites from its
+    // The pairs are squashed one at a time, so a refusal part-way would stop
+    // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
     let commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let targets: Vec<Oid> = autofixup::plan_autofixup(&commits)

@@ -161,6 +161,31 @@ impl Git2Repo {
         outcome
     }
 
+    /// [`journaled`](Self::journaled) for an autofixup batch, which lands its
+    /// pairs one at a time: an error after the branch moved past
+    /// `resumed_from` still records the pairs that landed as one undo entry
+    /// back to `batch_original`.
+    fn journaled_batch(
+        &mut self,
+        batch_original: &Oid,
+        resumed_from: &Oid,
+        outcome: Result<super::RebaseOutcome>,
+    ) -> Result<super::RebaseOutcome> {
+        let Err(e) = outcome else {
+            return self.journaled("Autofixup", batch_original, outcome);
+        };
+        match reads::head_oid(self) {
+            Ok(tip) if &tip != resumed_from => {
+                // Any paused conflict was on `resumed_from`, so it can no
+                // longer be resumed or aborted.
+                journal::clear_in_progress(self)?;
+                journal::record_undo(self, "Autofixup", batch_original, &tip)?;
+                Err(e.context("autofixup stopped part-way; undo reverts the squashes that landed"))
+            }
+            _ => Err(e),
+        }
+    }
+
     /// Record the undo entry for a fold whose carry-back failed.
     ///
     /// The rewrite has landed, so it has to be undoable — reporting a failure
@@ -550,7 +575,7 @@ impl RepoWrite for Git2Repo {
         }
         if state.autofixup_context.is_some() {
             let outcome = autofixup_op::continue_autofixup(self, state);
-            return self.journaled("Autofixup", &state.original_branch_oid, outcome);
+            return self.journaled_batch(&state.original_branch_oid, &state.new_tip_oid, outcome);
         }
         let outcome = conflict::rebase_continue(self, state);
         self.journaled(&state.operation_label, &state.original_branch_oid, outcome)
@@ -742,6 +767,7 @@ impl RepoWrite for Git2Repo {
             self.refuse_if_conflict_branch_moved(&state)?;
         }
         if let Some(autofixup_ctx) = autofixup_context {
+            let resumed_from = reads::head_oid(self)?;
             let outcome = autofixup_op::continue_autofixup_after_squash_finalize(
                 self,
                 ctx,
@@ -749,7 +775,7 @@ impl RepoWrite for Git2Repo {
                 original_branch_oid,
                 autofixup_ctx,
             );
-            return self.journaled("Autofixup", original_branch_oid, outcome);
+            return self.journaled_batch(original_branch_oid, &resumed_from, outcome);
         }
         // The mode's own word, not "Squash" for both: the dialog that sent the
         // user here was built from `ctx.squash_mode`, and a working-tree fold
@@ -766,7 +792,7 @@ impl RepoWrite for Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
-        self.journaled("Autofixup", head_oid, outcome)
+        self.journaled_batch(head_oid, head_oid, outcome)
     }
 }
 

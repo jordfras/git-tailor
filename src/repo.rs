@@ -985,8 +985,9 @@ pub trait RepoWrite {
     /// group instead of the computed default — see
     /// [`AutofixupContext::message_overrides`].
     ///
-    /// The whole batch is one undoable operation: on success a single undo
-    /// entry restores `head_oid`. Returns `RebaseOutcome::Conflict` if any
+    /// The whole batch is one undoable operation: a single undo entry
+    /// restores `head_oid`, recorded on success and also when an error stops
+    /// the batch after some pairs have landed. Returns `RebaseOutcome::Conflict` if any
     /// individual squash step conflicts; resuming via
     /// [`rebase_continue`](Self::rebase_continue) continues the remaining
     /// pairs in the same batch.
