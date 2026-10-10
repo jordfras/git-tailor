@@ -289,6 +289,58 @@ fn a_merge_in_the_rewritten_range_is_refused_up_front() {
     );
 }
 
+/// The range check starts above the oldest target, so that target being a merge
+/// itself has to be refused on its own — before the steps below it land.
+#[test]
+fn a_merge_as_the_oldest_target_is_refused_up_front() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let main_side = test.commit_file("a.txt", "v2\n", "Main side");
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let base_commit = test.repo.find_commit(base).unwrap();
+    test.write_file("s.txt", "s\n");
+    test.stage_file("s.txt");
+    let side_tree = test
+        .repo
+        .find_tree(test.repo.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    let side = test
+        .repo
+        .commit(None, &sig, &sig, "Side", &side_tree, &[&base_commit])
+        .unwrap();
+    let main_commit = test.repo.find_commit(main_side).unwrap();
+    let side_commit = test.repo.find_commit(side).unwrap();
+    test.repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "Merge side",
+            &side_tree,
+            &[&main_commit, &side_commit],
+        )
+        .unwrap();
+    test.commit_file("b.txt", "b\n", "Add b");
+    test.commit_file("b.txt", "b\nfix\n", "fixup! Add b");
+    test.commit_file("m.txt", "m\n", "fixup! Merge side");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let result = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default());
+
+    let msg = format!(
+        "{:#}",
+        result.expect_err("a merge as a target must be refused")
+    );
+    assert!(msg.to_lowercase().contains("merge"), "{msg}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_oid,
+        "nothing may land before the refusal"
+    );
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
