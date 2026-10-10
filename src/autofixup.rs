@@ -305,13 +305,16 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> AutofixupPlan {
     let mut plan = AutofixupPlan::default();
     // Where each commit folds into, for those that are fixups themselves.
     let mut folds_into: Vec<Option<usize>> = vec![None; commits.len()];
+    let mut left_ambiguous = vec![false; commits.len()];
     for (i, commit) in commits.iter().enumerate() {
         let Some((mode, named)) = split_prefixes(&commit.summary_key) else {
             continue;
         };
+        // A fixup naming one left in place would fold into a commit that stays.
         let named_index = match named_target(&commits[..i], named) {
-            Named::One(index) => index,
-            Named::Several => {
+            Named::One(index) if !left_ambiguous[index] => index,
+            Named::One(_) | Named::Several => {
+                left_ambiguous[i] = true;
                 plan.ambiguous.push(AmbiguousFixup {
                     oid: commit.oid.expect_real_oid(),
                     summary: commit.summary.clone(),
@@ -351,10 +354,15 @@ fn named_target(earlier: &[CommitInfo], named: &[u8]) -> Named {
         Named::Nothing => {}
         exact => return exact,
     }
-    if let Some(index) = abbreviated(earlier, named) {
-        return Named::One(index);
+    match abbreviated(earlier, named) {
+        Named::Nothing => {}
+        hashed => return hashed,
     }
-    matching(earlier, |c| c.summary_key.starts_with(named))
+    // Every fixup's summary starts with its prefix, so only commits that are
+    // not fixups count as what the start of a summary names.
+    matching(earlier, |c| {
+        strip_prefix(&c.summary_key).is_none() && c.summary_key.starts_with(named)
+    })
 }
 
 fn matching(commits: &[CommitInfo], matches: impl Fn(&CommitInfo) -> bool) -> Named {
@@ -399,22 +407,18 @@ fn strip_prefix(text: &[u8]) -> Option<(SquashMode, &[u8])> {
         })
 }
 
-/// The one commit whose hash starts with `named`, when `named` reads as an
+/// The commits whose hash starts with `named`, when `named` reads as an
 /// abbreviated hash: four or more hex digits and nothing else, as git requires.
-fn abbreviated(commits: &[CommitInfo], named: &[u8]) -> Option<usize> {
+fn abbreviated(commits: &[CommitInfo], named: &[u8]) -> Named {
     if named.len() < 4 || !named.iter().all(u8::is_ascii_hexdigit) {
-        return None;
+        return Named::Nothing;
     }
     let named = named.to_ascii_lowercase();
-    let mut matching = commits.iter().enumerate().filter(|(_, c)| {
+    matching(commits, |c| {
         c.oid
             .as_oid()
             .is_some_and(|oid| oid.long().as_bytes().starts_with(&named))
-    });
-    match (matching.next(), matching.next()) {
-        (Some((index, _)), None) => Some(index),
-        _ => None,
-    }
+    })
 }
 
 #[cfg(test)]
