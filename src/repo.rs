@@ -999,14 +999,15 @@ pub trait RepoWrite {
         autofixup_context: Option<&AutofixupContext>,
     ) -> Result<RebaseOutcome>;
 
-    /// Bulk-squash every `fixup!`/`squash!`-prefixed commit in
-    /// `reference_oid..head_oid` into the earlier commit its summary names
-    /// (see [`crate::autofixup::plan_autofixup`]), bottom-up so multiple
-    /// fixups aimed at the same target stack correctly. `squash!` pairs
+    /// Bulk-squash each of `pairs` — the plan the confirmation dialog showed,
+    /// from [`crate::autofixup::plan_autofixup`] over the listed commits — oldest
+    /// fixup first, so multiple fixups aimed at the same target stack
+    /// correctly. The plan is followed rather than made again here, because
+    /// only the caller knows which commits the list showed: the merge-base is
+    /// left out, and a fixup must never fold into it. `squash!` pairs
     /// combine messages non-interactively (target message, blank line,
     /// source message — the same default text the manual squash editor
     /// starts from); `fixup!` pairs keep the target's message unchanged.
-    /// Commits with no resolvable target are left in place.
     ///
     /// `message_overrides` lets the caller pin the final message for a
     /// target's whole fixup/squash group instead of the computed default — see
@@ -1022,6 +1023,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
+        pairs: &[crate::autofixup::AutofixupPair],
         message_overrides: &crate::autofixup::MessageOverrides,
     ) -> Result<RebaseOutcome>;
 

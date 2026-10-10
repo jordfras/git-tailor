@@ -341,9 +341,8 @@ fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
     let head_oid = git_repo.head_oid().unwrap();
     assert_eq!(head_oid, Oid::from(source));
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
@@ -387,9 +386,7 @@ fn bulk_autofixup_tells_apart_targets_that_render_alike() {
     let mut overrides = autofixup::MessageOverrides::default();
     overrides.set(for_group, bstr::BString::from("Fixed for\n"));
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     assert_rebase_complete!(outcome);
 
     let commits = test.commits_from_head(base);
@@ -416,9 +413,8 @@ fn bulk_autofixup_matches_a_utf8_fixup_to_a_latin1_target() {
 
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     let commits = test.commits_from_head(base);

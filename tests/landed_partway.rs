@@ -144,7 +144,7 @@ fn a_conflict_that_fails_to_write_keeps_its_record() {
     let head_oid = git_repo.head_oid().unwrap();
     let result = {
         let _guard = ReadOnly::new(&workdir(&test).join("d"));
-        git_repo.autofixup(&head_oid, &Oid::from(base), &Default::default())
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default())
     };
 
     assert!(

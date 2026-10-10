@@ -157,7 +157,7 @@ pub(crate) fn handle_execute_autofixup(
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
     autostash_save_or_bail!(git_repo, app);
-    match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
+    match git_repo.autofixup(&head_oid, &reference_oid, &pairs, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
             app,
             git_repo.autostash_restore(),

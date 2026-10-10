@@ -30,7 +30,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{self, BatchPlan, MessageOverrides};
+use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -39,10 +39,11 @@ pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
+    pairs: &[AutofixupPair],
     message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
     let commits = reads::list_commits(repo, head_oid, reference_oid)?;
-    let plan = BatchPlan::new(&commits, &autofixup::plan_autofixup(&commits));
+    let plan = BatchPlan::new(&commits, pairs);
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.

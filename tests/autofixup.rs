@@ -59,9 +59,8 @@ fn multiple_fixups_for_the_same_target_stack_correctly() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Add target line"]);
@@ -86,9 +85,8 @@ fn a_fixup_of_a_fixup_folds_into_the_original_target() {
 
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Add target line", "Unrelated"]);
@@ -111,9 +109,8 @@ fn a_fixup_named_by_hash_finds_its_target_after_earlier_steps_rewrote_it() {
 
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Add target line", "Tweak", "Tweak"]);
@@ -152,9 +149,7 @@ fn a_message_edited_for_one_of_two_same_named_targets_lands_on_that_one() {
     let mut overrides = MessageOverrides::default();
     overrides.set(second_group, bstr::BString::from("Second tweak\n"));
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Tweak", "Second tweak"]);
@@ -191,9 +186,8 @@ fn a_fixup_with_no_matching_target_is_left_in_place() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     // No matching target: nothing to squash, both commits survive untouched.
@@ -217,9 +211,8 @@ fn mixed_fixup_and_squash_prefixes() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Add parser", "Add lexer"]);
@@ -254,9 +247,8 @@ fn a_single_undo_entry_reverts_the_whole_batch() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
     assert_history!(&test, base, &["Add target line"]);
 
@@ -295,9 +287,8 @@ fn conflict_partway_through_a_batch_resumes_the_remaining_pairs_and_still_undoes
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     let state = expect_rebase_conflict!(outcome);
     assert_eq!(
         state.original_branch_oid, head_oid,
@@ -382,9 +373,7 @@ fn a_message_override_applies_to_the_final_message_of_a_single_fixup() {
             bstr::BString::from("Custom final message\n"),
         )],
     );
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     assert_rebase_complete!(outcome);
 
     assert_history!(&test, base, &["Custom final message"]);
@@ -411,9 +400,7 @@ fn a_message_override_replaces_the_auto_combined_squash_text() {
             bstr::BString::from("Custom final message\n"),
         )],
     );
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     assert_rebase_complete!(outcome);
 
     // Without the override this would be "Add target line\n\nsquash! Add
@@ -447,9 +434,7 @@ fn a_message_override_only_applies_once_every_fixup_for_the_target_has_folded_in
             bstr::BString::from("Custom final message\n"),
         )],
     );
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     assert_rebase_complete!(outcome);
 
     // Both fixups still matched and folded in — applying the override to the
@@ -483,9 +468,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
             bstr::BString::from("Custom final message\n"),
         )],
     );
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &overrides)
-        .unwrap();
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
     let state = expect_rebase_conflict!(outcome);
 
     // The override must have survived into the persisted conflict state —
@@ -544,7 +527,7 @@ fn an_error_after_a_pair_has_landed_still_records_undo() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let result = git_repo.autofixup(&head_oid, &Oid::from(base), &Default::default());
+    let result = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default());
     assert!(result.is_err(), "expected a refusal, got {result:?}");
     assert_history!(&test, base, &["Add T1", "Add T2", "Add c", "fixup! Add T2"]);
 
@@ -575,9 +558,8 @@ fn nothing_to_autofixup_is_a_clean_no_op() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
     assert_history!(&test, base, &["Add target line"]);
 }
@@ -610,9 +592,7 @@ fn a_non_utf8_message_override_reaches_the_commit_unchanged() {
     );
 
     assert_rebase_complete!(
-        git_repo
-            .autofixup(&head_oid, &Oid::from(base), &overrides)
-            .unwrap()
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap()
     );
 
     let head = git_repo.head_oid().unwrap();

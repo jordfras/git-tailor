@@ -353,7 +353,14 @@ pub fn autofixup_as_shown(
     base: git2::Oid,
     overrides: &git_tailor::autofixup::MessageOverrides,
 ) -> anyhow::Result<git_tailor::repo::RebaseOutcome> {
-    git_repo.autofixup(head, &Oid::from(base), overrides)
+    use git_tailor::repo::RepoRead;
+    let shown: Vec<git_tailor::CommitInfo> = git_repo
+        .list_commits(head, &Oid::from(base))?
+        .into_iter()
+        .filter(|c| c.oid.as_oid() != Some(&Oid::from(base)))
+        .collect();
+    let pairs = git_tailor::autofixup::plan_autofixup(&shown);
+    git_repo.autofixup(head, &Oid::from(base), &pairs, overrides)
 }
 
 /// Test harness that wraps `Terminal<TestBackend>` to eliminate per-test

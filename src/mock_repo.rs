@@ -570,6 +570,7 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
+        _: &[git_tailor::autofixup::AutofixupPair],
         _: &git_tailor::autofixup::MessageOverrides,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
