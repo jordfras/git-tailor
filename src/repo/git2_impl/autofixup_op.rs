@@ -51,8 +51,12 @@ pub(super) fn autofixup(
         let oldest = plan.planned_oid(PlannedPos(oldest));
         repo.refuse_rewriting_from(oldest, head_oid)?;
         // A step finds its commits by their place in the branch, which only a
-        // single line of history defines.
-        if repo.range_has_merge(Some(git2::Oid::from(oldest)), git2::Oid::from(head_oid))? {
+        // single line of history defines. The range starts above the oldest
+        // target, so that one is checked on its own.
+        let oldest_git_oid = git2::Oid::from(oldest);
+        if repo.inner.find_commit(oldest_git_oid)?.parent_count() > 1
+            || repo.range_has_merge(Some(oldest_git_oid), git2::Oid::from(head_oid))?
+        {
             anyhow::bail!("Cannot autofixup: a merge commit lies between a target and HEAD");
         }
     }
