@@ -601,6 +601,37 @@ mod tests {
         );
     }
 
+    fn pair(source: &str, target: &str) -> AutofixupPair {
+        AutofixupPair {
+            source_oid: Oid::new(source.repeat(40)),
+            target_oid: Oid::new(target.repeat(40)),
+            source_summary: String::new(),
+            target_summary: String::new(),
+            source_message: String::new(),
+            target_message: String::new(),
+            mode: SquashMode::Fixup,
+        }
+    }
+
+    /// The positions only add up for pairs the planner could have made, so any
+    /// other shape is refused while refusing still costs nothing.
+    #[test]
+    fn a_plan_refuses_pairs_its_positions_cannot_follow() {
+        let commits = oids(&[commit("a", "A"), commit("b", "B"), commit("c", "C")]);
+        let refused = [
+            vec![pair("a", "b")],
+            vec![pair("b", "a"), pair("b", "a")],
+            vec![pair("b", "a"), pair("c", "b")],
+        ];
+        for pairs in refused {
+            assert!(
+                BatchPlan::new(commits.clone(), &pairs).is_err(),
+                "accepted {pairs:?}"
+            );
+        }
+        assert!(BatchPlan::new(commits, &[pair("b", "a"), pair("c", "a")]).is_ok());
+    }
+
     #[test]
     fn the_oldest_match_wins_on_duplicate_summaries() {
         let commits = vec![
