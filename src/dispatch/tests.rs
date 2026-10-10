@@ -1158,7 +1158,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
@@ -1185,7 +1185,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
@@ -1217,7 +1217,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::Continue)));

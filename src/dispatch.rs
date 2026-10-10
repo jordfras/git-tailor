@@ -290,14 +290,10 @@ pub(crate) fn dispatch_action(
         AppAction::PrepareAutofixupConfirm => {
             return handle_prepare_autofixup_confirm(git_repo, app);
         }
-        AppAction::PrepareAutofixupEditMessage {
-            target_summary,
-            group,
-        } => {
+        AppAction::PrepareAutofixupEditMessage { group } => {
             return handle_prepare_autofixup_edit_message(
                 git_repo,
                 app,
-                target_summary,
                 &group,
                 terminal_guard,
                 kb_enhanced,

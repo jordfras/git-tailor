@@ -245,11 +245,7 @@ fn autofixup_with_a_grafted_target_refuses_before_squashing_anything() {
     std::fs::write(&grafts, format!("{grafted}\n")).unwrap();
     let mut git_repo = test.git_repo();
 
-    let result = git_repo.autofixup(
-        &Oid::from(head),
-        &Oid::from(base),
-        &std::collections::HashMap::new(),
-    );
+    let result = git_repo.autofixup(&Oid::from(head), &Oid::from(base), &Default::default());
 
     let error = format!("{:#}", result.expect_err("the batch must be refused"));
     assert!(error.contains("graft"), "{error}");

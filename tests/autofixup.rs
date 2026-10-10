@@ -19,7 +19,29 @@ mod common;
 
 use bstr::ByteSlice;
 use common::prelude::*;
+use git_tailor::autofixup::{self, MessageOverrides};
 use git_tailor::repo::UndoOutcome;
+
+/// Final messages for the targets named by summary, set the way the
+/// confirmation dialog sets them: through the planned groups.
+fn overrides_for(
+    git_repo: &impl GitRepo,
+    head_oid: &Oid,
+    base: git2::Oid,
+    messages: &[(&str, bstr::BString)],
+) -> MessageOverrides {
+    let commits = git_repo.list_commits(head_oid, &Oid::from(base)).unwrap();
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let mut overrides = MessageOverrides::default();
+    for (summary, message) in messages {
+        let group = groups
+            .iter()
+            .find(|g| g.target_summary == *summary)
+            .unwrap_or_else(|| panic!("no autofixup target named {summary:?}"));
+        overrides.set(group, message.clone());
+    }
+    overrides
+}
 
 #[test]
 fn multiple_fixups_for_the_same_target_stack_correctly() {
@@ -239,10 +261,15 @@ fn a_message_override_applies_to_the_final_message_of_a_single_fixup() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let overrides = std::collections::HashMap::from([(
-        "Add target line".to_string(),
-        bstr::BString::from("Custom final message\n"),
-    )]);
+    let overrides = overrides_for(
+        &git_repo,
+        &head_oid,
+        base,
+        &[(
+            "Add target line",
+            bstr::BString::from("Custom final message\n"),
+        )],
+    );
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
         .unwrap();
@@ -263,10 +290,15 @@ fn a_message_override_replaces_the_auto_combined_squash_text() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let overrides = std::collections::HashMap::from([(
-        "Add target line".to_string(),
-        bstr::BString::from("Custom final message\n"),
-    )]);
+    let overrides = overrides_for(
+        &git_repo,
+        &head_oid,
+        base,
+        &[(
+            "Add target line",
+            bstr::BString::from("Custom final message\n"),
+        )],
+    );
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
         .unwrap();
@@ -294,10 +326,15 @@ fn a_message_override_only_applies_once_every_fixup_for_the_target_has_folded_in
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let overrides = std::collections::HashMap::from([(
-        "Add target line".to_string(),
-        bstr::BString::from("Custom final message\n"),
-    )]);
+    let overrides = overrides_for(
+        &git_repo,
+        &head_oid,
+        base,
+        &[(
+            "Add target line",
+            bstr::BString::from("Custom final message\n"),
+        )],
+    );
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
         .unwrap();
@@ -325,10 +362,15 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
 
-    let overrides = std::collections::HashMap::from([(
-        "Add target line".to_string(),
-        bstr::BString::from("Custom final message\n"),
-    )]);
+    let overrides = overrides_for(
+        &git_repo,
+        &head_oid,
+        base,
+        &[(
+            "Add target line",
+            bstr::BString::from("Custom final message\n"),
+        )],
+    );
     let outcome = git_repo
         .autofixup(&head_oid, &Oid::from(base), &overrides)
         .unwrap();
@@ -340,10 +382,7 @@ fn a_message_override_survives_a_conflict_resume_and_applies_on_completion() {
         .autofixup_context
         .as_ref()
         .expect("an autofixup batch conflict carries its context");
-    assert_eq!(
-        ctx.message_overrides.get("Add target line"),
-        Some(&bstr::BString::from("Custom final message\n"))
-    );
+    assert_eq!(ctx.message_overrides, overrides);
 
     // The single fixup for this target was the *last* (only) one queued, so
     // the override was already folded into the conflict's own combined
@@ -451,8 +490,12 @@ fn a_non_utf8_message_override_reaches_the_commit_unchanged() {
 
     // Latin-1 "Fix för åäö handling": valid git, invalid UTF-8.
     let message = bstr::BString::from(&b"Fix f\xf6r \xe5\xe4\xf6 handling\n"[..]);
-    let overrides =
-        std::collections::HashMap::from([("Add target line".to_string(), message.clone())]);
+    let overrides = overrides_for(
+        &git_repo,
+        &head_oid,
+        base,
+        &[("Add target line", message.clone())],
+    );
 
     assert_rebase_complete!(
         git_repo

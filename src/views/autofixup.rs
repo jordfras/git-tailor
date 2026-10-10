@@ -73,7 +73,6 @@ pub fn handle_confirm_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                     return AppAction::Handled;
                 };
                 AppAction::PrepareAutofixupEditMessage {
-                    target_summary: group.target_summary.clone(),
                     group: Box::new(group.clone()),
                 }
             }
@@ -179,7 +178,7 @@ fn target_line(
     app: &AppState,
     group: &AutofixupGroup,
     selected: bool,
-    overrides: &std::collections::HashMap<String, bstr::BString>,
+    overrides: &crate::autofixup::MessageOverrides,
     width: usize,
 ) -> Line<'static> {
     const EDITED: &str = " (edited)";
@@ -193,7 +192,7 @@ fn target_line(
     };
 
     let sha = group.target_oid.short();
-    let edited = overrides.contains_key(&group.target_summary);
+    let edited = overrides.for_group(group).is_some();
     let used = marker.chars().count()
         + sha.chars().count()
         + 1

@@ -111,20 +111,17 @@ pub(super) fn edit_seed(
 /// Open `$EDITOR` on the target's message, with the sources being folded into
 /// it commented out (see `autofixup::edit_template`), and store
 /// the result back onto the still-open confirmation dialog as an override for
-/// `target_summary`. Does not execute anything; the batch only runs once the
+/// `group`'s target. Does not execute anything; the batch only runs once the
 /// user confirms.
 pub(crate) fn handle_prepare_autofixup_edit_message(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
-    target_summary: String,
     group: &AutofixupGroup,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let edited = match &app.mode {
-        AppMode::AutofixupConfirm(pending) => {
-            pending.message_overrides.get(&target_summary).cloned()
-        }
+        AppMode::AutofixupConfirm(pending) => pending.message_overrides.for_group(group).cloned(),
         _ => None,
     };
     let template = edit_seed(git_repo, group, edited.as_ref().map(|m| m.as_bstr()));
@@ -135,11 +132,11 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
             let message = git_tailor::autofixup::strip_comment_lines(edited.as_bstr());
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
-                    pending.message_overrides.remove(&target_summary);
+                    pending.message_overrides.clear(group);
                 } else {
                     let mut message = message;
                     message.push(b'\n');
-                    pending.message_overrides.insert(target_summary, message);
+                    pending.message_overrides.set(group, message);
                 }
             }
         }
@@ -155,7 +152,7 @@ pub(crate) fn handle_execute_autofixup(
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
-    message_overrides: std::collections::HashMap<String, bstr::BString>,
+    message_overrides: git_tailor::autofixup::MessageOverrides,
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);

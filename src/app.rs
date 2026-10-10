@@ -148,22 +148,20 @@ pub enum AppAction {
     /// Begin the autofixup flow: get head_oid, compute the pair plan from the
     /// already-loaded commits, then show the confirmation dialog.
     PrepareAutofixupConfirm,
-    /// Open `$EDITOR` on `template` to edit the final message for the target
-    /// group identified by `target_summary` (its original, stable identity).
+    /// Open `$EDITOR` to edit the final message for the target `group`.
     PrepareAutofixupEditMessage {
-        target_summary: String,
         group: Box<crate::autofixup::AutofixupGroup>,
     },
     /// Execute a confirmed autofixup batch. `pairs` is the plan shown in the
     /// confirmation dialog, reused after completion to work out where the
     /// cursor should land (see `main.rs::autofixup_target_selection_index`).
     /// `message_overrides` carries any per-target messages the user edited
-    /// before confirming, keyed by the target's original summary text.
+    /// before confirming.
     ExecuteAutofixup {
         head_oid: Oid,
         reference_oid: Oid,
         pairs: Vec<AutofixupPair>,
-        message_overrides: std::collections::HashMap<String, bstr::BString>,
+        message_overrides: crate::autofixup::MessageOverrides,
     },
 }
 
@@ -432,7 +430,6 @@ pub struct PendingAutofixup {
     pub reference_oid: Oid,
     /// Index into `group_by_target(&pairs)` of the highlighted target group.
     pub selected_group: usize,
-    /// User-edited final messages, keyed by the target's original summary
-    /// text (see `AutofixupContext::message_overrides`).
-    pub message_overrides: std::collections::HashMap<String, bstr::BString>,
+    /// User-edited final messages.
+    pub message_overrides: crate::autofixup::MessageOverrides,
 }

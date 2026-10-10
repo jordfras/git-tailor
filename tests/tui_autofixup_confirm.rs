@@ -21,7 +21,7 @@ use common::TuiTestHarness;
 use git_tailor::{
     Oid,
     app::{AppAction, AppMode, AppState, KeyCommand, PendingAutofixup, SquashMode},
-    autofixup::AutofixupPair,
+    autofixup::{self, AutofixupPair, MessageOverrides},
     views,
 };
 
@@ -43,10 +43,22 @@ fn pair(
     }
 }
 
+/// `message` as the edited final message for the target `summary` among `pairs`.
+fn edited(pairs: &[AutofixupPair], summary: &str, message: &str) -> MessageOverrides {
+    let groups = autofixup::group_by_target(pairs);
+    let group = groups
+        .iter()
+        .find(|g| g.target_summary == summary)
+        .expect("a target with that summary");
+    let mut overrides = MessageOverrides::default();
+    overrides.set(group, bstr::BString::from(message));
+    overrides
+}
+
 fn make_app_in_autofixup_confirm(
     pairs: Vec<AutofixupPair>,
     selected_group: usize,
-    message_overrides: std::collections::HashMap<String, bstr::BString>,
+    message_overrides: MessageOverrides,
 ) -> AppState {
     let mut app = AppState::new();
     app.list.commits = vec![
@@ -128,20 +140,15 @@ fn test_autofixup_confirm_dialog_groups_stacked_fixups_under_one_target() {
 fn test_autofixup_confirm_dialog_shows_edited_indicator() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = make_app_in_autofixup_confirm(
-        vec![pair(
-            "abc123def456",
-            "fixup! Add parser",
-            "def456ghi789",
-            "Add parser",
-            SquashMode::Fixup,
-        )],
-        0,
-        std::collections::HashMap::from([(
-            "Add parser".to_string(),
-            bstr::BString::from("Add parser (with a fix)\n"),
-        )]),
-    );
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! Add parser",
+        "def456ghi789",
+        "Add parser",
+        SquashMode::Fixup,
+    )];
+    let overrides = edited(&pairs, "Add parser", "Add parser (with a fix)\n");
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, overrides);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -180,23 +187,20 @@ fn test_autofixup_confirm_dialog_long_source_summary() {
 fn test_autofixup_confirm_dialog_long_target_summary() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut overrides = std::collections::HashMap::new();
-    overrides.insert(
-        "Refactor the entire parser module to use trait-based dispatching".to_string(),
-        bstr::BString::from("edited\n"),
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! Add parser",
+        "def456ghi789",
+        "Refactor the entire parser module to use trait-based dispatching",
+        SquashMode::Fixup,
+    )];
+    let overrides = edited(
+        &pairs,
+        "Refactor the entire parser module to use trait-based dispatching",
+        "edited\n",
     );
 
-    let mut app = make_app_in_autofixup_confirm(
-        vec![pair(
-            "abc123def456",
-            "fixup! Add parser",
-            "def456ghi789",
-            "Refactor the entire parser module to use trait-based dispatching",
-            SquashMode::Fixup,
-        )],
-        0,
-        overrides,
-    );
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, overrides);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -301,13 +305,9 @@ fn test_autofixup_confirm_reword_targets_the_selected_group() {
 
     let result = views::autofixup::handle_confirm_key(KeyCommand::Reword, &mut app);
     match result {
-        AppAction::PrepareAutofixupEditMessage {
-            target_summary,
-            group,
-        } => {
+        AppAction::PrepareAutofixupEditMessage { group } => {
             // The picked group, not a template: the seed is built in dispatch,
             // which is where the commits' bytes can be read.
-            assert_eq!(target_summary, "Add lexer");
             assert_eq!(group.target_summary, "Add lexer");
             assert_eq!(group.sources.len(), 1);
             assert_eq!(group.sources[0].source_summary, "squash! Add lexer");
@@ -320,10 +320,7 @@ fn test_autofixup_confirm_reword_targets_the_selected_group() {
 
 #[test]
 fn test_autofixup_confirm_enter_executes_the_whole_batch_with_overrides() {
-    let overrides = std::collections::HashMap::from([(
-        "Add parser".to_string(),
-        bstr::BString::from("Custom message\n"),
-    )]);
+    let overrides = edited(&two_target_groups(), "Add parser", "Custom message\n");
     let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, overrides.clone());
 
     let result = views::autofixup::handle_confirm_key(KeyCommand::Confirm, &mut app);

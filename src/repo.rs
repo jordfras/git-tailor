@@ -361,14 +361,11 @@ pub struct AutofixupContext {
     /// The range's base, needed to re-scan for the next fixup/target pair
     /// once the current conflict resolves.
     pub reference_oid: Oid,
-    /// User-edited final messages chosen up front in the confirmation dialog,
-    /// keyed by the target commit's *original* summary text (stable across
-    /// the batch's cascading rebases, unlike its OID). Applied only once —
-    /// to the last pair squashed into a given target — so an intermediate
-    /// step in a multi-fixup group never renames the target before the
-    /// remaining fixups in that group have had a chance to match it.
-    #[serde(with = "crate::domain::message_map")]
-    pub message_overrides: std::collections::HashMap<String, BString>,
+    /// User-edited final messages chosen up front in the confirmation dialog.
+    /// Applied only once — to the last pair squashed into a given target — so
+    /// an intermediate step in a multi-fixup group never renames the target
+    /// before the remaining fixups in that group have had a chance to match it.
+    pub message_overrides: crate::autofixup::MessageOverrides,
 }
 
 /// Extra state carried through a squash-time conflict so that the squash
@@ -1008,9 +1005,8 @@ pub trait RepoWrite {
     /// starts from); `fixup!` pairs keep the target's message unchanged.
     /// Commits with no resolvable target are left in place.
     ///
-    /// `message_overrides` (keyed by a target's original summary text) lets
-    /// the caller pin the final message for a target's whole fixup/squash
-    /// group instead of the computed default — see
+    /// `message_overrides` lets the caller pin the final message for a
+    /// target's whole fixup/squash group instead of the computed default — see
     /// [`AutofixupContext::message_overrides`].
     ///
     /// The whole batch is one undoable operation: a single undo entry
@@ -1023,7 +1019,7 @@ pub trait RepoWrite {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, bstr::BString>,
+        message_overrides: &crate::autofixup::MessageOverrides,
     ) -> Result<RebaseOutcome>;
 
     /// Stage a working-tree file, clearing any conflict entries for that path.

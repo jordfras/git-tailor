@@ -22,8 +22,6 @@
 //! applied, or as soon as an error stops it with some landed — and
 //! `rebase_abort` unwinds the whole batch rather than just the in-progress step.
 
-use std::collections::HashMap;
-
 use anyhow::Result;
 use bstr::{BStr, BString, ByteSlice};
 
@@ -32,7 +30,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{self, AutofixupPair};
+use crate::autofixup::{self, AutofixupPair, MessageOverrides};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -41,7 +39,7 @@ pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, BString>,
+    message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
@@ -136,7 +134,7 @@ fn run_batch(
     mut current_tip: Oid,
     batch_original_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, BString>,
+    message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
     loop {
         let commits = reads::list_commits(repo, &current_tip, reference_oid)?;
@@ -194,11 +192,9 @@ fn pair_message(
     repo: &Git2Repo,
     pair: &AutofixupPair,
     more_pending_for_target: bool,
-    message_overrides: &HashMap<String, BString>,
+    message_overrides: &MessageOverrides,
 ) -> Result<BString> {
-    if !more_pending_for_target
-        && let Some(overridden) = message_overrides.get(&pair.target_summary)
-    {
+    if !more_pending_for_target && let Some(overridden) = message_overrides.for_pair(pair) {
         return Ok(overridden.clone());
     }
     let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;

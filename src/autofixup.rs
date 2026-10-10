@@ -20,6 +20,11 @@ use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
 use bstr::{BStr, BString, ByteSlice};
+use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::fmt;
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +74,101 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
         }
     }
     groups
+}
+
+/// Final messages the user chose in the confirmation dialog, one per target.
+///
+/// Keyed by the target's summary, which survives the batch's cascading rebases
+/// where its OID does not. Only groups and pairs can look one up, so the dialog
+/// that sets a message and the batch that applies it cannot key it differently.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MessageOverrides(BTreeMap<BString, BString>);
+
+impl MessageOverrides {
+    pub fn for_group(&self, group: &AutofixupGroup) -> Option<&BString> {
+        self.0.get(&target_key(&group.target_summary))
+    }
+
+    pub fn for_pair(&self, pair: &AutofixupPair) -> Option<&BString> {
+        self.0.get(&target_key(&pair.target_summary))
+    }
+
+    pub fn set(&mut self, group: &AutofixupGroup, message: BString) {
+        self.0.insert(target_key(&group.target_summary), message);
+    }
+
+    pub fn clear(&mut self, group: &AutofixupGroup) {
+        self.0.remove(&target_key(&group.target_summary));
+    }
+}
+
+fn target_key(summary: &str) -> BString {
+    BString::from(summary)
+}
+
+/// One override as the journal stores it. A list of these rather than a map,
+/// because a JSON object needs keys that are text and a summary may not be.
+#[derive(Serialize, Deserialize)]
+struct OverrideEntry {
+    #[serde(with = "crate::domain::message_bytes")]
+    summary: BString,
+    #[serde(with = "crate::domain::message_bytes")]
+    message: BString,
+}
+
+impl Serialize for MessageOverrides {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        let mut seq = ser.serialize_seq(Some(self.0.len()))?;
+        for (summary, message) in &self.0 {
+            seq.serialize_element(&OverrideEntry {
+                summary: summary.clone(),
+                message: message.clone(),
+            })?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for MessageOverrides {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        struct Message(BString);
+
+        impl<'de> Deserialize<'de> for Message {
+            fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+                crate::domain::message_bytes::deserialize(de).map(Message)
+            }
+        }
+
+        struct Overrides;
+
+        impl<'de> Visitor<'de> for Overrides {
+            type Value = MessageOverrides;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("commit messages keyed by summary")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut out = BTreeMap::new();
+                while let Some(entry) = seq.next_element::<OverrideEntry>()? {
+                    out.insert(entry.summary, entry.message);
+                }
+                Ok(MessageOverrides(out))
+            }
+
+            /// The shape a journal from 3.0.0 or 3.1.0 holds: an object keyed
+            /// by the summary as text.
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut out = BTreeMap::new();
+                while let Some((summary, Message(message))) = map.next_entry::<String, Message>()? {
+                    out.insert(BString::from(summary), message);
+                }
+                Ok(MessageOverrides(out))
+            }
+        }
+
+        de.deserialize_any(Overrides)
+    }
 }
 
 const COMMENT_PREFIX: &str = "# ";
@@ -163,6 +263,53 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         });
     }
     pairs
+}
+
+#[cfg(test)]
+mod message_overrides_tests {
+    use super::*;
+
+    fn overrides(entries: &[(&[u8], &[u8])]) -> MessageOverrides {
+        MessageOverrides(
+            entries
+                .iter()
+                .map(|(summary, message)| (BString::from(*summary), BString::from(*message)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn utf8_entries_round_trip_as_plain_strings() {
+        let wrapper = overrides(&[(b"Add parser", b"Edited\n")]);
+        let json = serde_json::to_string(&wrapper).unwrap();
+        assert_eq!(json, r#"[{"summary":"Add parser","message":"Edited\n"}]"#);
+        let back: MessageOverrides = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    fn a_summary_and_message_that_do_not_decode_round_trip() {
+        let wrapper = overrides(&[(b"Fix f\xf6r", b"Fix f\xf6r \xe5\xe4\xf6\n")]);
+        let json = serde_json::to_string(&wrapper).unwrap();
+        let back: MessageOverrides = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wrapper);
+    }
+
+    #[test]
+    fn a_journal_keyed_by_summary_text_still_loads() {
+        let json = r#"{"Add parser":"Edited\n"}"#;
+        let loaded: MessageOverrides = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded, overrides(&[(b"Add parser", b"Edited\n")]));
+    }
+
+    #[test]
+    fn a_journal_that_wrote_every_message_as_a_byte_array_still_loads() {
+        // The shape the derived `Vec<u8>` serialization produced, which a
+        // journal parked by an earlier build still holds.
+        let json = r#"{"Add parser":[69,100,105,116,101,100,10]}"#;
+        let loaded: MessageOverrides = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded, overrides(&[(b"Add parser", b"Edited\n")]));
+    }
 }
 
 #[cfg(test)]
