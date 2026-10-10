@@ -25,8 +25,31 @@ use git_tailor::{
     views,
 };
 
+/// The dialog's text as one line: what lies between its side borders on each
+/// row, so a sentence reads whole wherever it wrapped.
+fn dialog_text(buffer: &ratatui::buffer::Buffer) -> String {
+    let width = buffer.area.width as usize;
+    let cells = buffer.content();
+    let mut words = Vec::new();
+    for row in cells.chunks(width) {
+        let row: String = row.iter().map(|cell| cell.symbol()).collect();
+        let (Some(start), Some(end)) = (row.find('│'), row.rfind('│')) else {
+            continue;
+        };
+        if start < end {
+            words.extend(
+                row[start + '│'.len_utf8()..end]
+                    .split_whitespace()
+                    .map(str::to_string),
+            );
+        }
+    }
+    words.join(" ")
+}
+
 /// With the branch moved or another one checked out, Enter and Esc both refuse
-/// until it is back, so the dialog says which branch, on which commit.
+/// until it is back, so the dialog says which branch, on which commit — and
+/// how to drop the operation instead.
 #[test]
 fn a_moved_branch_names_the_branch_and_commit_to_return_to() {
     let mut harness = TuiTestHarness::typical();
@@ -49,9 +72,14 @@ fn a_moved_branch_names_the_branch_and_commit_to_return_to() {
         views::commit_list::render(&mut app, frame);
         views::conflict::render_conflict(&mut app, frame);
     });
-    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    let text = dialog_text(&buffer);
 
-    assert!(!screen.contains("on the commit it paused"), "{screen}");
-    assert!(screen.contains("feature"), "{screen}");
-    assert!(screen.contains("c5068579"), "{screen}");
+    assert!(!text.contains("on the commit it paused"), "{text}");
+    assert!(
+        text.contains(
+            "Enter and Esc both refuse until feature is checked out on c5068579 again \
+             — or quit and run gt --clean-journal to drop the operation."
+        ),
+        "{text}"
+    );
 }
