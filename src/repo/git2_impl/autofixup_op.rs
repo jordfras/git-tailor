@@ -140,8 +140,9 @@ fn run_batch(
         let source_oid = commits[ctx.plan.current_index(step.source, ctx.landed)]
             .oid
             .expect_real_oid();
-        let target = &commits[ctx.plan.current_index(step.target, ctx.landed)];
-        let target_oid = target.oid.expect_real_oid();
+        let target_oid = commits[ctx.plan.current_index(step.target, ctx.landed)]
+            .oid
+            .expect_real_oid();
         let more_pending_for_target = ctx.plan.steps[ctx.landed + 1..]
             .iter()
             .any(|later| later.target == step.target);
@@ -149,7 +150,7 @@ fn run_batch(
             None
         } else {
             ctx.message_overrides
-                .for_summary_key(target.summary_key.as_bstr())
+                .for_target(&ctx.plan.commits[step.target.0])
                 .cloned()
         };
         let message = match overridden {

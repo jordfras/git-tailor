@@ -20,11 +20,9 @@ use crate::CommitInfo;
 use crate::Oid;
 use crate::app::SquashMode;
 use bstr::{BStr, BString, ByteSlice};
-use serde::de::{MapAccess, SeqAccess, Visitor};
-use serde::ser::SerializeSeq;
+use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// One `fixup!`/`squash!` commit matched to the target it will be squashed into.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,10 +31,6 @@ pub struct AutofixupPair {
     pub target_oid: Oid,
     pub source_summary: String,
     pub target_summary: String,
-    /// The target's summary as git compares it (see
-    /// [`CommitInfo::summary_key`]): what identifies the target, since two
-    /// summaries can render alike.
-    pub target_summary_key: BString,
     /// Full commit message (summary + body) of the source/target, needed to
     /// build the non-interactive squash message; the confirmation dialog
     /// only shows the summaries.
@@ -46,14 +40,12 @@ pub struct AutofixupPair {
 }
 
 /// One target commit and every `fixup!`/`squash!` commit that will be folded
-/// into it, for display grouped by target. Purely a view over `AutofixupPair`
-/// — execution still proceeds pair by pair (see `plan_autofixup`'s docs on
-/// why re-matching by summary, not by this grouping, drives the batch).
+/// into it, for display grouped by target. Purely a view over `AutofixupPair`:
+/// the batch runs the pairs one at a time through its [`BatchPlan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutofixupGroup {
     pub target_oid: Oid,
     pub target_summary: String,
-    pub target_summary_key: BString,
     pub target_message: String,
     /// Oldest-first, same as `plan_autofixup`'s overall order.
     pub sources: Vec<AutofixupPair>,
@@ -134,16 +126,12 @@ impl BatchPlan {
 pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
     let mut groups: Vec<AutofixupGroup> = Vec::new();
     for pair in pairs {
-        if let Some(group) = groups
-            .iter_mut()
-            .find(|g| g.target_summary_key == pair.target_summary_key)
-        {
+        if let Some(group) = groups.iter_mut().find(|g| g.target_oid == pair.target_oid) {
             group.sources.push(pair.clone());
         } else {
             groups.push(AutofixupGroup {
                 target_oid: pair.target_oid.clone(),
                 target_summary: pair.target_summary.clone(),
-                target_summary_key: pair.target_summary_key.clone(),
                 target_message: pair.target_message.clone(),
                 sources: vec![pair.clone()],
             });
@@ -154,96 +142,68 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
 
 /// Final messages the user chose in the confirmation dialog, one per target.
 ///
-/// Keyed by the target's summary, which survives the batch's cascading rebases
-/// where its OID does not. Only groups and pairs can look one up, so the dialog
-/// that sets a message and the batch that applies it cannot key it differently.
+/// Keyed by the target's OID when the batch was planned. The OID changes as
+/// the batch rewrites the branch, but the batch finds each target again through
+/// its [`BatchPlan`], and keys its lookup by the same planned OID.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MessageOverrides(BTreeMap<BString, BString>);
+pub struct MessageOverrides(BTreeMap<Oid, BString>);
 
 impl MessageOverrides {
     pub fn for_group(&self, group: &AutofixupGroup) -> Option<&BString> {
-        self.0.get(&group.target_summary_key)
+        self.for_target(&group.target_oid)
     }
 
-    pub fn for_pair(&self, pair: &AutofixupPair) -> Option<&BString> {
-        self.0.get(&pair.target_summary_key)
-    }
-
-    pub fn for_summary_key(&self, summary_key: &BStr) -> Option<&BString> {
-        self.0.get(summary_key)
+    /// The message for the target whose OID was `planned_oid` when the batch
+    /// was planned.
+    pub fn for_target(&self, planned_oid: &Oid) -> Option<&BString> {
+        self.0.get(planned_oid)
     }
 
     pub fn set(&mut self, group: &AutofixupGroup, message: BString) {
-        self.0.insert(group.target_summary_key.clone(), message);
+        self.0.insert(group.target_oid.clone(), message);
     }
 
     pub fn clear(&mut self, group: &AutofixupGroup) {
-        self.0.remove(&group.target_summary_key);
+        self.0.remove(&group.target_oid);
     }
 }
 
-/// One override as the journal stores it. A list of these rather than a map,
-/// because a JSON object needs keys that are text and a summary may not be.
-#[derive(Serialize, Deserialize)]
-struct OverrideEntry {
-    #[serde(with = "crate::domain::message_bytes")]
-    summary: BString,
-    #[serde(with = "crate::domain::message_bytes")]
-    message: BString,
+/// A message as the journal stores it: text when it decodes, bytes when not.
+struct Message<'a>(&'a BStr);
+
+impl Serialize for Message<'_> {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        crate::domain::message_bytes::serialize(self.0, ser)
+    }
+}
+
+struct OwnedMessage(BString);
+
+impl<'de> Deserialize<'de> for OwnedMessage {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        crate::domain::message_bytes::deserialize(de).map(OwnedMessage)
+    }
 }
 
 impl Serialize for MessageOverrides {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        let mut seq = ser.serialize_seq(Some(self.0.len()))?;
-        for (summary, message) in &self.0 {
-            seq.serialize_element(&OverrideEntry {
-                summary: summary.clone(),
-                message: message.clone(),
-            })?;
+        let mut map = ser.serialize_map(Some(self.0.len()))?;
+        for (oid, message) in &self.0 {
+            map.serialize_entry(oid, &Message(message.as_bstr()))?;
         }
-        seq.end()
+        map.end()
     }
 }
 
 impl<'de> Deserialize<'de> for MessageOverrides {
     fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-        struct Message(BString);
-
-        impl<'de> Deserialize<'de> for Message {
-            fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-                crate::domain::message_bytes::deserialize(de).map(Message)
-            }
-        }
-
-        struct Overrides;
-
-        impl<'de> Visitor<'de> for Overrides {
-            type Value = MessageOverrides;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("commit messages keyed by summary")
-            }
-
-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                let mut out = BTreeMap::new();
-                while let Some(entry) = seq.next_element::<OverrideEntry>()? {
-                    out.insert(entry.summary, entry.message);
-                }
-                Ok(MessageOverrides(out))
-            }
-
-            /// The shape a journal from 3.0.0 or 3.1.0 holds: an object keyed
-            /// by the summary as text.
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-                let mut out = BTreeMap::new();
-                while let Some((summary, Message(message))) = map.next_entry::<String, Message>()? {
-                    out.insert(BString::from(summary), message);
-                }
-                Ok(MessageOverrides(out))
-            }
-        }
-
-        de.deserialize_any(Overrides)
+        let messages = BTreeMap::<Oid, OwnedMessage>::deserialize(de)?;
+        Ok(MessageOverrides(
+            messages
+                .into_iter()
+                .map(|(oid, OwnedMessage(message))| (oid, message))
+                .collect(),
+        ))
     }
 }
 
@@ -329,7 +289,6 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
             target_oid: target.oid.expect_real_oid(),
             source_summary: commit.summary.clone(),
             target_summary: target.summary.clone(),
-            target_summary_key: target.summary_key.clone(),
             source_message: commit.message.clone(),
             target_message: target.message.clone(),
             mode,
@@ -428,46 +387,37 @@ mod batch_plan_tests {
 mod message_overrides_tests {
     use super::*;
 
-    fn overrides(entries: &[(&[u8], &[u8])]) -> MessageOverrides {
+    fn overrides(entries: &[(&str, &[u8])]) -> MessageOverrides {
         MessageOverrides(
             entries
                 .iter()
-                .map(|(summary, message)| (BString::from(*summary), BString::from(*message)))
+                .map(|(oid, message)| (Oid::from(*oid), BString::from(*message)))
                 .collect(),
         )
     }
 
     #[test]
-    fn utf8_entries_round_trip_as_plain_strings() {
-        let wrapper = overrides(&[(b"Add parser", b"Edited\n")]);
+    fn a_utf8_message_is_written_as_plain_text() {
+        let wrapper = overrides(&[("abc123", b"Edited\n")]);
         let json = serde_json::to_string(&wrapper).unwrap();
-        assert_eq!(json, r#"[{"summary":"Add parser","message":"Edited\n"}]"#);
+        assert_eq!(json, r#"{"abc123":"Edited\n"}"#);
         let back: MessageOverrides = serde_json::from_str(&json).unwrap();
         assert_eq!(back, wrapper);
     }
 
     #[test]
-    fn a_summary_and_message_that_do_not_decode_round_trip() {
-        let wrapper = overrides(&[(b"Fix f\xf6r", b"Fix f\xf6r \xe5\xe4\xf6\n")]);
+    fn a_message_that_does_not_decode_round_trips() {
+        let wrapper = overrides(&[("abc123", b"Fix f\xf6r \xe5\xe4\xf6\n")]);
         let json = serde_json::to_string(&wrapper).unwrap();
         let back: MessageOverrides = serde_json::from_str(&json).unwrap();
         assert_eq!(back, wrapper);
     }
 
     #[test]
-    fn a_journal_keyed_by_summary_text_still_loads() {
-        let json = r#"{"Add parser":"Edited\n"}"#;
+    fn a_message_written_as_a_byte_array_still_loads() {
+        let json = r#"{"abc123":[69,100,105,116,101,100,10]}"#;
         let loaded: MessageOverrides = serde_json::from_str(json).unwrap();
-        assert_eq!(loaded, overrides(&[(b"Add parser", b"Edited\n")]));
-    }
-
-    #[test]
-    fn a_journal_that_wrote_every_message_as_a_byte_array_still_loads() {
-        // The shape the derived `Vec<u8>` serialization produced, which a
-        // journal parked by an earlier build still holds.
-        let json = r#"{"Add parser":[69,100,105,116,101,100,10]}"#;
-        let loaded: MessageOverrides = serde_json::from_str(json).unwrap();
-        assert_eq!(loaded, overrides(&[(b"Add parser", b"Edited\n")]));
+        assert_eq!(loaded, overrides(&[("abc123", b"Edited\n")]));
     }
 }
 

@@ -37,7 +37,6 @@ fn pair(
         target_oid: Oid::from(target_oid),
         source_summary: source_summary.to_string(),
         target_summary: target_summary.to_string(),
-        target_summary_key: target_summary.into(),
         source_message: source_summary.to_string(),
         target_message: target_summary.to_string(),
         mode,

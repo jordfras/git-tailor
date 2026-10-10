@@ -86,8 +86,10 @@ selected you can:
   on exit the following commits are replayed onto your result
 - **Autofixup** — not tied to the selected commit: squashes every
   `fixup!`/`squash!` commit on the branch into the commit its message names, in
-  one pass, after a confirmation showing what will happen. Each target's final
-  message can be edited before the batch runs
+  one pass, after a confirmation showing what will happen. A fixup names its
+  target as `git rebase --autosquash` reads it: by exact summary, abbreviated
+  hash, or the start of the summary. Each target's final message can be edited
+  before the batch runs
 - **Undo / redo** — every operation can be undone and redone, and the undo
   history is kept even after you quit and reopen `gt`
 

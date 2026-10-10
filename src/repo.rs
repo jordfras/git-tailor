@@ -362,9 +362,8 @@ pub struct AutofixupContext {
     /// once the current conflict resolves.
     pub reference_oid: Oid,
     /// User-edited final messages chosen up front in the confirmation dialog.
-    /// Applied only once — to the last pair squashed into a given target — so
-    /// an intermediate step in a multi-fixup group never renames the target
-    /// before the remaining fixups in that group have had a chance to match it.
+    /// Applied only to the last pair squashed into a given target, so it is the
+    /// final message: a later `squash!` would append to it.
     pub message_overrides: crate::autofixup::MessageOverrides,
     /// The batch as planned when it started.
     pub plan: crate::autofixup::BatchPlan,
