@@ -41,10 +41,12 @@ pub(crate) fn handle_prepare_autofixup_confirm(
         if left_in_place.is_empty() {
             app.set_success_message("Nothing to autofixup");
         } else {
+            let shas: Vec<&str> = left_in_place.iter().map(|f| f.oid.short()).collect();
+            let verb = if shas.len() == 1 { "names" } else { "name" };
             app.set_error_message(format!(
-                "Nothing to autofixup: {} fixup(s) name a commit several share — \
-                 name the target by hash instead",
-                left_in_place.len()
+                "Nothing to autofixup: {} {verb} a commit several share — name the \
+                 target by hash or a longer summary",
+                shas.join(", ")
             ));
         }
         return Ok(LoopAction::Proceed);
