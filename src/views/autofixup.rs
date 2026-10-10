@@ -141,16 +141,13 @@ pub fn render_autofixup_confirm(app: &mut AppState, frame: &mut Frame) {
             line_width,
         ));
         for source in &group.sources {
-            // The summary is always "fixup! " / "squash! " plus the target's own
-            // summary — plan_autofixup matches on exact equality — so repeating
-            // it here would just echo the line above. The mode is the one thing
-            // that varies, and it decides whether the source's message is kept.
+            // A source may name its target by hash or by the start of a summary,
+            // so showing what it says is how to check where it lands.
+            let sha = source.source_oid.short();
+            let used = INDENT.len() + sha.len() + 2;
+            let summary = truncate_summary(&source.source_summary, line_width.saturating_sub(used));
             dialog = dialog.wrapped_styled(
-                &format!(
-                    "{INDENT}{}  {}",
-                    source.source_oid.short(),
-                    source.mode.marker()
-                ),
+                &format!("{INDENT}{sha}  {summary}"),
                 line_width,
                 TextRole::Muted,
             );
