@@ -365,8 +365,9 @@ pub struct AutofixupContext {
     /// Applied only to the last pair squashed into a given target, so it is the
     /// final message: a later `squash!` would append to it.
     pub message_overrides: crate::autofixup::MessageOverrides,
-    /// The batch as planned when it started.
-    pub plan: crate::autofixup::BatchPlan,
+    /// The batch as planned when it started. `None` in a context an older build
+    /// paused, which kept no plan.
+    pub plan: Option<crate::autofixup::BatchPlan>,
     /// How many of `plan`'s steps are in once the paused one completes.
     pub landed: usize,
 }

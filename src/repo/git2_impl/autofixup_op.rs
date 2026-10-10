@@ -52,7 +52,7 @@ pub(super) fn autofixup(
     let ctx = AutofixupContext {
         reference_oid: reference_oid.clone(),
         message_overrides: message_overrides.clone(),
-        plan,
+        plan: Some(plan),
         landed: 0,
     };
     run_batch(repo, head_oid, ctx)
@@ -71,7 +71,7 @@ pub(super) fn continue_autofixup(
         .autofixup_context
         .clone()
         .expect("continue_autofixup only called for an autofixup batch");
-    refuse_without_a_plan(&ctx)?;
+    plan_of(&ctx)?;
     let batch_original_oid = state.original_branch_oid.clone();
     let step = conflict::rebase_continue(repo, state);
     continue_after_step(repo, step, &batch_original_oid, &ctx)
@@ -88,23 +88,21 @@ pub(super) fn continue_autofixup_after_squash_finalize(
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    refuse_without_a_plan(autofixup_ctx)?;
+    plan_of(autofixup_ctx)?;
     let step = squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid);
     continue_after_step(repo, step, batch_original_oid, autofixup_ctx)
 }
 
-/// A batch with no steps never pauses, so a context without them was paused by
-/// a build that re-matched by summary after every step, and this one cannot tell
-/// how far that batch had got. Checked before the paused step is finished, so
-/// the build that wrote it can still resume it.
-fn refuse_without_a_plan(ctx: &AutofixupContext) -> Result<()> {
-    if ctx.plan.steps.is_empty() {
-        anyhow::bail!(
+/// The plan the batch was started with. A context without one cannot say how
+/// far its batch got, so resuming it is refused — before the paused step is
+/// finished, which leaves it to the build that wrote it.
+fn plan_of(ctx: &AutofixupContext) -> Result<&BatchPlan> {
+    ctx.plan.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
             "This autofixup was paused by an older git-tailor. \
              Finish or abort it with that version."
-        );
-    }
-    Ok(())
+        )
+    })
 }
 
 /// Shared continuation: if the just-finished step completed, keep going
@@ -137,29 +135,24 @@ fn run_batch(
     batch_original_oid: &Oid,
     mut ctx: AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    while ctx.landed < ctx.plan.steps.len() {
+    let plan = plan_of(&ctx)?.clone();
+    while ctx.landed < plan.steps.len() {
         let current_tip = reads::head_oid(repo)?;
         let current = reads::list_oids(repo, &current_tip, &ctx.reference_oid)?;
-        if current.len() + ctx.landed != ctx.plan.commits.len() {
+        if current.len() + ctx.landed != plan.commits.len() {
             anyhow::bail!("The branch no longer matches the autofixup that was planned for it.");
         }
-        let step = &ctx.plan.steps[ctx.landed];
-        let source_oid = ctx
-            .plan
-            .current_oid(step.source, ctx.landed, &current)
-            .clone();
-        let target_oid = ctx
-            .plan
-            .current_oid(step.target, ctx.landed, &current)
-            .clone();
-        let more_pending_for_target = ctx.plan.steps[ctx.landed + 1..]
+        let step = &plan.steps[ctx.landed];
+        let source_oid = plan.current_oid(step.source, ctx.landed, &current).clone();
+        let target_oid = plan.current_oid(step.target, ctx.landed, &current).clone();
+        let more_pending_for_target = plan.steps[ctx.landed + 1..]
             .iter()
             .any(|later| later.target == step.target);
         let overridden = if more_pending_for_target {
             None
         } else {
             ctx.message_overrides
-                .for_target(ctx.plan.planned_oid(step.target))
+                .for_target(plan.planned_oid(step.target))
                 .cloned()
         };
         let message = match overridden {
