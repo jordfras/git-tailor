@@ -235,6 +235,14 @@ Guidelines:
   function returning the fragmap for HEAD, rendered as a matrix beside the
   commit list in a minimal webview. Outcome is either follow-up tasks for the
   extension or `[-]` WON'T DO with the evidence.
+- [ ] T261 P3 bug - Squash, drop and move do not refuse a merge in the range
+  they replay. They collect what to replay with `collect_descendants`, a plain
+  revwalk that, by its own doc, can emit commits that are not descendants at
+  all, or stop short of them, once a merge is in the range. Reword, split and
+  edit refuse with `range_has_merge` first, and autofixup does since T257; the
+  rest find out when libgit2's cherry-pick fails on the merge ("mainline branch
+  is not specified"), or replay the wrong commits. Refuse the same way, with a
+  message of our own.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
