@@ -183,7 +183,7 @@ fn such_a_history_can_be_listed_and_read() {
 /// The `encoding` header says how to read the message, so the list reads it
 /// that way, as `git log` does, rather than drawing replacement characters.
 #[test]
-fn the_list_shows_a_latin1_summary_as_its_header_says() {
+fn the_list_shows_a_latin1_message_as_its_header_says() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "v1\n", "base");
     let head = commit_with_raw_message(&test, base, LATIN1_MESSAGE);
@@ -195,8 +195,10 @@ fn the_list_shows_a_latin1_summary_as_its_header_says() {
 
     let listed = commits
         .iter()
-        .find(|c| c.oid.as_oid() == Some(&Oid::from(head)));
-    assert_eq!(listed.unwrap().summary, "Fix för åäö handling");
+        .find(|c| c.oid.as_oid() == Some(&Oid::from(head)))
+        .unwrap();
+    assert_eq!(listed.summary, "Fix för åäö handling");
+    assert_eq!(listed.message, "Fix för åäö handling\n");
 }
 
 /// Splitting does not copy a message, it *derives* one — "summary (1/3)" — so
