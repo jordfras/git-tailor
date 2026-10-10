@@ -278,11 +278,12 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
 
 /// Match every `fixup!`/`squash!`-prefixed commit in `commits` (oldest first,
 /// as returned by `list_commits`) to the earlier commit it names, by the rules
-/// `git rebase --autosquash` follows: the oldest commit with exactly that
-/// summary, else the one that hash abbreviates, else the oldest whose summary
-/// starts with it. Repeated prefixes name the original target, and the first
-/// sets the mode. Commits with no target are omitted — the caller leaves them in
-/// place. Pairs come oldest fixup first.
+/// `git rebase --autosquash` follows: the commit with exactly that summary,
+/// else the one that hash abbreviates, else the one whose summary starts with
+/// it. Where git takes the oldest of several, this takes none: the fix may not
+/// be meant for that one, and a hash still names it. Repeated prefixes name the
+/// original target, and the first sets the mode. Commits with no target are
+/// omitted — the caller leaves them in place. Pairs come oldest fixup first.
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
     // Where each commit folds into, for those that are fixups themselves.
@@ -291,17 +292,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         let Some((mode, named)) = split_prefixes(&commit.summary_key) else {
             continue;
         };
-        let earlier = &commits[..i];
-        let Some(named_index) = earlier
-            .iter()
-            .position(|c| c.summary_key == named)
-            .or_else(|| abbreviated(earlier, named))
-            .or_else(|| {
-                earlier
-                    .iter()
-                    .position(|c| c.summary_key.starts_with(named))
-            })
-        else {
+        let Named::One(named_index) = named_target(&commits[..i], named) else {
             continue;
         };
         // A fixup that names another fixup: that one has folded away by the
@@ -321,6 +312,37 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         });
     }
     pairs
+}
+
+/// What the text after a fixup's prefix names among the commits before it.
+enum Named {
+    One(usize),
+    Several,
+    Nothing,
+}
+
+fn named_target(earlier: &[CommitInfo], named: &[u8]) -> Named {
+    match matching(earlier, |c| c.summary_key == named) {
+        Named::Nothing => {}
+        exact => return exact,
+    }
+    if let Some(index) = abbreviated(earlier, named) {
+        return Named::One(index);
+    }
+    matching(earlier, |c| c.summary_key.starts_with(named))
+}
+
+fn matching(commits: &[CommitInfo], matches: impl Fn(&CommitInfo) -> bool) -> Named {
+    let mut found = commits
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| matches(c))
+        .map(|(index, _)| index);
+    match (found.next(), found.next()) {
+        (None, _) => Named::Nothing,
+        (Some(index), None) => Named::One(index),
+        (Some(_), Some(_)) => Named::Several,
+    }
 }
 
 /// The mode the first `fixup!`/`squash!` prefix sets, and what is left once
