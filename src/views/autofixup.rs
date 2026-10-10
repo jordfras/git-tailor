@@ -105,7 +105,14 @@ fn scroll_to_group(app: &mut AppState, groups: &[AutofixupGroup], index: usize) 
             .iter()
             .map(|g| 1 + g.sources.len())
             .sum::<usize>();
-    app.dialog.ensure_visible(start, 1 + group.sources.len());
+    // The first group brings back everything above it, the fixups left in
+    // place among them.
+    let (start, height) = if index == 0 {
+        (0, start + 1 + group.sources.len())
+    } else {
+        (start, 1 + group.sources.len())
+    };
+    app.dialog.ensure_visible(start, height);
 }
 
 /// Render the autofixup confirmation dialog as a centered overlay.
