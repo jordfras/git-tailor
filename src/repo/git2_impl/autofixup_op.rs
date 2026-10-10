@@ -17,9 +17,10 @@
 //! single-squash primitive in `squash_op` as the building block. The whole
 //! batch runs as one undoable operation: `original_branch_oid` on any
 //! `ConflictState` this produces is always the tip before the *batch* started
-//! (not the current step), so the trait-level `journaled()` wrapper records a
-//! single undo entry once every pair has been applied, and `rebase_abort`
-//! unwinds the whole batch rather than just the in-progress step.
+//! (not the current step), so the trait-level `journaled()` wrapper
+//! records a single undo entry for the whole batch — once every pair has been
+//! applied, or as soon as an error stops it with some landed — and
+//! `rebase_abort` unwinds the whole batch rather than just the in-progress step.
 
 use std::collections::HashMap;
 
@@ -33,14 +34,17 @@ use crate::Oid;
 use crate::app::SquashMode;
 use crate::autofixup::{self, AutofixupPair};
 
+/// What the batch is called in its undo entry, its conflicts and its reflog.
+pub(super) const LABEL: &str = "Autofixup";
+
 pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
     message_overrides: &HashMap<String, BString>,
 ) -> Result<RebaseOutcome> {
-    // The pairs are squashed one at a time, so a refusal part-way would leave
-    // the earlier ones landed with no undo entry. Every pair rewrites from its
+    // The pairs are squashed one at a time, so a refusal part-way would stop
+    // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
     let commits = reads::list_commits(repo, head_oid, reference_oid)?;
     let targets: Vec<Oid> = autofixup::plan_autofixup(&commits)
@@ -118,6 +122,7 @@ fn continue_after_step(
         }
         RebaseOutcome::Conflict(new_state) => {
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: LABEL.to_string(),
                 original_branch_oid: batch_original_oid.clone(),
                 autofixup_context: Some(ctx.clone()),
                 ..*new_state
@@ -155,6 +160,7 @@ fn run_batch(
             }
             RebaseOutcome::Conflict(state) => {
                 return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                    operation_label: LABEL.to_string(),
                     original_branch_oid: batch_original_oid.clone(),
                     autofixup_context: Some(AutofixupContext {
                         reference_oid: reference_oid.clone(),

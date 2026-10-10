@@ -54,6 +54,16 @@ mod squash_op;
 mod stage_op;
 mod stash;
 
+/// What the working tree held when a rewrite started.
+#[derive(Clone, Copy)]
+enum StartedFrom {
+    /// Only the branch's own content: the operation refused or stashed
+    /// anything else.
+    Clean,
+    /// Possibly changes of the user's own, which the operation works around.
+    UserChanges,
+}
+
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
@@ -103,14 +113,19 @@ impl Git2Repo {
     /// Persist or clear the crash-safety journal based on a rebase operation's
     /// outcome: record the conflict state on `Conflict` (so an interrupted
     /// resolution can be recovered), clear it on `Complete` and push an undo
-    /// entry from `tip_before` to the resulting tip. Errors are passed through
-    /// untouched.
+    /// entry from `tip_before` to the resulting tip. An error goes through
+    /// [`record_landed_partway`](Self::record_landed_partway), with
+    /// `resumed_from` the tip this call started on.
     fn journaled(
         &mut self,
         label: &str,
         tip_before: &Oid,
+        resumed_from: &Oid,
         outcome: Result<super::RebaseOutcome>,
     ) -> Result<super::RebaseOutcome> {
+        let outcome = outcome.map_err(|e| {
+            self.record_landed_partway(label, tip_before, resumed_from, StartedFrom::Clean, e)
+        });
         if let Ok(out) = &outcome {
             match out {
                 super::RebaseOutcome::Conflict(state) => {
@@ -159,6 +174,91 @@ impl Git2Repo {
             }
         }
         outcome
+    }
+
+    /// Make an operation that failed after moving the branch undoable.
+    ///
+    /// An error that left the branch on `resumed_from` changed nothing. Past
+    /// it, the rewrite landed: record it from `tip_before`, drop the conflict
+    /// it resumed, and mark the error [`LandedPartway`](super::LandedPartway).
+    /// Two cases are left as they are: a conflict recorded on the tip the
+    /// branch now holds is the one that failed to write, which recovery needs,
+    /// and a fold is unwound from its snapshot by the caller.
+    fn record_landed_partway(
+        &mut self,
+        label: &str,
+        tip_before: &Oid,
+        resumed_from: &Oid,
+        started_from: StartedFrom,
+        e: anyhow::Error,
+    ) -> anyhow::Error {
+        let Ok(tip) = reads::head_oid(self) else {
+            return e;
+        };
+        if &tip == resumed_from {
+            return e;
+        }
+        if let Ok(Some(snapshot)) = journal::worktree_source(self)
+            && tip_before == &snapshot.temp_oid
+        {
+            return e;
+        }
+        let stale_conflict = match journal::in_progress(self) {
+            Ok(Some(super::InProgress::Conflict(state))) if state.new_tip_oid == tip => return e,
+            Ok(Some(super::InProgress::Conflict(_))) => true,
+            _ => false,
+        };
+        // Undo first: a conflict cleared with nothing recorded in its place
+        // would leave neither a way to resume nor a way back.
+        let recorded = self
+            .record_landed_undo(label, tip_before, &tip, started_from)
+            .and_then(|()| {
+                if stale_conflict {
+                    journal::clear_in_progress(self)
+                } else {
+                    Ok(())
+                }
+            });
+        match recorded {
+            Ok(()) => e.context(super::LandedPartway {
+                label: label.to_string(),
+            }),
+            Err(journal_err) => e.context(format!(
+                "the branch moved, and recording that for undo failed: {journal_err:#}"
+            )),
+        }
+    }
+
+    /// The undo entry for a rewrite that moved the branch to `tip` and then
+    /// failed. A checkout cut short leaves files and index out of step with
+    /// `tip`, which a hard reset back would refuse as uncommitted changes — so
+    /// that case resets the index alone and leaves the files as they are.
+    ///
+    /// Only an operation that started clean can tell its own leftovers that
+    /// way: anywhere else they may be the user's, and resetting the index would
+    /// unstage them.
+    fn record_landed_undo(
+        &mut self,
+        label: &str,
+        tip_before: &Oid,
+        tip: &Oid,
+        started_from: StartedFrom,
+    ) -> Result<()> {
+        if matches!(started_from, StartedFrom::UserChanges) || !self.is_worktree_dirty()? {
+            return journal::record_undo(self, label, tip_before, tip);
+        }
+        let index_tree = journal::current_index_tree(self)?;
+        let tree_before = Oid::from(self.commit_tree_id(git2::Oid::from(tip_before))?);
+        journal::record_mixed_undo(
+            self,
+            label,
+            journal::MixedUndo {
+                tip_before,
+                tip_after: tip,
+                index_tree_before: &tree_before,
+                index_tree_after: &index_tree,
+            },
+        )
     }
 
     /// Record the undo entry for a fold whose carry-back failed.
@@ -252,7 +352,15 @@ impl Git2Repo {
         tip_before: &Oid,
         result: Result<()>,
     ) -> Result<()> {
-        result?;
+        if let Err(e) = result {
+            return Err(self.record_landed_partway(
+                label,
+                tip_before,
+                tip_before,
+                StartedFrom::UserChanges,
+                e,
+            ));
+        }
         self.record_undo_if_changed(label, tip_before)
     }
 
@@ -511,7 +619,7 @@ impl RepoWrite for Git2Repo {
         self.refuse_if_branch_moved(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
-        self.journaled("Drop", head_oid, outcome)
+        self.journaled("Drop", head_oid, head_oid, outcome)
     }
 
     fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
@@ -550,10 +658,20 @@ impl RepoWrite for Git2Repo {
         }
         if state.autofixup_context.is_some() {
             let outcome = autofixup_op::continue_autofixup(self, state);
-            return self.journaled("Autofixup", &state.original_branch_oid, outcome);
+            return self.journaled(
+                autofixup_op::LABEL,
+                &state.original_branch_oid,
+                &state.new_tip_oid,
+                outcome,
+            );
         }
         let outcome = conflict::rebase_continue(self, state);
-        self.journaled(&state.operation_label, &state.original_branch_oid, outcome)
+        self.journaled(
+            &state.operation_label,
+            &state.original_branch_oid,
+            &state.new_tip_oid,
+            outcome,
+        )
     }
 
     fn rebase_abort(&mut self, state: &super::ConflictState) -> Result<()> {
@@ -676,7 +794,7 @@ impl RepoWrite for Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = move_op::move_commit(self, commit_oid, insert_after_oid, head_oid);
-        self.journaled("Move", head_oid, outcome)
+        self.journaled("Move", head_oid, head_oid, outcome)
     }
 
     fn squash_commits(
@@ -688,7 +806,7 @@ impl RepoWrite for Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = squash_op::squash_commits(self, source_oid, target_oid, message, head_oid);
-        self.journaled("Squash", head_oid, outcome)
+        self.journaled("Squash", head_oid, head_oid, outcome)
     }
 
     fn stage_file(&mut self, path: &Path) -> Result<()> {
@@ -741,6 +859,7 @@ impl RepoWrite for Git2Repo {
         if let Some(super::InProgress::Conflict(state)) = journal::in_progress(self)? {
             self.refuse_if_conflict_branch_moved(&state)?;
         }
+        let resumed_from = reads::head_oid(self)?;
         if let Some(autofixup_ctx) = autofixup_context {
             let outcome = autofixup_op::continue_autofixup_after_squash_finalize(
                 self,
@@ -749,13 +868,23 @@ impl RepoWrite for Git2Repo {
                 original_branch_oid,
                 autofixup_ctx,
             );
-            return self.journaled("Autofixup", original_branch_oid, outcome);
+            return self.journaled(
+                autofixup_op::LABEL,
+                original_branch_oid,
+                &resumed_from,
+                outcome,
+            );
         }
         // The mode's own word, not "Squash" for both: the dialog that sent the
         // user here was built from `ctx.squash_mode`, and a working-tree fold
         // can raise a second dialog from this very call.
         let outcome = squash_op::squash_finalize(self, ctx, message, original_branch_oid);
-        self.journaled(ctx.squash_mode.label(), original_branch_oid, outcome)
+        self.journaled(
+            ctx.squash_mode.label(),
+            original_branch_oid,
+            &resumed_from,
+            outcome,
+        )
     }
 
     fn autofixup(
@@ -766,7 +895,7 @@ impl RepoWrite for Git2Repo {
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
         let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
-        self.journaled("Autofixup", head_oid, outcome)
+        self.journaled(autofixup_op::LABEL, head_oid, head_oid, outcome)
     }
 }
 
@@ -1040,7 +1169,7 @@ impl Git2Repo {
         if expected.is_empty() || actual == expected {
             return Ok(());
         }
-        anyhow::bail!(
+        Err(super::BranchMoved(format!(
             "This operation belongs to {expected}, but HEAD is on {} now. \
              Switch back before continuing or aborting it.",
             if actual.is_empty() {
@@ -1048,7 +1177,8 @@ impl Git2Repo {
             } else {
                 actual
             }
-        )
+        ))
+        .into())
     }
 
     /// Refuse when the branch no longer holds what the caller was told it did.
@@ -1081,13 +1211,14 @@ impl Git2Repo {
         if actual == expected {
             return Ok(());
         }
-        anyhow::bail!(
+        Err(super::BranchMoved(format!(
             "The branch moved since this was loaded — it is at {} now, not {}. \
              Something else wrote to the repository, or HEAD was switched to \
              another branch. Reload and try again.",
             actual.short(),
             expected.short()
-        )
+        ))
+        .into())
     }
 
     /// Refuse to resume or abort a paused conflict when the branch it belongs

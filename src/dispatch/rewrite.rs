@@ -94,7 +94,10 @@ pub(crate) fn handle_prepare_reword(
         Ok(new_message) => {
             match git_repo.reword_commit(&commit_oid, new_message.as_bstr(), &head_oid) {
                 Ok(()) => return Ok(LoopAction::ReloadPreserving),
-                Err(e) => app.set_error_message(format!("Reword failed: {e:#}")),
+                Err(e) => {
+                    app.set_error_message(format!("Reword failed: {e:#}"));
+                    return Ok(crate::dispatch::after_failure(&e, LoopAction::Proceed));
+                }
             }
         }
     }
@@ -206,12 +209,8 @@ pub(crate) fn handle_prepare_squash(
     let outcome =
         git_repo.squash_commits(&source_oid, &target_oid, final_message.as_bstr(), &head_oid);
     if let Err(e) = outcome {
-        return Ok(prepared.unwind(
-            git_repo,
-            app,
-            format!("{label} failed: {e:#}"),
-            LoopAction::Proceed,
-        ));
+        let done = crate::dispatch::after_failure(&e, LoopAction::Proceed);
+        return Ok(prepared.unwind(git_repo, app, format!("{label} failed: {e:#}"), done));
     }
     prepared.handed_off();
     Ok(handle_rebase_outcome(

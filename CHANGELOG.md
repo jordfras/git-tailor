@@ -159,6 +159,11 @@ The format is based on
   again. They scroll without moving the cursor, and the scroll margin was
   pulling the view back toward it, leaving the outermost rows unreachable
   until you moved the cursor as well
+- An operation that fails after it has already moved the branch can now be
+  undone, and the commit list shows where the branch ended up. A bulk autofixup
+  stopped by an error kept the pairs it had squashed with no undo entry, and any
+  rewrite whose final checkout failed left the branch moved with nothing to
+  undo and the list showing the history from before
 
 ## [3.1.0] - 2026-09-12
 

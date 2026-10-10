@@ -175,6 +175,34 @@ pub struct LiftedRow {
     pub temp_oid: Oid,
 }
 
+/// Context on the error of an operation that had already moved the branch
+/// when it failed. What landed is recorded for undo, and a conflict the
+/// operation resumed is over, so the caller has nothing left to resume.
+#[derive(Debug)]
+pub struct LandedPartway {
+    pub label: String,
+}
+
+impl std::fmt::Display for LandedPartway {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = self.label.to_lowercase();
+        write!(f, "{label} stopped part-way; undo puts the branch back")
+    }
+}
+
+/// The refusal when the branch is no longer where an operation left or found
+/// it: moved on, or HEAD switched to another branch.
+#[derive(Debug)]
+pub struct BranchMoved(pub String);
+
+impl std::fmt::Display for BranchMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BranchMoved {}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {
@@ -985,8 +1013,9 @@ pub trait RepoWrite {
     /// group instead of the computed default — see
     /// [`AutofixupContext::message_overrides`].
     ///
-    /// The whole batch is one undoable operation: on success a single undo
-    /// entry restores `head_oid`. Returns `RebaseOutcome::Conflict` if any
+    /// The whole batch is one undoable operation: a single undo entry
+    /// restores `head_oid`, recorded on success and also when an error stops
+    /// the batch after some pairs have landed. Returns `RebaseOutcome::Conflict` if any
     /// individual squash step conflicts; resuming via
     /// [`rebase_continue`](Self::rebase_continue) continues the remaining
     /// pairs in the same batch.

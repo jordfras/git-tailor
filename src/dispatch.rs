@@ -29,10 +29,11 @@ mod tests;
 
 use anyhow::Result;
 use bstr::{BStr, BString};
-use git_tailor::app::{AppAction, AppState};
+use git_tailor::app::{AppAction, AppState, ResumeFailure};
 use git_tailor::editor;
 use git_tailor::repo::{
-    AutostashRestore, GitRepo, RebaseOutcome, StageOutcome, StashConflictState,
+    AutostashRestore, BranchMoved, GitRepo, LandedPartway, RebaseOutcome, StageOutcome,
+    StashConflictState,
 };
 use git_tailor::views;
 
@@ -457,20 +458,29 @@ pub(crate) fn edit_message_suspended(
 /// Like [`handle_rebase_outcome`], but for an outcome that came from *resuming*
 /// a paused conflict.
 ///
-/// Only the failure arm differs: a resume that fails leaves the conflict
-/// journaled and the branch parked, so falling back to the commit list would
-/// show history the branch has moved off, with no way back into the dialog. The
-/// auto-stash stays deferred for the same reason.
+/// Only the failure arm differs: a resume that fails in place leaves the
+/// conflict journaled and the branch parked, so falling back to the commit list
+/// would show history the branch has moved off, with no way back into the
+/// dialog. The auto-stash stays deferred for the same reason.
 pub(crate) fn handle_resume_outcome(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     outcome: anyhow::Result<RebaseOutcome>,
-    op_label: &str,
     success_msg: &str,
     state: &git_tailor::repo::ConflictState,
     retry_message: Option<BString>,
 ) -> LoopAction {
+    let op_label = &state.operation_label;
     match outcome {
+        // The repository recorded what landed and dropped the conflict, so the
+        // dialog would offer to resume something that is over.
+        Err(e) if landed_partway(&e) => settle_autostash_after_failure(
+            git_repo,
+            app,
+            op_label,
+            format!("{op_label} failed: {e:#}"),
+            LoopAction::Reload,
+        ),
         Err(e) => {
             // `Continue`, not a reload: `load_with_progress` ends by setting
             // `AppMode::CommitList`, so reloading here would throw away the
@@ -478,12 +488,36 @@ pub(crate) fn handle_resume_outcome(
             // the operation resolves or aborts, both of which reload.
             app.reenter_rebase_conflict_after_failure(
                 state.clone(),
-                format!("{e:#}"),
+                resume_failure(format!("{e:#}"), &e),
                 retry_message,
             );
             LoopAction::Continue
         }
         ok => handle_rebase_outcome(git_repo, app, ok, op_label, success_msg),
+    }
+}
+
+/// Why resuming failed, as the conflict dialog shows it.
+pub(crate) fn resume_failure(why: String, e: &anyhow::Error) -> ResumeFailure {
+    ResumeFailure {
+        why,
+        branch_moved: e.downcast_ref::<BranchMoved>().is_some(),
+    }
+}
+
+/// Whether a failed operation had already moved the branch, so the list on
+/// screen no longer shows it.
+pub(crate) fn landed_partway(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<LandedPartway>().is_some()
+}
+
+/// What follows a failure: `otherwise`, unless the branch moved and the list
+/// has to be reloaded to show it.
+pub(crate) fn after_failure(e: &anyhow::Error, otherwise: LoopAction) -> LoopAction {
+    if landed_partway(e) {
+        LoopAction::ReloadPreserving
+    } else {
+        otherwise
     }
 }
 
@@ -518,12 +552,13 @@ pub(crate) fn handle_rebase_outcome(
         }
         Err(e) => {
             // The operation did not complete — restore the working tree.
+            let done = after_failure(&e, LoopAction::Proceed);
             settle_autostash_after_failure(
                 git_repo,
                 app,
                 op_label,
                 format!("{op_label} failed: {e:#}"),
-                LoopAction::Proceed,
+                done,
             )
         }
     }

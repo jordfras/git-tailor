@@ -159,7 +159,8 @@ fn rebase_abort_error_keeps_the_dialog_and_says_why() {
     );
     assert!(
         app.resume_failure
-            .as_deref()
+            .as_ref()
+            .map(|f| f.why.as_str())
             .unwrap_or("")
             .contains("Abort failed"),
         "and must say why"
@@ -789,7 +790,6 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
         Err(anyhow::anyhow!(
             "This would overwrite untracked files: later.rs"
         )),
-        "Continue",
         "Commit squash complete",
         &make_conflict_state(),
         Some("the message the user typed\n".into()),
@@ -809,7 +809,8 @@ fn a_resume_that_fails_stays_in_the_conflict_dialog() {
     );
     assert!(
         app.resume_failure
-            .as_deref()
+            .as_ref()
+            .map(|f| f.why.as_str())
             .unwrap_or_default()
             .contains("overwrite untracked"),
         "the dialog needs the reason, not just the status bar"
@@ -889,6 +890,83 @@ fn conflict_tool_no_merge_tool_sets_error() {
             .unwrap_or("")
             .contains("No merge tool configured")
     );
+}
+
+#[test]
+fn a_resume_refused_because_the_branch_moved_says_so() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(git_tailor::repo::BranchMoved("The branch moved".to_string()).into()),
+        "Commit drop complete",
+        &make_conflict_state(),
+        None,
+    );
+
+    assert!(app.resume_failure.is_some_and(|f| f.branch_moved));
+}
+
+/// A resume that fails after moving the branch has nothing left to resume or
+/// abort: the repository recorded what landed and dropped the conflict, so the
+/// dialog would trap the user.
+#[test]
+fn a_resume_that_fails_after_moving_the_branch_reloads_the_list() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    let action = handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(
+            anyhow::anyhow!("This would overwrite untracked files: later.rs").context(
+                git_tailor::repo::LandedPartway {
+                    label: "Autofixup".to_string(),
+                },
+            ),
+        ),
+        "Commit squash complete",
+        &git_tailor::repo::ConflictState {
+            operation_label: "Autofixup".to_string(),
+            ..make_conflict_state()
+        },
+        None,
+    );
+
+    assert!(
+        !matches!(app.mode, AppMode::RebaseConflict(_)),
+        "no dialog for a conflict that is over"
+    );
+    assert!(matches!(action, LoopAction::Reload));
+    let message = app.status.message.as_deref().unwrap_or_default();
+    assert!(
+        message.starts_with("Autofixup failed:") && message.contains("overwrite untracked"),
+        "the failure is named after the operation, not the resume step: {message:?}"
+    );
+    assert_eq!(
+        repo.autostash_restore_calls.get(),
+        1,
+        "the operation is over, so the auto-stash comes back"
+    );
+}
+
+#[test]
+fn an_operation_that_fails_after_moving_the_branch_reloads_the_list() {
+    let mut repo = MockRepo {
+        drop_ok: false,
+        failure_landed_partway: true,
+        ..Default::default()
+    };
+    let mut app = AppState::default();
+
+    let outcome = repo.drop_commit(&Oid::from("c".repeat(40)), &Oid::from("a".repeat(40)));
+    let action = handle_rebase_outcome(&mut repo, &mut app, outcome, "Drop", "Dropped");
+
+    assert!(matches!(action, LoopAction::ReloadPreserving));
+    let message = app.status.message.as_deref().unwrap_or_default();
+    assert!(message.contains("drop failed"), "{message:?}");
 }
 
 #[test]
@@ -1081,6 +1159,39 @@ mod autofixup_selection {
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
         assert_eq!(app.status.message.as_deref(), Some("Commits autofixed up"));
+    }
+
+    #[test]
+    fn execute_autofixup_that_fails_after_moving_the_branch_reloads() {
+        let mut repo = MockRepo {
+            autofixup_ok: false,
+            failure_landed_partway: true,
+            ..Default::default()
+        };
+        let mut app = AppState {
+            list: CommitListState::with_selection(commits(), 4),
+            ..Default::default()
+        };
+        let mut pending = PendingAutofixupSelection::default();
+
+        let result = handle_execute_autofixup(
+            &mut repo,
+            &mut app,
+            &mut pending,
+            Oid::from("a".repeat(40)),
+            Oid::from("b".repeat(40)),
+            pairs(),
+            std::collections::HashMap::new(),
+        );
+
+        assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
+        assert!(
+            app.status
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("autofixup failed")
+        );
     }
 
     #[test]
@@ -1452,7 +1563,7 @@ fn abandoning_a_resume_whose_abort_is_refused_keeps_the_dialog() {
         "got {:?}",
         app.mode
     );
-    let failure = app.resume_failure.as_deref().unwrap_or("");
+    let failure = app.resume_failure.as_ref().map_or("", |f| f.why.as_str());
     assert!(failure.contains("empty commit message"), "{failure}");
     assert!(failure.contains("Abort failed"), "{failure}");
     assert_eq!(repo.autostash_restore_calls.get(), 0);

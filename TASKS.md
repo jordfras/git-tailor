@@ -194,7 +194,7 @@ Guidelines:
   Narrow in practice: it needs two commits in range whose summaries differ only
   in undecodable bytes, and an edited override. The consequence is a message
   written to the wrong commit.
-- [ ] T259 P3 bug - An error part-way through an autofixup batch loses undo.
+- [X] T259 P3 bug - An error part-way through an autofixup batch loses undo.
   `run_batch` (`autofixup_op.rs`) squashes the pairs one at a time with `?`,
   and the `journaled` wrapper records an undo entry only on `Ok`. So any error
   after the first pair has landed — a refused squash, a failed checkout, a

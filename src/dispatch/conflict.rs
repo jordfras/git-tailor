@@ -24,7 +24,7 @@ use git_tailor::{editor, mergetool};
 use crate::dispatch::autofixup::apply_pending_autofixup_selection;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, handle_resume_outcome,
-    is_blank_message, settle_autostash, settle_autostash_after_failure,
+    is_blank_message, resume_failure, settle_autostash, settle_autostash_after_failure,
 };
 use crate::external_tool::with_tui_suspended;
 
@@ -54,7 +54,11 @@ pub(crate) fn handle_rebase_abort(
             // The abort refused, so the conflict is still journaled — but
             // `handle_conflict_key` already dropped the mode to `CommitList` on
             // the way here, leaving no way back into the dialog.
-            app.reenter_rebase_conflict_after_failure(state, format!("Abort failed: {e:#}"), None);
+            app.reenter_rebase_conflict_after_failure(
+                state,
+                resume_failure(format!("Abort failed: {e:#}"), &e),
+                None,
+            );
             Ok(LoopAction::Continue)
         }
     }
@@ -137,7 +141,6 @@ pub(crate) fn handle_rebase_continue(
             git_repo,
             app,
             outcome,
-            "Squash",
             &success_msg,
             &state,
             Some(final_msg),
@@ -150,22 +153,14 @@ pub(crate) fn handle_rebase_continue(
     }
     // A carry conflict finishes the fold it belongs to, not a commit: the
     // rewrite landed before the dialog opened, and what the user just resolved
-    // is where the other row's changes ended up.
-    let success_msg = if state.is_carry_conflict() {
+    // is where the other row's changes ended up. An autofixup finishes its batch.
+    let success_msg = if state.is_carry_conflict() || is_autofixup {
         format!("{} complete", state.operation_label)
     } else {
         format!("Commit {} complete", state.operation_label.to_lowercase())
     };
     let outcome = git_repo.rebase_continue(&state);
-    let result = handle_resume_outcome(
-        git_repo,
-        app,
-        outcome,
-        "Continue",
-        &success_msg,
-        &state,
-        None,
-    );
+    let result = handle_resume_outcome(git_repo, app, outcome, &success_msg, &state, None);
     Ok(apply_pending_autofixup_selection(
         pending,
         is_autofixup,
@@ -264,7 +259,7 @@ pub(super) fn abandon_resume(
     if let Err(e) = git_repo.rebase_abort(state) {
         app.reenter_rebase_conflict_after_failure(
             state.clone(),
-            format!("{headline}. Abort failed: {e:#}"),
+            resume_failure(format!("{headline}. Abort failed: {e:#}"), &e),
             None,
         );
         return LoopAction::Continue;
