@@ -534,20 +534,24 @@ mod tests {
         assert_eq!(pairs[1].mode, SquashMode::Squash);
     }
 
+    /// Two commits called "Tweak", each fixed up by its hash: they are two
+    /// targets, so two groups, and a message edited for one stays with it.
     #[test]
-    fn targets_with_the_same_summary_keep_their_own_groups_and_messages() {
+    fn same_named_targets_are_separate_groups_with_their_own_messages() {
         let commits = vec![
             commit("a", "Tweak"),
             commit("b", "Tweak"),
-            commit("c", "fixup! Tweak"),
+            commit("c", "fixup! aaaaaaa"),
             commit("d", "fixup! bbbbbbb"),
         ];
         let groups = group_by_target(&plan_autofixup(&commits));
-        assert_eq!(groups.len(), 2);
+        let targets: Vec<Oid> = groups.iter().map(|g| g.target_oid.clone()).collect();
+        assert_eq!(targets, oids(&commits[..2]));
 
         let mut overrides = MessageOverrides::default();
         overrides.set(&groups[1], BString::from("Edited\n"));
         assert_eq!(overrides.for_group(&groups[0]), None);
+        assert!(overrides.for_group(&groups[1]).is_some());
     }
 
     /// The fixup it names is folded away first, into the original target, so
@@ -646,16 +650,27 @@ mod tests {
         assert!(BatchPlan::new(commits, &[pair("b", "a"), pair("c", "a")]).is_ok());
     }
 
+    /// Unlike `git rebase --autosquash`, which takes the oldest, a summary
+    /// several commits share names none of them: guessing would fold the fix
+    /// into a commit that may not be the one meant.
     #[test]
-    fn the_oldest_match_wins_on_duplicate_summaries() {
+    fn a_summary_several_commits_share_names_no_target() {
         let commits = vec![
             commit("a", "Tweak"),
             commit("b", "Tweak"),
             commit("c", "fixup! Tweak"),
         ];
-        let pairs = plan_autofixup(&commits);
-        assert_eq!(pairs.len(), 1);
-        assert_eq!(pairs[0].target_oid, commits[0].oid.expect_real_oid());
+        assert_eq!(plan_autofixup(&commits), vec![]);
+    }
+
+    #[test]
+    fn the_start_of_several_summaries_names_no_target() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "Add lexer"),
+            commit("c", "fixup! Add"),
+        ];
+        assert_eq!(plan_autofixup(&commits), vec![]);
     }
 
     #[test]

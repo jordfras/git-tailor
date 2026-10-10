@@ -125,18 +125,26 @@ fn a_fixup_named_by_hash_finds_its_target_after_earlier_steps_rewrote_it() {
     );
 }
 
-/// Two commits share a summary, and each has its own fixup. A message edited
-/// for one of them lands on that one only.
+/// Two commits share a summary, and each has its own fixup, naming it by hash.
+/// A message edited for one of them lands on that one only.
 #[test]
 fn a_message_edited_for_one_of_two_same_named_targets_lands_on_that_one() {
     let test = common::TestRepo::new();
 
     let base = test.commit_file("a.txt", "base\n", "base");
-    test.commit_file("t1.txt", "first\n", "Tweak");
+    let first = test.commit_file("t1.txt", "first\n", "Tweak");
     let second = test.commit_file("t2.txt", "second\n", "Tweak");
-    test.commit_file("t1.txt", "first\nfixed\n", "fixup! Tweak");
-    let short = &second.to_string()[..7];
-    test.commit_file("t2.txt", "second\nfixed\n", &format!("fixup! {short}"));
+    let short = |oid: git2::Oid| oid.to_string()[..7].to_string();
+    test.commit_file(
+        "t1.txt",
+        "first\nfixed\n",
+        &format!("fixup! {}", short(first)),
+    );
+    test.commit_file(
+        "t2.txt",
+        "second\nfixed\n",
+        &format!("fixup! {}", short(second)),
+    );
 
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
