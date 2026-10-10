@@ -246,6 +246,49 @@ fn a_plan_naming_a_commit_outside_the_range_is_refused() {
     assert!(result.is_err(), "expected an error, got {result:?}");
 }
 
+/// The batch finds each step's commits by their place in the branch, which is
+/// only well defined on a single line of history. A merge in the range it
+/// rewrites is refused before anything lands, as reword and split refuse one,
+/// rather than left to fail part-way in libgit2's words.
+#[test]
+fn a_merge_in_the_rewritten_range_is_refused_up_front() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let target = test.commit_file("a.txt", "v2\n", "Add parser");
+    let side = test.commit_file("b.txt", "b\n", "Side");
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let side_commit = test.repo.find_commit(side).unwrap();
+    let target_commit = test.repo.find_commit(target).unwrap();
+    test.repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "a merge",
+            &side_commit.tree().unwrap(),
+            &[&side_commit, &target_commit],
+        )
+        .unwrap();
+    test.commit_file("a.txt", "v2\nfix\n", "fixup! Add parser");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let result = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default());
+
+    let msg = format!(
+        "{:#}",
+        result.expect_err("a merge in the rewritten range must be refused")
+    );
+    assert!(!msg.contains("mainline"), "libgit2's wording leaked: {msg}");
+    assert!(msg.to_lowercase().contains("merge"), "{msg}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        head_oid,
+        "the branch must be left untouched"
+    );
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
