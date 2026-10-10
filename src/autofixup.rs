@@ -105,13 +105,19 @@ impl BatchPlan {
         Self { commits, steps }
     }
 
-    /// Where `pos` sits in the branch once the first `landed` steps are in.
-    pub fn current_index(&self, pos: PlannedPos, landed: usize) -> usize {
+    /// The commit at `pos` as the batch was planned.
+    pub fn planned_oid(&self, pos: PlannedPos) -> &Oid {
+        &self.commits[pos.0]
+    }
+
+    /// The commit at `pos` now, in `current` — the branch once the first
+    /// `landed` steps are in.
+    pub fn current_oid<'a>(&self, pos: PlannedPos, landed: usize, current: &'a [Oid]) -> &'a Oid {
         let removed_below = self.steps[..landed]
             .iter()
             .filter(|step| step.source.0 < pos.0)
             .count();
-        pos.0 - removed_below
+        &current[pos.0 - removed_below]
     }
 }
 
@@ -350,54 +356,6 @@ fn abbreviated(commits: &[CommitInfo], named: &[u8]) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod batch_plan_tests {
-    use super::*;
-    use crate::VirtualOid;
-
-    fn commit(oid: &str, summary: &str) -> CommitInfo {
-        CommitInfo {
-            oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
-            summary: summary.to_string(),
-            summary_key: summary.into(),
-            author: None,
-            date: None,
-            parent_oids: vec![],
-            message: summary.to_string(),
-            author_email: None,
-            author_date: None,
-            committer: None,
-            committer_email: None,
-            commit_date: None,
-        }
-    }
-
-    #[test]
-    fn a_fixup_of_a_fixup_lands_on_the_target_the_first_one_folded_into() {
-        let commits = vec![
-            commit("a", "Add parser"),
-            commit("b", "fixup! Add parser"),
-            commit("c", "fixup! fixup! Add parser"),
-        ];
-        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
-        assert!(plan.steps.iter().all(|step| step.target == PlannedPos(0)));
-    }
-
-    #[test]
-    fn a_position_moves_down_past_each_source_removed_below_it() {
-        let commits = vec![
-            commit("a", "Add parser"),
-            commit("b", "fixup! Add parser"),
-            commit("c", "Add lexer"),
-            commit("d", "fixup! Add lexer"),
-        ];
-        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
-        assert_eq!(plan.current_index(PlannedPos(2), 0), 2);
-        assert_eq!(plan.current_index(PlannedPos(2), 1), 1);
-        assert_eq!(plan.current_index(PlannedPos(0), 1), 0);
-    }
-}
-
-#[cfg(test)]
 mod message_overrides_tests {
     use super::*;
 
@@ -601,6 +559,40 @@ mod tests {
             pairs
                 .iter()
                 .all(|pair| pair.target_oid == commits[0].oid.expect_real_oid())
+        );
+    }
+
+    #[test]
+    fn a_fixup_of_a_fixup_lands_on_the_target_the_first_one_folded_into() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup! Add parser"),
+            commit("c", "fixup! fixup! Add parser"),
+        ];
+        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        assert!(plan.steps.iter().all(|step| step.target == PlannedPos(0)));
+    }
+
+    #[test]
+    fn a_position_moves_down_past_each_source_removed_below_it() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup! Add parser"),
+            commit("c", "Add lexer"),
+            commit("d", "fixup! Add lexer"),
+        ];
+        let plan = BatchPlan::new(&commits, &plan_autofixup(&commits));
+        let after_one: Vec<Oid> = ["a", "c", "d"]
+            .iter()
+            .map(|oid| Oid::new(oid.repeat(40)))
+            .collect();
+        assert_eq!(
+            plan.current_oid(PlannedPos(2), 1, &after_one),
+            &after_one[1]
+        );
+        assert_eq!(
+            plan.current_oid(PlannedPos(0), 1, &after_one),
+            &after_one[0]
         );
     }
 

@@ -140,17 +140,19 @@ fn run_batch(
 ) -> Result<RebaseOutcome> {
     while ctx.landed < ctx.plan.steps.len() {
         let current_tip = reads::head_oid(repo)?;
-        let commits = reads::list_commits(repo, &current_tip, &ctx.reference_oid)?;
-        if commits.len() + ctx.landed != ctx.plan.commits.len() {
+        let current = reads::list_oids(repo, &current_tip, &ctx.reference_oid)?;
+        if current.len() + ctx.landed != ctx.plan.commits.len() {
             anyhow::bail!("The branch no longer matches the autofixup that was planned for it.");
         }
         let step = &ctx.plan.steps[ctx.landed];
-        let source_oid = commits[ctx.plan.current_index(step.source, ctx.landed)]
-            .oid
-            .expect_real_oid();
-        let target_oid = commits[ctx.plan.current_index(step.target, ctx.landed)]
-            .oid
-            .expect_real_oid();
+        let source_oid = ctx
+            .plan
+            .current_oid(step.source, ctx.landed, &current)
+            .clone();
+        let target_oid = ctx
+            .plan
+            .current_oid(step.target, ctx.landed, &current)
+            .clone();
         let more_pending_for_target = ctx.plan.steps[ctx.landed + 1..]
             .iter()
             .any(|later| later.target == step.target);
@@ -158,7 +160,7 @@ fn run_batch(
             None
         } else {
             ctx.message_overrides
-                .for_target(&ctx.plan.commits[step.target.0])
+                .for_target(ctx.plan.planned_oid(step.target))
                 .cloned()
         };
         let message = match overridden {

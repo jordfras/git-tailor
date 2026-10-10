@@ -143,6 +143,23 @@ pub(super) fn list_commits(
     Ok(commits)
 }
 
+/// The OIDs [`list_commits`] would list, without reading the commits.
+pub(super) fn list_oids(repo: &Git2Repo, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<Oid>> {
+    let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
+
+    let mut oids = Vec::new();
+    for oid_result in revwalk {
+        let oid = oid_result?;
+        oids.push(Oid::from(oid));
+        if oid == to_commit_oid {
+            break;
+        }
+    }
+
+    oids.reverse();
+    Ok(oids)
+}
+
 /// The commit `oid` names, its tree, and its first parent's tree — `None` for a
 /// root commit, which diffs against nothing. The base of every commit diff.
 fn commit_trees<'a>(
