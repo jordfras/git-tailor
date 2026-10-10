@@ -219,6 +219,33 @@ fn resuming_a_batch_paused_without_a_plan_refuses_before_touching_anything() {
     );
 }
 
+/// The plan comes from the caller's list. One naming a commit the range does
+/// not hold is a caller out of step with the repository, reported as an error
+/// rather than taking the program down with it.
+#[test]
+fn a_plan_naming_a_commit_outside_the_range_is_refused() {
+    let test = common::TestRepo::new();
+
+    let outside = test.commit_file("a.txt", "outside\n", "Add target line");
+    let base = test.commit_file("a.txt", "base\n", "base");
+    test.commit_file("a.txt", "base\nfix\n", "fixup! Add target line");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let pair = autofixup::AutofixupPair {
+        source_oid: head_oid.clone(),
+        target_oid: Oid::from(outside),
+        source_summary: "fixup! Add target line".to_string(),
+        target_summary: "Add target line".to_string(),
+        source_message: String::new(),
+        target_message: String::new(),
+        mode: git_tailor::app::SquashMode::Fixup,
+    };
+
+    let result = git_repo.autofixup(&head_oid, &Oid::from(base), &[pair], &Default::default());
+    assert!(result.is_err(), "expected an error, got {result:?}");
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
