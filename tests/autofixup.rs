@@ -160,6 +160,26 @@ fn a_message_edited_for_one_of_two_same_named_targets_lands_on_that_one() {
     assert_history!(&test, base, &["Tweak", "Second tweak"]);
 }
 
+/// The merge-base is not on the branch, so a fixup never folds into it — even
+/// though it is the oldest commit with the summary the fixup names.
+#[test]
+fn a_fixup_never_folds_into_the_merge_base() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("a.txt", "base\n", "Update deps");
+    test.commit_file("a.txt", "base\nmore\n", "Update deps");
+    test.commit_file("a.txt", "base\nmore\nfix\n", "fixup! Update deps");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
+    assert_rebase_complete!(outcome);
+
+    assert_history!(&test, base, &["Update deps"]);
+    assert_file_contents_at_head!(&test.repo, "a.txt", "base\nmore\nfix\n");
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();

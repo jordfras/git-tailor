@@ -345,6 +345,17 @@ impl TestRepo {
     }
 }
 
+/// Run a bulk autofixup over `base..head` the way the confirmation dialog runs
+/// one: over the commits the list shows, which leave out `base` itself.
+pub fn autofixup_as_shown(
+    git_repo: &mut Git2Repo,
+    head: &Oid,
+    base: git2::Oid,
+    overrides: &git_tailor::autofixup::MessageOverrides,
+) -> anyhow::Result<git_tailor::repo::RebaseOutcome> {
+    git_repo.autofixup(head, &Oid::from(base), overrides)
+}
+
 /// Test harness that wraps `Terminal<TestBackend>` to eliminate per-test
 /// boilerplate: create backend, wrap in terminal, draw, clone buffer.
 pub struct TuiTestHarness {
