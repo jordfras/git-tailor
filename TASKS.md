@@ -203,6 +203,38 @@ Guidelines:
   whole batch up front, so it no longer causes this, but nothing stops the next
   error that does. Likely shape: on `Err` after progress, record the undo entry
   for what landed (or restore the batch's original tip) before returning it.
+- [ ] T260 P3 idea - Spike only (timebox: one day): can the library back a VS
+  Code extension through a napi-rs native module, with the fragmap matrix shown
+  next to the commit list in a webview? Close this task either way with a
+  decision recorded here.
+  Why napi-rs: no server process to manage, and N-API is ABI-stable, so one
+  build per platform runs in VS Code's Electron without rebuilding per Node
+  version. VS Code supports platform-specific `.vsix` packages, and napi-rs
+  ships GitHub Actions templates for the build matrix. A `gt serve` JSON-RPC
+  mode was the alternative; WASM was ruled out (libgit2 and filesystem access).
+  What a quick look already found, so the spike need not redo it:
+  * `repo` and `fragmap` do not depend on ratatui/crossterm. The one leak from
+    core into the TUI layer is `app::SquashMode`, used by `squash_op.rs`,
+    `autofixup_op.rs` and `autofixup.rs`; it belongs in `domain`.
+  * `lib.rs` also exports `app` and `views`, so a napi crate linking the library
+    today drags in ratatui. Likely shape: a Cargo workspace with a core crate
+    (domain, repo, fragmap, autofixup), the TUI crate, and a napi crate. The
+    library is not a public API, so nothing constrains the split.
+  * `FragMap` (`commits`, `clusters`, `matrix: Vec<Vec<TouchKind>>`) maps almost
+    directly onto a webview grid. Convert to `#[napi(object)]` DTOs in the napi
+    crate rather than making core types JS-aware.
+  * `build_fragmap`'s interruptible progress callback fits a napi `AsyncTask`,
+    so a large branch neither blocks the extension host nor runs past a cancel.
+  The real cost sits outside the library: the orchestration in the binary's
+  `dispatch/` and `loader.rs` (autostash around operations, conflict
+  continue/abort, undo/redo, diff loading) is tied to `AppAction`/`AppState`.
+  The spike should judge whether it can lift into a UI-agnostic session layer
+  in the library, which the TUI would use too, rather than be rewritten in
+  TypeScript. Conflicts could go to VS Code's merge editor instead of mergetool.
+  Spike deliverable: `SquashMode` moved, the workspace split, and a napi
+  function returning the fragmap for HEAD, rendered as a matrix beside the
+  commit list in a minimal webview. Outcome is either follow-up tasks for the
+  extension or `[-]` WON'T DO with the evidence.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
