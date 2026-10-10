@@ -1187,6 +1187,30 @@ mod autofixup_selection {
         assert!(screen.contains("fixup! Tweak"), "{screen}");
     }
 
+    /// With nothing to squash the dialog does not open, so the status bar is
+    /// the only place to say which fixups stayed and how to name their target.
+    #[test]
+    fn when_every_fixup_is_ambiguous_the_status_names_them() {
+        let mut repo = MockRepo::default();
+        let mut app = AppState {
+            list: CommitListState::with_selection(
+                vec![
+                    named("1", "Tweak"),
+                    named("2", "Tweak"),
+                    named("5", "fixup! Tweak"),
+                ],
+                0,
+            ),
+            ..Default::default()
+        };
+
+        crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
+
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(message.contains(&"5".repeat(8)), "{message}");
+        assert!(message.contains("hash"), "{message}");
+    }
+
     #[test]
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
