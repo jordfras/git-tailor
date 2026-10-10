@@ -102,7 +102,19 @@ impl BatchPlan {
                     mode: pair.mode,
                 })
             })
-            .collect::<anyhow::Result<_>>()?;
+            .collect::<anyhow::Result<Vec<PlannedStep>>>()?;
+        // What `current_oid` counts on: each source sits above its target, is
+        // folded away once, and is never a target itself.
+        for (i, step) in steps.iter().enumerate() {
+            if step.source.0 <= step.target.0
+                || steps[..i]
+                    .iter()
+                    .any(|earlier| earlier.source == step.source)
+                || steps.iter().any(|other| other.source == step.target)
+            {
+                anyhow::bail!("The autofixup plan does not fit the branch it names.");
+            }
+        }
         Ok(Self { commits, steps })
     }
 
