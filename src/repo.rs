@@ -175,6 +175,21 @@ pub struct LiftedRow {
     pub temp_oid: Oid,
 }
 
+/// Context on the error of an operation that had already moved the branch
+/// when it failed. What landed is recorded for undo, and a conflict the
+/// operation resumed is over, so the caller has nothing left to resume.
+#[derive(Debug)]
+pub struct LandedPartway {
+    pub label: String,
+}
+
+impl std::fmt::Display for LandedPartway {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = self.label.to_lowercase();
+        write!(f, "{label} stopped part-way; undo puts the branch back")
+    }
+}
+
 /// Result of a rebase operation that may encounter merge conflicts.
 #[derive(Debug)]
 pub enum RebaseOutcome {

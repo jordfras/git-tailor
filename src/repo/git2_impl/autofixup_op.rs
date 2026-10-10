@@ -17,7 +17,7 @@
 //! single-squash primitive in `squash_op` as the building block. The whole
 //! batch runs as one undoable operation: `original_branch_oid` on any
 //! `ConflictState` this produces is always the tip before the *batch* started
-//! (not the current step), so the trait-level `journaled_batch()` wrapper
+//! (not the current step), so the trait-level `journaled()` wrapper
 //! records a single undo entry for the whole batch — once every pair has been
 //! applied, or as soon as an error stops it with some landed — and
 //! `rebase_abort` unwinds the whole batch rather than just the in-progress step.
