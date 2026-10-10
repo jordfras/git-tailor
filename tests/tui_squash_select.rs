@@ -105,7 +105,7 @@ fn test_squash_into_staged_blocked() {
         CommitInfo {
             oid: VirtualOid::Staged,
             summary: "staged".to_string(),
-            summary_bytes: "staged".into(),
+            summary_key: "staged".into(),
             ..common::create_test_commit("staged", "staged")
         },
     ];
@@ -138,13 +138,13 @@ fn app_with_worktree_rows() -> AppState {
         CommitInfo {
             oid: VirtualOid::Staged,
             summary: "staged".to_string(),
-            summary_bytes: "staged".into(),
+            summary_key: "staged".into(),
             ..common::create_test_commit("staged", "staged")
         },
         CommitInfo {
             oid: VirtualOid::Unstaged,
             summary: "unstaged".to_string(),
-            summary_bytes: "unstaged".into(),
+            summary_key: "unstaged".into(),
             ..common::create_test_commit("unstaged", "unstaged")
         },
     ];
@@ -235,7 +235,7 @@ fn test_worktree_row_blocked_without_any_commit() {
     app.list.commits = vec![CommitInfo {
         oid: VirtualOid::Unstaged,
         summary: "unstaged".to_string(),
-        summary_bytes: "unstaged".into(),
+        summary_key: "unstaged".into(),
         ..common::create_test_commit("unstaged", "unstaged")
     }];
     app.list.selection_index = 0;

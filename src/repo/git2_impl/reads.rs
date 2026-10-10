@@ -390,7 +390,7 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
         summary: lossy(&summary),
-        summary_bytes: summary,
+        summary_key: summary,
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
@@ -421,7 +421,7 @@ pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInf
     CommitInfo {
         oid,
         summary: summary.to_string(),
-        summary_bytes: BString::from(summary),
+        summary_key: BString::from(summary),
         author: None,
         date: None,
         parent_oids: vec![],

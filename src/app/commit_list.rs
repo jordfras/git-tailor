@@ -282,7 +282,7 @@ mod tests {
         CommitInfo {
             oid: VirtualOid::Real(Oid::from(oid)),
             summary: summary.to_string(),
-            summary_bytes: summary.into(),
+            summary_key: summary.into(),
             author: Some("Test Author".to_string()),
             date: Some("2024-01-01".to_string()),
             parent_oids: vec![],

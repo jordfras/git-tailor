@@ -144,7 +144,7 @@ fn run_batch(
         };
         let more_pending_for_target = plan[1..]
             .iter()
-            .any(|p| p.target_summary_bytes == pair.target_summary_bytes);
+            .any(|p| p.target_summary_key == pair.target_summary_key);
         let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
         match squash_op::squash_commits(
             repo,

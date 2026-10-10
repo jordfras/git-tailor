@@ -144,13 +144,14 @@ impl fmt::Display for VirtualOid {
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     pub oid: VirtualOid,
-    /// For display: decoded through the commit's `encoding` header where it has
-    /// one and lossily otherwise, so two summaries can still render alike.
+    /// `summary_key` rendered for display, kept so drawing does not decode it
+    /// again on every frame. Undecodable bytes become replacement characters,
+    /// so two summaries can render alike.
     pub summary: String,
     /// The summary as git compares it — what identifies a commit by its
     /// subject. Decoded to UTF-8 through the commit's `encoding` header where it
     /// has one, and as stored otherwise.
-    pub summary_bytes: BString,
+    pub summary_key: BString,
     /// Author name. `None` for synthetic pseudo-commits (staged/unstaged changes).
     pub author: Option<String>,
     /// Raw commit timestamp (seconds since epoch). `None` for synthetic pseudo-commits.

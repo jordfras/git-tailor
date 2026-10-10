@@ -31,7 +31,7 @@ fn synthetic_row(oid: VirtualOid, summary: &str) -> CommitInfo {
     CommitInfo {
         oid,
         summary: summary.to_string(),
-        summary_bytes: summary.into(),
+        summary_key: summary.into(),
         author: None,
         date: None,
         parent_oids: vec![],

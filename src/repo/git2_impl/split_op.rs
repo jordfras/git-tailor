@@ -1075,7 +1075,7 @@ mod tests {
             commit: CommitInfo {
                 oid: VirtualOid::Real(oid.clone()),
                 summary: String::new(),
-                summary_bytes: Default::default(),
+                summary_key: Default::default(),
                 author: None,
                 date: None,
                 parent_oids: vec![],

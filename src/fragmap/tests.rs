@@ -20,7 +20,7 @@ fn make_commit_info() -> CommitInfo {
     CommitInfo {
         oid: VirtualOid::Real(Oid::from("abc123")),
         summary: "Test commit".to_string(),
-        summary_bytes: "Test commit".into(),
+        summary_key: "Test commit".into(),
         author: Some("Test Author".to_string()),
         date: Some("123456789".to_string()),
         parent_oids: vec![],
@@ -422,7 +422,7 @@ fn make_commit_info_with_oid(oid: &str) -> CommitInfo {
     CommitInfo {
         oid: VirtualOid::Real(Oid::from(oid)),
         summary: format!("Commit {}", oid),
-        summary_bytes: bstr::BString::from(format!("Commit {}", oid)),
+        summary_key: bstr::BString::from(format!("Commit {}", oid)),
         author: Some("Test Author".to_string()),
         date: Some("123456789".to_string()),
         parent_oids: vec![],

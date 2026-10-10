@@ -34,9 +34,9 @@ pub struct AutofixupPair {
     pub source_summary: String,
     pub target_summary: String,
     /// The target's summary as git compares it (see
-    /// [`CommitInfo::summary_bytes`]): what identifies the target, since two
+    /// [`CommitInfo::summary_key`]): what identifies the target, since two
     /// summaries can render alike.
-    pub target_summary_bytes: BString,
+    pub target_summary_key: BString,
     /// Full commit message (summary + body) of the source/target, needed to
     /// build the non-interactive squash message; the confirmation dialog
     /// only shows the summaries.
@@ -53,7 +53,7 @@ pub struct AutofixupPair {
 pub struct AutofixupGroup {
     pub target_oid: Oid,
     pub target_summary: String,
-    pub target_summary_bytes: BString,
+    pub target_summary_key: BString,
     pub target_message: String,
     /// Oldest-first, same as `plan_autofixup`'s overall order.
     pub sources: Vec<AutofixupPair>,
@@ -66,14 +66,14 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
     for pair in pairs {
         if let Some(group) = groups
             .iter_mut()
-            .find(|g| g.target_summary_bytes == pair.target_summary_bytes)
+            .find(|g| g.target_summary_key == pair.target_summary_key)
         {
             group.sources.push(pair.clone());
         } else {
             groups.push(AutofixupGroup {
                 target_oid: pair.target_oid.clone(),
                 target_summary: pair.target_summary.clone(),
-                target_summary_bytes: pair.target_summary_bytes.clone(),
+                target_summary_key: pair.target_summary_key.clone(),
                 target_message: pair.target_message.clone(),
                 sources: vec![pair.clone()],
             });
@@ -92,19 +92,19 @@ pub struct MessageOverrides(BTreeMap<BString, BString>);
 
 impl MessageOverrides {
     pub fn for_group(&self, group: &AutofixupGroup) -> Option<&BString> {
-        self.0.get(&group.target_summary_bytes)
+        self.0.get(&group.target_summary_key)
     }
 
     pub fn for_pair(&self, pair: &AutofixupPair) -> Option<&BString> {
-        self.0.get(&pair.target_summary_bytes)
+        self.0.get(&pair.target_summary_key)
     }
 
     pub fn set(&mut self, group: &AutofixupGroup, message: BString) {
-        self.0.insert(group.target_summary_bytes.clone(), message);
+        self.0.insert(group.target_summary_key.clone(), message);
     }
 
     pub fn clear(&mut self, group: &AutofixupGroup) {
-        self.0.remove(&group.target_summary_bytes);
+        self.0.remove(&group.target_summary_key);
     }
 }
 
@@ -237,13 +237,11 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
     for (i, commit) in commits.iter().enumerate() {
-        // On the bytes, not their rendering: two summaries that differ only in
-        // what does not decode render alike.
         let Some((mode, target_bytes)) = [SquashMode::Fixup, SquashMode::Squash]
             .into_iter()
             .find_map(|mode| {
                 commit
-                    .summary_bytes
+                    .summary_key
                     .strip_prefix(mode.prefix().as_bytes())
                     .map(|bytes| (mode, bytes))
             })
@@ -255,7 +253,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
         let Some(target) = commits[..i]
             .iter()
             .rev()
-            .find(|c| c.summary_bytes == target_bytes)
+            .find(|c| c.summary_key == target_bytes)
         else {
             continue;
         };
@@ -265,7 +263,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
             target_oid: target.oid.expect_real_oid(),
             source_summary: commit.summary.clone(),
             target_summary: target.summary.clone(),
-            target_summary_bytes: target.summary_bytes.clone(),
+            target_summary_key: target.summary_key.clone(),
             source_message: commit.message.clone(),
             target_message: target.message.clone(),
             mode,
@@ -331,7 +329,7 @@ mod tests {
         CommitInfo {
             oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
             summary: summary.to_string(),
-            summary_bytes: summary.into(),
+            summary_key: summary.into(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -348,7 +346,7 @@ mod tests {
     fn commit_with_raw_summary(oid: &str, raw: &[u8]) -> CommitInfo {
         CommitInfo {
             summary: String::from_utf8_lossy(raw).into_owned(),
-            summary_bytes: BString::from(raw),
+            summary_key: BString::from(raw),
             ..commit(oid, "")
         }
     }
