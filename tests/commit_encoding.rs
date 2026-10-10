@@ -366,6 +366,31 @@ fn bulk_autofixup_tells_apart_targets_that_render_alike() {
     assert_eq!(test.repo.find_blob(blob).unwrap().content(), b"A\nfixed\n");
 }
 
+/// git decodes a subject through its `encoding` header before matching it, so
+/// a `fixup!` written in UTF-8 finds a target committed in Latin-1.
+#[test]
+fn bulk_autofixup_matches_a_utf8_fixup_to_a_latin1_target() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("x.txt", "x\n", "base");
+    test.write_file("a.txt", "A\n");
+    test.stage_file("a.txt");
+    let tree = test.repo.index().unwrap().write_tree().unwrap();
+    // Latin-1 "Fix för", with the header that says so.
+    commit_with_raw_tree_and_message(&test, base, tree, b"Fix f\xf6r\n");
+    test.commit_file("a.txt", "A\nfixed\n", "fixup! Fix för");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &Default::default())
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 1, "the fixup folds into its target");
+    assert_eq!(message_bytes(&test, commits[0]), b"Fix f\xf6r\n");
+}
+
 /// Rewording *to* readable text drops the `encoding` header, because the header
 /// described bytes that are no longer there.
 #[test]
