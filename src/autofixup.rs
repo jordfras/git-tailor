@@ -53,7 +53,7 @@ pub struct AutofixupGroup {
 
 /// A commit's position in the branch a batch was planned against, oldest
 /// first. Unlike its OID, it survives the rewrites of the steps before it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PlannedPos(pub usize);
 
@@ -106,7 +106,7 @@ impl BatchPlan {
         // What `current_oid` counts on: each source sits above its target, is
         // folded away once, and is never a target itself.
         for (i, step) in steps.iter().enumerate() {
-            if step.source.0 <= step.target.0
+            if step.source <= step.target
                 || steps[..i]
                     .iter()
                     .any(|earlier| earlier.source == step.source)
@@ -128,7 +128,7 @@ impl BatchPlan {
     pub fn current_oid<'a>(&self, pos: PlannedPos, landed: usize, current: &'a [Oid]) -> &'a Oid {
         let removed_below = self.steps[..landed]
             .iter()
-            .filter(|step| step.source.0 < pos.0)
+            .filter(|step| step.source < pos)
             .count();
         &current[pos.0 - removed_below]
     }

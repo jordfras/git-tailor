@@ -31,7 +31,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides, PlannedPos};
+use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -47,8 +47,8 @@ pub(super) fn autofixup(
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
-    if let Some(oldest) = plan.steps.iter().map(|step| step.target.0).min() {
-        let oldest = plan.planned_oid(PlannedPos(oldest));
+    if let Some(oldest) = plan.steps.iter().map(|step| step.target).min() {
+        let oldest = plan.planned_oid(oldest);
         repo.refuse_rewriting_from(oldest, head_oid)?;
         // A step finds its commits by their place in the branch, which only a
         // single line of history defines. The range starts above the oldest
