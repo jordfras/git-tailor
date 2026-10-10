@@ -29,11 +29,10 @@ mod tests;
 
 use anyhow::Result;
 use bstr::{BStr, BString};
-use git_tailor::Oid;
 use git_tailor::app::{AppAction, AppState};
 use git_tailor::editor;
 use git_tailor::repo::{
-    AutostashRestore, GitRepo, RebaseOutcome, StageOutcome, StashConflictState,
+    AutostashRestore, GitRepo, LandedPartway, RebaseOutcome, StageOutcome, StashConflictState,
 };
 use git_tailor::views;
 
@@ -472,17 +471,15 @@ pub(crate) fn handle_resume_outcome(
 ) -> LoopAction {
     let op_label = &state.operation_label;
     match outcome {
-        // Resuming and aborting both refuse once the branch has left the tip
-        // the conflict paused on, so the dialog could only trap the user.
-        Err(e) if branch_moved_from(git_repo, &state.new_tip_oid) => {
-            settle_autostash_after_failure(
-                git_repo,
-                app,
-                op_label,
-                format!("{op_label} failed: {e:#}"),
-                LoopAction::Reload,
-            )
-        }
+        // The repository recorded what landed and dropped the conflict, so the
+        // dialog would offer to resume something that is over.
+        Err(e) if landed_partway(&e) => settle_autostash_after_failure(
+            git_repo,
+            app,
+            op_label,
+            format!("{op_label} failed: {e:#}"),
+            LoopAction::Reload,
+        ),
         Err(e) => {
             // `Continue`, not a reload: `load_with_progress` ends by setting
             // `AppMode::CommitList`, so reloading here would throw away the
@@ -499,10 +496,20 @@ pub(crate) fn handle_resume_outcome(
     }
 }
 
-/// Whether a failed operation left the branch somewhere other than `tip`, so
-/// the list on screen no longer shows it.
-pub(crate) fn branch_moved_from(git_repo: &impl GitRepo, tip: &Oid) -> bool {
-    git_repo.head_oid().is_ok_and(|head| &head != tip)
+/// Whether a failed operation had already moved the branch, so the list on
+/// screen no longer shows it.
+pub(crate) fn landed_partway(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<LandedPartway>().is_some()
+}
+
+/// What follows a failure: `otherwise`, unless the branch moved and the list
+/// has to be reloaded to show it.
+pub(crate) fn after_failure(e: &anyhow::Error, otherwise: LoopAction) -> LoopAction {
+    if landed_partway(e) {
+        LoopAction::ReloadPreserving
+    } else {
+        otherwise
+    }
 }
 
 /// Reduce a rebase result to its UI side effect.
@@ -536,12 +543,13 @@ pub(crate) fn handle_rebase_outcome(
         }
         Err(e) => {
             // The operation did not complete — restore the working tree.
+            let done = after_failure(&e, LoopAction::Proceed);
             settle_autostash_after_failure(
                 git_repo,
                 app,
                 op_label,
                 format!("{op_label} failed: {e:#}"),
-                LoopAction::Proceed,
+                done,
             )
         }
     }

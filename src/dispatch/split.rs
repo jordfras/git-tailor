@@ -269,7 +269,7 @@ fn settle_split_autostash(
             app,
             "Split",
             format!("Split failed: {e:#}"),
-            LoopAction::Proceed,
+            crate::dispatch::after_failure(&e, LoopAction::Proceed),
         ),
     }
 }

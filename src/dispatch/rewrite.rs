@@ -94,7 +94,10 @@ pub(crate) fn handle_prepare_reword(
         Ok(new_message) => {
             match git_repo.reword_commit(&commit_oid, new_message.as_bstr(), &head_oid) {
                 Ok(()) => return Ok(LoopAction::ReloadPreserving),
-                Err(e) => app.set_error_message(format!("Reword failed: {e:#}")),
+                Err(e) => {
+                    app.set_error_message(format!("Reword failed: {e:#}"));
+                    return Ok(crate::dispatch::after_failure(&e, LoopAction::Proceed));
+                }
             }
         }
     }

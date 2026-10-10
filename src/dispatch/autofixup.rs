@@ -180,11 +180,7 @@ pub(crate) fn handle_execute_autofixup(
             Ok(LoopAction::Continue)
         }
         Err(e) => {
-            let done = if crate::dispatch::branch_moved_from(git_repo, &head_oid) {
-                LoopAction::ReloadPreserving
-            } else {
-                LoopAction::Proceed
-            };
+            let done = crate::dispatch::after_failure(&e, LoopAction::Proceed);
             Ok(crate::dispatch::settle_autostash_after_failure(
                 git_repo,
                 app,
