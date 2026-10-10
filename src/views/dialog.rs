@@ -72,6 +72,7 @@ const BORDER_WIDTH: u16 = 2;
 const BORDER_HEIGHT: u16 = 2;
 
 use crate::app::{AppState, KeyCommand, ScrollState};
+use crate::repo::ConflictState;
 use crate::views::palette::Colors;
 use ratatui::{
     Frame,
@@ -156,22 +157,27 @@ pub fn truncate_summary(text: &str, width: usize) -> String {
 /// to be the first thing read, and anything below the file list can scroll out
 /// of view — taking the instructions that say how to get out with it.
 ///
-/// `what_is_left` is the way out while the branch is on `paused_tip`. Once it
-/// has moved, both ways out refuse, so that text would be untrue.
+/// `what_is_left` is the way out while `paused` still has its branch checked
+/// out on the commit it paused at. Otherwise both ways out refuse, so that
+/// text would be untrue.
 pub fn push_resume_failure(
     mut dialog: Dialog,
     app: &AppState,
     iw: usize,
     what_is_left: &str,
-    paused_tip: &crate::Oid,
+    paused: &ConflictState,
 ) -> Dialog {
     let Some(failure) = &app.resume_failure else {
         return dialog;
     };
     let what_is_left = if failure.branch_moved {
+        let branch = paused
+            .branch_refname
+            .strip_prefix("refs/heads/")
+            .unwrap_or("the branch");
         format!(
-            "Enter and Esc both refuse until the branch is back on {}. Put it back, or quit: the next start drops this operation and leaves your files as they are.",
-            paused_tip.short()
+            "Enter and Esc both refuse until {branch} is checked out on {} again.",
+            paused.new_tip_oid.short()
         )
     } else {
         what_is_left.to_string()

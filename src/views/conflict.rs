@@ -136,7 +136,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         let left = format!(
             "The {label_lower} itself is done and your {other} are still set aside. Clear what is named above, then press Enter to try again — or press Esc to unwind the whole {label_lower} and get your changes back unchanged."
         );
-        let dialog = push_resume_failure(dialog, app, iw, &left, &state.new_tip_oid);
+        let dialog = push_resume_failure(dialog, app, iw, &left, state);
         let dialog = if app.resume_failure.is_some() {
             dialog
         } else {
@@ -169,7 +169,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
         app,
         iw,
         "Still in progress: your branch is on the commit it paused at. Clear what is named above, then press Enter to try again — or press Esc to abort and put the branch back where it started.",
-        &state.new_tip_oid,
+        state,
     );
 
     dialog = dialog.push_line(Line::from(vec![
