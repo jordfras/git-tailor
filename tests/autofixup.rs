@@ -175,6 +175,50 @@ fn a_fixup_never_folds_into_the_merge_base() {
     assert_file_contents_at_head!(&test.repo, "a.txt", "base\nmore\nfix\n");
 }
 
+/// A batch paused by a build that kept no plan cannot be resumed here, and the
+/// refusal must come before the paused step is finished — or the older build,
+/// which could have resumed it, finds that step already gone.
+#[test]
+fn resuming_a_batch_paused_without_a_plan_refuses_before_touching_anything() {
+    let test = common::TestRepo::new();
+
+    let base = test.commit_file("c.txt", "base\n", "base");
+    test.commit_file("c.txt", "target version\n", "Add T");
+    test.commit_file("c.txt", "mid version\n", "Unrelated edit to c");
+    test.commit_file("c.txt", "source version\n", "fixup! Add T");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
+    let state = expect_rebase_conflict!(outcome);
+    let paused_tip = git_repo.head_oid().unwrap();
+
+    test.write_file("c.txt", "mid version\n");
+    git_repo.stage_file(std::path::Path::new("c.txt")).unwrap();
+    let Resume::Squash(ctx) = &state.resume else {
+        panic!("a three-way overwrite conflicts at squash-tree time");
+    };
+    let without_plan = git_tailor::repo::AutofixupContext {
+        plan: Default::default(),
+        landed: 0,
+        ..state.autofixup_context.clone().unwrap()
+    };
+    let result = git_repo.squash_finalize(
+        ctx,
+        ctx.combined_message.as_bstr(),
+        &state.original_branch_oid,
+        Some(&without_plan),
+    );
+
+    assert!(result.is_err(), "expected a refusal, got {result:?}");
+    assert_eq!(
+        git_repo.head_oid().unwrap(),
+        paused_tip,
+        "the paused step must not have been finished"
+    );
+}
+
 #[test]
 fn a_fixup_with_no_matching_target_is_left_in_place() {
     let test = common::TestRepo::new();
