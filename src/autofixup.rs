@@ -33,6 +33,9 @@ pub struct AutofixupPair {
     pub target_oid: Oid,
     pub source_summary: String,
     pub target_summary: String,
+    /// The target's summary as git stores it: what identifies the target,
+    /// since two summaries can render alike.
+    pub target_summary_bytes: BString,
     /// Full commit message (summary + body) of the source/target, needed to
     /// build the non-interactive squash message; the confirmation dialog
     /// only shows the summaries.
@@ -49,6 +52,7 @@ pub struct AutofixupPair {
 pub struct AutofixupGroup {
     pub target_oid: Oid,
     pub target_summary: String,
+    pub target_summary_bytes: BString,
     pub target_message: String,
     /// Oldest-first, same as `plan_autofixup`'s overall order.
     pub sources: Vec<AutofixupPair>,
@@ -61,13 +65,14 @@ pub fn group_by_target(pairs: &[AutofixupPair]) -> Vec<AutofixupGroup> {
     for pair in pairs {
         if let Some(group) = groups
             .iter_mut()
-            .find(|g| g.target_summary == pair.target_summary)
+            .find(|g| g.target_summary_bytes == pair.target_summary_bytes)
         {
             group.sources.push(pair.clone());
         } else {
             groups.push(AutofixupGroup {
                 target_oid: pair.target_oid.clone(),
                 target_summary: pair.target_summary.clone(),
+                target_summary_bytes: pair.target_summary_bytes.clone(),
                 target_message: pair.target_message.clone(),
                 sources: vec![pair.clone()],
             });
@@ -86,24 +91,20 @@ pub struct MessageOverrides(BTreeMap<BString, BString>);
 
 impl MessageOverrides {
     pub fn for_group(&self, group: &AutofixupGroup) -> Option<&BString> {
-        self.0.get(&target_key(&group.target_summary))
+        self.0.get(&group.target_summary_bytes)
     }
 
     pub fn for_pair(&self, pair: &AutofixupPair) -> Option<&BString> {
-        self.0.get(&target_key(&pair.target_summary))
+        self.0.get(&pair.target_summary_bytes)
     }
 
     pub fn set(&mut self, group: &AutofixupGroup, message: BString) {
-        self.0.insert(target_key(&group.target_summary), message);
+        self.0.insert(group.target_summary_bytes.clone(), message);
     }
 
     pub fn clear(&mut self, group: &AutofixupGroup) {
-        self.0.remove(&target_key(&group.target_summary));
+        self.0.remove(&group.target_summary_bytes);
     }
-}
-
-fn target_key(summary: &str) -> BString {
-    BString::from(summary)
 }
 
 /// One override as the journal stores it. A list of these rather than a map,
@@ -235,20 +236,26 @@ pub fn strip_comment_lines(text: &BStr) -> BString {
 pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
     let mut pairs = Vec::new();
     for (i, commit) in commits.iter().enumerate() {
-        let Some((mode, target_text)) = [SquashMode::Fixup, SquashMode::Squash]
+        // On the bytes, not their rendering: two summaries that differ only in
+        // what does not decode render alike.
+        let Some((mode, target_bytes)) = [SquashMode::Fixup, SquashMode::Squash]
             .into_iter()
             .find_map(|mode| {
                 commit
-                    .summary
-                    .strip_prefix(mode.prefix())
-                    .map(|text| (mode, text))
+                    .summary_bytes
+                    .strip_prefix(mode.prefix().as_bytes())
+                    .map(|bytes| (mode, bytes))
             })
         else {
             continue;
         };
 
         // Nearest preceding commit wins, in case of duplicate summaries.
-        let Some(target) = commits[..i].iter().rev().find(|c| c.summary == target_text) else {
+        let Some(target) = commits[..i]
+            .iter()
+            .rev()
+            .find(|c| c.summary_bytes == target_bytes)
+        else {
             continue;
         };
 
@@ -257,6 +264,7 @@ pub fn plan_autofixup(commits: &[CommitInfo]) -> Vec<AutofixupPair> {
             target_oid: target.oid.expect_real_oid(),
             source_summary: commit.summary.clone(),
             target_summary: target.summary.clone(),
+            target_summary_bytes: target.summary_bytes.clone(),
             source_message: commit.message.clone(),
             target_message: target.message.clone(),
             mode,

@@ -1076,6 +1076,7 @@ mod autofixup_selection {
             target_oid: Oid::new(target.repeat(40)),
             source_summary: String::new(),
             target_summary: String::new(),
+            target_summary_bytes: Default::default(),
             source_message: String::new(),
             target_message: String::new(),
             mode: Mode::Fixup,
@@ -1866,6 +1867,7 @@ fn the_autofixup_editor_seed_keeps_a_target_message_that_is_not_utf8() {
     let group = git_tailor::autofixup::AutofixupGroup {
         target_oid: target_oid.clone(),
         target_summary: "Fix f\u{fffd}r \u{fffd}\u{fffd}\u{fffd} handling".to_string(),
+        target_summary_bytes: b"Fix f\xf6r \xe5\xe4\xf6 handling".into(),
         // What `CommitInfo` holds: the lossy rendering, which is exactly what
         // must not reach the editor.
         target_message: String::from_utf8_lossy(latin1).into_owned(),
@@ -1890,6 +1892,7 @@ fn the_autofixup_editor_seed_starts_from_a_previous_edit() {
     let group = git_tailor::autofixup::AutofixupGroup {
         target_oid: target_oid.clone(),
         target_summary: "Add parser".to_string(),
+        target_summary_bytes: "Add parser".into(),
         target_message: "Add parser\n".to_string(),
         sources: vec![],
     };

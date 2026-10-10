@@ -144,7 +144,7 @@ fn run_batch(
         };
         let more_pending_for_target = plan[1..]
             .iter()
-            .any(|p| p.target_summary == pair.target_summary);
+            .any(|p| p.target_summary_bytes == pair.target_summary_bytes);
         let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
         match squash_op::squash_commits(
             repo,
@@ -177,8 +177,8 @@ fn run_batch(
 /// dialog, it's used — but only once `more_pending_for_target` is `false`,
 /// i.e. this is the last fixup/squash still queued for that target. Applying
 /// it earlier would rename the target before the remaining pairs in the same
-/// group get a chance to match it (matching is by summary text, since OIDs
-/// churn with every squash in the batch).
+/// group get a chance to match it (matching is by summary, since OIDs churn
+/// with every squash in the batch).
 ///
 /// Otherwise falls back to the default: `fixup!` keeps the target's message
 /// unchanged; `squash!` combines target + source with the same default text

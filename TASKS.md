@@ -170,7 +170,7 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [ ] T257 P3 bug - Autofixup identifies a target by its decoded summary.
+- [X] T257 P3 bug - Autofixup identifies a target by its decoded summary.
   `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
   the target's summary, and that summary is `CommitInfo::summary` — the lossy
   rendering built in `reads.rs` (`lossy(commit.summary_bytes())`). Two targets

@@ -164,6 +164,11 @@ The format is based on
   stopped by an error kept the pairs it had squashed with no undo entry, and any
   rewrite whose final checkout failed left the branch moved with nothing to
   undo and the list showing the history from before
+- Bulk autofixup matches a `fixup!` or `squash!` to its target on the
+  summary's exact bytes, as `git rebase --autosquash` does. Two targets whose
+  summaries differ only in characters git-tailor cannot decode looked the same,
+  so a fixup could fold into the wrong one, and a final message edited for one
+  was written onto the other as well
 
 ## [3.1.0] - 2026-09-12
 
