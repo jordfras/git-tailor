@@ -326,6 +326,7 @@ fn test_enter_move_select_blocks_on_synthetic() {
         CommitInfo {
             oid: VirtualOid::Staged,
             summary: "staged".to_string(),
+            summary_key: "staged".into(),
             ..common::create_test_commit("staged", "staged")
         },
     ];

@@ -170,7 +170,7 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [ ] T257 P3 bug - Autofixup identifies a target by its decoded summary.
+- [X] T257 P3 bug - Autofixup identifies a target by its decoded summary.
   `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
   the target's summary, and that summary is `CommitInfo::summary` — the lossy
   rendering built in `reads.rs` (`lossy(commit.summary_bytes())`). Two targets
@@ -235,6 +235,21 @@ Guidelines:
   function returning the fragmap for HEAD, rendered as a matrix beside the
   commit list in a minimal webview. Outcome is either follow-up tasks for the
   extension or `[-]` WON'T DO with the evidence.
+- [ ] T261 P3 bug - Squash, drop and move do not refuse a merge in the range
+  they replay. They collect what to replay with `collect_descendants`, a plain
+  revwalk that, by its own doc, can emit commits that are not descendants at
+  all, or stop short of them, once a merge is in the range. Reword, split and
+  edit refuse with `range_has_merge` first, and autofixup does since T257; the
+  rest find out when libgit2's cherry-pick fails on the merge ("mainline branch
+  is not specified"), or replay the wrong commits. Refuse the same way, with a
+  message of our own.
+- [ ] T262 P3 bug - Every rewrite checks the branch against the tip read when
+  its dialog opens, not the one the list was loaded from. Each `prepare_*`
+  handler takes `head_oid` fresh (`get_head_oid_or_continue!`), so a commit made
+  in another terminal between loading the list and choosing an operation passes
+  `refuse_if_branch_moved`, and the rewrite acts on history the list never
+  showed. The staleness tests only cover a move after that read. Keep the tip
+  the list was loaded from in `AppState` and hand that to every operation.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

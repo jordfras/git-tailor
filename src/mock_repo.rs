@@ -570,7 +570,8 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &Oid,
-        _: &std::collections::HashMap<String, bstr::BString>,
+        _: &[git_tailor::autofixup::AutofixupPair],
+        _: &git_tailor::autofixup::MessageOverrides,
     ) -> anyhow::Result<RebaseOutcome> {
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
@@ -581,7 +582,7 @@ impl RepoWrite for MockRepo {
                 conflicting_files: vec![],
                 autofixup_context: Some(git_tailor::repo::AutofixupContext {
                     reference_oid: Oid::from("d".repeat(40)),
-                    message_overrides: std::collections::HashMap::new(),
+                    ..Default::default()
                 }),
                 ..Default::default()
             })));

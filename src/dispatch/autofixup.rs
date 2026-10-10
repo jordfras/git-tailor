@@ -33,13 +33,26 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     app: &mut AppState,
 ) -> Result<LoopAction> {
     let head_oid = get_head_oid_or_continue!(git_repo, app);
-    let pairs = git_tailor::autofixup::plan_autofixup(&app.list.commits);
+    let git_tailor::autofixup::AutofixupPlan {
+        pairs,
+        ambiguous: left_in_place,
+    } = git_tailor::autofixup::plan_autofixup(&app.list.commits);
     if pairs.is_empty() {
-        app.set_success_message("Nothing to autofixup");
+        if left_in_place.is_empty() {
+            app.set_success_message("Nothing to autofixup");
+        } else {
+            let shas: Vec<&str> = left_in_place.iter().map(|f| f.oid.short()).collect();
+            let verb = if shas.len() == 1 { "names" } else { "name" };
+            app.set_error_message(format!(
+                "Nothing to autofixup: {} {verb} a commit several share — name the \
+                 target by hash or a longer summary",
+                shas.join(", ")
+            ));
+        }
         return Ok(LoopAction::Proceed);
     }
     let reference_oid = app.reference_oid.clone();
-    app.enter_autofixup_confirm(pairs, head_oid, reference_oid);
+    app.enter_autofixup_confirm(pairs, left_in_place, head_oid, reference_oid);
     Ok(LoopAction::Proceed)
 }
 
@@ -111,20 +124,17 @@ pub(super) fn edit_seed(
 /// Open `$EDITOR` on the target's message, with the sources being folded into
 /// it commented out (see `autofixup::edit_template`), and store
 /// the result back onto the still-open confirmation dialog as an override for
-/// `target_summary`. Does not execute anything; the batch only runs once the
+/// `group`'s target. Does not execute anything; the batch only runs once the
 /// user confirms.
 pub(crate) fn handle_prepare_autofixup_edit_message(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
-    target_summary: String,
     group: &AutofixupGroup,
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let edited = match &app.mode {
-        AppMode::AutofixupConfirm(pending) => {
-            pending.message_overrides.get(&target_summary).cloned()
-        }
+        AppMode::AutofixupConfirm(pending) => pending.message_overrides.for_group(group).cloned(),
         _ => None,
     };
     let template = edit_seed(git_repo, group, edited.as_ref().map(|m| m.as_bstr()));
@@ -135,11 +145,11 @@ pub(crate) fn handle_prepare_autofixup_edit_message(
             let message = git_tailor::autofixup::strip_comment_lines(edited.as_bstr());
             if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
                 if message.is_empty() {
-                    pending.message_overrides.remove(&target_summary);
+                    pending.message_overrides.clear(group);
                 } else {
                     let mut message = message;
                     message.push(b'\n');
-                    pending.message_overrides.insert(target_summary, message);
+                    pending.message_overrides.set(group, message);
                 }
             }
         }
@@ -155,12 +165,12 @@ pub(crate) fn handle_execute_autofixup(
     head_oid: Oid,
     reference_oid: Oid,
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
-    message_overrides: std::collections::HashMap<String, bstr::BString>,
+    message_overrides: git_tailor::autofixup::MessageOverrides,
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
     autostash_save_or_bail!(git_repo, app);
-    match git_repo.autofixup(&head_oid, &reference_oid, &message_overrides) {
+    match git_repo.autofixup(&head_oid, &reference_oid, &pairs, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
             app,
             git_repo.autostash_restore(),

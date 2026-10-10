@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Bulk autofixup (mirrors `git rebase --autosquash`): repeatedly match and
-//! squash `fixup!`/`squash!`-prefixed commits into their targets, reusing the
-//! single-squash primitive in `squash_op` as the building block. The whole
-//! batch runs as one undoable operation: `original_branch_oid` on any
+//! Bulk autofixup (mirrors `git rebase --autosquash`): squash each
+//! `fixup!`/`squash!`-prefixed commit into its target, one step at a time,
+//! following the [`BatchPlan`] made when the batch starts and reusing the
+//! single-squash primitive in `squash_op` for each step. The whole batch runs
+//! as one undoable operation: `original_branch_oid` on any
 //! `ConflictState` this produces is always the tip before the *batch* started
 //! (not the current step), so the trait-level `journaled()` wrapper
 //! records a single undo entry for the whole batch — once every pair has been
 //! applied, or as soon as an error stops it with some landed — and
 //! `rebase_abort` unwinds the whole batch rather than just the in-progress step.
-
-use std::collections::HashMap;
 
 use anyhow::Result;
 use bstr::{BStr, BString, ByteSlice};
@@ -32,7 +31,7 @@ use super::Git2Repo;
 use super::{conflict, reads, squash_op};
 use crate::Oid;
 use crate::app::SquashMode;
-use crate::autofixup::{self, AutofixupPair};
+use crate::autofixup::{AutofixupPair, BatchPlan, MessageOverrides};
 
 /// What the batch is called in its undo entry, its conflicts and its reflog.
 pub(super) const LABEL: &str = "Autofixup";
@@ -41,29 +40,33 @@ pub(super) fn autofixup(
     repo: &mut Git2Repo,
     head_oid: &Oid,
     reference_oid: &Oid,
-    message_overrides: &HashMap<String, BString>,
+    pairs: &[AutofixupPair],
+    message_overrides: &MessageOverrides,
 ) -> Result<RebaseOutcome> {
+    let plan = BatchPlan::new(reads::list_oids(repo, head_oid, reference_oid)?, pairs)?;
     // The pairs are squashed one at a time, so a refusal part-way would stop
     // the batch with the earlier ones landed. Every pair rewrites from its
     // target up, so the oldest target covers the whole batch.
-    let commits = reads::list_commits(repo, head_oid, reference_oid)?;
-    let targets: Vec<Oid> = autofixup::plan_autofixup(&commits)
-        .into_iter()
-        .map(|pair| pair.target_oid)
-        .collect();
-    if let Some(oldest) = commits
-        .iter()
-        .find_map(|c| c.oid.as_oid().filter(|oid| targets.contains(oid)))
-    {
+    if let Some(oldest) = plan.steps.iter().map(|step| step.target).min() {
+        let oldest = plan.planned_oid(oldest);
         repo.refuse_rewriting_from(oldest, head_oid)?;
+        // A step finds its commits by their place in the branch, which only a
+        // single line of history defines. The range starts above the oldest
+        // target, so that one is checked on its own.
+        let oldest_git_oid = git2::Oid::from(oldest);
+        if repo.inner.find_commit(oldest_git_oid)?.parent_count() > 1
+            || repo.range_has_merge(Some(oldest_git_oid), git2::Oid::from(head_oid))?
+        {
+            anyhow::bail!("Cannot autofixup: a merge commit lies between a target and HEAD");
+        }
     }
-    run_batch(
-        repo,
-        head_oid.clone(),
-        head_oid,
-        reference_oid,
-        message_overrides,
-    )
+    let ctx = AutofixupContext {
+        reference_oid: reference_oid.clone(),
+        message_overrides: message_overrides.clone(),
+        plan: Some(plan),
+        landed: 0,
+    };
+    run_batch(repo, head_oid, ctx)
 }
 
 /// Resume an in-progress autofixup batch through a *descendant* conflict
@@ -79,6 +82,7 @@ pub(super) fn continue_autofixup(
         .autofixup_context
         .clone()
         .expect("continue_autofixup only called for an autofixup batch");
+    plan_of(&ctx)?;
     let batch_original_oid = state.original_branch_oid.clone();
     let step = conflict::rebase_continue(repo, state);
     continue_after_step(repo, step, &batch_original_oid, &ctx)
@@ -95,8 +99,21 @@ pub(super) fn continue_autofixup_after_squash_finalize(
     batch_original_oid: &Oid,
     autofixup_ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
+    plan_of(autofixup_ctx)?;
     let step = squash_op::squash_finalize(repo, squash_ctx, message, batch_original_oid);
     continue_after_step(repo, step, batch_original_oid, autofixup_ctx)
+}
+
+/// The plan the batch was started with. A context without one cannot say how
+/// far its batch got, so resuming it is refused — before the paused step is
+/// finished, so aborting it still puts the branch back where it started.
+fn plan_of(ctx: &AutofixupContext) -> Result<&BatchPlan> {
+    ctx.plan.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "This autofixup was paused by an older git-tailor and cannot be \
+             resumed here. Abort it, then run the autofixup again."
+        )
+    })
 }
 
 /// Shared continuation: if the just-finished step completed, keep going
@@ -110,16 +127,7 @@ fn continue_after_step(
     ctx: &AutofixupContext,
 ) -> Result<RebaseOutcome> {
     match step_outcome? {
-        RebaseOutcome::Complete => {
-            let current_tip = reads::head_oid(repo)?;
-            run_batch(
-                repo,
-                current_tip,
-                batch_original_oid,
-                &ctx.reference_oid,
-                &ctx.message_overrides,
-            )
-        }
+        RebaseOutcome::Complete => run_batch(repo, batch_original_oid, ctx.clone()),
         RebaseOutcome::Conflict(new_state) => {
             Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: LABEL.to_string(),
@@ -131,81 +139,75 @@ fn continue_after_step(
     }
 }
 
+/// Apply `ctx.plan`'s steps from `ctx.landed` on, pausing on a conflict with
+/// the context that resumes the batch where it stopped.
 fn run_batch(
     repo: &mut Git2Repo,
-    mut current_tip: Oid,
     batch_original_oid: &Oid,
-    reference_oid: &Oid,
-    message_overrides: &HashMap<String, BString>,
+    mut ctx: AutofixupContext,
 ) -> Result<RebaseOutcome> {
-    loop {
-        let commits = reads::list_commits(repo, &current_tip, reference_oid)?;
-        let plan = autofixup::plan_autofixup(&commits);
-        let Some(pair) = plan.first() else {
-            return Ok(RebaseOutcome::Complete);
-        };
-        let more_pending_for_target = plan[1..]
+    let plan = plan_of(&ctx)?.clone();
+    while ctx.landed < plan.steps.len() {
+        let current_tip = reads::head_oid(repo)?;
+        let current = reads::list_oids(repo, &current_tip, &ctx.reference_oid)?;
+        if current.len() + ctx.landed != plan.commits.len() {
+            anyhow::bail!("The branch no longer matches the autofixup that was planned for it.");
+        }
+        let step = &plan.steps[ctx.landed];
+        let source_oid = plan.current_oid(step.source, ctx.landed, &current).clone();
+        let target_oid = plan.current_oid(step.target, ctx.landed, &current).clone();
+        let more_pending_for_target = plan.steps[ctx.landed + 1..]
             .iter()
-            .any(|p| p.target_summary == pair.target_summary);
-        let message = pair_message(repo, pair, more_pending_for_target, message_overrides)?;
-        match squash_op::squash_commits(
+            .any(|later| later.target == step.target);
+        let overridden = if more_pending_for_target {
+            None
+        } else {
+            ctx.message_overrides
+                .for_target(plan.planned_oid(step.target))
+                .cloned()
+        };
+        let message = match overridden {
+            Some(message) => message,
+            None => step_message(repo, &source_oid, &target_oid, step.mode)?,
+        };
+        let outcome = squash_op::squash_commits(
             repo,
-            &pair.source_oid,
-            &pair.target_oid,
+            &source_oid,
+            &target_oid,
             message.as_bstr(),
             &current_tip,
-        )? {
-            RebaseOutcome::Complete => {
-                current_tip = reads::head_oid(repo)?;
-            }
-            RebaseOutcome::Conflict(state) => {
-                return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
-                    operation_label: LABEL.to_string(),
-                    original_branch_oid: batch_original_oid.clone(),
-                    autofixup_context: Some(AutofixupContext {
-                        reference_oid: reference_oid.clone(),
-                        message_overrides: message_overrides.clone(),
-                    }),
-                    ..*state
-                })));
-            }
+        )?;
+        ctx.landed += 1;
+        if let RebaseOutcome::Conflict(state) = outcome {
+            return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
+                operation_label: LABEL.to_string(),
+                original_branch_oid: batch_original_oid.clone(),
+                autofixup_context: Some(ctx),
+                ..*state
+            })));
         }
     }
+    Ok(RebaseOutcome::Complete)
 }
 
-/// The commit message for one autofixup pair.
-///
-/// If the user pinned a final message for this target in the confirmation
-/// dialog, it's used — but only once `more_pending_for_target` is `false`,
-/// i.e. this is the last fixup/squash still queued for that target. Applying
-/// it earlier would rename the target before the remaining pairs in the same
-/// group get a chance to match it (matching is by summary text, since OIDs
-/// churn with every squash in the batch).
-///
-/// Otherwise falls back to the default: `fixup!` keeps the target's message
+/// The default message for one step: `fixup!` keeps the target's message
 /// unchanged; `squash!` combines target + source with the same default text
 /// the manual squash editor starts from (`src/main.rs::handle_prepare_squash`).
 ///
-/// Read from the repository, not from `pair.target_message`/`source_message`:
-/// those are cloned from the commit list's lossy display rendering, and
-/// writing them back would replace a message git-tailor cannot read with one
-/// it can.
-fn pair_message(
+/// Read from the repository, not from the commit list: that holds the lossy
+/// display rendering, and writing it back would replace a message git-tailor
+/// cannot read with one it can.
+fn step_message(
     repo: &Git2Repo,
-    pair: &AutofixupPair,
-    more_pending_for_target: bool,
-    message_overrides: &HashMap<String, BString>,
+    source_oid: &Oid,
+    target_oid: &Oid,
+    mode: SquashMode,
 ) -> Result<BString> {
-    if !more_pending_for_target
-        && let Some(overridden) = message_overrides.get(&pair.target_summary)
-    {
-        return Ok(overridden.clone());
-    }
-    let target_bytes = repo.commit_message_bytes(&pair.target_oid)?;
-    match pair.mode {
+    let target_bytes = repo.commit_message_bytes(target_oid)?;
+    match mode {
         SquashMode::Fixup => Ok(target_bytes),
         SquashMode::Squash => {
-            let source_bytes = repo.commit_message_bytes(&pair.source_oid)?;
+            let source_bytes = repo.commit_message_bytes(source_oid)?;
             Ok(crate::domain::combine_messages(
                 target_bytes.as_bstr(),
                 Some(source_bytes.as_bstr()),

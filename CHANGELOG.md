@@ -23,8 +23,9 @@ The format is based on
   files. They come back when the fold finishes, and `git stash list` holds them
   if anything goes wrong — but a fold paused on a conflict will show an editor
   without them
-- The journal format is now version 3. A fold left in flight by 3.1.0 is handed
-  back to that version to finish rather than being resumed here
+- The journal format is now version 3. A fold or a bulk autofixup left in
+  flight by 3.1.0 is handed back to that version to finish rather than being
+  resumed here
 - `--clean-journal` no longer removes rescued working trees. Those are
   uncommitted work git-tailor kept when it had to discard the record naming it,
   they belong to the whole repository rather than to one working tree, and this
@@ -164,6 +165,23 @@ The format is based on
   stopped by an error kept the pairs it had squashed with no undo entry, and any
   rewrite whose final checkout failed left the branch moved with nothing to
   undo and the list showing the history from before
+- Bulk autofixup matches a `fixup!` or `squash!` to its target the way
+  `git rebase --autosquash` does: the commit with that exact summary, else the
+  commit an abbreviated hash names, else the commit whose summary starts with
+  the text. Where several commits answer to it, git takes the oldest; git-tailor
+  leaves the fixup in place and lists it in the confirmation, to be named by
+  hash instead. Summaries are compared as git reads them, decoded
+  through the commit's `encoding` header. It used to take the nearest commit
+  with the summary as decoded for display, so a fixup could fold into the wrong
+  one of two lookalikes, a fixup written in UTF-8 never found a target committed
+  in another encoding, and a hash or a shortened summary matched nothing
+- A `fixup! fixup!` commit is folded into the original target. It used to be
+  left behind once the fixup it named had folded in
+- Two targets with the same summary each get their own group in the autofixup
+  dialog, and a final message edited for one lands on that one. They shared a
+  group, and the message went onto whichever got the last fixup
+- The commit list and the commit details show a message as its `encoding`
+  header says, as `git log` does, instead of with replacement characters
 
 ## [3.1.0] - 2026-09-12
 

@@ -345,6 +345,24 @@ impl TestRepo {
     }
 }
 
+/// Run a bulk autofixup over `base..head` the way the confirmation dialog runs
+/// one: over the commits the list shows, which leave out `base` itself.
+pub fn autofixup_as_shown(
+    git_repo: &mut Git2Repo,
+    head: &Oid,
+    base: git2::Oid,
+    overrides: &git_tailor::autofixup::MessageOverrides,
+) -> anyhow::Result<git_tailor::repo::RebaseOutcome> {
+    use git_tailor::repo::RepoRead;
+    let shown: Vec<git_tailor::CommitInfo> = git_repo
+        .list_commits(head, &Oid::from(base))?
+        .into_iter()
+        .filter(|c| c.oid.as_oid() != Some(&Oid::from(base)))
+        .collect();
+    let pairs = git_tailor::autofixup::plan_autofixup(&shown).pairs;
+    git_repo.autofixup(head, &Oid::from(base), &pairs, overrides)
+}
+
 /// Test harness that wraps `Terminal<TestBackend>` to eliminate per-test
 /// boilerplate: create backend, wrap in terminal, draw, clone buffer.
 pub struct TuiTestHarness {
@@ -509,6 +527,7 @@ pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
     CommitInfo {
         oid: VirtualOid::Real(Oid::from(oid)),
         summary: summary.to_string(),
+        summary_key: summary.into(),
         author: Some("Test Author".to_string()),
         date: Some("1705318200".to_string()),
         parent_oids: vec![Oid::from("parent123")],

@@ -28,6 +28,7 @@ mod common;
 use bstr::ByteSlice;
 use common::TestRepo;
 use common::prelude::*;
+use git_tailor::autofixup;
 
 /// Latin-1 "Fix för åäö handling" — valid git, invalid UTF-8.
 const LATIN1_MESSAGE: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n";
@@ -47,12 +48,26 @@ fn commit_with_raw_tree_and_message(
     tree: git2::Oid,
     message: &[u8],
 ) -> git2::Oid {
+    commit_raw(test, parent, tree, message, Some("ISO-8859-1"))
+}
+
+/// As [`commit_with_raw_tree_and_message`], naming the message's encoding in
+/// its header or, with `None`, leaving it unsaid.
+fn commit_raw(
+    test: &TestRepo,
+    parent: git2::Oid,
+    tree: git2::Oid,
+    message: &[u8],
+    encoding: Option<&str>,
+) -> git2::Oid {
     let mut raw = Vec::new();
     raw.extend_from_slice(format!("tree {tree}\n").as_bytes());
     raw.extend_from_slice(format!("parent {parent}\n").as_bytes());
     raw.extend_from_slice(b"author T <t@e> 1700000000 +0000\n");
     raw.extend_from_slice(b"committer T <t@e> 1700000000 +0000\n");
-    raw.extend_from_slice(b"encoding ISO-8859-1\n");
+    if let Some(encoding) = encoding {
+        raw.extend_from_slice(format!("encoding {encoding}\n").as_bytes());
+    }
     raw.extend_from_slice(b"\n");
     raw.extend_from_slice(message);
     let oid = test
@@ -163,6 +178,27 @@ fn such_a_history_can_be_listed_and_read() {
     git_repo
         .commit_diff(&Oid::from(head), 3)
         .expect("and its diff must still open");
+}
+
+/// The `encoding` header says how to read the message, so the list reads it
+/// that way, as `git log` does, rather than drawing replacement characters.
+#[test]
+fn the_list_shows_a_latin1_message_as_its_header_says() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "v1\n", "base");
+    let head = commit_with_raw_message(&test, base, LATIN1_MESSAGE);
+
+    let commits = test
+        .git_repo()
+        .list_commits(&Oid::from(head), &Oid::from(base))
+        .unwrap();
+
+    let listed = commits
+        .iter()
+        .find(|c| c.oid.as_oid() == Some(&Oid::from(head)))
+        .unwrap();
+    assert_eq!(listed.summary, "Fix för åäö handling");
+    assert_eq!(listed.message, "Fix för åäö handling\n");
 }
 
 /// Splitting does not copy a message, it *derives* one — "summary (1/3)" — so
@@ -305,9 +341,8 @@ fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
     let head_oid = git_repo.head_oid().unwrap();
     assert_eq!(head_oid, Oid::from(source));
 
-    let outcome = git_repo
-        .autofixup(&head_oid, &Oid::from(base), &Default::default())
-        .unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
     assert_rebase_complete!(outcome);
 
     let new_head = git2::Oid::from(&git_repo.head_oid().unwrap());
@@ -318,6 +353,73 @@ fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
             .any(|w| w == source_message),
         "the folded commit must carry the source's body byte for byte: {combined:?}"
     );
+}
+
+/// Without an `encoding` header, two summaries that differ only in bytes that do
+/// not decode render alike, but git compares them as bytes, and so must the
+/// batch — and a message edited for one must not land on the other.
+#[test]
+fn bulk_autofixup_tells_apart_targets_that_render_alike() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("x.txt", "x\n", "base");
+    let tree_with = |path: &str, content: &str| {
+        test.write_file(path, content);
+        test.stage_file(path);
+        test.repo.index().unwrap().write_tree().unwrap()
+    };
+    // Latin-1 "Fix för" and "Fix fär", with no header to say so.
+    let for_tree = tree_with("a.txt", "A\n");
+    let for_target = commit_raw(&test, base, for_tree, b"Fix f\xf6r\n", None);
+    let far_tree = tree_with("b.txt", "B\n");
+    let far_target = commit_raw(&test, for_target, far_tree, b"Fix f\xe4r\n", None);
+    let fix_tree = tree_with("a.txt", "A\nfixed\n");
+    commit_raw(&test, far_target, fix_tree, b"fixup! Fix f\xf6r\n", None);
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let commits = git_repo.list_commits(&head_oid, &Oid::from(base)).unwrap();
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits).pairs);
+    let for_group = groups
+        .iter()
+        .find(|g| g.target_oid == Oid::from(for_target))
+        .expect("the fixup names \"Fix f\\xf6r\", so that commit is its target");
+    let mut overrides = autofixup::MessageOverrides::default();
+    overrides.set(for_group, bstr::BString::from("Fixed for\n"));
+
+    let outcome = common::autofixup_as_shown(&mut git_repo, &head_oid, base, &overrides).unwrap();
+    assert_rebase_complete!(outcome);
+
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 2);
+    assert_eq!(message_bytes(&test, commits[0]), b"Fixed for\n");
+    assert_eq!(message_bytes(&test, commits[1]), b"Fix f\xe4r\n");
+    let fixed = test.repo.find_commit(commits[0]).unwrap().tree().unwrap();
+    let blob = fixed.get_path(std::path::Path::new("a.txt")).unwrap().id();
+    assert_eq!(test.repo.find_blob(blob).unwrap().content(), b"A\nfixed\n");
+}
+
+/// git decodes a subject through its `encoding` header before matching it, so
+/// a `fixup!` written in UTF-8 finds a target committed in Latin-1.
+#[test]
+fn bulk_autofixup_matches_a_utf8_fixup_to_a_latin1_target() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("x.txt", "x\n", "base");
+    test.write_file("a.txt", "A\n");
+    test.stage_file("a.txt");
+    let tree = test.repo.index().unwrap().write_tree().unwrap();
+    // Latin-1 "Fix för", with the header that says so.
+    commit_with_raw_tree_and_message(&test, base, tree, b"Fix f\xf6r\n");
+    test.commit_file("a.txt", "A\nfixed\n", "fixup! Fix för");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let outcome =
+        common::autofixup_as_shown(&mut git_repo, &head_oid, base, &Default::default()).unwrap();
+    assert_rebase_complete!(outcome);
+
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 1, "the fixup folds into its target");
+    assert_eq!(message_bytes(&test, commits[0]), b"Fix f\xf6r\n");
 }
 
 /// Rewording *to* readable text drops the `encoding` header, because the header

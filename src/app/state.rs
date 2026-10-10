@@ -193,15 +193,17 @@ impl AppState {
     pub fn enter_autofixup_confirm(
         &mut self,
         pairs: Vec<AutofixupPair>,
+        left_in_place: Vec<crate::autofixup::AmbiguousFixup>,
         head_oid: Oid,
         reference_oid: Oid,
     ) {
         self.enter_dialog(AppMode::AutofixupConfirm(PendingAutofixup {
             pairs,
+            left_in_place,
             head_oid,
             reference_oid,
             selected_group: 0,
-            message_overrides: std::collections::HashMap::new(),
+            message_overrides: Default::default(),
         }));
     }
 

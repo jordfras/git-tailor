@@ -1323,12 +1323,22 @@ impl JournalDocV1 {
 /// tree over the changes v2 deliberately left sitting in it. The file is left
 /// untouched so the build that started the fold can still finish it.
 ///
-/// Everything else — undo, redo, a paused conflict that is not a fold, an
+/// A paused bulk autofixup cannot carry over either: v3 resumes from the plan the
+/// batch recorded when it started, and a v2 record has none.
+///
+/// Everything else — undo, redo, a paused conflict that is neither, an
 /// auto-stash — means the same in both versions and carries over unchanged.
 fn migrate_v2(old: JournalDoc) -> std::result::Result<JournalDoc, JournalStatus> {
     if old.worktree_source.is_some() {
         return Err(JournalStatus::UpgradeInterrupted {
             op: "a working-tree squash".to_string(),
+        });
+    }
+    if let Some(InProgress::Conflict(state)) = &old.in_progress
+        && state.autofixup_context.is_some()
+    {
+        return Err(JournalStatus::UpgradeInterrupted {
+            op: "a bulk autofixup".to_string(),
         });
     }
     Ok(JournalDoc {

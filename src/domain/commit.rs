@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bstr::BString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -143,7 +144,14 @@ impl fmt::Display for VirtualOid {
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     pub oid: VirtualOid,
+    /// `summary_key` rendered for display, kept so drawing does not decode it
+    /// again on every frame. Undecodable bytes become replacement characters,
+    /// so two summaries can render alike.
     pub summary: String,
+    /// The summary as git compares it — what identifies a commit by its
+    /// subject. Decoded to UTF-8 through the commit's `encoding` header where it
+    /// has one, and as stored otherwise.
+    pub summary_key: BString,
     /// Author name. `None` for synthetic pseudo-commits (staged/unstaged changes).
     pub author: Option<String>,
     /// Raw commit timestamp (seconds since epoch). `None` for synthetic pseudo-commits.

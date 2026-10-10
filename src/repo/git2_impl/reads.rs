@@ -16,6 +16,7 @@
 //! diff extraction (committed, staged, unstaged), index/config inspection.
 
 use anyhow::{Context, Result};
+use bstr::BString;
 
 use super::Git2Repo;
 
@@ -124,22 +125,28 @@ pub(super) fn list_commits(
     from_oid: &Oid,
     to_oid: &Oid,
 ) -> Result<Vec<CommitInfo>> {
+    list_oids(repo, from_oid, to_oid)?
+        .iter()
+        .map(|oid| commit_info_from(&repo.inner.find_commit(git2::Oid::from(oid))?))
+        .collect()
+}
+
+/// The commits [`list_commits`] lists, by OID alone: from `from_oid` back to
+/// `to_oid` inclusive, oldest first.
+pub(super) fn list_oids(repo: &Git2Repo, from_oid: &Oid, to_oid: &Oid) -> Result<Vec<Oid>> {
     let (revwalk, to_commit_oid) = revwalk_between(repo, from_oid, to_oid)?;
 
-    let mut commits = Vec::new();
-
+    let mut oids = Vec::new();
     for oid_result in revwalk {
         let oid = oid_result?;
-        let commit = repo.inner.find_commit(oid)?;
-        commits.push(commit_info_from(&commit)?);
-
+        oids.push(Oid::from(oid));
         if oid == to_commit_oid {
             break;
         }
     }
 
-    commits.reverse();
-    Ok(commits)
+    oids.reverse();
+    Ok(oids)
 }
 
 /// The commit `oid` names, its tree, and its first parent's tree — `None` for a
@@ -383,14 +390,17 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author = commit.author();
     let committer = commit.committer();
     let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let encoding = commit.message_encoding().ok().flatten();
+    let summary = as_git_reads(commit.summary_bytes().unwrap_or_default(), encoding);
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: commit.summary_bytes().map(lossy).unwrap_or_default(),
+        summary: lossy(&summary),
+        summary_key: summary,
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
-        message: lossy(commit.message_bytes()),
+        message: lossy(&as_git_reads(commit.message_bytes(), encoding)),
         author_email: Some(lossy(author.email_bytes())),
         author_date: Some(git_time_to_offset_datetime(author_time)),
         committer: Some(lossy(committer.name_bytes())),
@@ -399,10 +409,25 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     })
 }
 
+/// Message text as git reads it — for `git log`, and for matching subjects in
+/// `git rebase --autosquash`: decoded to UTF-8 through the commit's `encoding`
+/// header, and left as stored where there is no header or it cannot be honored.
+fn as_git_reads(text: &[u8], encoding: Option<&str>) -> BString {
+    encoding
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .filter(|&encoding| encoding != encoding_rs::UTF_8)
+        .and_then(|encoding| {
+            let (decoded, had_errors) = encoding.decode_without_bom_handling(text);
+            (!had_errors).then(|| BString::from(decoded.into_owned()))
+        })
+        .unwrap_or_else(|| BString::from(text))
+}
+
 pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInfo {
     CommitInfo {
         oid,
         summary: summary.to_string(),
+        summary_key: BString::from(summary),
         author: None,
         date: None,
         parent_oids: vec![],
@@ -505,7 +530,25 @@ fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
 
 #[cfg(test)]
 mod tests {
-    use super::git_time_to_offset_datetime;
+    use super::{as_git_reads, git_time_to_offset_datetime};
+
+    #[test]
+    fn latin1_reads_as_utf8() {
+        assert_eq!(as_git_reads(b"Fix f\xf6r", Some("ISO-8859-1")), "Fix för");
+    }
+
+    #[test]
+    fn text_without_a_header_reads_as_stored() {
+        assert_eq!(as_git_reads(b"Fix f\xf6r", None), &b"Fix f\xf6r"[..]);
+    }
+
+    #[test]
+    fn an_encoding_nobody_knows_leaves_the_text_as_stored() {
+        assert_eq!(
+            as_git_reads(b"Fix f\xf6r", Some("x-no-such-encoding")),
+            &b"Fix f\xf6r"[..]
+        );
+    }
 
     #[test]
     fn utc_epoch_stays_at_zero() {

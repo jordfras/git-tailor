@@ -283,6 +283,7 @@ fn three_hunk_commit_diff() -> CommitDiff {
         commit: CommitInfo {
             oid: VirtualOid::Real(Oid::from("a".repeat(40))),
             summary: String::new(),
+            summary_key: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -467,6 +468,7 @@ fn three_file_commit_diff() -> CommitDiff {
         commit: CommitInfo {
             oid: VirtualOid::Real(Oid::from("a".repeat(40))),
             summary: String::new(),
+            summary_key: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -1038,6 +1040,7 @@ mod autofixup_selection {
         CommitInfo {
             oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
             summary: String::new(),
+            summary_key: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -1054,6 +1057,7 @@ mod autofixup_selection {
         CommitInfo {
             oid,
             summary: String::new(),
+            summary_key: Default::default(),
             author: None,
             date: None,
             parent_oids: vec![],
@@ -1138,6 +1142,75 @@ mod autofixup_selection {
         assert!(idx < commits().len());
     }
 
+    fn named(oid: &str, summary: &str) -> CommitInfo {
+        CommitInfo {
+            summary: summary.to_string(),
+            summary_key: summary.into(),
+            ..commit(oid)
+        }
+    }
+
+    /// A fixup naming a summary two commits share is left in place, and the
+    /// dialog says so — otherwise it silently stays behind.
+    #[test]
+    fn the_dialog_lists_a_fixup_left_in_place_because_its_target_is_ambiguous() {
+        let mut repo = MockRepo::default();
+        let mut app = AppState {
+            list: CommitListState::with_selection(
+                vec![
+                    named("1", "Tweak"),
+                    named("2", "Tweak"),
+                    named("3", "Add parser"),
+                    named("4", "fixup! Add parser"),
+                    named("5", "fixup! Tweak"),
+                ],
+                0,
+            ),
+            ..Default::default()
+        };
+
+        crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| git_tailor::views::autofixup::render_autofixup_confirm(&mut app, frame))
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(screen.contains("Left in place"), "{screen}");
+        assert!(screen.contains("fixup! Tweak"), "{screen}");
+    }
+
+    /// With nothing to squash the dialog does not open, so the status bar is
+    /// the only place to say which fixups stayed and how to name their target.
+    #[test]
+    fn when_every_fixup_is_ambiguous_the_status_names_them() {
+        let mut repo = MockRepo::default();
+        let mut app = AppState {
+            list: CommitListState::with_selection(
+                vec![
+                    named("1", "Tweak"),
+                    named("2", "Tweak"),
+                    named("5", "fixup! Tweak"),
+                ],
+                0,
+            ),
+            ..Default::default()
+        };
+
+        crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
+
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(message.contains(&"5".repeat(8)), "{message}");
+        assert!(message.contains("hash"), "{message}");
+    }
+
     #[test]
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
@@ -1154,7 +1227,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadSelecting(1))));
@@ -1181,7 +1254,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
@@ -1213,7 +1286,7 @@ mod autofixup_selection {
             Oid::from("a".repeat(40)),
             Oid::from("b".repeat(40)),
             pairs(),
-            std::collections::HashMap::new(),
+            Default::default(),
         );
 
         assert!(matches!(result, Ok(LoopAction::Continue)));

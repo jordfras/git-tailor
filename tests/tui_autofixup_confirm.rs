@@ -21,7 +21,7 @@ use common::TuiTestHarness;
 use git_tailor::{
     Oid,
     app::{AppAction, AppMode, AppState, KeyCommand, PendingAutofixup, SquashMode},
-    autofixup::AutofixupPair,
+    autofixup::{self, AutofixupPair, MessageOverrides},
     views,
 };
 
@@ -43,10 +43,22 @@ fn pair(
     }
 }
 
+/// `message` as the edited final message for the target `summary` among `pairs`.
+fn edited(pairs: &[AutofixupPair], summary: &str, message: &str) -> MessageOverrides {
+    let groups = autofixup::group_by_target(pairs);
+    let group = groups
+        .iter()
+        .find(|g| g.target_summary == summary)
+        .expect("a target with that summary");
+    let mut overrides = MessageOverrides::default();
+    overrides.set(group, bstr::BString::from(message));
+    overrides
+}
+
 fn make_app_in_autofixup_confirm(
     pairs: Vec<AutofixupPair>,
     selected_group: usize,
-    message_overrides: std::collections::HashMap<String, bstr::BString>,
+    message_overrides: MessageOverrides,
 ) -> AppState {
     let mut app = AppState::new();
     app.list.commits = vec![
@@ -56,6 +68,7 @@ fn make_app_in_autofixup_confirm(
     app.list.selection_index = 0;
     app.mode = AppMode::AutofixupConfirm(PendingAutofixup {
         pairs,
+        left_in_place: vec![],
         head_oid: Oid::from("def456ghi789abcdef012"),
         reference_oid: Oid::from("000000000000abcdef012"),
         selected_group,
@@ -128,20 +141,15 @@ fn test_autofixup_confirm_dialog_groups_stacked_fixups_under_one_target() {
 fn test_autofixup_confirm_dialog_shows_edited_indicator() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut app = make_app_in_autofixup_confirm(
-        vec![pair(
-            "abc123def456",
-            "fixup! Add parser",
-            "def456ghi789",
-            "Add parser",
-            SquashMode::Fixup,
-        )],
-        0,
-        std::collections::HashMap::from([(
-            "Add parser".to_string(),
-            bstr::BString::from("Add parser (with a fix)\n"),
-        )]),
-    );
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! Add parser",
+        "def456ghi789",
+        "Add parser",
+        SquashMode::Fixup,
+    )];
+    let overrides = edited(&pairs, "Add parser", "Add parser (with a fix)\n");
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, overrides);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -180,23 +188,20 @@ fn test_autofixup_confirm_dialog_long_source_summary() {
 fn test_autofixup_confirm_dialog_long_target_summary() {
     let mut harness = TuiTestHarness::typical();
 
-    let mut overrides = std::collections::HashMap::new();
-    overrides.insert(
-        "Refactor the entire parser module to use trait-based dispatching".to_string(),
-        bstr::BString::from("edited\n"),
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! Add parser",
+        "def456ghi789",
+        "Refactor the entire parser module to use trait-based dispatching",
+        SquashMode::Fixup,
+    )];
+    let overrides = edited(
+        &pairs,
+        "Refactor the entire parser module to use trait-based dispatching",
+        "edited\n",
     );
 
-    let mut app = make_app_in_autofixup_confirm(
-        vec![pair(
-            "abc123def456",
-            "fixup! Add parser",
-            "def456ghi789",
-            "Refactor the entire parser module to use trait-based dispatching",
-            SquashMode::Fixup,
-        )],
-        0,
-        overrides,
-    );
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, overrides);
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -295,19 +300,138 @@ fn test_autofixup_confirm_move_down_clamps_at_the_last_group() {
     assert_eq!(selected_group_index(&app), 1);
 }
 
+/// A fixup whose target is ambiguous is listed under the groups, so it is not
+/// left behind unnoticed.
+#[test]
+fn autofixup_confirm_dialog_lists_fixups_left_in_place() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    }));
+}
+
+/// The groups scroll to follow the selection, so the section has to come before
+/// them: below, more groups than fit would keep it out of view for good.
+#[test]
+fn fixups_left_in_place_show_when_the_groups_overflow() {
+    let mut harness = TuiTestHarness::new(80, 16);
+    let pairs: Vec<AutofixupPair> = (1..=8)
+        .map(|n| {
+            pair(
+                &format!("{n}{n}{n}{n}aaaaaaaa"),
+                &format!("fixup! Change {n}"),
+                &format!("{n}{n}{n}{n}bbbbbbbb"),
+                &format!("Change {n}"),
+                SquashMode::Fixup,
+            )
+        })
+        .collect();
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+
+    assert!(screen.contains("Left in place"), "{screen}");
+}
+
+/// Scrolling down to the last group and back to the first brings the fixups
+/// left in place back into view, not just the first group.
+#[test]
+fn fixups_left_in_place_come_back_with_the_first_group() {
+    let mut harness = TuiTestHarness::new(80, 16);
+    let pairs: Vec<AutofixupPair> = (1..=8)
+        .map(|n| {
+            pair(
+                &format!("{n}{n}{n}{n}aaaaaaaa"),
+                &format!("fixup! Change {n}"),
+                &format!("{n}{n}{n}{n}bbbbbbbb"),
+                &format!("Change {n}"),
+                SquashMode::Fixup,
+            )
+        })
+        .collect();
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+    if let AppMode::AutofixupConfirm(pending) = &mut app.mode {
+        pending.left_in_place = vec![autofixup::AmbiguousFixup {
+            oid: Oid::from("fed987cba654"),
+            summary: "fixup! Tweak".to_string(),
+        }];
+    }
+    let mut render = |app: &mut AppState| {
+        let buffer = harness.render(|frame| {
+            views::commit_list::render(app, frame);
+            views::autofixup::render_autofixup_confirm(app, frame);
+        });
+        buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+
+    render(&mut app);
+    for _ in 0..7 {
+        views::autofixup::handle_confirm_key(KeyCommand::MoveDown, &mut app);
+        render(&mut app);
+    }
+    for _ in 0..7 {
+        views::autofixup::handle_confirm_key(KeyCommand::MoveUp, &mut app);
+    }
+    let screen = render(&mut app);
+
+    assert!(screen.contains("Left in place"), "{screen}");
+}
+
+/// A fixup can name its target by hash or by the start of a summary, so the
+/// dialog shows what each one says: that is how to check where it will land.
+#[test]
+fn each_source_shows_what_it_names_its_target_by() {
+    let mut harness = TuiTestHarness::typical();
+    let pairs = vec![pair(
+        "abc123def456",
+        "fixup! def456g",
+        "def456ghi789",
+        "Add parser",
+        SquashMode::Fixup,
+    )];
+    let mut app = make_app_in_autofixup_confirm(pairs, 0, Default::default());
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+        views::autofixup::render_autofixup_confirm(&mut app, frame);
+    });
+    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+
+    assert!(screen.contains("fixup! def456g"), "{screen}");
+}
+
 #[test]
 fn test_autofixup_confirm_reword_targets_the_selected_group() {
     let mut app = make_app_in_autofixup_confirm(two_target_groups(), 1, Default::default());
 
     let result = views::autofixup::handle_confirm_key(KeyCommand::Reword, &mut app);
     match result {
-        AppAction::PrepareAutofixupEditMessage {
-            target_summary,
-            group,
-        } => {
+        AppAction::PrepareAutofixupEditMessage { group } => {
             // The picked group, not a template: the seed is built in dispatch,
             // which is where the commits' bytes can be read.
-            assert_eq!(target_summary, "Add lexer");
             assert_eq!(group.target_summary, "Add lexer");
             assert_eq!(group.sources.len(), 1);
             assert_eq!(group.sources[0].source_summary, "squash! Add lexer");
@@ -320,10 +444,7 @@ fn test_autofixup_confirm_reword_targets_the_selected_group() {
 
 #[test]
 fn test_autofixup_confirm_enter_executes_the_whole_batch_with_overrides() {
-    let overrides = std::collections::HashMap::from([(
-        "Add parser".to_string(),
-        bstr::BString::from("Custom message\n"),
-    )]);
+    let overrides = edited(&two_target_groups(), "Add parser", "Custom message\n");
     let mut app = make_app_in_autofixup_confirm(two_target_groups(), 0, overrides.clone());
 
     let result = views::autofixup::handle_confirm_key(KeyCommand::Confirm, &mut app);

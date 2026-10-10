@@ -891,10 +891,12 @@ impl RepoWrite for Git2Repo {
         &mut self,
         head_oid: &Oid,
         reference_oid: &Oid,
-        message_overrides: &std::collections::HashMap<String, bstr::BString>,
+        pairs: &[crate::autofixup::AutofixupPair],
+        message_overrides: &crate::autofixup::MessageOverrides,
     ) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
-        let outcome = autofixup_op::autofixup(self, head_oid, reference_oid, message_overrides);
+        let outcome =
+            autofixup_op::autofixup(self, head_oid, reference_oid, pairs, message_overrides);
         self.journaled(autofixup_op::LABEL, head_oid, head_oid, outcome)
     }
 }
