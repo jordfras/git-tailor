@@ -384,12 +384,15 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author = commit.author();
     let committer = commit.committer();
     let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
-    let summary = commit.summary_bytes().unwrap_or_default();
+    let summary = comparable_summary(
+        commit.summary_bytes().unwrap_or_default(),
+        commit.message_encoding().ok().flatten(),
+    );
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: lossy(summary),
-        summary_bytes: comparable_summary(summary, commit.message_encoding().ok().flatten()),
+        summary: lossy(&summary),
+        summary_bytes: summary,
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),

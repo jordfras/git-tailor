@@ -144,7 +144,8 @@ impl fmt::Display for VirtualOid {
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     pub oid: VirtualOid,
-    /// For display: decoded lossily, so two summaries can render alike.
+    /// For display: decoded through the commit's `encoding` header where it has
+    /// one and lossily otherwise, so two summaries can still render alike.
     pub summary: String,
     /// The summary as git compares it — what identifies a commit by its
     /// subject. Decoded to UTF-8 through the commit's `encoding` header where it

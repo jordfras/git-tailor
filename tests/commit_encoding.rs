@@ -48,12 +48,26 @@ fn commit_with_raw_tree_and_message(
     tree: git2::Oid,
     message: &[u8],
 ) -> git2::Oid {
+    commit_raw(test, parent, tree, message, Some("ISO-8859-1"))
+}
+
+/// As [`commit_with_raw_tree_and_message`], naming the message's encoding in
+/// its header or, with `None`, leaving it unsaid.
+fn commit_raw(
+    test: &TestRepo,
+    parent: git2::Oid,
+    tree: git2::Oid,
+    message: &[u8],
+    encoding: Option<&str>,
+) -> git2::Oid {
     let mut raw = Vec::new();
     raw.extend_from_slice(format!("tree {tree}\n").as_bytes());
     raw.extend_from_slice(format!("parent {parent}\n").as_bytes());
     raw.extend_from_slice(b"author T <t@e> 1700000000 +0000\n");
     raw.extend_from_slice(b"committer T <t@e> 1700000000 +0000\n");
-    raw.extend_from_slice(b"encoding ISO-8859-1\n");
+    if let Some(encoding) = encoding {
+        raw.extend_from_slice(format!("encoding {encoding}\n").as_bytes());
+    }
     raw.extend_from_slice(b"\n");
     raw.extend_from_slice(message);
     let oid = test
@@ -340,9 +354,9 @@ fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
     );
 }
 
-/// Two targets whose summaries differ only in bytes that do not decode render
-/// alike, but git matches `fixup!` on the bytes, and so must the batch — and a
-/// message edited for one must not land on the other.
+/// Without an `encoding` header, two summaries that differ only in bytes that do
+/// not decode render alike, but git compares them as bytes, and so must the
+/// batch — and a message edited for one must not land on the other.
 #[test]
 fn bulk_autofixup_tells_apart_targets_that_render_alike() {
     let test = common::TestRepo::new();
@@ -352,13 +366,13 @@ fn bulk_autofixup_tells_apart_targets_that_render_alike() {
         test.stage_file(path);
         test.repo.index().unwrap().write_tree().unwrap()
     };
-    // Latin-1 "Fix för" and "Fix fär".
+    // Latin-1 "Fix för" and "Fix fär", with no header to say so.
     let for_tree = tree_with("a.txt", "A\n");
-    let for_target = commit_with_raw_tree_and_message(&test, base, for_tree, b"Fix f\xf6r\n");
+    let for_target = commit_raw(&test, base, for_tree, b"Fix f\xf6r\n", None);
     let far_tree = tree_with("b.txt", "B\n");
-    let far_target = commit_with_raw_tree_and_message(&test, for_target, far_tree, b"Fix f\xe4r\n");
+    let far_target = commit_raw(&test, for_target, far_tree, b"Fix f\xe4r\n", None);
     let fix_tree = tree_with("a.txt", "A\nfixed\n");
-    commit_with_raw_tree_and_message(&test, far_target, fix_tree, b"fixup! Fix f\xf6r\n");
+    commit_raw(&test, far_target, fix_tree, b"fixup! Fix f\xf6r\n", None);
 
     let mut git_repo = test.git_repo();
     let head_oid = git_repo.head_oid().unwrap();
