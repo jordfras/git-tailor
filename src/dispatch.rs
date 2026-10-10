@@ -29,6 +29,7 @@ mod tests;
 
 use anyhow::Result;
 use bstr::{BStr, BString};
+use git_tailor::Oid;
 use git_tailor::app::{AppAction, AppState};
 use git_tailor::editor;
 use git_tailor::repo::{
@@ -457,10 +458,10 @@ pub(crate) fn edit_message_suspended(
 /// Like [`handle_rebase_outcome`], but for an outcome that came from *resuming*
 /// a paused conflict.
 ///
-/// Only the failure arm differs: a resume that fails leaves the conflict
-/// journaled and the branch parked, so falling back to the commit list would
-/// show history the branch has moved off, with no way back into the dialog. The
-/// auto-stash stays deferred for the same reason.
+/// Only the failure arm differs: a resume that fails in place leaves the
+/// conflict journaled and the branch parked, so falling back to the commit list
+/// would show history the branch has moved off, with no way back into the
+/// dialog. The auto-stash stays deferred for the same reason.
 pub(crate) fn handle_resume_outcome(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
@@ -471,6 +472,17 @@ pub(crate) fn handle_resume_outcome(
     retry_message: Option<BString>,
 ) -> LoopAction {
     match outcome {
+        // Resuming and aborting both refuse once the branch has left the tip
+        // the conflict paused on, so the dialog could only trap the user.
+        Err(e) if branch_moved_from(git_repo, &state.new_tip_oid) => {
+            settle_autostash_after_failure(
+                git_repo,
+                app,
+                op_label,
+                format!("{op_label} failed: {e:#}"),
+                LoopAction::Reload,
+            )
+        }
         Err(e) => {
             // `Continue`, not a reload: `load_with_progress` ends by setting
             // `AppMode::CommitList`, so reloading here would throw away the
@@ -485,6 +497,12 @@ pub(crate) fn handle_resume_outcome(
         }
         ok => handle_rebase_outcome(git_repo, app, ok, op_label, success_msg),
     }
+}
+
+/// Whether a failed operation left the branch somewhere other than `tip`, so
+/// the list on screen no longer shows it.
+pub(crate) fn branch_moved_from(git_repo: &impl GitRepo, tip: &Oid) -> bool {
+    git_repo.head_oid().is_ok_and(|head| &head != tip)
 }
 
 /// Reduce a rebase result to its UI side effect.

@@ -179,13 +179,20 @@ pub(crate) fn handle_execute_autofixup(
             app.enter_rebase_conflict(*state);
             Ok(LoopAction::Continue)
         }
-        Err(e) => Ok(crate::dispatch::settle_autostash_after_failure(
-            git_repo,
-            app,
-            "Autofixup",
-            format!("Autofixup failed: {e:#}"),
-            LoopAction::Proceed,
-        )),
+        Err(e) => {
+            let done = if crate::dispatch::branch_moved_from(git_repo, &head_oid) {
+                LoopAction::ReloadPreserving
+            } else {
+                LoopAction::Proceed
+            };
+            Ok(crate::dispatch::settle_autostash_after_failure(
+                git_repo,
+                app,
+                "Autofixup",
+                format!("Autofixup failed: {e:#}"),
+                done,
+            ))
+        }
     }
 }
 
