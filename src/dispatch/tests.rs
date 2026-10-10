@@ -892,6 +892,23 @@ fn conflict_tool_no_merge_tool_sets_error() {
     );
 }
 
+#[test]
+fn a_resume_refused_because_the_branch_moved_says_so() {
+    let mut repo = MockRepo::default();
+    let mut app = AppState::default();
+
+    handle_resume_outcome(
+        &mut repo,
+        &mut app,
+        Err(git_tailor::repo::BranchMoved("The branch moved".to_string()).into()),
+        "Commit drop complete",
+        &make_conflict_state(),
+        None,
+    );
+
+    assert!(app.resume_failure.is_some_and(|f| f.branch_moved));
+}
+
 /// A resume that fails after moving the branch has nothing left to resume or
 /// abort: the repository recorded what landed and dropped the conflict, so the
 /// dialog would trap the user.
