@@ -102,12 +102,12 @@ pub(super) fn continue_autofixup_after_squash_finalize(
 
 /// The plan the batch was started with. A context without one cannot say how
 /// far its batch got, so resuming it is refused — before the paused step is
-/// finished, which leaves it to the build that wrote it.
+/// finished, so aborting it still puts the branch back where it started.
 fn plan_of(ctx: &AutofixupContext) -> Result<&BatchPlan> {
     ctx.plan.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
-            "This autofixup was paused by an older git-tailor. \
-             Finish or abort it with that version."
+            "This autofixup was paused by an older git-tailor and cannot be \
+             resumed here. Abort it, then run the autofixup again."
         )
     })
 }

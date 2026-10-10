@@ -256,11 +256,6 @@ impl SquashMode {
             SquashMode::Fixup => "fixup! ",
         }
     }
-
-    /// The prefix without its trailing space, for display.
-    pub fn marker(self) -> &'static str {
-        self.prefix().trim_end()
-    }
 }
 
 /// The key that leaves a loading screen early, and what leaving does.

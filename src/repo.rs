@@ -358,8 +358,8 @@ pub enum EditOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AutofixupContext {
-    /// The range's base, needed to re-scan for the next fixup/target pair
-    /// once the current conflict resolves.
+    /// The range's base: where the walk that `plan`'s positions count along
+    /// stops.
     pub reference_oid: Oid,
     /// User-edited final messages chosen up front in the confirmation dialog.
     /// Applied only to the last pair squashed into a given target, so it is the
