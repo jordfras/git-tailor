@@ -335,6 +335,51 @@ mod tests {
         }
     }
 
+    /// A commit whose summary is `raw`, rendered the way the list draws it.
+    fn commit_with_raw_summary(oid: &str, raw: &[u8]) -> CommitInfo {
+        CommitInfo {
+            summary: String::from_utf8_lossy(raw).into_owned(),
+            summary_bytes: BString::from(raw),
+            ..commit(oid, "")
+        }
+    }
+
+    // Latin-1 "Fix för" and "Fix fär": both render as "Fix f\u{fffd}r".
+    const FOR: &[u8] = b"Fix f\xf6r";
+    const FAR: &[u8] = b"Fix f\xe4r";
+
+    fn fixup_of(oid: &str, target: &[u8]) -> CommitInfo {
+        commit_with_raw_summary(oid, &[b"fixup! ", target].concat())
+    }
+
+    #[test]
+    fn a_fixup_matches_its_targets_bytes_not_their_rendering() {
+        let commits = vec![
+            commit_with_raw_summary("a", FOR),
+            commit_with_raw_summary("b", FAR),
+            fixup_of("c", FOR),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].target_oid, Oid::new("a".repeat(40)));
+    }
+
+    #[test]
+    fn targets_that_render_alike_keep_their_own_groups_and_messages() {
+        let commits = vec![
+            commit_with_raw_summary("a", FOR),
+            commit_with_raw_summary("b", FAR),
+            fixup_of("c", FOR),
+            fixup_of("d", FAR),
+        ];
+        let groups = group_by_target(&plan_autofixup(&commits));
+        assert_eq!(groups.len(), 2);
+
+        let mut overrides = MessageOverrides::default();
+        overrides.set(&groups[0], BString::from("Edited\n"));
+        assert_eq!(overrides.for_group(&groups[1]), None);
+    }
+
     #[test]
     fn matches_a_fixup_to_its_target() {
         let commits = vec![commit("a", "Add parser"), commit("b", "fixup! Add parser")];

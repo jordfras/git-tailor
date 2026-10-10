@@ -28,6 +28,7 @@ mod common;
 use bstr::ByteSlice;
 use common::TestRepo;
 use common::prelude::*;
+use git_tailor::autofixup;
 
 /// Latin-1 "Fix för åäö handling" — valid git, invalid UTF-8.
 const LATIN1_MESSAGE: &[u8] = b"Fix f\xf6r \xe5\xe4\xf6 handling\n";
@@ -318,6 +319,51 @@ fn bulk_autofixup_keeps_a_squash_sources_non_utf8_body() {
             .any(|w| w == source_message),
         "the folded commit must carry the source's body byte for byte: {combined:?}"
     );
+}
+
+/// Two targets whose summaries differ only in bytes that do not decode render
+/// alike, but git matches `fixup!` on the bytes, and so must the batch — and a
+/// message edited for one must not land on the other.
+#[test]
+fn bulk_autofixup_tells_apart_targets_that_render_alike() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("x.txt", "x\n", "base");
+    let tree_with = |path: &str, content: &str| {
+        test.write_file(path, content);
+        test.stage_file(path);
+        test.repo.index().unwrap().write_tree().unwrap()
+    };
+    // Latin-1 "Fix för" and "Fix fär".
+    let for_tree = tree_with("a.txt", "A\n");
+    let for_target = commit_with_raw_tree_and_message(&test, base, for_tree, b"Fix f\xf6r\n");
+    let far_tree = tree_with("b.txt", "B\n");
+    let far_target = commit_with_raw_tree_and_message(&test, for_target, far_tree, b"Fix f\xe4r\n");
+    let fix_tree = tree_with("a.txt", "A\nfixed\n");
+    commit_with_raw_tree_and_message(&test, far_target, fix_tree, b"fixup! Fix f\xf6r\n");
+
+    let mut git_repo = test.git_repo();
+    let head_oid = git_repo.head_oid().unwrap();
+    let commits = git_repo.list_commits(&head_oid, &Oid::from(base)).unwrap();
+    let groups = autofixup::group_by_target(&autofixup::plan_autofixup(&commits));
+    let for_group = groups
+        .iter()
+        .find(|g| g.target_oid == Oid::from(for_target))
+        .expect("the fixup names \"Fix f\\xf6r\", so that commit is its target");
+    let mut overrides = autofixup::MessageOverrides::default();
+    overrides.set(for_group, bstr::BString::from("Fixed for\n"));
+
+    let outcome = git_repo
+        .autofixup(&head_oid, &Oid::from(base), &overrides)
+        .unwrap();
+    assert_rebase_complete!(outcome);
+
+    let commits = test.commits_from_head(base);
+    assert_eq!(commits.len(), 2);
+    assert_eq!(message_bytes(&test, commits[0]), b"Fixed for\n");
+    assert_eq!(message_bytes(&test, commits[1]), b"Fix f\xe4r\n");
+    let fixed = test.repo.find_commit(commits[0]).unwrap().tree().unwrap();
+    let blob = fixed.get_path(std::path::Path::new("a.txt")).unwrap().id();
+    assert_eq!(test.repo.find_blob(blob).unwrap().content(), b"A\nfixed\n");
 }
 
 /// Rewording *to* readable text drops the `encoding` header, because the header
