@@ -580,6 +580,22 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_after_a_prefix_and_an_inner_amend_are_skipped() {
+        let commits = vec![
+            commit("a", "Add parser"),
+            commit("b", "fixup!  Add parser"),
+            commit("c", "fixup! amend! Add parser"),
+        ];
+        let pairs = plan_autofixup(&commits);
+        assert_eq!(pairs.len(), 2);
+        assert!(
+            pairs
+                .iter()
+                .all(|pair| pair.target_oid == commits[0].oid.expect_real_oid())
+        );
+    }
+
+    #[test]
     fn the_oldest_match_wins_on_duplicate_summaries() {
         let commits = vec![
             commit("a", "Tweak"),
