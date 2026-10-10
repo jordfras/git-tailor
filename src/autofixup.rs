@@ -33,8 +33,9 @@ pub struct AutofixupPair {
     pub target_oid: Oid,
     pub source_summary: String,
     pub target_summary: String,
-    /// The target's summary as git stores it: what identifies the target,
-    /// since two summaries can render alike.
+    /// The target's summary as git compares it (see
+    /// [`CommitInfo::summary_bytes`]): what identifies the target, since two
+    /// summaries can render alike.
     pub target_summary_bytes: BString,
     /// Full commit message (summary + body) of the source/target, needed to
     /// build the non-interactive squash message; the confirmation dialog

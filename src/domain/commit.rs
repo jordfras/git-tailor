@@ -146,7 +146,9 @@ pub struct CommitInfo {
     pub oid: VirtualOid,
     /// For display: decoded lossily, so two summaries can render alike.
     pub summary: String,
-    /// The summary as git stores it — what identifies a commit by its subject.
+    /// The summary as git compares it — what identifies a commit by its
+    /// subject. Decoded to UTF-8 through the commit's `encoding` header where it
+    /// has one, and as stored otherwise.
     pub summary_bytes: BString,
     /// Author name. `None` for synthetic pseudo-commits (staged/unstaged changes).
     pub author: Option<String>,

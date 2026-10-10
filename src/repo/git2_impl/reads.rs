@@ -384,12 +384,12 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
     let author = commit.author();
     let committer = commit.committer();
     let lossy = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
-    let summary_bytes = BString::from(commit.summary_bytes().unwrap_or_default());
+    let summary = commit.summary_bytes().unwrap_or_default();
 
     Ok(CommitInfo {
         oid: VirtualOid::Real(Oid::from(commit.id())),
-        summary: lossy(&summary_bytes),
-        summary_bytes,
+        summary: lossy(summary),
+        summary_bytes: comparable_summary(summary, commit.message_encoding().ok().flatten()),
         author: Some(lossy(author.name_bytes())),
         date: Some(commit.time().seconds().to_string()),
         parent_oids: commit.parent_ids().map(Oid::from).collect(),
@@ -400,6 +400,20 @@ pub(super) fn commit_info_from(commit: &git2::Commit) -> Result<CommitInfo> {
         committer_email: Some(lossy(committer.email_bytes())),
         commit_date: Some(git_time_to_offset_datetime(commit_time)),
     })
+}
+
+/// A summary as git compares one: decoded to UTF-8 through the commit's
+/// `encoding` header, as `git rebase --autosquash` does, and left as stored
+/// where there is no header or it cannot be honored.
+fn comparable_summary(summary: &[u8], encoding: Option<&str>) -> BString {
+    encoding
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .filter(|&encoding| encoding != encoding_rs::UTF_8)
+        .and_then(|encoding| {
+            let (text, had_errors) = encoding.decode_without_bom_handling(summary);
+            (!had_errors).then(|| BString::from(text.into_owned()))
+        })
+        .unwrap_or_else(|| BString::from(summary))
 }
 
 pub(super) fn synthetic_commit_info(oid: VirtualOid, summary: &str) -> CommitInfo {
@@ -509,7 +523,28 @@ fn git_time_to_offset_datetime(git_time: git2::Time) -> time::OffsetDateTime {
 
 #[cfg(test)]
 mod tests {
-    use super::git_time_to_offset_datetime;
+    use super::{comparable_summary, git_time_to_offset_datetime};
+
+    #[test]
+    fn a_latin1_summary_compares_as_utf8() {
+        assert_eq!(
+            comparable_summary(b"Fix f\xf6r", Some("ISO-8859-1")),
+            "Fix för"
+        );
+    }
+
+    #[test]
+    fn a_summary_without_a_header_compares_as_stored() {
+        assert_eq!(comparable_summary(b"Fix f\xf6r", None), &b"Fix f\xf6r"[..]);
+    }
+
+    #[test]
+    fn an_encoding_nobody_knows_leaves_the_summary_as_stored() {
+        assert_eq!(
+            comparable_summary(b"Fix f\xf6r", Some("x-no-such-encoding")),
+            &b"Fix f\xf6r"[..]
+        );
+    }
 
     #[test]
     fn utc_epoch_stays_at_zero() {
