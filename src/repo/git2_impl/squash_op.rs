@@ -263,15 +263,12 @@ fn parse_squash_inputs<'a>(
     // and every caller goes on to rewrite history through it.
     let base_oid = {
         let target_commit = repo.inner.find_commit(target_git_oid)?;
-        if target_commit.parent_count() > 1 {
-            anyhow::bail!("Cannot squash into a merge commit");
-        }
         match target_commit.parent_count() {
             0 => None,
             _ => Some(target_commit.parent_id(0)?),
         }
     };
-    repo.refuse_false_parents(base_oid, head_git_oid)?;
+    repo.refuse_rewriting_from(target_oid, head_oid)?;
 
     Ok(SquashInputs {
         source_oid,

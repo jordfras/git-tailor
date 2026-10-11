@@ -36,9 +36,6 @@ pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) 
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);
-    if repo.inner.find_commit(commit_git)?.parent_count() > 1 {
-        anyhow::bail!("Cannot edit a merge commit");
-    }
 
     // HEAD must be on a branch here (the caller fetched head_oid, which fails on
     // a detached HEAD). Capture the branch name so finish/abort can restore it

@@ -1020,9 +1020,6 @@ fn finalize_split(
     log_msg: &str,
 ) -> Result<()> {
     let head_git_oid = git2::Oid::from(head_oid);
-    if repo.range_has_merge(Some(original_commit_oid), head_git_oid)? {
-        anyhow::bail!("Cannot split: a merge commit lies between this commit and HEAD");
-    }
     let rebased_tip =
         repo.replay_descendants_conflict_free(original_commit_oid, head_git_oid, final_tip)?;
     repo.advance_branch_ref(rebased_tip, log_msg)?;

@@ -103,7 +103,8 @@ impl Git2Repo {
     }
 
     /// Collect OIDs strictly between `stop_oid` (exclusive) and `head_oid`
-    /// (inclusive), returned oldest-first.
+    /// (inclusive), returned oldest-first, for replaying. A merge among them is
+    /// refused (see [`Git2Repo::refuse_replaying_a_merge`]).
     pub(super) fn collect_descendants(
         &self,
         stop_oid: git2::Oid,
@@ -130,13 +131,7 @@ impl Git2Repo {
     }
 
     /// Whether any commit reachable from `head_oid` — stopping at `stop_oid`
-    /// when given, or the whole ancestry when replaying from the root — is a
-    /// merge commit.
-    ///
-    /// [`collect_descendants`][Self::collect_descendants] is a plain revwalk
-    /// that breaks at `stop_oid`, so with a merge in the range it can emit
-    /// commits that are not descendants at all, or stop before reaching them.
-    /// Callers that replay that range must refuse rather than act on it.
+    /// when given, or the whole ancestry otherwise — is a merge commit.
     pub(super) fn range_has_merge(
         &self,
         stop_oid: Option<git2::Oid>,

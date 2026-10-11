@@ -49,16 +49,9 @@ pub(super) fn autofixup(
     // target up, so the oldest target covers the whole batch.
     if let Some(oldest) = plan.steps.iter().map(|step| step.target).min() {
         let oldest = plan.planned_oid(oldest);
+        // Not the in-place variant: a step finds its commits by their place on
+        // one line of history, so the oldest target may not be a merge either.
         repo.refuse_rewriting_from(oldest, head_oid)?;
-        // A step finds its commits by their place in the branch, which only a
-        // single line of history defines. The range starts above the oldest
-        // target, so that one is checked on its own.
-        let oldest_git_oid = git2::Oid::from(oldest);
-        if repo.inner.find_commit(oldest_git_oid)?.parent_count() > 1
-            || repo.range_has_merge(Some(oldest_git_oid), git2::Oid::from(head_oid))?
-        {
-            anyhow::bail!("Cannot autofixup: a merge commit lies between a target and HEAD");
-        }
     }
     let ctx = AutofixupContext {
         reference_oid: reference_oid.clone(),

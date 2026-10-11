@@ -610,7 +610,7 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
     ) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
-        self.refuse_rewriting_from(commit_oid, head_oid)?;
+        self.refuse_rebuilding_in_place(commit_oid, head_oid)?;
         let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
         self.record_unit_undo("Reword", head_oid, outcome)
     }
@@ -1251,9 +1251,11 @@ impl Git2Repo {
     }
 
     /// Refuse to rewrite the commits on `head`'s first-parent line down to
-    /// where `kept` reaches — the whole line when `kept` is empty — if any has
-    /// parents other than the ones its object records. A merge's other parents
-    /// are kept as they are, so their history is not rebuilt and not checked.
+    /// where `kept` reaches — the whole line when `kept` is empty — if one
+    /// cannot be rebuilt faithfully: it has parents other than the ones its
+    /// object records, or it is a merge other than `in_place`, the commit an
+    /// operation rebuilds where it stands. Everything else is replayed, and a
+    /// replay picks one parent: it flattens a merge or fails on it.
     ///
     /// A shallow clone's boundary reports no parents and `.git/info/grafts`
     /// substitutes others, while the object keeps its real ones. Rebuilding
@@ -1262,10 +1264,11 @@ impl Git2Repo {
     /// behind it, and a graft is baked into the branch. Undoable locally;
     /// pushed, it rewrites the history everyone shares. Replace refs need no
     /// guard: libgit2 does not follow them.
-    pub(super) fn refuse_false_parents(
+    pub(super) fn refuse_unrewritable(
         &self,
         kept: impl IntoIterator<Item = git2::Oid>,
         head: git2::Oid,
+        in_place: Option<git2::Oid>,
     ) -> Result<()> {
         let mut walk = self.inner.revwalk()?;
         walk.simplify_first_parent()?;
@@ -1279,20 +1282,38 @@ impl Git2Repo {
             if reported != self.recorded_parents(commit)? {
                 return Err(self.false_parents_error(commit, reported.is_empty()));
             }
+            if reported.len() > 1 && Some(commit) != in_place {
+                anyhow::bail!(
+                    "Cannot rewrite through {}: it is a merge commit, and replaying \
+                     one would flatten it",
+                    Oid::from(commit).short()
+                );
+            }
         }
         Ok(())
     }
 
-    /// [`Self::refuse_false_parents`] for rewriting `commit` and everything
-    /// above it up to `head`. All its parents stay put, a merge's second one
-    /// included.
+    /// [`Self::refuse_unrewritable`] for rewriting `commit` and replaying
+    /// everything above it up to `head`. All its parents stay put.
     pub(super) fn refuse_rewriting_from(&self, commit: &Oid, head: &Oid) -> Result<()> {
-        let parents: Vec<git2::Oid> = self
-            .inner
-            .find_commit(git2::Oid::from(commit))?
-            .parent_ids()
-            .collect();
-        self.refuse_false_parents(parents, git2::Oid::from(head))
+        let commit = git2::Oid::from(commit);
+        self.refuse_unrewritable(self.parents_of(commit)?, git2::Oid::from(head), None)
+    }
+
+    /// [`Self::refuse_rewriting_from`] for an operation that rebuilds `commit`
+    /// where it stands, a merge's second parent included, so `commit` may be a
+    /// merge.
+    pub(super) fn refuse_rebuilding_in_place(&self, commit: &Oid, head: &Oid) -> Result<()> {
+        let commit = git2::Oid::from(commit);
+        self.refuse_unrewritable(
+            self.parents_of(commit)?,
+            git2::Oid::from(head),
+            Some(commit),
+        )
+    }
+
+    fn parents_of(&self, commit: git2::Oid) -> Result<Vec<git2::Oid>> {
+        Ok(self.inner.find_commit(commit)?.parent_ids().collect())
     }
 
     /// The parents `commit`'s object names, whatever a graft says.

@@ -34,15 +34,7 @@ pub(super) fn move_commit(
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
 
-    // Scoped: the commit handle borrows the repository, which the rewrite below
-    // needs mutably.
-    let parent_count = {
-        let commit = repo.inner.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot move a merge commit");
-        }
-        commit.parent_count()
-    };
+    let parent_count = repo.inner.find_commit(commit_git_oid)?.parent_count();
 
     // Everything above the commit that stays put is rebuilt: moving later, that
     // is the moved commit's parent; moving earlier, the insertion point; to the
@@ -61,7 +53,7 @@ pub(super) fn move_commit(
             }
         }
     };
-    repo.refuse_false_parents(kept, head_git_oid)?;
+    repo.refuse_unrewritable(kept, head_git_oid, None)?;
 
     let original_branch_oid = head_oid.clone();
 

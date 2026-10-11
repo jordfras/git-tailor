@@ -34,9 +34,6 @@ pub(super) fn drop_commit(
     // needs mutably. `None` means a root commit, with no parent to replay onto.
     let parent_oid = {
         let commit = repo.inner.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot drop a merge commit");
-        }
         match commit.parent_count() {
             0 => None,
             _ => Some(commit.parent_id(0)?),
