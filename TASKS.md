@@ -140,16 +140,17 @@ Guidelines:
   rewrite proceeds over it. Nothing is lost — `discard_in_flight` deliberately
   spares the auto-stash record — but the rewrite runs on a history containing a
   synthetic commit the user never made.
-  The same shape has always been true for `--autostash`.
+  The same shape holds for the auto-stash around every rewrite, which is now
+  the default, so every user can reach it rather than only `--autostash` ones.
   The naive fix (refuse whenever an auto-stash record exists) breaks
-  `--autostash` outright, because its flow is save-then-operate and the guard
+  auto-stash outright, because its flow is save-then-operate and the guard
   would fire on its own stash. A correct version needs a notion of *which
   operation owns the parked work* — which is what `covers_working_tree` supplied
   for the fold before it was deleted.
   Decide first whether this deserves a mechanism at all: the parked work is
   recorded and recoverable either way, so this is about not surprising the user
   rather than about losing anything.
-- [ ] T244 P2 idea - Decide whether `--autostash` should invert to an opt-out
+- [X] T244 P2 idea - Decide whether `--autostash` should invert to an opt-out
   `--strict` (Flags: HUMAN INPUT). The question that prompted the whole
   uncommitted-work-safety round, still unanswered. Squash/fixup on the Staged
   and Unstaged rows works on a dirty tree with no flag, while every other

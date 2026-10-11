@@ -23,7 +23,7 @@ A short promo and four narrated tutorials are collected in one playlist:
 2. **Reshaping a branch** — split a commit by hunk group, then squash, fixup,
    reword, move, drop and edit
 3. **Work in progress, and getting back** — the staged and unstaged rows,
-   autofixup, conflicts in a real merge tool, `--autostash`, undo, and recovery
+   autofixup, conflicts in a real merge tool, auto-stash, undo, and recovery
    from an interrupted run
 4. **Reading a commit** — the detail view: navigation, search, and diff context
 
@@ -110,11 +110,12 @@ into one section, less separates them again. If an operation hits a merge
 conflict, git-tailor opens a resolution dialog where you can fix it up in your
 editor or merge tool and then continue or abort.
 
-By default, history-rewriting operations refuse to run when the working tree has
-uncommitted changes, so your work is never discarded. Pass `--autostash` (or set
-`GT_AUTOSTASH=true`) to let git-tailor stash those changes first, run the operation,
-and reapply them afterwards — preserving your exact staged/unstaged split —
-instead of refusing.
+When the working tree has uncommitted changes, a history-rewriting operation
+stashes them first, runs, and reapplies them afterwards, preserving your exact
+staged/unstaged split. Squashing the staged or unstaged row sets the other row
+aside the same way. Pass `--no-stash` (or set `GT_NO_STASH=true`) to keep the stash
+out of it: operations then refuse to run on a dirty working tree, and a fold of
+one row is refused while the other row has changes.
 
 Press `h` in the TUI for the complete key-binding reference — including all
 navigation, scrolling, and search keys.
@@ -225,8 +226,9 @@ git config --global merge.tool vimdiff
 git-tailor rewrites branch history, so the usual rewrite caveats apply. To keep
 that safe, every operation is journalled before it runs: anything can be undone
 and redone, and an interrupted run is recovered the next time you start `gt`.
-Operations also refuse to run on a dirty working tree unless you ask for
-`--autostash`. As with any history rewriting, having the branch pushed to a
+Uncommitted changes are stashed around an operation and put back afterwards,
+or, with `--no-stash`, the operation refuses to run. As with any history
+rewriting, having the branch pushed to a
 remote is still a good extra safety net. Should the recovery state ever get
 stuck, `gt --clean-journal` discards the journal and this working tree's
 git-tailor refs, then exits without opening the TUI. It keeps any uncommitted

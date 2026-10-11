@@ -12,7 +12,7 @@ see [`../../README.md`](../../README.md) for the pipeline and
 | 02 | fold | `f` from the unstaged row straight into an older commit |
 | 03 | autofixup | `F` folding every `fixup!` commit in one pass |
 | 04 | conflict | the resolution dialog, resolved through a real merge tool |
-| 05 | guard | the refusal over a dirty tree, then `--autostash` |
+| 05 | guard | a rewrite over a dirty tree, then `--no-stash` refusing it |
 | 06 | undo | `u` back through the session, and across a restart |
 | 07 | recover | killed mid-fold, then the prompt that picks it back up |
 | 08 | close | one line, closing the series |

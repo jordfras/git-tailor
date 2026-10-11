@@ -1252,7 +1252,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     }
 
     // An earlier build of this version parked a fold's row in the auto-stash
-    // slot, which this one would reapply as an `--autostash`. Probed untyped
+    // slot, which this one would reapply as an auto-stash. Probed untyped
     // because the field telling them apart is gone; left untouched.
     if parked_in_the_autostash_slot(&bytes) {
         return JournalStatus::UpgradeInterrupted {

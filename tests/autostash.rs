@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the opt-in auto-stash. These exercise the
+//! Integration tests for auto-stash. These exercise the
 //! `autostash_save` / `autostash_restore` primitives around real operations,
 //! the way `main.rs` orchestrates them.
 
@@ -240,8 +240,8 @@ fn autostash_disabled_still_refuses_dirty_operation() {
     let test = common::TestRepo::new();
     let (_base, c1, c2) = setup_dirty_repo(&test);
 
-    let git_repo = test.git_repo(); // auto-stash NOT enabled
-    let mut git_repo = git_repo;
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
     git_repo.autostash_save().unwrap(); // no-op when disabled
 
     let err = git_repo

@@ -10,6 +10,11 @@ The format is based on
 
 ### Changed
 
+- Uncommitted changes are now stashed around an operation by default, and put
+  back afterwards, instead of the operation refusing to run. The new `--no-stash`
+  flag, or `GT_NO_STASH=true`, turns that off — and with it, squashing the Staged
+  or Unstaged row while the other row has changes, since that sets them aside
+  in the stash too
 - The hunk group matrix is computed much faster. On 1,000 commits it takes
   about a second at startup instead of eight, `--static` takes 5 seconds
   instead of 58, and `--all` on a 1,231-commit history finishes in 18 seconds
@@ -201,6 +206,13 @@ The format is based on
 - The hunk group matrix's horizontal scrollbar now sits under the columns it
   scrolls. With a vertical scrollbar beside the commit list it was one column
   to the left, over the separator bar
+
+### Removed
+
+- `--autostash` (`-a`) and the `GT_AUTOSTASH` environment variable. Auto-stash
+  is now the default; `--no-stash`, or `GT_NO_STASH=true`, keeps refusing a dirty
+  working tree as before
+
 
 ## [3.1.0] - 2026-09-12
 

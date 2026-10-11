@@ -35,8 +35,8 @@ pub(crate) fn handle_execute_edit(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
-    // Auto-stash only stashes under `--autostash`; otherwise it is a no-op and
-    // `begin_edit`'s clean-tree check refuses a dirty working tree.
+    // With --no-stash this stashes nothing, and `begin_edit`'s clean-tree
+    // check refuses a dirty working tree instead.
     autostash_save_or_bail!(git_repo, app);
     if let Err(e) = git_repo.begin_edit(&commit_oid, &head_oid) {
         return Ok(crate::dispatch::settle_autostash_after_failure(

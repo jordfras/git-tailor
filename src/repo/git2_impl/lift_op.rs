@@ -74,6 +74,27 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
     // check, which is about the row the user picked rather than what is in the
     // way.
     repo.refuse_if_work_set_aside()?;
+    // One fold at a time. The record is the only thing that unwinds one, so
+    // overwriting a live record leaves the first fold's branch move and parked
+    // row with nothing to settle them — and the new record's `tip_before` would
+    // be the *previous* fold's temporary commit, so unwinding would rewind onto
+    // a synthetic commit.
+    if let Some(existing) = journal::worktree_source(repo)? {
+        anyhow::bail!(
+            "A working-tree squash is already in progress on {}. Finish or abort \
+             it before starting another.",
+            existing.temp_oid.short()
+        );
+    }
+
+    if !repo.autostash && leaves_changes_to_park(repo, temp_tree_oid, worktree_tree)? {
+        anyhow::bail!(
+            "Folding the {} would set your {} aside in the stash, and --no-stash \
+             is set. Stash or commit them first.",
+            source.label().to_lowercase(),
+            source.other().label().to_lowercase()
+        );
+    }
 
     // Created before anything is recorded: an unreferenced commit is garbage the
     // next gc collects, where a record naming a commit that was never made
@@ -101,19 +122,6 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
         worktree_tree: Oid::from(worktree_tree),
         temp_oid: Oid::from(temp_oid),
     };
-    // One fold at a time. The record is the only thing that unwinds one, so
-    // overwriting a live record leaves the first fold's branch move and parked
-    // row with nothing to settle them — and the new record's `tip_before` would
-    // be the *previous* fold's temporary commit, so unwinding would rewind onto
-    // a synthetic commit.
-    if let Some(existing) = journal::worktree_source(repo)? {
-        anyhow::bail!(
-            "A working-tree squash is already in progress on {}. Finish or abort \
-             it before starting another.",
-            existing.temp_oid.short()
-        );
-    }
-
     // Write-ahead: the branch is about to move onto the temporary commit, so the
     // record has to be on disk before it does.
     journal::set_worktree_source(repo, Some(snapshot.clone()))?;
@@ -139,6 +147,21 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
             Err(e)
         }
     }
+}
+
+/// Whether the files on disk differ from the temporary commit, which is what
+/// [`Git2Repo::park_row`] finds dirty once the branch sits on it.
+fn leaves_changes_to_park(
+    repo: &Git2Repo,
+    temp_tree: git2::Oid,
+    worktree_tree: git2::Oid,
+) -> Result<bool> {
+    let diff = repo.inner.diff_tree_to_tree(
+        Some(&repo.inner.find_tree(temp_tree)?),
+        Some(&repo.inner.find_tree(worktree_tree)?),
+        None,
+    )?;
+    Ok(super::has_real_changes(&diff))
 }
 
 /// Move the branch onto the temporary commit, leaving the index describing what
