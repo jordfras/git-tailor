@@ -20,9 +20,9 @@ use git_tailor::Oid;
 use git_tailor::app::AppState;
 use git_tailor::repo::{EditOutcome, GitRepo};
 
+use crate::autostash_save_or_bail;
 use crate::dispatch::{LoopAction, settle_autostash};
 use crate::external_tool::with_tui_suspended;
-use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 pub(crate) fn handle_execute_edit(
     git_repo: &mut impl GitRepo,
@@ -32,7 +32,9 @@ pub(crate) fn handle_execute_edit(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     // Auto-stash only stashes under `--autostash`; otherwise it is a no-op and
     // `begin_edit`'s clean-tree check refuses a dirty working tree.
     autostash_save_or_bail!(git_repo, app);

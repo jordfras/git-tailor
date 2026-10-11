@@ -29,6 +29,7 @@ mod tests;
 
 use anyhow::Result;
 use bstr::{BStr, BString};
+use git_tailor::Oid;
 use git_tailor::app::{AppAction, AppState, ResumeFailure};
 use git_tailor::editor;
 use git_tailor::repo::{
@@ -104,22 +105,30 @@ impl PendingAutofixupSelection {
     }
 }
 
-/// Fetch HEAD OID from the repo, setting an error message and returning
-/// `LoopAction::Continue` from the enclosing function if the call fails.
+/// The tip the commit list was loaded from, while HEAD is still on it — the
+/// same commit, on the same branch. Otherwise `None`, having said why.
 ///
-/// Used by the dispatch handlers; `LoopAction` must be in scope at the call
-/// site.
-#[macro_export]
-macro_rules! get_head_oid_or_continue {
-    ($git_repo:expr, $app:expr) => {
-        match $git_repo.head_oid() {
-            Ok(oid) => oid,
-            Err(e) => {
-                $app.set_error_message(format!("Failed to get HEAD: {e:#}"));
-                return Ok(LoopAction::Continue);
-            }
+/// Taken before an operation does anything — stash, editor, dialog — so a
+/// refusal costs nothing; the repository refuses too, but only once that work
+/// is done.
+pub(crate) fn listed_tip(git_repo: &impl GitRepo, app: &mut AppState) -> Option<Oid> {
+    let head = git_repo
+        .head_oid()
+        .and_then(|oid| Ok((oid, git_repo.head_branch()?)));
+    match head {
+        Ok((oid, branch)) if oid == app.list.tip && branch == app.list.branch => Some(oid),
+        Ok(_) => {
+            app.set_error_message(
+                "The branch moved, or another is checked out, since this list was loaded \
+                 — press R to reload",
+            );
+            None
         }
-    };
+        Err(e) => {
+            app.set_error_message(format!("Failed to get HEAD: {e:#}"));
+            None
+        }
+    }
 }
 
 /// Auto-stash the working tree before a history-rewriting operation, setting an
@@ -196,7 +205,9 @@ pub(crate) fn dispatch_action(
             commit_oid,
             commit_summary,
         } => {
-            let head_oid = get_head_oid_or_continue!(git_repo, app);
+            let Some(head_oid) = listed_tip(git_repo, app) else {
+                return Ok(LoopAction::Continue);
+            };
             app.enter_drop_confirm(commit_oid, commit_summary, head_oid);
         }
         AppAction::ExecuteDrop {

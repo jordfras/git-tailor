@@ -879,8 +879,9 @@ pub trait RepoWrite {
     /// stray one. Every path out of the operation must end in either
     /// [`restore_lifted_row`](Self::restore_lifted_row) or a completed squash.
     ///
-    /// Fails when the unstaged row cannot be separated from the staged one —
-    /// edits to the same lines have no meaningful split.
+    /// Refused when the branch has moved off `head_oid`. Fails when the unstaged
+    /// row cannot be separated from the staged one, as when both edit the same
+    /// lines.
     fn lift_worktree_row(
         &mut self,
         source: WorktreeSource,

@@ -758,8 +758,9 @@ impl RepoWrite for Git2Repo {
     fn lift_worktree_row(
         &mut self,
         source: super::WorktreeSource,
-        _head_oid: &Oid,
+        head_oid: &Oid,
     ) -> Result<Option<super::LiftedRow>> {
+        self.refuse_if_branch_moved(head_oid)?;
         lift_op::lift(self, source)
     }
 

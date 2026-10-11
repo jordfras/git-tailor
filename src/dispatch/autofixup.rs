@@ -21,10 +21,10 @@ use git_tailor::autofixup::AutofixupGroup;
 use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
 use git_tailor::{CommitInfo, Oid};
 
+use crate::autostash_save_or_bail;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, settle_autostash,
 };
-use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Compute the autofixup plan from the already-loaded commit list (no git
 /// call needed) and show the confirmation dialog, or report nothing to do.
@@ -32,7 +32,9 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     let git_tailor::autofixup::AutofixupPlan {
         pairs,
         ambiguous: left_in_place,

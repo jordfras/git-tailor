@@ -167,7 +167,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if app.list.commits.is_empty() {
+    // Working-tree rows alone are nothing to rewrite.
+    if app.list.commits.iter().all(|c| c.oid.as_oid().is_none()) {
         terminal_guard.shutdown()?;
         eprintln!("No commits to display.");
         return Ok(());

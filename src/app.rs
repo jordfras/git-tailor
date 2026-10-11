@@ -54,7 +54,7 @@ pub enum AppAction {
     /// is opened and when `+` / `-` changes the context-line count, so the
     /// repository is read on those transitions rather than on every frame.
     LoadDetailDiff,
-    /// Begin the split flow: get head_oid, count results, confirm if large.
+    /// Begin the split flow: count results, confirm if large.
     PrepareSplit {
         strategy: SplitStrategy,
         commit_oid: Oid,
@@ -86,7 +86,7 @@ pub enum AppAction {
         hunks: Vec<(usize, usize)>,
         context_lines: u32,
     },
-    /// Begin the drop flow: get head_oid from repo, then show confirmation.
+    /// Begin the drop flow: show the confirmation.
     PrepareDropConfirm {
         commit_oid: Oid,
         commit_summary: String,
@@ -122,7 +122,7 @@ pub enum AppAction {
     RunMergetoolForStash { files: Vec<std::path::PathBuf> },
     /// Open auto-stash conflicting files in the configured editor.
     RunEditorForStash { files: Vec<std::path::PathBuf> },
-    /// Start the reword flow: get head_oid, launch editor, rewrite commit.
+    /// Start the reword flow: launch editor, rewrite commit.
     PrepareReword { commit_oid: Oid },
     /// Start the squash/fixup flow: user picked source and target.
     PrepareSquash {
@@ -145,8 +145,8 @@ pub enum AppAction {
         source_oid: Oid,
         insert_after_oid: Option<Oid>,
     },
-    /// Begin the autofixup flow: get head_oid, compute the pair plan from the
-    /// already-loaded commits, then show the confirmation dialog.
+    /// Begin the autofixup flow: compute the pair plan from the already-loaded
+    /// commits, then show the confirmation dialog.
     PrepareAutofixupConfirm,
     /// Open `$EDITOR` to edit the final message for the target `group`.
     PrepareAutofixupEditMessage {

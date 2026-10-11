@@ -21,9 +21,9 @@ use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
+use crate::autostash_save_or_bail;
 use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
 use crate::progress_screen::ShowProgress;
-use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
@@ -37,7 +37,9 @@ pub(crate) fn handle_prepare_split(
     commit_oid: Oid,
     screen: &mut impl ShowProgress,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     let count_result = match strategy {
         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
@@ -161,7 +163,9 @@ pub(crate) fn handle_execute_split_out_files(
     commit_oid: Oid,
     file_paths: Vec<PathBuf>,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     autostash_save_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_files(&commit_oid, &file_paths, &head_oid);
     Ok(settle_split_autostash(git_repo, app, result))
@@ -174,7 +178,9 @@ pub(crate) fn handle_execute_split_out_hunks(
     hunks: Vec<(usize, usize)>,
     context_lines: u32,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     autostash_save_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_hunks(&commit_oid, &hunks, &head_oid, context_lines);
     Ok(settle_split_autostash(git_repo, app, result))
