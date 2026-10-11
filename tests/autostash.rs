@@ -253,6 +253,24 @@ fn autostash_disabled_still_refuses_dirty_operation() {
     );
 }
 
+/// A stash still waiting to be put back is why a dirty tree was not stashed, so
+/// the refusal names it rather than inviting another `git stash` on top.
+#[test]
+fn a_dirty_tree_over_a_pending_autostash_names_the_stash() {
+    let test = common::TestRepo::new();
+    let (_base, c1, c2) = setup_dirty_repo(&test);
+    let mut git_repo = test.git_repo();
+    git_repo.autostash_save().unwrap();
+    test.write_file("a.txt", "a1\n");
+
+    git_repo.autostash_save().unwrap();
+    let err = git_repo
+        .drop_commit(&Oid::from(c1), &Oid::from(c2))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("git stash apply"), "{err}");
+}
+
 #[test]
 fn autostash_around_undo_with_dirty_tree() {
     let test = common::TestRepo::new();
