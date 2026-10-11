@@ -62,6 +62,40 @@ fn mixed_state() -> common::TestRepo {
     test
 }
 
+/// The fold's lift acts on the tip the list was loaded from. A commit made since,
+/// in another terminal, is refused before anything is lifted.
+#[test]
+fn a_lift_refuses_when_the_branch_moved_since_the_list_was_loaded() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+    let listed = git_repo.head_oid().unwrap();
+
+    let head = test.repo.head().unwrap().peel_to_commit().unwrap();
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let theirs = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "their commit",
+            &head.tree().unwrap(),
+            &[&head],
+        )
+        .unwrap();
+    let index_before = test.repo.index().unwrap().write_tree().unwrap();
+
+    let result = git_repo.lift_worktree_row(WorktreeSource::Staged, &listed);
+
+    let error = format!("{:#}", result.expect_err("a moved branch must be refused"));
+    assert!(error.contains("moved"), "{error}");
+    assert_eq!(git_repo.head_oid().unwrap(), Oid::from(theirs));
+    assert_eq!(
+        test.repo.index().unwrap().write_tree().unwrap(),
+        index_before
+    );
+}
+
 /// The staged row becomes a commit of exactly the index, with the unstaged edit
 /// set aside in the stash for the duration of the fold.
 #[test]

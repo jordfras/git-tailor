@@ -27,6 +27,8 @@ use super::conflict::ToolRun;
 use super::split::SPLIT_CONFIRM_THRESHOLD;
 use super::*;
 
+mod refused_when_the_list_is_stale;
+
 #[test]
 fn execute_drop_complete_sets_success_message() {
     let mut repo = MockRepo::default();
@@ -98,22 +100,12 @@ fn execute_drop_error_sets_error_message() {
 fn execute_move_complete_sets_success_message() {
     let mut repo = MockRepo::default();
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status.message.as_deref(), Some("Commit moved"));
     assert!(!app.status.is_error);
-}
-
-#[test]
-fn execute_move_head_error_continues() {
-    let mut repo = MockRepo {
-        head_ok: false,
-        ..MockRepo::default()
-    };
-    let mut app = AppState::default();
-    let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
-    assert!(matches!(result, Ok(LoopAction::Continue)));
-    assert!(app.status.is_error);
 }
 
 #[test]
@@ -189,6 +181,8 @@ fn prepare_split_count_error_sets_error_message() {
         ..MockRepo::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let result = handle_prepare_split(
         &mut repo,
         &mut app,
@@ -223,6 +217,8 @@ fn prepare_split_per_hunk_group_canceled_leaves_the_list() {
         ..MockRepo::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
 
     handle_prepare_split(
         &mut repo,
@@ -245,6 +241,8 @@ fn prepare_split_above_threshold_enters_confirm_mode() {
         ..MockRepo::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let _ = handle_prepare_split(
         &mut repo,
         &mut app,
@@ -1154,7 +1152,6 @@ mod autofixup_selection {
     /// dialog says so — otherwise it silently stays behind.
     #[test]
     fn the_dialog_lists_a_fixup_left_in_place_because_its_target_is_ambiguous() {
-        let mut repo = MockRepo::default();
         let mut app = AppState {
             list: CommitListState::with_selection(
                 vec![
@@ -1169,6 +1166,9 @@ mod autofixup_selection {
             ..Default::default()
         };
 
+        let mut repo = MockRepo::default();
+        app.list.tip = Oid::from("a".repeat(40));
+        app.list.branch = "refs/heads/main".to_string();
         crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
@@ -1191,7 +1191,6 @@ mod autofixup_selection {
     /// the only place to say which fixups stayed and how to name their target.
     #[test]
     fn when_every_fixup_is_ambiguous_the_status_names_them() {
-        let mut repo = MockRepo::default();
         let mut app = AppState {
             list: CommitListState::with_selection(
                 vec![
@@ -1204,6 +1203,9 @@ mod autofixup_selection {
             ..Default::default()
         };
 
+        let mut repo = MockRepo::default();
+        app.list.tip = Oid::from("a".repeat(40));
+        app.list.branch = "refs/heads/main".to_string();
         crate::dispatch::autofixup::handle_prepare_autofixup_confirm(&mut repo, &mut app).unwrap();
 
         let message = app.status.message.as_deref().unwrap_or_default();
@@ -1377,6 +1379,8 @@ fn worktree_source() -> SquashSource {
 fn a_commit_source_is_prepared_behind_the_autostash() {
     let mut repo = MockRepo::default();
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
 
     let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
         .unwrap()
@@ -1384,11 +1388,6 @@ fn a_commit_source_is_prepared_behind_the_autostash() {
 
     assert_eq!(repo.autostash_save_calls.get(), 1);
     assert_eq!(prepared.source_oid(), &Oid::from("b".repeat(40)));
-    assert_eq!(
-        prepared.head_oid(),
-        &Oid::from("a".repeat(40)),
-        "a commit source folds from the real branch tip"
-    );
     prepared.discard();
 }
 
@@ -1401,6 +1400,8 @@ fn a_worktree_row_is_prepared_without_the_autostash() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
 
     let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
         .unwrap()
@@ -1429,6 +1430,8 @@ fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
     ] {
         let mut repo = MockRepo::default();
         let mut app = AppState::default();
+        app.list.tip = Oid::from("a".repeat(40));
+        app.list.branch = "refs/heads/main".to_string();
 
         let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), label).unwrap();
 
@@ -1447,6 +1450,8 @@ fn a_failed_lift_reports_the_underlying_cause() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
 
     assert!(
         prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
@@ -1473,6 +1478,8 @@ fn a_prepared_source_that_names_no_ending_trips() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
 
     let _prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
         .unwrap()
@@ -1488,6 +1495,8 @@ fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
         .unwrap()
         .unwrap();
@@ -1514,6 +1523,8 @@ fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
         .unwrap()
         .unwrap();
@@ -1542,6 +1553,8 @@ fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
 fn abandoning_a_commit_source_restores_the_autostash() {
     let mut repo = MockRepo::default();
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
         .unwrap()
         .unwrap();
@@ -1570,6 +1583,8 @@ fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
         ..MockRepo::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
         .unwrap()
         .unwrap();
@@ -1686,6 +1701,8 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
         ..Default::default()
     };
     let mut app = AppState::default();
+    app.list.tip = Oid::from("a".repeat(40));
+    app.list.branch = "refs/heads/main".to_string();
     let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Fixup")
         .unwrap()
         .unwrap();
