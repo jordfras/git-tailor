@@ -370,3 +370,43 @@ pub(super) fn replace_root_and_replay(
     let result = repo.cherry_pick_chain(new_root_oid, remaining, &ctx)?;
     advance_and_finish(repo, result, &original_branch_oid, reflog_msg)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::Git2Repo;
+
+    /// The replay itself refuses a merge it meets, so an operation that skips
+    /// the up-front check fails loudly rather than flattening the merge.
+    #[test]
+    fn collecting_a_replay_across_a_merge_is_refused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let sig = git2::Signature::now("T", "t@e").unwrap();
+        let tree = repo
+            .find_tree(repo.treebuilder(None).unwrap().write().unwrap())
+            .unwrap();
+        let commit = |message: &str, parents: &[git2::Oid]| {
+            let parents: Vec<git2::Commit> = parents
+                .iter()
+                .map(|&p| repo.find_commit(p).unwrap())
+                .collect();
+            let parents: Vec<&git2::Commit> = parents.iter().collect();
+            repo.commit(None, &sig, &sig, message, &tree, &parents)
+                .unwrap()
+        };
+        let base = commit("base", &[]);
+        let main = commit("main", &[base]);
+        let side = commit("side", &[base]);
+        let merge = commit("merge", &[main, side]);
+        let top = commit("top", &[merge]);
+
+        let git_repo = Git2Repo::open(dir.path().to_path_buf()).unwrap();
+        let result = git_repo.collect_descendants(base, top);
+
+        let msg = format!(
+            "{:#}",
+            result.expect_err("a merge in the replay must be refused")
+        );
+        assert!(msg.contains("merge"), "{msg}");
+    }
+}

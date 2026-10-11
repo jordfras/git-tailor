@@ -90,6 +90,56 @@ fn edit_amend_replaces_commit_and_replays_descendants() {
     assert_eq!(file_at(&f.test, tip, "a.txt").as_deref(), Some("a\n"));
 }
 
+/// An edit begun by a build that did not refuse a merge above the edited
+/// commit finds it only when replaying. Like every other failure there, that
+/// rewinds the branch and ends the edit rather than leaving it half done.
+#[test]
+fn finishing_an_edit_with_a_merge_to_replay_rewinds_it() {
+    let f = fixture();
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let edited = f.test.repo.find_commit(f.edited).unwrap();
+    let head = f.test.repo.find_commit(f.head).unwrap();
+    let tree = head.tree().unwrap();
+    let side = f
+        .test
+        .repo
+        .commit(None, &sig, &sig, "side", &tree, &[&edited])
+        .unwrap();
+    let side = f.test.repo.find_commit(side).unwrap();
+    let merge = f
+        .test
+        .repo
+        .commit(None, &sig, &sig, "merge", &tree, &[&head, &side])
+        .unwrap();
+
+    let mut git_repo = f.test.git_repo();
+    git_repo
+        .begin_edit(&Oid::from(f.edited), &Oid::from(f.head))
+        .unwrap();
+    let journal = f.test.repo.path().join("git-tailor").join("journal.json");
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&journal).unwrap()).unwrap();
+    doc["in_progress"]["Edit"]["original_branch_oid"] = merge.to_string().into();
+    std::fs::write(&journal, doc.to_string()).unwrap();
+
+    reset(&f.test, f.c1, git2::ResetType::Mixed);
+    f.test.write_file("b.txt", "b EDITED\n");
+    f.test.stage_file("b.txt");
+    f.test.commit("add b (edited)");
+    let result = git_repo.finish_edit(&Oid::from(f.edited));
+
+    let msg = format!(
+        "{:#}",
+        result.expect_err("a merge to replay must end the edit")
+    );
+    assert!(msg.contains("aborted"), "{msg}");
+    assert_eq!(git_repo.head_oid().unwrap(), Oid::from(merge));
+    assert!(matches!(
+        git_repo.read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+}
+
 #[test]
 fn edit_can_split_into_several_commits() {
     let f = fixture();
