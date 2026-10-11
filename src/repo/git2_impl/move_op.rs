@@ -34,15 +34,7 @@ pub(super) fn move_commit(
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
 
-    // Scoped: the commit handle borrows the repository, which the rewrite below
-    // needs mutably.
-    let parent_count = {
-        let commit = repo.inner.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot move a merge commit");
-        }
-        commit.parent_count()
-    };
+    let parent_count = repo.inner.find_commit(commit_git_oid)?.parent_count();
 
     // Everything above the commit that stays put is rebuilt: moving later, that
     // is the moved commit's parent; moving earlier, the insertion point; to the
@@ -61,7 +53,7 @@ pub(super) fn move_commit(
             }
         }
     };
-    repo.refuse_false_parents(kept, head_git_oid)?;
+    repo.refuse_unrewritable(kept, head_git_oid, None)?;
 
     let original_branch_oid = head_oid.clone();
 
@@ -123,7 +115,7 @@ fn plan_move_to_root(
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
     let all_oids = repo
-        .all_commit_oids_oldest_first(head_git_oid)
+        .replay_range(None, head_git_oid)
         .context("Failed to walk commits for root-position move")?;
 
     let parent_tree = commit.parent(0)?.tree()?;
@@ -172,7 +164,7 @@ fn move_root_to_later(
     moved_commit_oid: Oid,
 ) -> Result<RebaseOutcome> {
     let mut reordered: Vec<git2::Oid> = repo
-        .all_commit_oids_oldest_first(head_git_oid)
+        .replay_range(None, head_git_oid)
         .context("Failed to walk commits for root-move")?
         .into_iter()
         .filter(|&oid| oid != commit_git_oid)
@@ -219,7 +211,7 @@ fn plan_reorder(
         .inner
         .merge_base(insert_after_git_oid, source_parent_oid)?;
 
-    let all_descendants = repo.collect_descendants(base_oid, head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(base_oid), head_git_oid)?;
 
     let mut reordered: Vec<git2::Oid> = all_descendants
         .iter()

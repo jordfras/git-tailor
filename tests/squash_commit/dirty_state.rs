@@ -201,49 +201,42 @@ fn squash_abort_leaves_clean_working_tree() {
     // Scenario: squash a source commit (which adds an extra file b.txt) onto
     // a target commit, producing a modify/modify conflict on a.txt.  The
     // conflict checkout writes b.txt to the workdir.  The original HEAD
-    // (_base) has no b.txt, so after abort checkout_head must clean it up.
+    // (drop_b) has no b.txt, so after abort checkout_head must clean it up.
     //
-    //   _base:  a.txt = "base"                      ← original HEAD (head_oid)
-    //   target: a.txt = "target"                    ← squash target / onto_commit
+    //   _base:  a.txt = "base"
+    //   target: a.txt = "target"                    ← squash target
     //   _mid:   a.txt = "mid"                       ← source's parent
     //   source: a.txt = "source", b.txt = "new"     ← squash source
+    //   drop_b: b.txt removed                       ← original HEAD (head_oid)
     //
     // cherry-pick(source, target): ancestor=_mid, ours=target, theirs=source
     //   a.txt: both changed from "mid" → modify/modify conflict (stages 1,2,3)
     //   b.txt: only theirs added       → stage 0, written to workdir by checkout_index
     //
-    // After abort restoring HEAD to _base (no b.txt), checkout_head must
+    // After abort restoring HEAD to drop_b (no b.txt), checkout_head must
     // remove b.txt from the workdir (requires remove_untracked in the
     // checkout options — the bug is that it was missing).
     let test = common::TestRepo::new();
-    let _base = test.commit_file("a.txt", "base\n", "base — will be the original HEAD");
+    test.commit_file("a.txt", "base\n", "base");
     let target = test.commit_file("a.txt", "target\n", "target modifies a");
-    let _mid = test.commit_file("a.txt", "mid\n", "mid — parent of source");
+    test.commit_file("a.txt", "mid\n", "mid — parent of source");
     let source = test.commit_files(
         &[("a.txt", "source\n"), ("b.txt", "new file from source\n")],
         "source modifies a and adds b",
     );
-
-    // Put the branch back on _base for real, rather than telling git-tailor it
-    // is there: an operation is refused when the tip it was handed is not the
-    // tip the branch has, and rightly so. target and source stay reachable as
-    // objects, which is all the squash needs of them.
-    let base_obj = test.repo.find_object(_base, None).unwrap();
-    test.repo
-        .reset(&base_obj, git2::ResetType::Hard, None)
-        .unwrap();
+    let drop_b = test.delete_file("b.txt", "drop b — the original HEAD");
 
     let mut git_repo = test.git_repo();
 
-    // _base has only a.txt; b.txt is absent from it, so aborting back to it
-    // must take b.txt off disk again.
+    // drop_b has no b.txt, so aborting back to it must take b.txt off disk
+    // again.
     let state = git_repo
         .squash_try_combine(
             &Oid::from(source),
             &Oid::from(target),
             "combined".into(),
             SquashMode::Squash,
-            &Oid::from(_base),
+            &Oid::from(drop_b),
         )
         .unwrap()
         .expect("a.txt conflict (modify/modify) should be detected");
@@ -255,7 +248,7 @@ fn squash_abort_leaves_clean_working_tree() {
 
     // Verify b.txt was actually written to workdir during conflict checkout
     // (this confirms the scenario exercises the code path where a file not
-    // in _base ends up in the workdir, so cleanup on abort is necessary).
+    // in drop_b ends up in the workdir, so cleanup on abort is necessary).
     let workdir = git_repo.workdir().unwrap();
     assert!(
         workdir.join("b.txt").exists(),
@@ -265,11 +258,11 @@ fn squash_abort_leaves_clean_working_tree() {
     // Abort without resolving anything.
     git_repo.rebase_abort(&state).unwrap();
 
-    // Branch ref is restored to _base.
+    // Branch ref is restored to drop_b.
     let current_head = test.repo.head().unwrap().target().unwrap();
     assert_eq!(
-        current_head, _base,
-        "HEAD should be restored to _base after abort"
+        current_head, drop_b,
+        "HEAD should be restored to drop_b after abort"
     );
 
     // No staged changes (index matches HEAD).

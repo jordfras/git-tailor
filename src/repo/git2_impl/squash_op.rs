@@ -78,7 +78,7 @@ pub(super) fn squash_commits(
             };
 
             let all_descendants =
-                repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+                repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
             let descendants: Vec<git2::Oid> = all_descendants
                 .into_iter()
                 .filter(|&oid| oid != inputs.source_git_oid)
@@ -122,7 +122,7 @@ pub(super) fn squash_commits(
         )?
     };
 
-    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
     let descendants: Vec<git2::Oid> = all_descendants
         .into_iter()
         .filter(|&oid| oid != inputs.source_git_oid)
@@ -263,15 +263,12 @@ fn parse_squash_inputs<'a>(
     // and every caller goes on to rewrite history through it.
     let base_oid = {
         let target_commit = repo.inner.find_commit(target_git_oid)?;
-        if target_commit.parent_count() > 1 {
-            anyhow::bail!("Cannot squash into a merge commit");
-        }
         match target_commit.parent_count() {
             0 => None,
             _ => Some(target_commit.parent_id(0)?),
         }
     };
-    repo.refuse_false_parents(base_oid, head_git_oid)?;
+    repo.refuse_rewriting_from(target_oid, head_oid)?;
 
     Ok(SquashInputs {
         source_oid,
@@ -293,7 +290,7 @@ fn build_conflict_state(
     combined_message: &BStr,
     squash_mode: SquashMode,
 ) -> Result<ConflictState> {
-    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
     let descendant_oids: Vec<Oid> = all_descendants
         .into_iter()
         .filter(|&oid| oid != inputs.source_git_oid)

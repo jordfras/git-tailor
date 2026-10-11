@@ -28,9 +28,6 @@ pub(super) fn reword_commit(
 ) -> Result<()> {
     let commit_git_oid = git2::Oid::from(commit_oid);
     let head_git_oid = git2::Oid::from(head_oid);
-    if repo.range_has_merge(Some(commit_git_oid), head_git_oid)? {
-        anyhow::bail!("Cannot reword: a merge commit lies between this commit and HEAD");
-    }
 
     // Scoped: the commit and its parents borrow the repository, which moving
     // the branch below needs mutably.

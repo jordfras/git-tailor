@@ -182,6 +182,12 @@ The format is based on
   group, and the message went onto whichever got the last fixup
 - The commit list and the commit details show a message as its `encoding`
   header says, as `git log` does, instead of with replacement characters
+- Dropping, moving, squashing or editing a commit with a merge above it is
+  refused up front, as rewording already was, and the refusal now names the
+  merge. It used to stop part-way with libgit2's "mainline branch is not
+  specified", or replay commits from the merged branch as if they were on this
+  one — for an edit, only after the editing was done. Splitting refuses before
+  building the pieces rather than after
 
 ## [3.1.0] - 2026-09-12
 

@@ -84,7 +84,7 @@ impl Git2Repo {
         head_oid: git2::Oid,
         mut tip: git2::Oid,
     ) -> Result<git2::Oid> {
-        for desc_oid in self.collect_descendants(stop_oid, head_oid)? {
+        for desc_oid in self.replay_range(Some(stop_oid), head_oid)? {
             let desc_commit = self.inner.find_commit(desc_oid)?;
             let onto_commit = self.inner.find_commit(tip)?;
 
@@ -102,57 +102,46 @@ impl Git2Repo {
         Ok(tip)
     }
 
-    /// Collect OIDs strictly between `stop_oid` (exclusive) and `head_oid`
-    /// (inclusive), returned oldest-first.
-    pub(super) fn collect_descendants(
+    /// The commits a rewrite replays: `head`'s first-parent line down to, not
+    /// including, `stop` — all of it when `stop` is `None` — oldest first. A
+    /// merge among them is refused: a replay picks one parent. So is a `stop`
+    /// that is not on that line, which leaves no range to replay.
+    pub(super) fn replay_range(
         &self,
-        stop_oid: git2::Oid,
-        head_oid: git2::Oid,
+        stop: Option<git2::Oid>,
+        head: git2::Oid,
     ) -> Result<Vec<git2::Oid>> {
-        let repo = &self.inner;
-        if head_oid == stop_oid {
-            return Ok(Vec::new());
+        if let Some(stop) = stop
+            && stop != head
+            && !self.inner.graph_descendant_of(head, stop)?
+        {
+            anyhow::bail!("{} is not on the branch", Oid::from(stop).short());
         }
-
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push(head_oid)?;
-
-        let mut descendants: Vec<git2::Oid> = Vec::new();
-        for oid_result in revwalk {
-            let oid = oid_result?;
-            if oid == stop_oid {
-                break;
+        let mut oids = Vec::new();
+        for oid in self.first_parent_line(stop, head)? {
+            let oid = oid?;
+            if self.inner.find_commit(oid)?.parent_count() > 1 {
+                return Err(super::merge_refusal(oid));
             }
-            descendants.push(oid);
+            oids.push(oid);
         }
-        descendants.reverse();
-        Ok(descendants)
+        oids.reverse();
+        Ok(oids)
     }
 
-    /// Whether any commit reachable from `head_oid` — stopping at `stop_oid`
-    /// when given, or the whole ancestry when replaying from the root — is a
-    /// merge commit.
-    ///
-    /// [`collect_descendants`][Self::collect_descendants] is a plain revwalk
-    /// that breaks at `stop_oid`, so with a merge in the range it can emit
-    /// commits that are not descendants at all, or stop before reaching them.
-    /// Callers that replay that range must refuse rather than act on it.
-    pub(super) fn range_has_merge(
+    /// The first merge on `head`'s first-parent line above `stop`, if any.
+    pub(super) fn first_merge(
         &self,
-        stop_oid: Option<git2::Oid>,
-        head_oid: git2::Oid,
-    ) -> Result<bool> {
-        let mut walk = self.inner.revwalk()?;
-        walk.push(head_oid)?;
-        if let Some(stop_oid) = stop_oid {
-            walk.hide(stop_oid)?;
-        }
-        for oid in walk {
-            if self.inner.find_commit(oid?)?.parent_count() > 1 {
-                return Ok(true);
+        stop: Option<git2::Oid>,
+        head: git2::Oid,
+    ) -> Result<Option<git2::Oid>> {
+        for oid in self.first_parent_line(stop, head)? {
+            let oid = oid?;
+            if self.inner.find_commit(oid)?.parent_count() > 1 {
+                return Ok(Some(oid));
             }
         }
-        Ok(false)
+        Ok(None)
     }
 
     /// Cherry-pick a sequence of commits onto `tip`. Returns the final tip on
@@ -374,4 +363,44 @@ pub(super) fn replace_root_and_replay(
     };
     let result = repo.cherry_pick_chain(new_root_oid, remaining, &ctx)?;
     advance_and_finish(repo, result, &original_branch_oid, reflog_msg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Git2Repo;
+
+    /// The replay itself refuses a merge it meets, so an operation that skips
+    /// the up-front check fails loudly rather than flattening the merge.
+    #[test]
+    fn collecting_a_replay_across_a_merge_is_refused() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let sig = git2::Signature::now("T", "t@e").unwrap();
+        let tree = repo
+            .find_tree(repo.treebuilder(None).unwrap().write().unwrap())
+            .unwrap();
+        let commit = |message: &str, parents: &[git2::Oid]| {
+            let parents: Vec<git2::Commit> = parents
+                .iter()
+                .map(|&p| repo.find_commit(p).unwrap())
+                .collect();
+            let parents: Vec<&git2::Commit> = parents.iter().collect();
+            repo.commit(None, &sig, &sig, message, &tree, &parents)
+                .unwrap()
+        };
+        let base = commit("base", &[]);
+        let main = commit("main", &[base]);
+        let side = commit("side", &[base]);
+        let merge = commit("merge", &[main, side]);
+        let top = commit("top", &[merge]);
+
+        let git_repo = Git2Repo::open(dir.path().to_path_buf()).unwrap();
+        let result = git_repo.replay_range(Some(base), top);
+
+        let msg = format!(
+            "{:#}",
+            result.expect_err("a merge in the replay must be refused")
+        );
+        assert!(msg.contains("merge"), "{msg}");
+    }
 }

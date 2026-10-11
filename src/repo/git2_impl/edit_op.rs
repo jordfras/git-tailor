@@ -17,7 +17,7 @@
 //! user-authored chain back in and replay descendants (`finish_edit`).
 //!
 //! Architecturally this is a Split whose pieces are user-authored rather than
-//! computed: it reuses `checkout_head`, `collect_descendants`, and the
+//! computed: it reuses `checkout_head`, `replay_range`, and the
 //! conflict-aware `cherry_pick_chain`. The shell itself is spawned by
 //! `main.rs`; everything here is pure git so it is testable without a shell.
 
@@ -36,9 +36,6 @@ pub(super) fn begin_edit(repo: &mut Git2Repo, commit_oid: &Oid, head_oid: &Oid) 
     repo.check_no_dirty_state()?;
 
     let commit_git = git2::Oid::from(commit_oid);
-    if repo.inner.find_commit(commit_git)?.parent_count() > 1 {
-        anyhow::bail!("Cannot edit a merge commit");
-    }
 
     // HEAD must be on a branch here (the caller fetched head_oid, which fails on
     // a detached HEAD). Capture the branch name so finish/abort can restore it
@@ -146,7 +143,7 @@ pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditO
             );
         }
     }
-    if repo.range_has_merge(parent, branch_tip)? {
+    if repo.first_merge(parent, branch_tip)?.is_some() {
         return abort_edit_with(
             repo,
             &branch_refname,
@@ -159,7 +156,10 @@ pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditO
     // routes through the normal RebaseConflict flow (cherry_pick_chain journals
     // the conflict state, replacing this edit's in-progress record).
     let original_git = git2::Oid::from(&original);
-    let descendants = repo.collect_descendants(commit_git, original_git)?;
+    let descendants = match repo.replay_range(Some(commit_git), original_git) {
+        Ok(descendants) => descendants,
+        Err(e) => return abort_edit_with(repo, &branch_refname, &original, &format!("{e:#}")),
+    };
     let ctx = ChainCtx {
         label: "Edit",
         original_branch_oid: &original,

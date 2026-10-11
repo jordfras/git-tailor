@@ -34,9 +34,6 @@ pub(super) fn drop_commit(
     // needs mutably. `None` means a root commit, with no parent to replay onto.
     let parent_oid = {
         let commit = repo.inner.find_commit(commit_git_oid)?;
-        if commit.parent_count() > 1 {
-            anyhow::bail!("Cannot drop a merge commit");
-        }
         match commit.parent_count() {
             0 => None,
             _ => Some(commit.parent_id(0)?),
@@ -50,7 +47,7 @@ pub(super) fn drop_commit(
     };
 
     // Collect descendants: commits strictly between commit_oid and head_oid.
-    let descendants = repo.collect_descendants(commit_git_oid, head_git_oid)?;
+    let descendants = repo.replay_range(Some(commit_git_oid), head_git_oid)?;
 
     // Cherry-pick each descendant onto the new chain, starting from the
     // dropped commit's parent.
@@ -77,7 +74,7 @@ fn drop_root_commit(
     original_branch_oid: Oid,
 ) -> Result<RebaseOutcome> {
     let descendants: Vec<git2::Oid> = repo
-        .all_commit_oids_oldest_first(head_git_oid)?
+        .replay_range(None, head_git_oid)?
         .into_iter()
         .filter(|&oid| oid != commit_git_oid)
         .collect();
