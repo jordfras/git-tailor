@@ -115,7 +115,7 @@ fn plan_move_to_root(
     let commit = repo.inner.find_commit(commit_git_oid)?;
 
     let all_oids = repo
-        .all_commit_oids_oldest_first(head_git_oid)
+        .replay_range(None, head_git_oid)
         .context("Failed to walk commits for root-position move")?;
 
     let parent_tree = commit.parent(0)?.tree()?;
@@ -164,7 +164,7 @@ fn move_root_to_later(
     moved_commit_oid: Oid,
 ) -> Result<RebaseOutcome> {
     let mut reordered: Vec<git2::Oid> = repo
-        .all_commit_oids_oldest_first(head_git_oid)
+        .replay_range(None, head_git_oid)
         .context("Failed to walk commits for root-move")?
         .into_iter()
         .filter(|&oid| oid != commit_git_oid)
@@ -211,7 +211,7 @@ fn plan_reorder(
         .inner
         .merge_base(insert_after_git_oid, source_parent_oid)?;
 
-    let all_descendants = repo.collect_descendants(base_oid, head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(base_oid), head_git_oid)?;
 
     let mut reordered: Vec<git2::Oid> = all_descendants
         .iter()

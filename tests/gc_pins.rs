@@ -54,9 +54,8 @@ fn undo_survives_an_aggressive_gc() {
     let test = common::TestRepo::new();
     let base = test.commit_file("a.txt", "v1\n", "base");
     let c1 = test.commit_file("b.txt", "b\n", "c1");
-    let c2 = test.commit_file("c.txt", "c\n", "c2");
+    test.commit_file("c.txt", "c\n", "c2");
     let head = test.commit_file("d.txt", "d\n", "head");
-    let _ = base;
 
     let mut git_repo = test.git_repo();
     assert_rebase_complete!(
@@ -65,6 +64,8 @@ fn undo_survives_an_aggressive_gc() {
             .unwrap()
     );
     let head_after_first = git_repo.head_oid().unwrap();
+    // The first drop rewrote c2, so it goes by its new OID.
+    let c2 = test.commits_from_head(base)[0];
     assert_rebase_complete!(
         git_repo
             .drop_commit(&Oid::from(c2), &head_after_first)

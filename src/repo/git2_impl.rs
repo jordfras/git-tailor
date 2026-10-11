@@ -1270,27 +1270,32 @@ impl Git2Repo {
         head: git2::Oid,
         in_place: Option<git2::Oid>,
     ) -> Result<()> {
-        let mut walk = self.inner.revwalk()?;
-        walk.simplify_first_parent()?;
-        walk.push(head)?;
-        for commit in kept {
-            walk.hide(commit)?;
-        }
-        for commit in walk {
+        for commit in self.first_parent_line(kept, head)? {
             let commit = commit?;
             let reported: Vec<git2::Oid> = self.inner.find_commit(commit)?.parent_ids().collect();
             if reported != self.recorded_parents(commit)? {
                 return Err(self.false_parents_error(commit, reported.is_empty()));
             }
             if reported.len() > 1 && Some(commit) != in_place {
-                anyhow::bail!(
-                    "Cannot rewrite through {}: it is a merge commit, and replaying \
-                     one would flatten it",
-                    Oid::from(commit).short()
-                );
+                return Err(merge_refusal(commit));
             }
         }
         Ok(())
+    }
+
+    /// `head`'s first-parent line, newest first, down to where `kept` reaches.
+    pub(super) fn first_parent_line(
+        &self,
+        kept: impl IntoIterator<Item = git2::Oid>,
+        head: git2::Oid,
+    ) -> Result<git2::Revwalk<'_>> {
+        let mut walk = self.inner.revwalk()?;
+        walk.simplify_first_parent()?;
+        walk.push(head)?;
+        for commit in kept {
+            walk.hide(commit)?;
+        }
+        Ok(walk)
     }
 
     /// [`Self::refuse_unrewritable`] for rewriting `commit` and replaying
@@ -1671,14 +1676,13 @@ impl Git2Repo {
         let oid = self.inner.treebuilder(None)?.write()?;
         Ok(self.inner.find_tree(oid)?)
     }
+}
 
-    /// Walk the entire ancestry of `head` and return the commit OIDs oldest-first
-    /// (`[root, …, head]`).
-    fn all_commit_oids_oldest_first(&self, head: git2::Oid) -> Result<Vec<git2::Oid>> {
-        let mut revwalk = self.inner.revwalk()?;
-        revwalk.push(head)?;
-        let mut oids: Vec<git2::Oid> = revwalk.collect::<Result<Vec<_>, git2::Error>>()?;
-        oids.reverse();
-        Ok(oids)
-    }
+/// Why a rewrite cannot go through `merge`.
+fn merge_refusal(merge: git2::Oid) -> anyhow::Error {
+    anyhow::anyhow!(
+        "This would rewrite merge commit {}, and git-tailor rewrites one line of \
+         history",
+        Oid::from(merge).short()
+    )
 }

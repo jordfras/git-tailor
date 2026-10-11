@@ -78,7 +78,7 @@ pub(super) fn squash_commits(
             };
 
             let all_descendants =
-                repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+                repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
             let descendants: Vec<git2::Oid> = all_descendants
                 .into_iter()
                 .filter(|&oid| oid != inputs.source_git_oid)
@@ -122,7 +122,7 @@ pub(super) fn squash_commits(
         )?
     };
 
-    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
     let descendants: Vec<git2::Oid> = all_descendants
         .into_iter()
         .filter(|&oid| oid != inputs.source_git_oid)
@@ -290,7 +290,7 @@ fn build_conflict_state(
     combined_message: &BStr,
     squash_mode: SquashMode,
 ) -> Result<ConflictState> {
-    let all_descendants = repo.collect_descendants(inputs.target_git_oid, inputs.head_git_oid)?;
+    let all_descendants = repo.replay_range(Some(inputs.target_git_oid), inputs.head_git_oid)?;
     let descendant_oids: Vec<Oid> = all_descendants
         .into_iter()
         .filter(|&oid| oid != inputs.source_git_oid)
