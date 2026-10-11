@@ -16,7 +16,9 @@
 //!
 //! Replays walk the range with a plain revwalk and cherry-pick each commit, so
 //! a merge in the range is either flattened or fails in libgit2's words
-//! ("mainline branch is not specified"). Every rewrite refuses it up front.
+//! ("mainline branch is not specified"). Every rewrite refuses it before doing
+//! any work: drop, move, squash and its probe, edit and split here; reword and
+//! autofixup in their own tests.
 
 #[allow(dead_code)]
 mod common;
@@ -156,4 +158,51 @@ fn the_squash_probe_refuses_across_a_merge_too() {
     );
 
     assert_refused(result, &git_repo, &head);
+}
+
+/// Refused when the edit begins: the replay comes after the user has done the
+/// edit in a shell, which is too late to find out.
+#[test]
+fn editing_below_a_merge_is_refused_before_the_edit_begins() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "base\n", "base");
+    let to_edit = test.commit_file("b.txt", "b\n", "To edit");
+    test.commit_file("c.txt", "c\n", "Above");
+    commit_merge(&test);
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    let result = git_repo.begin_edit(&Oid::from(to_edit), &head);
+
+    assert_refused(result, &git_repo, &head);
+}
+
+/// Refused before the split's work, not after: splitting per hunk group
+/// computes the whole hunk group matrix first, with a progress screen.
+#[test]
+fn splitting_below_a_merge_is_refused_before_any_work() {
+    let test = common::TestRepo::new();
+    let base = test.commit_file("a.txt", "base\n", "base");
+    let to_split = test.commit_files(&[("b.txt", "b\n"), ("c.txt", "c\n")], "To split");
+    test.commit_file("d.txt", "d\n", "Above");
+    commit_merge(&test);
+
+    let mut git_repo = test.git_repo();
+    let head = git_repo.head_oid().unwrap();
+    let mut progress_reports = 0;
+    let result = git_repo.split_commit_per_hunk_group(
+        &Oid::from(to_split),
+        &head,
+        &Oid::from(base),
+        &mut |_| {
+            progress_reports += 1;
+            true
+        },
+    );
+
+    assert_refused(result, &git_repo, &head);
+    assert_eq!(
+        progress_reports, 0,
+        "nothing may be computed before the refusal"
+    );
 }
