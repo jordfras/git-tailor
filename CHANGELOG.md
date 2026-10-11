@@ -188,6 +188,12 @@ The format is based on
   specified", or replay commits from the merged branch as if they were on this
   one — for an edit, only after the editing was done. Splitting refuses before
   building the pieces rather than after
+- An operation chosen from the commit list is refused when the branch has
+  moved since the list was loaded, or another branch has been checked out,
+  before it opens an editor or stashes anything. It used to check against the
+  branch as it stood when the operation was chosen, so a commit made in another
+  terminal could be rewritten without the list ever showing it — and with
+  another branch checked out on the same commit, that branch was rewritten
 
 ## [3.1.0] - 2026-09-12
 

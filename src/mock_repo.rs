@@ -27,6 +27,11 @@ use git_tailor::{CommitDiff, CommitInfo};
 /// Minimal `GitRepo` stub for testing terminal-free binary-crate helpers.
 pub(crate) struct MockRepo {
     pub(crate) head_ok: bool,
+    /// What `head_branch` answers.
+    pub(crate) branch: String,
+    /// The tip the last rewrite was handed, so a test can tell it from the
+    /// HEAD `head_oid` reports.
+    pub(crate) handed_tip: Option<Oid>,
     pub(crate) drop_ok: bool,
     pub(crate) move_ok: bool,
     pub(crate) autofixup_ok: bool,
@@ -163,6 +168,8 @@ impl Default for MockRepo {
     fn default() -> Self {
         Self {
             head_ok: true,
+            branch: "refs/heads/main".to_string(),
+            handed_tip: Default::default(),
             drop_ok: true,
             move_ok: true,
             autofixup_ok: true,
@@ -225,6 +232,9 @@ impl RepoRead for MockRepo {
         } else {
             Err(anyhow::anyhow!("head error"))
         }
+    }
+    fn head_branch(&self) -> anyhow::Result<String> {
+        Ok(self.branch.clone())
     }
     fn list_commits(&self, _: &Oid, _: &Oid) -> anyhow::Result<Vec<CommitInfo>> {
         Ok(vec![])
@@ -327,14 +337,21 @@ impl RepoRead for MockRepo {
 }
 
 impl RepoWrite for MockRepo {
-    fn drop_commit(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn drop_commit(&mut self, _: &Oid, head: &Oid) -> anyhow::Result<RebaseOutcome> {
+        self.handed_tip = Some(head.clone());
         if self.drop_ok {
             Ok(RebaseOutcome::Complete)
         } else {
             Err(self.failure(anyhow::anyhow!("drop failed"), "Drop"))
         }
     }
-    fn move_commit(&mut self, _: &Oid, _: Option<&Oid>, _: &Oid) -> anyhow::Result<RebaseOutcome> {
+    fn move_commit(
+        &mut self,
+        _: &Oid,
+        _: Option<&Oid>,
+        head: &Oid,
+    ) -> anyhow::Result<RebaseOutcome> {
+        self.handed_tip = Some(head.clone());
         if self.move_ok {
             Ok(RebaseOutcome::Complete)
         } else {
@@ -426,7 +443,9 @@ impl RepoWrite for MockRepo {
     fn lift_worktree_row(
         &mut self,
         _: git_tailor::repo::WorktreeSource,
+        head: &Oid,
     ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
+        self.handed_tip = Some(head.clone());
         match self.lift {
             LiftOutcome::Empty => Ok(None),
             // Mirrors the real shape: a libgit2 cause under an anyhow context.
@@ -484,7 +503,8 @@ impl RepoWrite for MockRepo {
     fn autostash_conflict_abort(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-    fn split_commit_per_file(&mut self, _: &Oid, _: &Oid) -> anyhow::Result<()> {
+    fn split_commit_per_file(&mut self, _: &Oid, head: &Oid) -> anyhow::Result<()> {
+        self.handed_tip = Some(head.clone());
         if self.split_ok {
             Ok(())
         } else {
@@ -507,18 +527,20 @@ impl RepoWrite for MockRepo {
         &mut self,
         _: &Oid,
         _: &[std::path::PathBuf],
-        _: &Oid,
+        head: &Oid,
     ) -> anyhow::Result<()> {
-        unimplemented!()
+        self.handed_tip = Some(head.clone());
+        Ok(())
     }
     fn split_commit_out_hunks(
         &mut self,
         _: &Oid,
         _: &[(usize, usize)],
-        _: &Oid,
+        head: &Oid,
         _: u32,
     ) -> anyhow::Result<()> {
-        unimplemented!()
+        self.handed_tip = Some(head.clone());
+        Ok(())
     }
     fn reword_commit(&mut self, _: &Oid, _: &BStr, _: &Oid) -> anyhow::Result<()> {
         unimplemented!()
@@ -544,8 +566,9 @@ impl RepoWrite for MockRepo {
         _: &Oid,
         message: &BStr,
         _: SquashMode,
-        _: &Oid,
+        head: &Oid,
     ) -> anyhow::Result<Option<ConflictState>> {
+        self.handed_tip = Some(head.clone());
         *self.squash_probe_message.borrow_mut() =
             Some(String::from_utf8_lossy(message).into_owned());
         match self.squash_probe {
@@ -568,11 +591,12 @@ impl RepoWrite for MockRepo {
     }
     fn autofixup(
         &mut self,
-        _: &Oid,
+        head: &Oid,
         _: &Oid,
         _: &[git_tailor::autofixup::AutofixupPair],
         _: &git_tailor::autofixup::MessageOverrides,
     ) -> anyhow::Result<RebaseOutcome> {
+        self.handed_tip = Some(head.clone());
         if self.autofixup_conflicts {
             return Ok(RebaseOutcome::Conflict(Box::new(ConflictState {
                 operation_label: "Squash".to_string(),

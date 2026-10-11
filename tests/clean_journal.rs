@@ -119,8 +119,7 @@ fn clean_rescues_an_in_flight_folds_working_tree() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 
@@ -148,8 +147,7 @@ fn rescued_trees_are_listed_with_their_size_and_can_be_dropped() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    git_repo
-        .lift_worktree_row(git_tailor::repo::WorktreeSource::Staged)
+    common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     git_repo.clean_journal().unwrap();

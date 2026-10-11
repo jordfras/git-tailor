@@ -62,6 +62,40 @@ fn mixed_state() -> common::TestRepo {
     test
 }
 
+/// The fold's lift acts on the tip the list was loaded from. A commit made since,
+/// in another terminal, is refused before anything is lifted.
+#[test]
+fn a_lift_refuses_when_the_branch_moved_since_the_list_was_loaded() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+    let listed = git_repo.head_oid().unwrap();
+
+    let head = test.repo.head().unwrap().peel_to_commit().unwrap();
+    let sig = git2::Signature::now("Test User", "test@example.com").unwrap();
+    let theirs = test
+        .repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "their commit",
+            &head.tree().unwrap(),
+            &[&head],
+        )
+        .unwrap();
+    let index_before = test.repo.index().unwrap().write_tree().unwrap();
+
+    let result = git_repo.lift_worktree_row(WorktreeSource::Staged, &listed);
+
+    let error = format!("{:#}", result.expect_err("a moved branch must be refused"));
+    assert!(error.contains("moved"), "{error}");
+    assert_eq!(git_repo.head_oid().unwrap(), Oid::from(theirs));
+    assert_eq!(
+        test.repo.index().unwrap().write_tree().unwrap(),
+        index_before
+    );
+}
+
 /// The staged row becomes a commit of exactly the index, with the unstaged edit
 /// set aside in the stash for the duration of the fold.
 #[test]
@@ -70,8 +104,7 @@ fn staged_source_commits_the_index_and_parks_the_unstaged_changes() {
     let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes to fold in");
 
@@ -104,8 +137,7 @@ fn unstaged_source_commits_only_the_unstaged_delta() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .expect("the unstaged row has changes to fold in");
 
@@ -137,8 +169,7 @@ fn unstaged_source_without_staged_changes_commits_the_working_tree() {
     test.write_file("a.txt", "a2\n");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .expect("the unstaged row has changes to fold in");
 
@@ -159,7 +190,9 @@ fn abort_restores_the_branch_index_and_working_tree() {
         let mut git_repo = test.git_repo();
         let head_before = git_repo.head_oid().unwrap();
 
-        let started = git_repo.lift_worktree_row(source).unwrap().unwrap();
+        let started = common::lift_at_head(&mut git_repo, source)
+            .unwrap()
+            .unwrap();
         git_repo.restore_lifted_row(&started).unwrap();
 
         assert_eq!(git_repo.head_oid().unwrap(), head_before, "{source:?}");
@@ -179,8 +212,7 @@ fn abort_restores_a_file_the_row_deleted() {
     std::fs::remove_file(test.repo.workdir().unwrap().join("gone.txt")).unwrap();
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     git_repo.restore_lifted_row(&started).unwrap();
@@ -200,8 +232,7 @@ fn untracked_files_are_left_alone() {
     test.write_file("untracked.txt", "u1\n");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     assert_eq!(workdir(&test, "untracked.txt"), "u1\n");
@@ -219,14 +250,12 @@ fn an_empty_row_yields_nothing() {
     let mut git_repo = test.git_repo();
 
     assert!(
-        git_repo
-            .lift_worktree_row(WorktreeSource::Staged)
+        common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
             .unwrap()
             .is_none()
     );
     assert!(
-        git_repo
-            .lift_worktree_row(WorktreeSource::Unstaged)
+        common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
             .unwrap()
             .is_none()
     );
@@ -244,8 +273,7 @@ fn overlapping_staged_and_unstaged_edits_are_refused() {
     let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
-    let err = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let err = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .expect_err("overlapping edits cannot be separated");
     assert!(
         format!("{err:#}").contains("staged"),
@@ -264,8 +292,7 @@ fn overlapping_staged_and_unstaged_edits_are_refused() {
 fn the_snapshot_names_the_commit_the_branch_was_left_on() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
 
@@ -282,8 +309,7 @@ fn the_snapshot_names_the_commit_the_branch_was_left_on() {
 fn beginning_records_the_snapshot_in_the_journal() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -326,8 +352,7 @@ fn a_row_separates_from_staged_binary_and_submodule_changes() {
     test.stage_gitlink("sub", first);
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .expect("the binary rewrite is the unstaged row");
 
@@ -367,8 +392,7 @@ fn a_stranded_record_stops_excusing_a_dirty_working_tree() {
     test.stage_file("b.txt");
     test.write_file("b.txt", "b2\n");
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -407,8 +431,7 @@ fn a_discarded_record_keeps_the_working_tree_it_recorded() {
     // this is what a discarded record would take with it.
     test.write_file("b.txt", "b2\n");
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -451,8 +474,7 @@ fn abandoning_a_stale_fold_takes_its_stash_with_it() {
     test.write_file("b.txt", "b2\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -511,8 +533,7 @@ fn a_fold_is_refused_while_an_autostash_is_out() {
     test.stage_file("b.txt");
     test.write_file("a.txt", "UNSTAGED\n");
 
-    let err = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let err = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .expect_err("a fold must not park over work already set aside");
     assert!(
         format!("{err:#}").contains("set aside"),
@@ -543,8 +564,7 @@ fn a_fold_is_refused_while_an_autostash_is_out_even_parking_nothing() {
     test.write_file("t.txt", "FOLDED\n");
     test.stage_file("t.txt");
 
-    let err = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let err = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .expect_err("a fold must not start while an auto-stash is out");
     assert!(
         format!("{err:#}").contains("set aside"),
@@ -565,8 +585,7 @@ fn an_autostash_is_refused_while_a_folds_row_is_parked() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
 
-    git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     assert_eq!(
@@ -615,8 +634,7 @@ fn the_leftover_autostash_restore_leaves_a_folds_work_alone() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     assert_eq!(
@@ -666,8 +684,7 @@ fn unwinding_a_fold_refuses_after_head_moved_to_another_branch() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 
@@ -714,8 +731,7 @@ fn unwinding_a_fold_names_an_untracked_file_in_the_parked_rows_way() {
     test.write_file("a.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .expect("the unstaged row has changes");
     assert!(
@@ -767,8 +783,7 @@ fn unwinding_restores_a_parked_row_it_cannot_find() {
 
     let mut git_repo = test.git_repo();
     let tip_before = git_repo.head_oid().unwrap();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     assert_eq!(stash_count(test.repo.path()), 1);
@@ -810,14 +825,12 @@ fn a_second_lift_is_refused_while_a_fold_is_in_progress() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let first = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let first = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 
     test.write_file("b.txt", "MORE\n");
-    let err = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let err = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .expect_err("a second fold must be refused while one is in progress");
     assert!(
         format!("{err:#}").contains("already in progress"),
@@ -844,8 +857,7 @@ fn a_failed_carry_back_still_records_the_rewrite_it_landed() {
     test.write_file("a.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     let tip_before = lifted.tip_before.clone();
@@ -892,8 +904,7 @@ fn the_stash_abort_leaves_work_a_fold_parked_alone() {
     test.write_file("b.txt", "UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     let on_temp = git_repo.head_oid().unwrap();
@@ -947,8 +958,7 @@ fn a_lift_that_fails_after_moving_the_branch_puts_it_back() {
     test.stage_file("b.txt");
     test.write_file("a.txt", "UNSTAGED\n");
 
-    let err = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let err = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .expect_err("the occupied parked slot must fail the lift");
     assert!(format!("{err:#}").contains("set aside"), "got: {err:#}");
 
@@ -973,8 +983,7 @@ fn a_record_with_nothing_uncommitted_is_not_kept() {
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     // The lift left the branch on the temporary commit, whose tree is the whole
@@ -998,8 +1007,7 @@ fn a_staged_submodule_pointer_survives_a_fold() {
     test.stage_gitlink("sub", first);
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes to fold in");
 
@@ -1041,8 +1049,7 @@ fn a_stale_snapshot_is_not_applied_to_another_operation() {
     test.stage_file("keep.txt");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1098,8 +1105,7 @@ fn discarding_the_journal_discards_the_snapshot() {
     test.stage_file("a.txt");
     test.write_file("b.txt", "b2\n");
     let mut git_repo = test.git_repo();
-    git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1147,8 +1153,7 @@ fn a_snapshot_that_no_longer_matches_the_working_tree_does_not_disable_the_guard
     test.stage_file("a.txt");
     test.write_file("b.txt", "b2\n");
     let mut git_repo = test.git_repo();
-    git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1191,8 +1196,7 @@ fn pruning_keeps_the_undo_history_of_a_fold_in_flight() {
 
     test.write_file("a.txt", "a2\n");
     test.stage_file("a.txt");
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1255,8 +1259,7 @@ fn a_stale_snapshot_is_not_applied_to_another_abort() {
     test.stage_file("keep.txt");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert_eq!(started.tip_before, Oid::from(base));
@@ -1336,9 +1339,7 @@ fn a_conflicted_index_is_refused() {
     assert!(test.repo.index().unwrap().has_conflicts());
 
     let mut git_repo = test.git_repo();
-    let error = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
-        .unwrap_err();
+    let error = common::lift_at_head(&mut git_repo, WorktreeSource::Staged).unwrap_err();
 
     assert!(format!("{error:#}").contains("conflicts"), "got {error:#}");
 }
@@ -1368,8 +1369,7 @@ fn a_mode_only_change_can_be_folded() {
         "a mode-only change carries no hunks"
     );
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("a mode-only change is something to fold in");
 
@@ -1403,8 +1403,7 @@ fn an_unstaged_rename_folds_the_deletion_and_leaves_the_new_file() {
         "the row shows the deletion only — the new path is untracked"
     );
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
 
@@ -1434,8 +1433,10 @@ fn an_unborn_head_is_refused() {
     test.stage_file("a.txt");
     let mut git_repo = test.git_repo();
 
+    // With no commit there is no tip to hand over either.
+    let no_tip = Oid::from("0".repeat(40));
     let error = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+        .lift_worktree_row(WorktreeSource::Staged, &no_tip)
         .unwrap_err();
 
     assert!(
@@ -1451,8 +1452,7 @@ fn a_fold_in_flight_pins_everything_its_snapshot_names() {
     let test = mixed_state();
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1486,8 +1486,7 @@ fn a_completed_fold_pins_what_its_undo_needs() {
     let tip_before = git_repo.head_oid().unwrap();
     let index_before = staged_tree(&test);
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert_rebase_complete!(
@@ -1526,8 +1525,7 @@ fn redo_refuses_once_the_index_has_moved_on() {
     let mut git_repo = test.git_repo();
     let target = test.repo.head().unwrap().target().unwrap();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert_rebase_complete!(

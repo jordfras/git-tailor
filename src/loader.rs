@@ -162,11 +162,6 @@ pub fn load_with_progress(
             .unzip()
     };
 
-    if commits.is_empty() {
-        app.mode = saved_mode;
-        return Ok(true);
-    }
-
     let extra_diffs: Vec<CommitDiff> = [
         git_repo.staged_diff_for_fragmap()?,
         git_repo.unstaged_diff_for_fragmap()?,
@@ -182,6 +177,8 @@ pub fn load_with_progress(
         all_commits.push(d.commit.clone());
     }
     app.list.commits = all_commits;
+    app.list.tip = from_oid.clone();
+    app.list.branch = git_repo.head_branch().unwrap_or_default();
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
     app.detail.v.offset = 0;

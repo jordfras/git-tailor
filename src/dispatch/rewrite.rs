@@ -22,11 +22,11 @@ use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
 use git_tailor::repo::{GitRepo, LiftedRow};
 
+use crate::autostash_save_or_bail;
 use crate::dispatch::{
     LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
     settle_autostash_after_failure,
 };
-use crate::{autostash_save_or_bail, get_head_oid_or_continue};
 
 pub(crate) fn handle_execute_drop(
     git_repo: &mut impl GitRepo,
@@ -51,7 +51,9 @@ pub(crate) fn handle_execute_move(
     source_oid: Oid,
     insert_after_oid: Option<Oid>,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     autostash_save_or_bail!(git_repo, app);
     let outcome = git_repo.move_commit(&source_oid, insert_after_oid.as_ref(), &head_oid);
     Ok(handle_rebase_outcome(
@@ -70,7 +72,9 @@ pub(crate) fn handle_prepare_reword(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    let head_oid = get_head_oid_or_continue!(git_repo, app);
+    let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(LoopAction::Continue);
+    };
     // Read from the repository, never from the list's rendering of the
     // message: that rendering is lossy, and seeding the editor with it would
     // write its replacement characters back as the message.
@@ -362,22 +366,19 @@ pub(super) fn prepare_source(
     source: &SquashSource,
     label: &str,
 ) -> Result<Option<Prepared>> {
+    let Some(tip) = crate::dispatch::listed_tip(git_repo, app) else {
+        return Ok(None);
+    };
     match source {
         SquashSource::Commit { oid, .. } => {
-            let head_oid = match git_repo.head_oid() {
-                Ok(oid) => oid,
-                Err(e) => {
-                    app.set_error_message(format!("Failed to get HEAD: {e:#}"));
-                    return Ok(None);
-                }
-            };
+            let head_oid = tip;
             if let Err(e) = git_repo.autostash_save() {
                 app.set_error_message(format!("Auto-stash failed: {e:#}"));
                 return Ok(None);
             }
             Ok(Some(Prepared::commit(oid.clone(), head_oid, label)))
         }
-        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row) {
+        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row, &tip) {
             Ok(Some(lifted)) => Ok(Some(Prepared::lifted(lifted))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));

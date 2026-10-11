@@ -243,7 +243,7 @@ Guidelines:
   rest find out when libgit2's cherry-pick fails on the merge ("mainline branch
   is not specified"), or replay the wrong commits. Refuse the same way, with a
   message of our own.
-- [ ] T262 P3 bug - Every rewrite checks the branch against the tip read when
+- [X] T262 P3 bug - Every rewrite checks the branch against the tip read when
   its dialog opens, not the one the list was loaded from. Each `prepare_*`
   handler takes `head_oid` fresh (`get_head_oid_or_continue!`), so a commit made
   in another terminal between loading the list and choosing an operation passes

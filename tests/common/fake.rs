@@ -102,6 +102,9 @@ impl RepoRead for StubRepo {
     fn head_oid(&self) -> Result<Oid> {
         unimplemented!()
     }
+    fn head_branch(&self) -> Result<String> {
+        unimplemented!()
+    }
     fn find_reference_point(&self, _commit_ish: &str) -> Result<Oid> {
         unimplemented!()
     }
