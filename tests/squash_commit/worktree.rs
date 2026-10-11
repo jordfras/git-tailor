@@ -72,8 +72,7 @@ fn fixup_row(
         .unwrap()
         .commit
         .message;
-    let started = git_repo
-        .lift_worktree_row(source)
+    let started = common::lift_at_head(git_repo, source)
         .unwrap()
         .expect("the row has changes to fold in");
     git_repo
@@ -231,8 +230,7 @@ fn aborting_a_conflicted_fold_restores_everything() {
     let mut git_repo = test.git_repo();
     let head_before = git_repo.head_oid().unwrap();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -274,8 +272,7 @@ fn resolving_a_conflicted_fold_completes_it() {
     test.stage_file("b.txt");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -544,8 +541,7 @@ fn undo_refuses_once_the_index_has_moved_on() {
 fn the_conflict_probe_accepts_a_row_source() {
     let (test, base, target) = mixed_state();
     let mut git_repo = test.git_repo();
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .unwrap();
 
@@ -582,8 +578,7 @@ fn a_squash_folds_a_row_under_a_new_message() {
     let (test, base, target) = mixed_state();
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     assert!(
@@ -634,8 +629,7 @@ fn resolving_a_conflicted_fold_from_the_staged_row_completes_it() {
     test.write_file("b.txt", "b2\n");
     let mut git_repo = test.git_repo();
 
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
     let state = expect_rebase_conflict!(
@@ -753,7 +747,7 @@ fn fold_until_the_carry_clashes(
     target: git2::Oid,
     source: WorktreeSource,
 ) -> git_tailor::repo::ConflictState {
-    let lifted = git_repo.lift_worktree_row(source).unwrap().unwrap();
+    let lifted = common::lift_at_head(git_repo, source).unwrap().unwrap();
     let state = expect_rebase_conflict!(
         git_repo
             .squash_commits(
@@ -1017,8 +1011,7 @@ fn a_clash_continued_unresolved_says_so_in_the_journal() {
 fn a_fixups_clash_is_labelled_a_fixup() {
     let (test, _base, target) = clashing_repo(WorktreeSource::Staged);
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .unwrap();
 
@@ -1182,8 +1175,7 @@ fn aborting_a_fold_leaves_a_colliding_untracked_file_alone() {
     test.write_file("notes.txt", "my local scratch\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
     assert_eq!(workdir(&test, "notes.txt"), "my local scratch\n");
@@ -1212,8 +1204,7 @@ fn restoring_a_lifted_row_refuses_a_real_untracked_collision_without_moving_the_
     test.stage_file("extra.txt");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 
@@ -1261,8 +1252,7 @@ fn a_conflicted_fold_refuses_rather_than_clobber_an_untracked_file() {
     test.write_file("notes.txt", "my local scratch\n");
 
     let mut git_repo = test.git_repo();
-    let started = git_repo
-        .lift_worktree_row(WorktreeSource::Unstaged)
+    let started = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged)
         .unwrap()
         .expect("the unstaged row has changes");
     let result = git_repo.squash_commits(

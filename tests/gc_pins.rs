@@ -150,8 +150,7 @@ fn an_interrupted_folds_working_tree_survives_an_aggressive_gc() {
     test.write_file("b.txt", "b2 UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 
@@ -197,8 +196,7 @@ fn a_second_worktree_does_not_unpin_an_interrupted_fold() {
     test.write_file("b.txt", "b2 UNSTAGED\n");
 
     let mut git_repo = test.git_repo();
-    let lifted = git_repo
-        .lift_worktree_row(WorktreeSource::Staged)
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
         .unwrap()
         .expect("the staged row has changes");
 

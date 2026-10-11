@@ -377,7 +377,7 @@ pub(super) fn prepare_source(
             }
             Ok(Some(Prepared::commit(oid.clone(), head_oid, label)))
         }
-        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row) {
+        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row, &app.list.tip) {
             Ok(Some(lifted)) => Ok(Some(Prepared::lifted(lifted))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));

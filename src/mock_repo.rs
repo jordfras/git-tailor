@@ -27,6 +27,8 @@ use git_tailor::{CommitDiff, CommitInfo};
 /// Minimal `GitRepo` stub for testing terminal-free binary-crate helpers.
 pub(crate) struct MockRepo {
     pub(crate) head_ok: bool,
+    /// What `head_branch` answers.
+    pub(crate) branch: String,
     pub(crate) drop_ok: bool,
     pub(crate) move_ok: bool,
     pub(crate) autofixup_ok: bool,
@@ -163,6 +165,7 @@ impl Default for MockRepo {
     fn default() -> Self {
         Self {
             head_ok: true,
+            branch: "refs/heads/main".to_string(),
             drop_ok: true,
             move_ok: true,
             autofixup_ok: true,
@@ -225,6 +228,9 @@ impl RepoRead for MockRepo {
         } else {
             Err(anyhow::anyhow!("head error"))
         }
+    }
+    fn head_branch(&self) -> anyhow::Result<String> {
+        Ok(self.branch.clone())
     }
     fn list_commits(&self, _: &Oid, _: &Oid) -> anyhow::Result<Vec<CommitInfo>> {
         Ok(vec![])
@@ -426,6 +432,7 @@ impl RepoWrite for MockRepo {
     fn lift_worktree_row(
         &mut self,
         _: git_tailor::repo::WorktreeSource,
+        _: &Oid,
     ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
         match self.lift {
             LiftOutcome::Empty => Ok(None),

@@ -432,6 +432,10 @@ impl RepoRead for Git2Repo {
         reads::head_oid(self)
     }
 
+    fn head_branch(&self) -> Result<String> {
+        self.current_branch_refname()
+    }
+
     fn find_reference_point(&self, commit_ish: &str) -> Result<Oid> {
         reads::find_reference_point(self, commit_ish)
     }
@@ -754,6 +758,7 @@ impl RepoWrite for Git2Repo {
     fn lift_worktree_row(
         &mut self,
         source: super::WorktreeSource,
+        _head_oid: &Oid,
     ) -> Result<Option<super::LiftedRow>> {
         lift_op::lift(self, source)
     }

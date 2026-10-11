@@ -16,7 +16,7 @@
 
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
-use crate::{CommitInfo, VirtualOid};
+use crate::{CommitInfo, Oid, VirtualOid};
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -56,6 +56,13 @@ impl ScrollMargin {
 pub struct CommitListState {
     /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
     pub commits: Vec<CommitInfo>,
+    /// The branch tip `commits` were listed from. Every rewrite is handed it,
+    /// so one chosen from this list is refused once the branch has moved.
+    pub tip: Oid,
+    /// The branch `commits` were listed from, by full name. Another branch on
+    /// the same commit has the same tip, so the tip alone cannot tell them
+    /// apart.
+    pub branch: String,
     /// Index of the selected row.
     pub selection_index: usize,
     /// Draw newest-first instead of oldest-first.
