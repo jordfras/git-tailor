@@ -362,51 +362,60 @@ fn split_vertical_areas(frame_area: Rect, needs_h_scrollbar: bool) -> (Rect, Opt
     }
 }
 
-/// Compute title and fragmap column widths, clamping `separator_offset` to valid bounds.
-///
-/// Returns `(title_width, fragmap_available_width, clamped separator_offset)`.
-fn compute_column_widths(
-    app: &AppState,
-    effective_width: u16,
-    visible_clusters: &[usize],
-) -> (u16, usize, i16) {
-    // Establish the natural (separator_offset=0) baseline: title is whatever
-    // fits after allocating maximum fragmap space.
-    let natural_fragmap_w =
-        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH) as usize;
-    let natural_h_scroll = app.fragmap_scroll_offset.min(
-        visible_clusters
-            .len()
-            .saturating_sub(natural_fragmap_w.max(1)),
-    );
-    let natural_frag_col_w: u16 = if visible_clusters.is_empty() {
-        0
-    } else {
-        let end = (natural_h_scroll + natural_fragmap_w).min(visible_clusters.len());
-        end.saturating_sub(natural_h_scroll) as u16
-    };
-    let natural_title = effective_width
-        .saturating_sub(SHA_COL_WIDTH + COL_GAPS + natural_frag_col_w)
-        .min(MAX_TITLE_WIDTH);
+/// The widths of the title and fragmap columns, for one measurement of the
+/// frame.
+struct ColumnWidths {
+    title_width: u16,
+    fragmap_available_width: usize,
+    /// `app.separator_offset` clamped to *this* measurement's bounds. Only the
+    /// first measurement's belongs in the state.
+    separator_offset: i16,
+}
 
-    // Apply separator_offset on top of the natural baseline. The clamped
-    // offset goes back to the caller so reversing direction takes effect
-    // without delay.
-    let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + 1) as i32;
-    let min_title: i32 = 10;
-    let (title_width, separator_offset): (u16, i16) = if max_title >= min_title {
-        let w = (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
-        (w as u16, (w - natural_title as i32) as i16)
-    } else {
-        (0, 0)
-    };
+impl ColumnWidths {
+    fn compute(app: &AppState, effective_width: u16, visible_clusters: &[usize]) -> Self {
+        // Establish the natural (separator_offset=0) baseline: title is whatever
+        // fits after allocating maximum fragmap space.
+        let natural_fragmap_w =
+            effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + MIN_TITLE_WIDTH) as usize;
+        let natural_h_scroll = app.fragmap_scroll_offset.min(
+            visible_clusters
+                .len()
+                .saturating_sub(natural_fragmap_w.max(1)),
+        );
+        let natural_frag_col_w: u16 = if visible_clusters.is_empty() {
+            0
+        } else {
+            let end = (natural_h_scroll + natural_fragmap_w).min(visible_clusters.len());
+            end.saturating_sub(natural_h_scroll) as u16
+        };
+        let natural_title = effective_width
+            .saturating_sub(SHA_COL_WIDTH + COL_GAPS + natural_frag_col_w)
+            .min(MAX_TITLE_WIDTH);
 
-    // Derive fragmap width from title_width so the table constraints
-    // (SHA + title + fragmap) always sum to effective_width.
-    let fragmap_available_width =
-        effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + title_width) as usize;
+        // Apply separator_offset on top of the natural baseline, reporting what
+        // it clamped to so reversing direction takes effect without delay.
+        let max_title = effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + 1) as i32;
+        let min_title: i32 = 10;
+        let (title_width, separator_offset): (u16, i16) = if max_title >= min_title {
+            let w =
+                (natural_title as i32 + app.separator_offset as i32).clamp(min_title, max_title);
+            (w as u16, (w - natural_title as i32) as i16)
+        } else {
+            (0, 0)
+        };
 
-    (title_width, fragmap_available_width, separator_offset)
+        // Derive fragmap width from title_width so the table constraints
+        // (SHA + title + fragmap) always sum to effective_width.
+        let fragmap_available_width =
+            effective_width.saturating_sub(SHA_COL_WIDTH + COL_GAPS + title_width) as usize;
+
+        Self {
+            title_width,
+            fragmap_available_width,
+            separator_offset,
+        }
+    }
 }
 
 /// The areas and widths that follow from `frame_area` once it is known whether
@@ -417,11 +426,7 @@ struct Geometry {
     footer_area: Rect,
     available_height: usize,
     has_v_scrollbar: bool,
-    title_width: u16,
-    fragmap_available_width: usize,
-    /// `app.separator_offset` clamped to *this* measurement's bounds. Only the
-    /// first measurement's belongs in the state.
-    separator_offset: i16,
+    columns: ColumnWidths,
 }
 
 fn measure_geometry(
@@ -441,18 +446,13 @@ fn measure_geometry(
         table_area.width
     };
 
-    let (title_width, fragmap_available_width, separator_offset) =
-        compute_column_widths(app, effective_width, visible_clusters);
-
     Geometry {
         table_area,
         h_scrollbar_area,
         footer_area,
         available_height,
         has_v_scrollbar,
-        title_width,
-        fragmap_available_width,
-        separator_offset,
+        columns: ColumnWidths::compute(app, effective_width, visible_clusters),
     }
 }
 
@@ -497,12 +497,12 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     // what the second clamped to a narrower title would send that measurement
     // to a different answer, and the layout would move with nothing to prompt
     // it.
-    let offset_for_next_frame = geometry.separator_offset;
-    if visible_clusters.len() > geometry.fragmap_available_width {
+    let offset_for_next_frame = geometry.columns.separator_offset;
+    if visible_clusters.len() > geometry.columns.fragmap_available_width {
         geometry = measure_geometry(app, frame_area, &visible_clusters, true);
     }
     app.separator_offset = offset_for_next_frame;
-    let fragmap_available_width = geometry.fragmap_available_width;
+    let fragmap_available_width = geometry.columns.fragmap_available_width;
 
     let h_scroll_offset = app.fragmap_scroll_offset.min(
         visible_clusters
@@ -540,7 +540,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
         visible_clusters,
         display_clusters,
         fragmap_col_width,
-        title_width: geometry.title_width,
+        title_width: geometry.columns.title_width,
         fragmap_available_width,
         h_scroll_offset,
         visual_selection,
