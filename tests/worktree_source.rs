@@ -1208,26 +1208,30 @@ fn discarding_the_journal_discards_the_snapshot() {
         "a cleared journal must not still offer the snapshot for recovery"
     );
 
-    // Clearing the journal leaves the auto-stash record alone, so what the lift
-    // set aside is still recorded. The guard has nothing to fire on — the tree
-    // really is clean — so the rewrite proceeds, and the work is protected by
-    // the stash rather than by refusing.
+    // Clearing the journal leaves the parked record alone, so what the lift set
+    // aside is still recorded. The tree is clean, but the branch still holds
+    // the temporary commit, which nothing owns any more, so a rewrite over it
+    // is refused.
     assert_eq!(
         stash_count(test.repo.path()),
         1,
         "clearing the journal must not discard the parked work"
     );
     let head = git_repo.head_oid().unwrap();
-    let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[0]
+    let victim = git_repo.list_commits(&head, &Oid::from(base)).unwrap()[1]
         .oid
         .expect_real_oid();
-    git_repo
+    let err = git_repo
         .drop_commit(&victim, &head)
-        .expect("a clean working tree has nothing for the guard to refuse");
+        .expect_err("the temporary commit is left over");
+    assert!(
+        format!("{err:#}").contains("interrupted working-tree squash"),
+        "{err:#}"
+    );
     assert_eq!(
         stash_count(test.repo.path()),
         1,
-        "and the rewrite must not have consumed it either"
+        "and the refusal must not have consumed it either"
     );
 }
 
