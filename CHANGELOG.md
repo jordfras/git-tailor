@@ -51,6 +51,11 @@ The format is based on
 
 ### Fixed
 
+- A rewrite is refused when it would replay the temporary commit an
+  interrupted squash of the Staged or Unstaged row left on the branch, once
+  `--clean-journal` or a branch moved since has dropped the record of it. It
+  used to go ahead and make that commit part of your history. Dropping the
+  commit is still allowed, and `gt --list-rescued` has its changes
 - A status message too long for one line wraps over several at the bottom of
   the screen, up to a third of its height, instead of being cut off at the edge
 - Rewording or editing the oldest commit of a shallow clone is refused, as

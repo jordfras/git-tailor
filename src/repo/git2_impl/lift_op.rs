@@ -41,9 +41,19 @@ use crate::repo::{ConflictState, InProgress, LiftedRow, RebaseOutcome, WorktreeS
 /// between creating it and folding it away, where naming it plainly helps.
 const TEMP_MESSAGE: &str = "git-tailor: working-tree changes";
 
+/// Whether `commit` is a fold's temporary commit.
+pub(super) fn is_temp_commit(commit: &git2::Commit) -> bool {
+    commit.message_bytes() == TEMP_MESSAGE.as_bytes()
+}
+
 /// Create the temporary commit for `source`, or `Ok(None)` when that row has no
 /// changes. See [`super::Git2Repo::lift_worktree_row`] for the contract.
-pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option<LiftedRow>> {
+pub(super) fn lift(
+    repo: &mut Git2Repo,
+    source: WorktreeSource,
+    target_oid: &Oid,
+    tip: &Oid,
+) -> Result<Option<LiftedRow>> {
     // Only the oids are carried past this point: a `Commit` or `Tree` handle
     // borrows the repository, and the lift goes on to move the branch.
     let (head_oid, head_tree_oid) = {
@@ -74,6 +84,9 @@ pub(super) fn lift(repo: &mut Git2Repo, source: WorktreeSource) -> Result<Option
     // check, which is about the row the user picked rather than what is in the
     // way.
     repo.refuse_if_work_set_aside()?;
+    // The squash would refuse the same, but only after the lift has moved the
+    // branch and parked the other row, leaving both to unwind.
+    repo.refuse_rewriting_from(target_oid, tip)?;
     // One fold at a time. The record is the only thing that unwinds one, so
     // overwriting a live record leaves the first fold's branch move and parked
     // row with nothing to settle them — and the new record's `tip_before` would

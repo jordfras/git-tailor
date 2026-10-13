@@ -53,7 +53,7 @@ pub(super) fn move_commit(
             }
         }
     };
-    repo.refuse_unrewritable(kept, head_git_oid, None)?;
+    repo.refuse_unrewritable(kept, head_git_oid, None, None)?;
 
     let original_branch_oid = head_oid.clone();
 
