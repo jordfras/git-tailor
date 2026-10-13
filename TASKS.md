@@ -127,29 +127,26 @@ Guidelines:
   handle, so the retry's own behavior needs the helper exercised with an
   injected error. The rest is an audit that every write preceding a ref move is
   synced, recorded in the commit message.
-- [ ] T243 P2 fix - Decide whether the dirty-state guard should know about
-  *parked* work. `check_no_dirty_state` (`src/repo/git2_impl.rs`) refuses a
-  rewrite when the tree has staged or unstaged changes. It no longer exempts a
-  fold in flight — that was `covers_working_tree`, removed once the fold began
-  setting the other row aside in the stash, because the tree a lift leaves is
-  then genuinely clean.
-  But "clean" has become ambiguous: it can mean nothing is uncommitted, or that
-  the uncommitted work is parked in a stash nobody is finishing. Clear the
-  journal mid-fold (`--clean-journal`, or startup discarding a stale record) and
-  the branch is left on a temporary commit with a stash still recorded, and a
-  rewrite proceeds over it. Nothing is lost — `discard_in_flight` deliberately
-  spares the auto-stash record — but the rewrite runs on a history containing a
-  synthetic commit the user never made.
-  The same shape holds for the auto-stash around every rewrite, which is now
-  the default, so every user can reach it rather than only `--autostash` ones.
-  The naive fix (refuse whenever an auto-stash record exists) breaks
-  auto-stash outright, because its flow is save-then-operate and the guard
-  would fire on its own stash. A correct version needs a notion of *which
-  operation owns the parked work* — which is what `covers_working_tree` supplied
-  for the fold before it was deleted.
-  Decide first whether this deserves a mechanism at all: the parked work is
-  recorded and recoverable either way, so this is about not surprising the user
-  rather than about losing anything.
+- [ ] T243 P3 fix - Recognize a leftover fold commit before rewriting over it.
+  A fold moves the branch onto a temporary "git-tailor: working-tree changes"
+  commit and parks the other row in a stash. If its journal record goes before
+  the fold finishes, the branch keeps that commit, the stash is put back by
+  nothing, and the tree is clean, so the next rewrite treats the commit as the
+  user's own. Nothing is lost: the commit is in history, the stash in `git stash
+  list`, and the working tree in a rescue ref.
+  Only two paths get there, both after a crash. Startup unwinds an interrupted
+  fold and offers a paused one for resuming; it discards the record only when
+  the branch has moved since (`discard_stale`), e.g. a `git commit` on top of
+  the temporary commit, and then keeps the parked record with nothing to
+  restore it. Or `--clean-journal` with a fold interrupted or paused, which
+  leaves the branch on the temporary commit. Auto-stash cannot produce a
+  synthetic commit, and startup restores its leftover record itself.
+  Decided: no ownership model for parked work. Detect a commit in the loaded
+  range whose message is exactly the temporary one and that no fold record
+  owns, and point the user at `gt --list-rescued` and `git stash list` rather
+  than a reset recipe, which differs between the Staged and Unstaged rows.
+  Whether to warn when the list loads or refuse a rewrite whose range includes
+  it is for the implementation plan.
 - [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that
