@@ -286,3 +286,24 @@ fn a_narrow_terminal_does_not_panic_in_the_split_view() {
         harness.render(|frame| views::main_view::render(&mut app, frame));
     }
 }
+
+/// In the split view the footer spans both panels, and a wrapped status message
+/// takes rows from both, separator included.
+#[test]
+fn a_wrapped_status_message_spans_both_panels() {
+    let repo = make_repo_with_empty_diff();
+    let mut harness = TuiTestHarness::wide();
+    let mut app = app_with_commits();
+    app.status.set_error(
+        "Drop failed: You have staged or unstaged changes, and --no-stash is set. \
+         Stash or commit them first, or start git-tailor without --no-stash.",
+    );
+
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
+
+    let sep_col = separator_column(0);
+    assert_eq!(cell_at(&buf, sep_col, 17), "│");
+    assert_ne!(cell_at(&buf, sep_col, 18), "│", "the footer has two rows");
+    insta::assert_debug_snapshot!(buf);
+}

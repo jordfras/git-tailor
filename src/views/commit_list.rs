@@ -24,7 +24,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table},
+    widgets::{Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, Wrap},
 };
 
 /// Handle an action while in CommitList mode.
@@ -244,14 +244,15 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
     render_in_area(app, frame, frame.area());
 }
 
-/// Render the commit list view in a specific area, without showing fragmap columns.
-/// The fragmap is still used for row coloring; only the column display is suppressed.
-/// Used by the detail-panel split view where fragmap columns would be out of place.
+/// Render the commit list view in a specific area, without showing fragmap columns
+/// or the footer. The fragmap is still used for row coloring; only the column
+/// display is suppressed. Used by the detail-panel split view where fragmap
+/// columns would be out of place, and whose footer spans both panels.
 pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame, area: Rect) {
     // Hide fragmap only for layout (column sizing) so no fragmap columns appear;
     // restore it before build_rows so commit_text_style still gets fragmap colors.
     let saved_fragmap = app.fragmap.take();
-    let layout = compute_layout(app, area);
+    let layout = compute_layout(app, area, 0);
     app.fragmap = saved_fragmap;
     render_in_area_with_layout(app, frame, layout);
 }
@@ -269,7 +270,7 @@ pub fn render_in_area_without_fragmap_cols(app: &mut AppState, frame: &mut Frame
 pub fn compute_fragmap_sep_x(app: &mut AppState, area: Rect) -> Option<u16> {
     app.fragmap.as_ref()?;
     let saved_viewport = app.list.viewport_snapshot();
-    let layout = compute_layout(app, area);
+    let layout = compute_layout(app, area, footer_height(app, area));
     app.list.restore_viewport(saved_viewport);
     if layout.fragmap_col_width == 0 {
         return None;
@@ -284,7 +285,7 @@ pub fn compute_fragmap_sep_x(app: &mut AppState, area: Rect) -> Option<u16> {
 
 /// Render the commit list view in a specific area.
 pub fn render_in_area(app: &mut AppState, frame: &mut Frame, area: Rect) {
-    let layout = compute_layout(app, area);
+    let layout = compute_layout(app, area, footer_height(app, area));
     render_in_area_with_layout(app, frame, layout);
 }
 
@@ -346,18 +347,22 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
 }
 
 /// Split the frame into vertical areas: table, optional h-scrollbar, and footer.
-fn split_vertical_areas(frame_area: Rect, needs_h_scrollbar: bool) -> (Rect, Option<Rect>, Rect) {
+fn split_vertical_areas(
+    frame_area: Rect,
+    needs_h_scrollbar: bool,
+    footer_height: u16,
+) -> (Rect, Option<Rect>, Rect) {
     if needs_h_scrollbar {
         let [t, hs, f] = Layout::vertical([
             Constraint::Min(0),
             Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(footer_height),
         ])
         .areas(frame_area);
         (t, Some(hs), f)
     } else {
-        let [t, f] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame_area);
+        let [t, f] = Layout::vertical([Constraint::Min(0), Constraint::Length(footer_height)])
+            .areas(frame_area);
         (t, None, f)
     }
 }
@@ -434,9 +439,10 @@ fn measure_geometry(
     frame_area: Rect,
     visible_clusters: &[usize],
     with_h_scrollbar: bool,
+    footer_height: u16,
 ) -> Geometry {
     let (table_area, h_scrollbar_area, footer_area) =
-        split_vertical_areas(frame_area, with_h_scrollbar);
+        split_vertical_areas(frame_area, with_h_scrollbar, footer_height);
 
     let available_height = table_area.height.saturating_sub(1) as usize;
     let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
@@ -476,7 +482,7 @@ fn reserves_move_separator_row(mode: &AppMode) -> bool {
 }
 
 /// Compute all layout dimensions, scroll offsets, and visible cluster indices.
-fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
+fn compute_layout(app: &mut AppState, frame_area: Rect, footer_height: u16) -> LayoutInfo {
     let visible_clusters: Vec<usize> = if let Some(ref fragmap) = app.fragmap {
         (0..fragmap.clusters.len())
             .filter(|&ci| fragmap.matrix.iter().any(|row| row[ci] != TouchKind::None))
@@ -491,7 +497,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     // measurement cannot reverse that answer: spending the row can only
     // shorten the table, which can only add the vertical scrollbar, which can
     // only narrow the matrix further.
-    let mut geometry = measure_geometry(app, frame_area, &visible_clusters, false);
+    let mut geometry = measure_geometry(app, frame_area, &visible_clusters, false, footer_height);
     // Read before the second measurement and stored after it, because the next
     // frame's first measurement starts from whatever is in the state. Storing
     // what the second clamped to a narrower title would send that measurement
@@ -499,7 +505,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect) -> LayoutInfo {
     // it.
     let offset_for_next_frame = geometry.columns.separator_offset;
     if visible_clusters.len() > geometry.columns.fragmap_available_width {
-        geometry = measure_geometry(app, frame_area, &visible_clusters, true);
+        geometry = measure_geometry(app, frame_area, &visible_clusters, true, footer_height);
     }
     app.separator_offset = offset_for_next_frame;
     let fragmap_available_width = geometry.columns.fragmap_available_width;
@@ -801,7 +807,31 @@ fn build_move_separator_row<'a>(
     Row::new(cells)
 }
 
+/// Rows the footer takes in a frame of `area`: one, or as many as a status
+/// message wraps to, up to a third of the frame so the list keeps the rest.
+pub fn footer_height(app: &AppState, area: Rect) -> u16 {
+    let Some(msg) = &app.status.message else {
+        return 1;
+    };
+    let wrapped = status_paragraph(msg).line_count(status_text_width(area));
+    let cap = (area.height / 3).max(1);
+    u16::try_from(wrapped).unwrap_or(u16::MAX).clamp(1, cap)
+}
+
+/// A column of margin on each side of a status message, on every line it wraps
+/// to.
+fn status_text_width(area: Rect) -> u16 {
+    area.width.saturating_sub(2)
+}
+
+fn status_paragraph(msg: &str) -> Paragraph<'_> {
+    Paragraph::new(msg).wrap(Wrap { trim: false })
+}
+
 pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
     if let Some(msg) = &app.status.message {
         let bg = if app.status.is_error {
             Color::Red
@@ -811,8 +841,18 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         let style = app
             .colors
             .resolve_style(Style::new().fg(Color::White).bg(bg));
-        let footer = Paragraph::new(Span::styled(format!(" {}", msg), style)).style(style);
-        frame.render_widget(footer, area);
+        frame.render_widget(Paragraph::new("").style(style), area);
+        let text_area = Rect {
+            x: area.x + 1,
+            width: status_text_width(area),
+            ..area
+        };
+        let footer = status_paragraph(msg).style(style);
+        let clipped = footer.line_count(text_area.width) > usize::from(text_area.height);
+        frame.render_widget(footer, text_area);
+        if clipped && !text_area.is_empty() {
+            mark_cut_off(frame.buffer_mut(), text_area);
+        }
         return;
     }
 
@@ -880,6 +920,29 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
     };
     let footer = Paragraph::new(line).style(footer_style);
     frame.render_widget(footer, area);
+}
+
+/// End the last line of `area` in an ellipsis, right after its text, or over
+/// its last character when the line is full.
+fn mark_cut_off(buf: &mut ratatui::buffer::Buffer, area: Rect) {
+    let y = area.bottom() - 1;
+    let Some((last, width)) = (area.left()..area.right()).rev().find_map(|x| {
+        let width = Span::raw(buf[(x, y)].symbol()).width() as u16;
+        (buf[(x, y)].symbol().trim() != "").then_some((x, width))
+    }) else {
+        buf[(area.left(), y)].set_symbol("\u{2026}");
+        return;
+    };
+    let at = if last + width < area.right() {
+        last + width
+    } else {
+        // A wide character's trailing cell must not keep half a glyph.
+        for x in last + 1..area.right() {
+            buf[(x, y)].set_symbol(" ");
+        }
+        last
+    };
+    buf[(at, y)].set_symbol("\u{2026}");
 }
 
 const ACTION_FOOTER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Cyan);

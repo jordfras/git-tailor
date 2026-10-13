@@ -51,6 +51,8 @@ The format is based on
 
 ### Fixed
 
+- A status message too long for one line wraps over several at the bottom of
+  the screen, up to a third of its height, instead of being cut off at the edge
 - Rewording or editing the oldest commit of a shallow clone is refused, as
   dropping, moving, splitting and squashing it already were. It wrote a commit
   with no parents, cutting the branch off from the history behind it. Moving a

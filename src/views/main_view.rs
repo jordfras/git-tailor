@@ -45,17 +45,19 @@ pub fn render(app: &mut AppState, frame: &mut ratatui::Frame) {
         };
 
     if right_width > 0 {
+        let footer_height = views::commit_list::footer_height(app, area);
+        let panels_height = area.height.saturating_sub(footer_height);
         let left_area = Rect {
             x: area.x,
             y: area.y,
             width: left_width.saturating_sub(1), // exclude the separator column itself
-            height: area.height,
+            height: panels_height,
         };
         let right_area = Rect {
             x: area.x + left_width,
             y: area.y,
             width: right_width,
-            height: area.height,
+            height: panels_height,
         };
 
         // Suppress fragmap columns in the narrow left panel but keep the fragmap
@@ -67,7 +69,7 @@ pub fn render(app: &mut AppState, frame: &mut ratatui::Frame) {
         app.separator_offset = saved_offset;
 
         // Render separator between left and right
-        let sep_height = area.height.saturating_sub(1); // exclude footer row
+        let sep_height = panels_height;
         let sep_style = app
             .colors
             .resolve_style(Style::new().fg(Color::White).bg(Color::Blue));
@@ -84,14 +86,14 @@ pub fn render(app: &mut AppState, frame: &mut ratatui::Frame) {
         };
         frame.render_widget(Paragraph::new(separator_spans), sep_area);
 
-        views::commit_detail::render(frame, app, right_area);
+        views::commit_detail::render_without_footer(frame, app, right_area);
 
         // Render footer at full terminal width so it isn't capped to the left panel.
         let footer_area = Rect {
             x: area.x,
-            y: area.y + area.height.saturating_sub(1),
+            y: area.y + panels_height,
             width: area.width,
-            height: 1,
+            height: footer_height,
         };
         views::commit_list::render_footer(frame, app, footer_area);
     } else {
