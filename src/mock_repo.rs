@@ -443,6 +443,7 @@ impl RepoWrite for MockRepo {
     fn lift_worktree_row(
         &mut self,
         _: git_tailor::repo::WorktreeSource,
+        _: &Oid,
         head: &Oid,
     ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
         self.handed_tip = Some(head.clone());

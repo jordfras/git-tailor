@@ -118,7 +118,7 @@ pub(crate) fn handle_prepare_squash(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     let label = squash_mode.label();
-    let Some(prepared) = prepare_source(git_repo, app, &source, label)? else {
+    let Some(prepared) = prepare_source(git_repo, app, &source, &target_oid, label)? else {
         return Ok(LoopAction::Continue);
     };
     let (source_oid, head_oid) = (prepared.source_oid().clone(), prepared.head_oid().clone());
@@ -364,6 +364,7 @@ pub(super) fn prepare_source(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
     source: &SquashSource,
+    target_oid: &Oid,
     label: &str,
 ) -> Result<Option<Prepared>> {
     let Some(tip) = crate::dispatch::listed_tip(git_repo, app) else {
@@ -378,7 +379,7 @@ pub(super) fn prepare_source(
             }
             Ok(Some(Prepared::commit(oid.clone(), head_oid, label)))
         }
-        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row, &tip) {
+        SquashSource::Worktree(row) => match git_repo.lift_worktree_row(*row, target_oid, &tip) {
             Ok(Some(lifted)) => Ok(Some(Prepared::lifted(lifted))),
             Ok(None) => {
                 app.set_error_message(format!("Nothing to {}", label.to_lowercase()));

@@ -85,7 +85,7 @@ fn a_lift_refuses_when_the_branch_moved_since_the_list_was_loaded() {
         .unwrap();
     let index_before = test.repo.index().unwrap().write_tree().unwrap();
 
-    let result = git_repo.lift_worktree_row(WorktreeSource::Staged, &listed);
+    let result = git_repo.lift_worktree_row(WorktreeSource::Staged, &listed, &listed);
 
     let error = format!("{:#}", result.expect_err("a moved branch must be refused"));
     assert!(error.contains("moved"), "{error}");
@@ -1525,7 +1525,7 @@ fn an_unborn_head_is_refused() {
     // With no commit there is no tip to hand over either.
     let no_tip = Oid::from("0".repeat(40));
     let error = git_repo
-        .lift_worktree_row(WorktreeSource::Staged, &no_tip)
+        .lift_worktree_row(WorktreeSource::Staged, &no_tip, &no_tip)
         .unwrap_err();
 
     assert!(

@@ -346,14 +346,14 @@ impl TestRepo {
 }
 
 /// Lift `source` at the tip HEAD is on now, as an operation chosen from a
-/// freshly loaded commit list does.
+/// freshly loaded commit list does, to fold into HEAD itself.
 pub fn lift_at_head(
     git_repo: &mut Git2Repo,
     source: git_tailor::repo::WorktreeSource,
 ) -> anyhow::Result<Option<git_tailor::repo::LiftedRow>> {
     use git_tailor::repo::RepoRead;
     let head = git_repo.head_oid()?;
-    git_repo.lift_worktree_row(source, &head)
+    git_repo.lift_worktree_row(source, &head, &head)
 }
 
 /// Run a bulk autofixup over `base..head` the way the confirmation dialog runs
