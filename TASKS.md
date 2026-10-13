@@ -140,25 +140,16 @@ Guidelines:
   rewrite proceeds over it. Nothing is lost — `discard_in_flight` deliberately
   spares the auto-stash record — but the rewrite runs on a history containing a
   synthetic commit the user never made.
-  The same shape has always been true for `--autostash`.
+  The same shape holds for the auto-stash around every rewrite, which is now
+  the default, so every user can reach it rather than only `--autostash` ones.
   The naive fix (refuse whenever an auto-stash record exists) breaks
-  `--autostash` outright, because its flow is save-then-operate and the guard
+  auto-stash outright, because its flow is save-then-operate and the guard
   would fire on its own stash. A correct version needs a notion of *which
   operation owns the parked work* — which is what `covers_working_tree` supplied
   for the fold before it was deleted.
   Decide first whether this deserves a mechanism at all: the parked work is
   recorded and recoverable either way, so this is about not surprising the user
   rather than about losing anything.
-- [ ] T244 P2 idea - Decide whether `--autostash` should invert to an opt-out
-  `--strict` (Flags: HUMAN INPUT). The question that prompted the whole
-  uncommitted-work-safety round, still unanswered. Squash/fixup on the Staged
-  and Unstaged rows works on a dirty tree with no flag, while every other
-  history rewrite refuses unless `--autostash` is passed.
-  It is a cleaner decision than when it was first raised: both paths now park
-  work the same way — a stash, tracked changes only, untracked files left where
-  the user put them — so this is a choice about one behavior rather than a
-  reconciliation of two. A product decision about defaults, not a mechanical
-  one, which is why it carries HUMAN INPUT.
 - [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that
@@ -170,39 +161,6 @@ Guidelines:
   Scope: decide whether the chosen base and how it was found belong on screen,
   and whether an unresolvable `origin/HEAD` should be surfaced rather than
   silently falling back to `main`.
-- [X] T257 P3 bug - Autofixup identifies a target by its decoded summary.
-  `AutofixupContext::message_overrides` is a `HashMap<String, BString>` keyed by
-  the target's summary, and that summary is `CommitInfo::summary` — the lossy
-  rendering built in `reads.rs` (`lossy(commit.summary_bytes())`). Two targets
-  whose summaries differ only in bytes that do not decode render the same, so
-  they collide: an override the user edited for one is written onto the other.
-  `plan_autofixup`'s `fixup! <summary>` matching has the same exposure, and git
-  itself does not — `--autosquash` matches subjects on their raw bytes.
-  Same collision class as T250 and T251, but it did not go with them because
-  the fix is not a retyping. **Keying on `Oid` is wrong** and the reason is
-  recorded on the field: the OID is not stable across the batch's cascading
-  rebases, which is precisely why the summary is the key. And the summary
-  cannot simply become bytes — it is display data the whole TUI draws, searches
-  and measures, and under the rule T249 settled on (decode at the render
-  boundary, never before it) `CommitInfo::summary` staying a lossy `String` is
-  correct.
-  So this needs an identity for a target that is neither its OID nor its
-  rendering: the summary's *bytes*, carried alongside the rendering through
-  `AutofixupPair`, `AutofixupGroup` and the journal — a decision about what
-  identifies a commit across a rebase, which is why it is filed rather than
-  fixed.
-  Narrow in practice: it needs two commits in range whose summaries differ only
-  in undecodable bytes, and an edited override. The consequence is a message
-  written to the wrong commit.
-- [X] T259 P3 bug - An error part-way through an autofixup batch loses undo.
-  `run_batch` (`autofixup_op.rs`) squashes the pairs one at a time with `?`,
-  and the `journaled` wrapper records an undo entry only on `Ok`. So any error
-  after the first pair has landed — a refused squash, a failed checkout, a
-  journal write — leaves the earlier squashes on the branch with no undo entry
-  and only an error to show for it. The false-parents guard is checked for the
-  whole batch up front, so it no longer causes this, but nothing stops the next
-  error that does. Likely shape: on `Err` after progress, record the undo entry
-  for what landed (or restore the batch's original tip) before returning it.
 - [ ] T260 P3 idea - Spike only (timebox: one day): can the library back a VS
   Code extension through a napi-rs native module, with the fragmap matrix shown
   next to the commit list in a webview? Close this task either way with a
@@ -235,21 +193,6 @@ Guidelines:
   function returning the fragmap for HEAD, rendered as a matrix beside the
   commit list in a minimal webview. Outcome is either follow-up tasks for the
   extension or `[-]` WON'T DO with the evidence.
-- [X] T261 P3 bug - Squash, drop and move do not refuse a merge in the range
-  they replay. They collect what to replay with `collect_descendants`, a plain
-  revwalk that, by its own doc, can emit commits that are not descendants at
-  all, or stop short of them, once a merge is in the range. Reword, split and
-  edit refuse with `range_has_merge` first, and autofixup does since T257; the
-  rest find out when libgit2's cherry-pick fails on the merge ("mainline branch
-  is not specified"), or replay the wrong commits. Refuse the same way, with a
-  message of our own.
-- [X] T262 P3 bug - Every rewrite checks the branch against the tip read when
-  its dialog opens, not the one the list was loaded from. Each `prepare_*`
-  handler takes `head_oid` fresh (`get_head_oid_or_continue!`), so a commit made
-  in another terminal between loading the list and choosing an operation passes
-  `refuse_if_branch_moved`, and the rewrite acts on history the list never
-  showed. The staleness tests only cover a move after that read. Keep the tip
-  the list was loaded from in `AppState` and hand that to every operation.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated

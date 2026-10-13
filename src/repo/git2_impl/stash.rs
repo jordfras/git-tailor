@@ -102,6 +102,15 @@ impl Git2Repo {
         if !self.is_worktree_dirty()? {
             return Ok(());
         }
+        // The lift refuses this up front; should its prediction ever miss,
+        // --no-stash still never stashes.
+        if !self.autostash {
+            anyhow::bail!(
+                "Folding the {} would set the rest of your changes aside in the \
+                 stash, and --no-stash is set.",
+                lifted.source.label().to_lowercase()
+            );
+        }
 
         // Its own slot, but still one record. `lift` refuses a second fold, so
         // an occupant here belongs to a fold that is over — and overwriting it

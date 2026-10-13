@@ -1,10 +1,6 @@
-By default a rewrite refuses to run at all while you have uncommitted changes.
-
-[0.9]
-Start it with dash dash autostash and git-tailor puts them aside first and
+A rewrite on a dirty tree puts your uncommitted changes aside first, and
 brings them back afterwards, staged and unstaged exactly as they were.
 
 [0.8]
-Or set G T autostash in your environment, once, if that is how you always want
-to work. It is not the default because stashing and reapplying leaves entries
-in your ref-log that you never asked for.
+Start it with dash dash no stash, and git-tailor keeps the stash out of it:
+it refuses instead, and says why.

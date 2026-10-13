@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the opt-in auto-stash. These exercise the
+//! Integration tests for auto-stash. These exercise the
 //! `autostash_save` / `autostash_restore` primitives around real operations,
 //! the way `main.rs` orchestrates them.
 
@@ -240,8 +240,8 @@ fn autostash_disabled_still_refuses_dirty_operation() {
     let test = common::TestRepo::new();
     let (_base, c1, c2) = setup_dirty_repo(&test);
 
-    let git_repo = test.git_repo(); // auto-stash NOT enabled
-    let mut git_repo = git_repo;
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
     git_repo.autostash_save().unwrap(); // no-op when disabled
 
     let err = git_repo
@@ -251,6 +251,24 @@ fn autostash_disabled_still_refuses_dirty_operation() {
         err.to_string().contains("staged or unstaged"),
         "should still refuse: {err}"
     );
+}
+
+/// A stash still waiting to be put back is why a dirty tree was not stashed, so
+/// the refusal names it rather than inviting another `git stash` on top.
+#[test]
+fn a_dirty_tree_over_a_pending_autostash_names_the_stash() {
+    let test = common::TestRepo::new();
+    let (_base, c1, c2) = setup_dirty_repo(&test);
+    let mut git_repo = test.git_repo();
+    git_repo.autostash_save().unwrap();
+    test.write_file("a.txt", "a1\n");
+
+    git_repo.autostash_save().unwrap();
+    let err = git_repo
+        .drop_commit(&Oid::from(c1), &Oid::from(c2))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("git stash apply"), "{err}");
 }
 
 #[test]

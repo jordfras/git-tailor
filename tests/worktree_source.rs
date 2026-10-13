@@ -96,6 +96,95 @@ fn a_lift_refuses_when_the_branch_moved_since_the_list_was_loaded() {
     );
 }
 
+/// Folding one row sets the other aside in the stash, so with --no-stash it
+/// is refused — before anything is lifted — when the other row has changes.
+#[test]
+fn with_no_stash_a_fold_that_would_stash_the_other_row_is_refused() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
+    let head = git_repo.head_oid().unwrap();
+
+    let result = common::lift_at_head(&mut git_repo, WorktreeSource::Staged);
+
+    let error = format!(
+        "{:#}",
+        result.expect_err("the unstaged row would be stashed")
+    );
+    assert!(error.contains("--no-stash"), "{error}");
+    assert_eq!(git_repo.head_oid().unwrap(), head, "nothing may be lifted");
+}
+
+/// With nothing in the other row, a fold stashes nothing, so auto-stash being
+/// off is no reason to refuse it.
+#[test]
+fn with_no_stash_a_fold_with_nothing_to_set_aside_runs() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
+    test.write_file("b.txt", "b1\n");
+
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Staged).unwrap();
+
+    assert!(lifted.is_some(), "the staged row has changes to fold in");
+}
+
+/// A staged edit the working tree has undone is in the staged row, but folding
+/// the unstaged row takes the undo with it and leaves nothing to stash.
+#[test]
+fn with_no_stash_a_fold_that_takes_the_other_row_along_runs() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "first");
+    test.commit_file("b.txt", "b1\n", "second");
+    test.write_file("a.txt", "a2\n");
+    test.stage_file("a.txt");
+    test.write_file("a.txt", "a1\n");
+    test.write_file("b.txt", "b2\n");
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
+
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged).unwrap();
+
+    assert!(lifted.is_some(), "the unstaged row has changes to fold in");
+}
+
+/// A fold already in flight is the reason a second one cannot start, so that is
+/// what the refusal says, not that the other row would need stashing.
+#[test]
+fn with_no_stash_a_second_fold_is_refused_for_the_first() {
+    let test = mixed_state();
+    let mut git_repo = test.git_repo();
+    common::lift_at_head(&mut git_repo, WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes to fold in");
+    git_repo.set_autostash(false);
+    test.write_file("a.txt", "a3\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "b3\n");
+
+    let result = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged);
+
+    let error = format!("{:#}", result.expect_err("a fold is in progress"));
+    assert!(error.contains("already in progress"), "{error}");
+}
+
+/// A staged submodule pointer is not something the stash takes, so it is no
+/// reason to refuse a fold with --no-stash either.
+#[test]
+fn with_no_stash_a_staged_gitlink_does_not_block_a_fold() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a1\n", "first");
+    let pointer = test.commit_file("b.txt", "b1\n", "second");
+    test.stage_gitlink("sub", pointer);
+    test.write_file("a.txt", "a2\n");
+    let mut git_repo = test.git_repo();
+    git_repo.set_autostash(false);
+
+    let lifted = common::lift_at_head(&mut git_repo, WorktreeSource::Unstaged).unwrap();
+
+    assert!(lifted.is_some(), "the unstaged row has changes to fold in");
+}
+
 /// The staged row becomes a commit of exactly the index, with the unstaged edit
 /// set aside in the stash for the duration of the fold.
 #[test]

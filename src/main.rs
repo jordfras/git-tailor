@@ -77,7 +77,7 @@ fn main() -> Result<()> {
     }
 
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
-    git_repo.set_autostash(cli.autostash);
+    git_repo.set_autostash(!cli.no_stash);
 
     // Maintenance path: wipe recovery state and exit without any TUI. Takes the
     // session lock — discarding recovery state while another instance is

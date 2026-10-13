@@ -23,10 +23,9 @@ Sleep 300ms
 Enter
 Sleep 2.5s
 
-# The tree is dirty, so a drop is refused, and the message says why. The target
-# is the last commit: nothing is replayed after it, so the run with the flag
-# below succeeds instead of stopping on a conflict that is not this scene's
-# subject.
+# The tree is dirty, and the drop runs anyway: the changes are set aside and
+# brought back. The target is the last commit, so nothing is replayed after it
+# and no conflict takes over a scene that is not about one.
 Type "G"
 Sleep 200ms
 Up@600ms 2
@@ -34,20 +33,22 @@ Sleep 1.5s
 Type "d"
 Sleep 1.5s
 Enter
-Sleep 3.5s
+Sleep 3s
 Type "q"
-Sleep 1.5s
+Sleep 400ms
 
-# The same operation, with the flag.
-Type "gt --autostash"
+# With the stash kept out of it, the same operation is refused, and the message
+# says why. The rows above have shifted by the drop; refused either way.
+#@cue 2
+Type "gt --no-stash"
 Sleep 300ms
 Enter
-Sleep 2s
+Sleep 1.5s
 Type "G"
 Sleep 200ms
 Up@600ms 2
-Sleep 1s
+Sleep 600ms
 Type "d"
 Sleep 1.5s
 Enter
-Sleep 7s
+Sleep 4s

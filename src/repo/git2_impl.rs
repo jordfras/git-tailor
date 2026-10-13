@@ -70,7 +70,8 @@ enum StartedFrom {
 pub struct Git2Repo {
     inner: git2::Repository,
     /// When true, operations that need a clean working tree auto-stash dirty
-    /// state instead of refusing (see [`RepoWrite::autostash_save`]).
+    /// state instead of refusing (see [`RepoWrite::autostash_save`]), and a
+    /// fold may set the other working-tree row aside in the stash.
     autostash: bool,
 }
 
@@ -83,7 +84,7 @@ impl Git2Repo {
             if let Ok(repo) = result {
                 return Ok(Git2Repo {
                     inner: repo,
-                    autostash: false,
+                    autostash: true,
                 });
             }
             if !path.pop() {
@@ -92,8 +93,8 @@ impl Git2Repo {
         }
     }
 
-    /// Enable or disable auto-stash for this session (from the `--autostash`
-    /// flag / `GT_AUTOSTASH`).
+    /// Enable or disable auto-stash for this session (off with `--no-stash`). On
+    /// by default.
     pub fn set_autostash(&mut self, enabled: bool) {
         self.autostash = enabled;
     }
@@ -951,17 +952,21 @@ impl Git2Repo {
     /// submodule reference cannot be silently discarded.
     ///
     /// Called before operations that end with `checkout_head(force)`, which
-    /// would silently discard any dirty state.  The user should stash or
-    /// commit their changes before running such operations.
+    /// would silently discard any dirty state.
     fn check_no_dirty_state(&mut self) -> Result<()> {
         // No exemption for a fold in flight: the lift sets the other row's
         // changes aside in the stash, so the working tree it leaves behind is
         // genuinely clean and there is nothing here to excuse.
         if self.is_worktree_dirty()? {
-            anyhow::bail!(
-                "You have staged or unstaged changes. \
-                 Stash or commit them before running this operation."
-            );
+            self.refuse_if_work_set_aside()?;
+            // Auto-stash can be on and still not have stashed, for an undo that
+            // keeps the working tree.
+            let why = if self.autostash {
+                ""
+            } else {
+                ", and --no-stash is set"
+            };
+            anyhow::bail!("You have staged or unstaged changes{why}. Stash or commit them first.");
         }
         Ok(())
     }
@@ -987,23 +992,13 @@ impl Git2Repo {
             Err(err) => return Err(err.into()),
         };
 
-        // Returns true only when the delta is a real file change, not a gitlink.
-        let is_real = |delta: git2::DiffDelta| {
-            delta.old_file().mode() != git2::FileMode::Commit
-                && delta.new_file().mode() != git2::FileMode::Commit
-        };
-
-        let has_staged = self
-            .inner
-            .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?
-            .deltas()
-            .any(is_real);
-
-        let has_unstaged = self
-            .inner
-            .diff_index_to_workdir(None, Some(&mut opts))?
-            .deltas()
-            .any(is_real);
+        let has_staged = has_real_changes(&self.inner.diff_tree_to_index(
+            head_tree.as_ref(),
+            None,
+            Some(&mut opts),
+        )?);
+        let has_unstaged =
+            has_real_changes(&self.inner.diff_index_to_workdir(None, Some(&mut opts))?);
 
         Ok(has_staged || has_unstaged)
     }
@@ -1691,4 +1686,13 @@ fn merge_refusal(merge: git2::Oid) -> anyhow::Error {
          history",
         Oid::from(merge).short()
     )
+}
+
+/// Whether `diff` changes anything but a gitlink: a stash leaves submodules
+/// alone, so a pointer moving is no change it could set aside.
+pub(super) fn has_real_changes(diff: &git2::Diff) -> bool {
+    diff.deltas().any(|delta| {
+        delta.old_file().mode() != git2::FileMode::Commit
+            && delta.new_file().mode() != git2::FileMode::Commit
+    })
 }

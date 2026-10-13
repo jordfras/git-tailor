@@ -70,16 +70,19 @@ pub struct Cli {
     #[arg(short, long, env = "GT_REVERSE")]
     pub reverse: bool,
 
-    /// Stash working-tree changes around operations, restoring them afterwards.
+    /// Never stash: refuse a dirty tree, and Staged or Unstaged folds while
+    /// the other row has changes.
     ///
-    /// Automatically stash staged and unstaged changes around operations that
-    /// need a clean working tree (move, drop, squash, fixup, undo, redo),
-    /// restoring them afterwards, instead of refusing to run.
+    /// By default, operations that need a clean working tree (move, drop,
+    /// squash, fixup, undo, redo) stash staged and unstaged changes, keeping the
+    /// two apart, and restore them afterwards; squashing or fixing up the Staged
+    /// or Unstaged row sets the other row's changes aside the same way. With
+    /// this flag they refuse to run instead.
     ///
-    /// Untracked files are left where they are. An operation that would check
-    /// out over one is refused outright, with or without this flag.
-    #[arg(short = 'a', long, env = "GT_AUTOSTASH")]
-    pub autostash: bool,
+    /// Untracked files are left where they are either way. An operation that
+    /// would check out over one is refused outright.
+    #[arg(long, env = "GT_NO_STASH")]
+    pub no_stash: bool,
 
     /// Show all hunk group columns without deduplication.
     ///
@@ -263,7 +266,44 @@ pub enum CompletionShell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::{CommandFactory, FromArgMatches};
     use std::io::Write;
+
+    /// Parse `args` with `GT_NO_STASH` left out, so a developer who exported it
+    /// does not change what these tests see.
+    fn parse(args: &[&str]) -> Cli {
+        let command = Cli::command().mut_arg("no_stash", |arg| arg.env(None));
+        Cli::from_arg_matches(&command.try_get_matches_from(args).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn no_stash_is_off_by_default() {
+        assert!(!parse(&["gt"]).no_stash);
+    }
+
+    #[test]
+    fn no_stash_turns_it_on() {
+        assert!(parse(&["gt", "--no-stash"]).no_stash);
+    }
+
+    /// The flag decides whether the Staged and Unstaged rows can be folded too,
+    /// which is not something anyone would guess from its name.
+    #[test]
+    fn no_stash_says_it_covers_the_working_tree_rows() {
+        let command = Cli::command();
+        let arg = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == "no_stash")
+            .expect("no no_stash flag");
+        // The short help, what `-h` prints, as well as the long one.
+        for help in [arg.get_help(), arg.get_long_help()] {
+            let help = help.map(ToString::to_string).unwrap_or_default();
+            assert!(
+                help.contains("Staged") && help.contains("Unstaged"),
+                "{help}"
+            );
+        }
+    }
 
     #[test]
     fn scroll_margin_defaults_to_auto() {
