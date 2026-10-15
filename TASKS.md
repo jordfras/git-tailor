@@ -39,6 +39,15 @@ Guidelines:
   `--clean-journal` remain the way out — but check what refuses *before* a
   rewrite starts, so a refusal lands where the user can still act on it rather
   than half-way through.
+- [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
+  made the journal durable, but the objects and ref moves of a rewrite are
+  still written without a flush, so a power cut can leave the journal naming a
+  tip the refs never reached, or a ref naming an object that never reached the
+  disk. The second is the one that loses work. libgit2 has
+  `GIT_OPT_ENABLE_FSYNC_GITDIR` for it, which git2 does not wrap: turning it on
+  means an unsafe call through `libgit2-sys`. It flushes every object, so
+  measure a large split before and after; libgit2 also honors
+  `core.fsyncObjectFiles` per repository, which may be enough to document.
 - [ ] T222 P3 feat - Spike only (timebox: one day): decide whether `gix`
   (gitoxide) can back the rewrite engine — pure Rust, no libgit2/C dependency,
   simpler static builds — then close this task either way. Narrowed 2026-09-12
