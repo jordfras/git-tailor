@@ -2183,3 +2183,54 @@
   `refuse_if_branch_moved`, and the rewrite acts on history the list never
   showed. The staleness tests only cover a move after that read. Keep the tip
   the list was loaded from in `AppState` and hand that to every operation.
+- [X] T242 P1 fix - Make the journal durable: `write_doc`
+  (`src/repo/git2_impl/journal.rs`) renames a temp file into place, which is
+  atomic, but nothing is fsynced — not the temp file before the rename, not the
+  containing directory after it. A power cut or kernel panic between the journal
+  write and the ref move can leave the two disagreeing: a journal naming an
+  operation the refs do not reflect, or refs that moved with no record saying
+  what to undo. **The one open item that can still lose work** — everything the
+  journal protects (undo/redo, the in-progress record that recovers a paused
+  conflict, the auto-stash record naming a stash) depends on it being on disk
+  when the process dies.
+  Note which failure is worse. A journal that is **corrupt but present** comes
+  back as `JournalStatus::Corrupt` and tells the user. A journal that is
+  **missing** comes back from `load_doc` as `JournalDoc::default()` — "nothing
+  was in progress" — so the refs have moved and nothing records what to undo.
+  The silent one is the one to design for.
+  Scope, in portability order:
+  * `sync_all()` on the temp file before the rename. Portable — `fsync` on Unix,
+    `FlushFileBuffers` on Windows — and it is what stops a half-written journal
+    becoming visible.
+  * fsync the containing directory after the rename, under `#[cfg(unix)]`. This
+    is what makes the rename itself durable, and it has no portable form: a
+    directory cannot be opened by `std::fs::File::open` on Windows at all
+    (`CreateFile` needs `FILE_FLAG_BACKUP_SEMANTICS`, which std does not set).
+  * Decide `F_FULLFSYNC` on macOS deliberately rather than by accident: plain
+    `fsync` there does not flush the drive's own cache, so `sync_all()` means
+    something weaker on macOS than on Linux.
+  * Do **not** add a `windows-sys` dependency for `MOVEFILE_WRITE_THROUGH` (the
+    Windows equivalent of the directory fsync, which `std::fs::rename` does not
+    expose) on spec. Record the gap and revisit only with evidence.
+  **Handle the Windows rename failure as part of this task**, not as a
+  follow-up. `std::fs::rename` over an existing file fails on Windows when
+  anything holds a handle to the destination, and antivirus and the search
+  indexer take transient handles constantly. This is far more likely in practice
+  than power loss, and nobody will report it — it surfaces as an occasional
+  "failed to finalize journal" that looks like a fluke. The session lock keeps
+  another git-tailor out; it does nothing about a scanner.
+  Retry the rename with a short backoff, `#[cfg(windows)]`. Match on
+  `raw_os_error()` — `ERROR_ACCESS_DENIED` (5) and `ERROR_SHARING_VIOLATION`
+  (32) — rather than on `io::ErrorKind`, which does not distinguish these
+  reliably across Rust versions. Cap the total wait low enough that a genuine
+  permission error still fails promptly rather than hanging the TUI.
+  **Measure the fsync cost first** — it sits on the path of every operation, and
+  a sync per write may be noticeable on spinning disks or a network filesystem.
+  If so, restrict it to the writes that immediately precede a ref move.
+  Testing is the hard part and is honest to state: a crash between two writes is
+  not reachable in-process. The `#[cfg(windows)]` retry will at least be
+  compiled, linted and run now that CI covers all three targets (T247), which it
+  would not have been before — but CI cannot manufacture a scanner holding a
+  handle, so the retry's own behavior needs the helper exercised with an
+  injected error. The rest is an audit that every write preceding a ref move is
+  synced, recorded in the commit message.

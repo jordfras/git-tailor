@@ -12,6 +12,42 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
+- [ ] T263 P1 bug - A journal that cannot be read is overwritten by the next
+  thing that writes one, instead of being left alone. Eleven mutating helpers in
+  `journal.rs` start from `load_doc(repo).unwrap_or_default()`, so a read or
+  parse failure is indistinguishable from an empty document: the mutation lands
+  on `JournalDoc::default()` and `save` writes that over the file. When the
+  mutation is a *clear* — `set_worktree_source(None)`, `set_autostash(None)` —
+  the result is empty, and `save` removes the journal outright.
+  The loss: a journal holding an `autostash` record and a paused `in_progress`
+  becomes unreadable, the next operation clears one field, and the stash naming
+  the user's uncommitted changes is no longer referenced by anything. Nothing
+  reapplies it and nothing says it is there.
+  Reachable without exotic failures, and T242 made it the *remaining* way to
+  lose work: startup reports a corrupt journal and carries on
+  (`recovery.rs`, "Ignoring unreadable operation journal"), and the first
+  operation after that warning is what destroys it. T242's own premise — that a
+  corrupt-but-present journal "comes back as `JournalStatus::Corrupt` and tells
+  the user" — is only true until something writes. Nor does it take
+  corruption: on Windows, a scanner holding the file for longer than the read
+  retries' 255 ms makes the read fail just the same.
+  The decision this needs, which is why it is filed rather than fixed: a
+  rewrite cannot proceed on a journal it cannot read, but refusing every
+  operation until `--clean-journal` is run is a hard stop for what may be one
+  stale byte. Likely shape: propagate the error from the mutating helpers
+  (`load_doc(repo)?`) so the operation refuses and names the journal, and let
+  `--clean-journal` remain the way out — but check what refuses *before* a
+  rewrite starts, so a refusal lands where the user can still act on it rather
+  than half-way through.
+- [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
+  made the journal durable, but the objects and ref moves of a rewrite are
+  still written without a flush, so a power cut can leave the journal naming a
+  tip the refs never reached, or a ref naming an object that never reached the
+  disk. The second is the one that loses work. libgit2 has
+  `GIT_OPT_ENABLE_FSYNC_GITDIR` for it, which git2 does not wrap: turning it on
+  means an unsafe call through `libgit2-sys`. It flushes every object, so
+  measure a large split before and after; libgit2 also honors
+  `core.fsyncObjectFiles` per repository, which may be enough to document.
 - [ ] T222 P3 feat - Spike only (timebox: one day): decide whether `gix`
   (gitoxide) can back the rewrite engine — pure Rust, no libgit2/C dependency,
   simpler static builds — then close this task either way. Narrowed 2026-09-12
@@ -76,57 +112,6 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
-- [ ] T242 P1 fix - Make the journal durable: `write_doc`
-  (`src/repo/git2_impl/journal.rs`) renames a temp file into place, which is
-  atomic, but nothing is fsynced — not the temp file before the rename, not the
-  containing directory after it. A power cut or kernel panic between the journal
-  write and the ref move can leave the two disagreeing: a journal naming an
-  operation the refs do not reflect, or refs that moved with no record saying
-  what to undo. **The one open item that can still lose work** — everything the
-  journal protects (undo/redo, the in-progress record that recovers a paused
-  conflict, the auto-stash record naming a stash) depends on it being on disk
-  when the process dies.
-  Note which failure is worse. A journal that is **corrupt but present** comes
-  back as `JournalStatus::Corrupt` and tells the user. A journal that is
-  **missing** comes back from `load_doc` as `JournalDoc::default()` — "nothing
-  was in progress" — so the refs have moved and nothing records what to undo.
-  The silent one is the one to design for.
-  Scope, in portability order:
-  * `sync_all()` on the temp file before the rename. Portable — `fsync` on Unix,
-    `FlushFileBuffers` on Windows — and it is what stops a half-written journal
-    becoming visible.
-  * fsync the containing directory after the rename, under `#[cfg(unix)]`. This
-    is what makes the rename itself durable, and it has no portable form: a
-    directory cannot be opened by `std::fs::File::open` on Windows at all
-    (`CreateFile` needs `FILE_FLAG_BACKUP_SEMANTICS`, which std does not set).
-  * Decide `F_FULLFSYNC` on macOS deliberately rather than by accident: plain
-    `fsync` there does not flush the drive's own cache, so `sync_all()` means
-    something weaker on macOS than on Linux.
-  * Do **not** add a `windows-sys` dependency for `MOVEFILE_WRITE_THROUGH` (the
-    Windows equivalent of the directory fsync, which `std::fs::rename` does not
-    expose) on spec. Record the gap and revisit only with evidence.
-  **Handle the Windows rename failure as part of this task**, not as a
-  follow-up. `std::fs::rename` over an existing file fails on Windows when
-  anything holds a handle to the destination, and antivirus and the search
-  indexer take transient handles constantly. This is far more likely in practice
-  than power loss, and nobody will report it — it surfaces as an occasional
-  "failed to finalize journal" that looks like a fluke. The session lock keeps
-  another git-tailor out; it does nothing about a scanner.
-  Retry the rename with a short backoff, `#[cfg(windows)]`. Match on
-  `raw_os_error()` — `ERROR_ACCESS_DENIED` (5) and `ERROR_SHARING_VIOLATION`
-  (32) — rather than on `io::ErrorKind`, which does not distinguish these
-  reliably across Rust versions. Cap the total wait low enough that a genuine
-  permission error still fails promptly rather than hanging the TUI.
-  **Measure the fsync cost first** — it sits on the path of every operation, and
-  a sync per write may be noticeable on spinning disks or a network filesystem.
-  If so, restrict it to the writes that immediately precede a ref move.
-  Testing is the hard part and is honest to state: a crash between two writes is
-  not reachable in-process. The `#[cfg(windows)]` retry will at least be
-  compiled, linted and run now that CI covers all three targets (T247), which it
-  would not have been before — but CI cannot manufacture a scanner holding a
-  handle, so the retry's own behavior needs the helper exercised with an
-  injected error. The rest is an audit that every write preceding a ref move is
-  synced, recorded in the commit message.
 - [X] T243 P3 fix - Recognize a leftover fold commit before rewriting over it.
   A fold moves the branch onto a temporary "git-tailor: working-tree changes"
   commit and parks the other row in a stash. If its journal record goes before

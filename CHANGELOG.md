@@ -58,6 +58,15 @@ The format is based on
   commit is still allowed, and `gt --list-rescued` has its changes
 - A status message too long for one line wraps over several at the bottom of
   the screen, up to a third of its height, instead of being cut off at the edge
+- The journal now survives the machine losing power. It was renamed into place
+  but never flushed to disk, so a power cut or kernel panic could leave undo, a
+  paused conflict, or the stash holding your uncommitted changes unrecorded
+  while the branch had already moved
+- Reading or writing the journal on Windows no longer fails when antivirus or
+  the search indexer happens to be holding the file open; it is retried for a
+  quarter of a second first. A failed read mattered most: an operation left
+  paused was passed over at startup, with only a warning that the journal could
+  not be read
 - Rewording or editing the oldest commit of a shallow clone is refused, as
   dropping, moving, splitting and squashing it already were. It wrote a commit
   with no parents, cutting the branch off from the history behind it. Moving a

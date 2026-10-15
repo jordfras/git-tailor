@@ -17,6 +17,7 @@
 pub mod app;
 pub mod autofixup;
 pub mod domain;
+pub(crate) mod durable_file;
 pub mod editor;
 pub mod fragmap;
 pub mod mergetool;
