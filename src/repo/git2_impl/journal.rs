@@ -41,6 +41,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::durable_file;
+
 use super::super::{InProgress, JournalCleanSummary, JournalStatus, LiftedRow, UndoOutcome};
 use super::Git2Repo;
 use super::reads;
@@ -386,27 +388,23 @@ fn journal_path(repo: &Git2Repo) -> PathBuf {
 /// Load the current document, returning an empty default when the file is absent.
 fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
     let path = journal_path(repo);
-    match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("failed to parse journal at {}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(JournalDoc::default()),
-        Err(e) => Err(e).with_context(|| format!("failed to read journal at {}", path.display())),
-    }
+    let Some(bytes) = durable_file::read(&path)? else {
+        return Ok(JournalDoc::default());
+    };
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse journal at {}", path.display()))
 }
 
-/// Atomically write the document (temp file + rename).
 fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
     let dir = journal_dir(repo);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create journal dir {}", dir.display()))?;
+    // The journal cannot outlive the directory's own entry in `.git`.
+    durable_file::sync_parent_dir(&dir)?;
     let path = journal_path(repo);
-    let tmp = path.with_extension("json.tmp");
     let json = serde_json::to_vec_pretty(doc)?;
-    std::fs::write(&tmp, &json)
-        .with_context(|| format!("failed to write journal temp {}", tmp.display()))?;
-    std::fs::rename(&tmp, &path)
-        .with_context(|| format!("failed to finalize journal {}", path.display()))?;
-    Ok(())
+    durable_file::write(&path, &json)
+        .with_context(|| format!("failed to write journal {}", path.display()))
 }
 
 /// Persist the document — removing the file when nothing is left to store — and
@@ -414,12 +412,7 @@ fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
 fn save(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
     if is_empty(doc) {
-        let path = journal_path(repo);
-        if let Err(e) = std::fs::remove_file(&path)
-            && e.kind() != std::io::ErrorKind::NotFound
-        {
-            return Err(e).with_context(|| format!("failed to remove journal {}", path.display()));
-        }
+        durable_file::remove(&journal_path(repo))?;
     } else {
         write_doc(repo, doc)?;
     }
@@ -710,16 +703,10 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
     }
 
     let path = journal_path(repo);
-    let journal_removed = match std::fs::remove_file(&path) {
-        Ok(()) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-        Err(e) => {
-            return Err(e).with_context(|| format!("failed to remove journal {}", path.display()));
-        }
-    };
+    let journal_removed = durable_file::remove(&path)?;
     // A temp file may linger if a write was interrupted; drop it too, then
     // remove the now-hopefully-empty directory (best-effort).
-    let _ = std::fs::remove_file(path.with_extension("json.tmp"));
+    let _ = durable_file::remove(&durable_file::temp_path(&path));
     let _ = std::fs::remove_dir(journal_dir(repo));
 
     Ok(JournalCleanSummary {
@@ -1198,10 +1185,10 @@ fn restore_index(repo: &mut Git2Repo, target: &Oid) -> Result<bool> {
 /// Read the journal and classify it for the startup recovery flow.
 pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     let path = journal_path(repo);
-    let bytes = match std::fs::read(&path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return JournalStatus::None,
-        Err(e) => return JournalStatus::Corrupt(format!("failed to read journal: {e}")),
+    let bytes = match durable_file::read(&path) {
+        Ok(Some(b)) => b,
+        Ok(None) => return JournalStatus::None,
+        Err(e) => return JournalStatus::Corrupt(format!("{e:#}")),
     };
 
     // Check the version before parsing the payload so a newer schema is rejected
