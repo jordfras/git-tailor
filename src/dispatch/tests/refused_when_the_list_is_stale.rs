@@ -114,7 +114,8 @@ fn splitting_out_hunks() {
 fn squashing_a_commit() {
     let mut repo = MockRepo::default();
     let mut app = stale();
-    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash").unwrap();
+    let prepared =
+        prepare_source(&mut repo, &mut app, &commit_source(), &target(), "Squash").unwrap();
     assert!(prepared.is_none());
     assert_refused_early(&repo, &app);
 }
@@ -126,7 +127,8 @@ fn folding_a_working_tree_row() {
         ..Default::default()
     };
     let mut app = stale();
-    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash").unwrap();
+    let prepared =
+        prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash").unwrap();
     assert!(prepared.is_none());
     assert_refused_early(&repo, &app);
 }

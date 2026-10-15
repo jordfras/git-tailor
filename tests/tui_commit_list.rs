@@ -286,6 +286,57 @@ fn test_footer_update_notice() {
     }));
 }
 
+/// The footer stops at a third of the screen, so the list keeps the rest; an
+/// ellipsis says there is more.
+#[test]
+fn a_status_message_too_long_for_its_rows_ends_in_an_ellipsis() {
+    let mut harness = TuiTestHarness::short();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.status.set_error("Something went wrong. ".repeat(20));
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// The cursor on the last commit stays on screen when the footer takes rows
+/// from the list.
+#[test]
+fn the_selection_stays_visible_above_a_wrapped_status_message() {
+    let mut harness = TuiTestHarness::narrow();
+
+    let mut app = AppState::new();
+    app.list.commits = (0..10)
+        .map(|i| {
+            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+        })
+        .collect();
+    app.list.selection_index = 9;
+    app.status
+        .set_error("Drop failed: this message is long enough to wrap onto a second line");
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// A full last line ending in a wide character gives up the whole character,
+/// not half of it, to the ellipsis.
+#[test]
+fn a_cut_off_status_message_ending_in_a_wide_character_keeps_it_whole() {
+    let mut harness = TuiTestHarness::short();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.status.set_error("漢".repeat(200));
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
 #[test]
 fn test_status_bar_long_error() {
     let mut harness = TuiTestHarness::short();

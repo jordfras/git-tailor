@@ -818,3 +818,22 @@ fn test_detail_does_not_mark_a_file_with_hunks() {
         rows.join("\n")
     );
 }
+
+/// A wrapped status message takes its rows from the diff, not the other way
+/// round.
+#[test]
+fn a_wrapped_status_message_shortens_the_detail_view() {
+    let repo = make_repo_with_empty_diff("abc123def456", "Short commit");
+    let mut harness = TuiTestHarness::narrow();
+
+    let mut app = AppState::new();
+    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.status
+        .set_error("Drop failed: this message is long enough to wrap onto a second line");
+
+    views::commit_detail::load_diff(&repo, &mut app);
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    }));
+}

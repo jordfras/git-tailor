@@ -187,6 +187,17 @@ pub fn load_diff(repo: &impl RepoRead, app: &mut AppState) {
 ///
 /// Displays commit metadata and diff in the right panel.
 pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    let footer_height = super::commit_list::footer_height(app, area);
+    render_with_footer(frame, app, area, footer_height);
+}
+
+/// [`render`] without the footer, for the split view whose footer spans both
+/// panels.
+pub fn render_without_footer(frame: &mut Frame, app: &mut AppState, area: Rect) {
+    render_with_footer(frame, app, area, 0);
+}
+
+fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_height: u16) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
     let search_bar_height: u16 = if app.search.active { 1 } else { 0 };
@@ -194,7 +205,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(search_bar_height),
-        Constraint::Length(1),
+        Constraint::Length(footer_height),
     ])
     .areas(area);
 
@@ -280,7 +291,6 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect) {
         search::render_bar(frame, app, search_info, search_bar_area);
     }
 
-    // Render footer
     super::commit_list::render_footer(frame, app, footer_area);
 }
 

@@ -622,7 +622,7 @@ impl RepoWrite for Git2Repo {
 
     fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
         self.refuse_if_branch_moved(head_oid)?;
-        self.refuse_rewriting_from(commit_oid, head_oid)?;
+        self.refuse_dropping(commit_oid, head_oid)?;
         let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
         self.journaled("Drop", head_oid, head_oid, outcome)
     }
@@ -759,10 +759,11 @@ impl RepoWrite for Git2Repo {
     fn lift_worktree_row(
         &mut self,
         source: super::WorktreeSource,
+        target_oid: &Oid,
         head_oid: &Oid,
     ) -> Result<Option<super::LiftedRow>> {
         self.refuse_if_branch_moved(head_oid)?;
-        lift_op::lift(self, source)
+        lift_op::lift(self, source, target_oid, head_oid)
     }
 
     fn restore_lifted_row(&mut self, lifted: &super::LiftedRow) -> Result<()> {
@@ -1256,7 +1257,10 @@ impl Git2Repo {
     /// cannot be rebuilt faithfully: it has parents other than the ones its
     /// object records, or it is a merge other than `in_place`, the commit an
     /// operation rebuilds where it stands. Everything else is replayed, and a
-    /// replay picks one parent: it flattens a merge or fails on it.
+    /// replay picks one parent: it flattens a merge or fails on it. Also refused
+    /// is a fold's temporary commit that no fold in flight owns, which a
+    /// rewrite would make part of the user's history — unless it is `dropped`,
+    /// which takes it out of that history instead.
     ///
     /// A shallow clone's boundary reports no parents and `.git/info/grafts`
     /// substitutes others, while the object keeps its real ones. Rebuilding
@@ -1270,18 +1274,46 @@ impl Git2Repo {
         kept: impl IntoIterator<Item = git2::Oid>,
         head: git2::Oid,
         in_place: Option<git2::Oid>,
+        dropped: Option<git2::Oid>,
     ) -> Result<()> {
         for commit in self.first_parent_line(kept, head)? {
             let commit = commit?;
-            let reported: Vec<git2::Oid> = self.inner.find_commit(commit)?.parent_ids().collect();
+            let object = self.inner.find_commit(commit)?;
+            let reported: Vec<git2::Oid> = object.parent_ids().collect();
             if reported != self.recorded_parents(commit)? {
                 return Err(self.false_parents_error(commit, reported.is_empty()));
             }
             if reported.len() > 1 && Some(commit) != in_place {
                 return Err(merge_refusal(commit));
             }
+            if lift_op::is_temp_commit(&object)
+                && Some(commit) != dropped
+                && !self.is_folding_from(commit, head)
+            {
+                return Err(leftover_fold_refusal(commit));
+            }
         }
         Ok(())
+    }
+
+    /// Whether `temp` belongs to the fold an operation from `head` is part of: a
+    /// fold squashes from its own temporary commit, so a record naming one the
+    /// branch has moved past is stale, not in flight.
+    ///
+    /// An unreadable journal owns nothing, so the refusal names the commit
+    /// rather than the parse error.
+    fn is_folding_from(&self, temp: git2::Oid, head: git2::Oid) -> bool {
+        // A branch made on the temporary commit has the same tip, so the
+        // record's branch has to match as well.
+        temp == head
+            && journal::worktree_source(self)
+                .ok()
+                .flatten()
+                .is_some_and(|lifted| {
+                    git2::Oid::from(&lifted.temp_oid) == temp
+                        && self.current_branch_refname().unwrap_or_default()
+                            == lifted.branch_refname
+                })
     }
 
     /// `head`'s first-parent line, newest first, down to where `kept` reaches.
@@ -1303,7 +1335,19 @@ impl Git2Repo {
     /// everything above it up to `head`. All its parents stay put.
     pub(super) fn refuse_rewriting_from(&self, commit: &Oid, head: &Oid) -> Result<()> {
         let commit = git2::Oid::from(commit);
-        self.refuse_unrewritable(self.parents_of(commit)?, git2::Oid::from(head), None)
+        self.refuse_unrewritable(self.parents_of(commit)?, git2::Oid::from(head), None, None)
+    }
+
+    /// [`Self::refuse_rewriting_from`] for dropping `commit`, which may be a
+    /// fold's leftover temporary commit: dropping is how one is removed.
+    pub(super) fn refuse_dropping(&self, commit: &Oid, head: &Oid) -> Result<()> {
+        let commit = git2::Oid::from(commit);
+        self.refuse_unrewritable(
+            self.parents_of(commit)?,
+            git2::Oid::from(head),
+            None,
+            Some(commit),
+        )
     }
 
     /// [`Self::refuse_rewriting_from`] for an operation that rebuilds `commit`
@@ -1315,6 +1359,7 @@ impl Git2Repo {
             self.parents_of(commit)?,
             git2::Oid::from(head),
             Some(commit),
+            None,
         )
     }
 
@@ -1695,4 +1740,12 @@ pub(super) fn has_real_changes(diff: &git2::Diff) -> bool {
         delta.old_file().mode() != git2::FileMode::Commit
             && delta.new_file().mode() != git2::FileMode::Commit
     })
+}
+
+fn leftover_fold_refusal(commit: git2::Oid) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Commit {} is left over from an interrupted working-tree squash. Drop it \
+         first; `gt --list-rescued` has your changes.",
+        Oid::from(commit).short()
+    )
 }

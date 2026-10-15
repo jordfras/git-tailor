@@ -1374,6 +1374,10 @@ fn worktree_source() -> SquashSource {
     SquashSource::Worktree(WorktreeSource::Staged)
 }
 
+fn target() -> Oid {
+    Oid::from("c".repeat(40))
+}
+
 /// A commit source goes through the ordinary auto-stash.
 #[test]
 fn a_commit_source_is_prepared_behind_the_autostash() {
@@ -1382,7 +1386,7 @@ fn a_commit_source_is_prepared_behind_the_autostash() {
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
 
-    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), &target(), "Squash")
         .unwrap()
         .expect("a commit source prepares");
 
@@ -1403,7 +1407,7 @@ fn a_worktree_row_is_prepared_without_the_autostash() {
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
 
-    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash")
         .unwrap()
         .expect("a lifted row prepares");
 
@@ -1433,7 +1437,8 @@ fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
         app.list.tip = Oid::from("a".repeat(40));
         app.list.branch = "refs/heads/main".to_string();
 
-        let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), label).unwrap();
+        let prepared =
+            prepare_source(&mut repo, &mut app, &worktree_source(), &target(), label).unwrap();
 
         assert!(prepared.is_none());
         assert_eq!(app.status.message.as_deref(), Some(expected));
@@ -1454,7 +1459,7 @@ fn a_failed_lift_reports_the_underlying_cause() {
     app.list.branch = "refs/heads/main".to_string();
 
     assert!(
-        prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+        prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash")
             .unwrap()
             .is_none()
     );
@@ -1481,7 +1486,7 @@ fn a_prepared_source_that_names_no_ending_trips() {
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
 
-    let _prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+    let _prepared = prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash")
         .unwrap()
         .unwrap();
 }
@@ -1497,7 +1502,7 @@ fn abandoning_a_lifted_row_unwinds_the_temporary_commit() {
     let mut app = AppState::default();
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
-    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash")
         .unwrap()
         .unwrap();
 
@@ -1525,7 +1530,7 @@ fn a_failed_unwind_names_the_temporary_commit_and_reloads() {
     let mut app = AppState::default();
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
-    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Squash")
         .unwrap()
         .unwrap();
 
@@ -1555,7 +1560,7 @@ fn abandoning_a_commit_source_restores_the_autostash() {
     let mut app = AppState::default();
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
-    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), &target(), "Squash")
         .unwrap()
         .unwrap();
 
@@ -1585,7 +1590,7 @@ fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
     let mut app = AppState::default();
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
-    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), "Squash")
+    let prepared = prepare_source(&mut repo, &mut app, &commit_source(), &target(), "Squash")
         .unwrap()
         .unwrap();
 
@@ -1703,7 +1708,7 @@ fn a_conflict_probe_from_a_row_is_reported_as_a_conflict() {
     let mut app = AppState::default();
     app.list.tip = Oid::from("a".repeat(40));
     app.list.branch = "refs/heads/main".to_string();
-    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), "Fixup")
+    let prepared = prepare_source(&mut repo, &mut app, &worktree_source(), &target(), "Fixup")
         .unwrap()
         .unwrap();
 

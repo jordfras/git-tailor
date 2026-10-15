@@ -881,10 +881,11 @@ pub trait RepoWrite {
     ///
     /// Refused when the branch has moved off `head_oid`. Fails when the unstaged
     /// row cannot be separated from the staged one, as when both edit the same
-    /// lines.
+    /// lines. `target_oid` is the commit the row will be folded into.
     fn lift_worktree_row(
         &mut self,
         source: WorktreeSource,
+        target_oid: &Oid,
         head_oid: &Oid,
     ) -> Result<Option<LiftedRow>>;
 
