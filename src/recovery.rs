@@ -252,6 +252,29 @@ mod tests {
         );
     }
 
+    /// A journal that went unreadable mid-session is reported with the way out
+    /// of it. The auto-stash restore that follows reads the same journal and
+    /// fails, and its own message would be the one the user is left looking at.
+    #[test]
+    fn an_unreadable_journal_is_reported_with_the_way_out() {
+        let mut repo = MockRepo {
+            journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.autostash_restore_calls.get(),
+            0,
+            "restoring a stash named by a journal that will not parse cannot work"
+        );
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("--clean-journal"),
+            "the report has to carry the way out: {message}"
+        );
+    }
+
     /// The row the fold started from names itself in the report, so the user can
     /// tell which half of their work just came back.
     #[test]
