@@ -92,6 +92,8 @@ pub(crate) struct MockRepo {
     pub(crate) journal: Option<git_tailor::repo::InProgress>,
     /// When set, the journal reads back as unreadable, with this as the reason.
     pub(crate) journal_corrupt: Option<String>,
+    /// When set, the journal reads back as written by a newer format version.
+    pub(crate) journal_newer_version: Option<u32>,
     /// Counts `clear_journal` invocations, so a test can tell a discarded
     /// journal from a recovered one.
     pub(crate) clear_journal_calls: std::cell::Cell<usize>,
@@ -202,6 +204,7 @@ impl Default for MockRepo {
             rescue_ok: true,
             journal: None,
             journal_corrupt: None,
+            journal_newer_version: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
             squash_probe: SquashProbe::default(),
@@ -384,6 +387,9 @@ impl RepoWrite for MockRepo {
     fn read_journal(&mut self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
         if let Some(why) = &self.journal_corrupt {
             return Ok(git_tailor::repo::JournalStatus::Corrupt(why.clone()));
+        }
+        if let Some(version) = self.journal_newer_version {
+            return Ok(git_tailor::repo::JournalStatus::NewerVersion(version));
         }
         Ok(match &self.journal {
             Some(record) => git_tailor::repo::JournalStatus::Recovered(Box::new(record.clone())),

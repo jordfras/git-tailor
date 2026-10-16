@@ -395,3 +395,81 @@ fn clean_journal_reports_what_it_kept_from_an_unreadable_journal() {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
 }
+
+/// gt tells the user to run this after an interrupted upgrade, promising their
+/// uncommitted work is kept. An older journal shape does not parse through the
+/// current schema either, so the report used to contradict the instruction that
+/// sent them here: "whatever it recorded is gone from git-tailor's view".
+#[test]
+fn clean_journal_does_not_claim_an_older_journal_was_unreadable() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let v1 = r#"{
+        "version": 1,
+        "in_progress": { "operation_label": "Squash", "original_branch_oid": "aaaa" },
+        "undo": [], "redo": [], "autostash": null
+    }"#;
+    std::fs::create_dir_all(journal_path(&test).parent().unwrap()).unwrap();
+    std::fs::write(journal_path(&test), v1).unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gt"))
+        .arg("--clean-journal")
+        .current_dir(test.repo.workdir().unwrap())
+        .output()
+        .expect("failed to run gt");
+
+    assert!(out.status.success(), "exit: {:?}", out.status);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("could not"),
+        "nothing was kept and nothing was lost, so there is nothing to report: {stdout}"
+    );
+}
+
+/// The readable path destroys what the unreadable one refuses to: a rescue that
+/// fails is swallowed, and the sweep then drops the pins that were the only
+/// refs reaching the fold's working tree.
+#[test]
+fn clean_refuses_rather_than_sweeping_a_fold_it_could_not_rescue() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    // A ref where the rescue namespace needs a directory, so no rescue ref can
+    // be written under it.
+    test.repo
+        .reference(
+            "refs/git-tailor/rescue",
+            head_oid(&test),
+            true,
+            "directory/file conflict",
+        )
+        .unwrap();
+
+    assert!(git_repo.clean_journal().is_err());
+
+    let pins: Vec<String> = test
+        .repo
+        .references_glob("refs/git-tailor/wt/**")
+        .unwrap()
+        .names()
+        .map(|name| name.unwrap().to_string())
+        .collect();
+    assert!(
+        pins.iter()
+            .any(|name| name.starts_with("refs/git-tailor/wt/")),
+        "the pins must still be there: {pins:?}"
+    );
+    assert!(
+        test.repo
+            .find_object(git2::Oid::from(&lifted.worktree_tree), None)
+            .is_ok(),
+        "and the fold's working tree still reachable through them"
+    );
+}
