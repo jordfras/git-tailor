@@ -58,10 +58,12 @@ impl Git2Repo {
         if !self.autostash {
             return Ok(());
         }
-        if journal::autostash(self)?.is_some() {
+        // Before the journal: a clean tree is not going to write it, so a
+        // journal it cannot read must not be what refuses the operation.
+        if !self.is_worktree_dirty()? {
             return Ok(());
         }
-        if !self.is_worktree_dirty()? {
+        if journal::autostash(self)?.is_some() {
             return Ok(());
         }
 
