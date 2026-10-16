@@ -714,11 +714,20 @@ impl RepoWrite for Git2Repo {
         // Before the sweep, which removes the only things naming an in-flight
         // fold's working tree. Best-effort: a failed rescue must not block the
         // escape hatch. Not counted here — the sweep counts what it leaves.
-        if let Some(lifted) = journal::worktree_source(self).ok().flatten() {
-            let _ = lift_op::rescue(self, &lifted);
-        }
+        let trees_rescued = match journal::worktree_source(self) {
+            Ok(Some(lifted)) => {
+                let _ = lift_op::rescue(self, &lifted);
+                None
+            }
+            Ok(None) => None,
+            // No record to rescue from, so the pins stand in for it.
+            Err(_) => Some(journal::rescue_pinned_trees(self)?),
+        };
 
-        journal::clean(self)
+        Ok(super::JournalCleanSummary {
+            trees_rescued,
+            ..journal::clean(self)?
+        })
     }
 
     fn rescued_trees(&self) -> Result<Vec<super::RescuedTree>> {

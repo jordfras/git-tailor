@@ -155,7 +155,9 @@ pub struct Cli {
     /// manual escape hatch for when recovery state gets stuck.
     ///
     /// Rescued working trees (`refs/git-tailor/rescue/*`) are kept — each is
-    /// uncommitted work with no other copy. See `--drop-rescued`.
+    /// uncommitted work with no other copy. See `--drop-rescued`. When the
+    /// journal cannot be read, every tree the pins still name is kept as one
+    /// first, since nothing else can say which of them is your working tree.
     #[arg(long = "clean-journal", conflicts_with_all = ["base", "all", "static_output"])]
     pub clean_journal: bool,
 
