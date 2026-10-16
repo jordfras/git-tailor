@@ -62,9 +62,9 @@ pub struct JournalCleanSummary {
     /// Rescued working trees left in place. Each is uncommitted work with no
     /// other copy, so removing one is asked for separately.
     pub rescue_refs_kept: usize,
-    /// `Some` when the journal could not be read, counting the trees its pins
-    /// still named that were kept because of it. `None` when it was read, where
-    /// the record itself says what to rescue.
+    /// `Some` when the journal's own record could not be used — unreadable, or
+    /// a shape this version does not parse — counting the trees its pins still
+    /// named that were kept instead. `None` when the record drove the rescue.
     pub trees_rescued: Option<usize>,
 }
 
