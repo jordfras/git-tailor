@@ -37,6 +37,13 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // taken against a tree that no longer matches.
     let mut edit_abort_failed = false;
 
+    // Set when the journal is not this build's to use — unreadable, or from a
+    // version it cannot represent. The restore below has to stay off it: it
+    // reads the same journal to find the stash, so it either fails and leaves
+    // its own message where the report should be, or parses a document it will
+    // then write back as this version.
+    let mut journal_unusable = false;
+
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(record)) => match *record {
             InProgress::Edit(_) => {
@@ -110,20 +117,26 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 }
             }
         },
-        Ok(JournalStatus::NewerVersion(v)) => {
-            app.set_error_message(format!(
-                "Ignoring a journal written by a newer git-tailor (format v{v}); \
-                 upgrade git-tailor or remove .git/git-tailor/journal.json"
-            ));
+        // Handled before the TUI starts (see main): those paths bail out early,
+        // so reaching here would be a bug. Nothing to do but keep away from the
+        // file — a journal this build cannot represent is one the restore below
+        // would rewrite as this version, or delete.
+        Ok(JournalStatus::UpgradeInterrupted { .. }) | Ok(JournalStatus::NewerVersion(_)) => {
+            journal_unusable = true;
         }
-        // Handled before the TUI starts (see main): this path bails out early,
-        // so reaching here would be a bug. Nothing to do.
-        Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
+        // Also refused before the TUI starts, so getting here means the journal
+        // became unreadable between that read and this one. Nothing is ignored:
+        // every operation needs to add to it, and will refuse.
         Ok(JournalStatus::Corrupt(e)) => {
-            app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
+            journal_unusable = true;
+            app.set_error_message(format!(
+                "Cannot read the operation journal: {e}. Nothing can run against \
+                 it — restart, or run `gt --clean-journal` to discard it"
+            ));
         }
         Ok(JournalStatus::None) => {}
         Err(e) => {
+            journal_unusable = true;
             app.set_error_message(format!("Failed to read operation journal: {e:#}"));
         }
     }
@@ -132,7 +145,7 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !edit_abort_failed && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+    if !edit_abort_failed && !journal_unusable && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
         match git_repo.autostash_restore() {
             Ok(AutostashRestore::Done) => {}
             Ok(AutostashRestore::Conflict { files }) => {
@@ -244,6 +257,45 @@ mod tests {
             app.status.message.as_deref(),
             Some("Recovered an interrupted squash of staged changes — restored the branch")
         );
+    }
+
+    /// A journal that went unreadable mid-session is reported with the way out
+    /// of it. The auto-stash restore that follows reads the same journal and
+    /// fails, and its own message would be the one the user is left looking at.
+    #[test]
+    fn an_unreadable_journal_is_reported_with_the_way_out() {
+        let mut repo = MockRepo {
+            journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.autostash_restore_calls.get(),
+            0,
+            "restoring a stash named by a journal that will not parse cannot work"
+        );
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("--clean-journal"),
+            "the report has to carry the way out: {message}"
+        );
+    }
+
+    /// A journal from the future is not ours to touch either. Restoring an
+    /// auto-stash from it reads it through the current schema, and a document
+    /// that happens to parse is then written back as this version — the clobber
+    /// main refuses to open on.
+    #[test]
+    fn a_journal_from_the_future_is_left_alone() {
+        let mut repo = MockRepo {
+            journal_newer_version: Some(9),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.autostash_restore_calls.get(), 0);
+        assert_eq!(app.status.message, None, "main has already said it");
     }
 
     /// The row the fold started from names itself in the report, so the user can

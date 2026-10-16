@@ -114,19 +114,55 @@ fn main() -> Result<()> {
     // should not be refused because a TUI happens to be open.
     let _session = acquire_session_lock(&git_repo)?;
 
-    // An operation interrupted under an older git-tailor cannot be resumed by
-    // this version. Refuse to start the TUI — which would drop the user into a
-    // confusing half-finished state — until they resolve it. Checked here, while
-    // the terminal is still in its normal mode, so the message is readable.
-    if let JournalStatus::UpgradeInterrupted { op } = git_repo.read_journal()? {
-        eprintln!(
-            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
-             This version cannot resume it. Finish it with the previous git-tailor, \
-             or run `gt --clean-journal` to discard it and start fresh — any \
-             uncommitted work it recorded is kept, and `gt --list-rescued` \
-             shows it."
-        );
-        std::process::exit(1);
+    // The journals the TUI must not open on, each of which would drop the user
+    // into a confusing half-finished state. Checked here, while the terminal is
+    // still in its normal mode, so the message is readable — and after the
+    // maintenance paths above, so `--clean-journal` is always reachable.
+    //
+    // Matched variant by variant rather than with a `_` arm: a status nobody has
+    // decided about must not default to opening anyway.
+    match git_repo.read_journal()? {
+        JournalStatus::UpgradeInterrupted { op } => {
+            eprintln!(
+                "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
+                 This version cannot resume it. Finish it with the previous git-tailor, \
+                 or run `gt --clean-journal` to discard it and start fresh — any \
+                 uncommitted work it recorded is kept, and `gt --list-rescued` \
+                 shows it."
+            );
+            std::process::exit(1);
+        }
+        // The journal is the only record of what the repository is in the middle
+        // of, and every operation starts by reading it to add to it. Opening
+        // anyway means the first write defaults the document and puts that over
+        // the file — taking an auto-stash record, and the only reference to the
+        // stash holding the user's uncommitted changes, with it.
+        JournalStatus::Corrupt(why) => {
+            eprintln!(
+                "git-tailor cannot read its operation journal: {why}\n\
+                 Nothing can run against a journal it cannot add to. Run \
+                 `gt --clean-journal` to discard it — it keeps any uncommitted \
+                 work it can still find, and `git stash list` holds what was \
+                 stashed for an operation. `gt --static` browses without it."
+            );
+            std::process::exit(1);
+        }
+        // Reading it is not the problem; adding to it is. Every write goes
+        // through the current schema, so the first one would rewrite a document
+        // this build cannot represent as one it can — and an in-progress record
+        // naming a variant it has never heard of fails the whole read anyway,
+        // which is the case above.
+        JournalStatus::NewerVersion(version) => {
+            eprintln!(
+                "git-tailor's operation journal was written by a newer version \
+                 (format v{version}), which this one cannot add to.\n\
+                 Upgrade git-tailor, or run `gt --clean-journal` to discard the \
+                 journal — any uncommitted work it recorded is kept, and \
+                 `gt --list-rescued` shows it. `gt --static` browses without it."
+            );
+            std::process::exit(1);
+        }
+        JournalStatus::Recovered(_) | JournalStatus::None => {}
     }
 
     // TUI path: resolve bounds first (fast), then start the TUI immediately.
@@ -349,6 +385,18 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
         "Cleaned git-tailor state: removed {} ref(s){journal_note}.",
         summary.refs_removed
     );
+    // Ahead of the count below, which the kept trees are part of: this is what
+    // says where they came from. Only when there are some: a journal whose
+    // record could not be used but pinned nothing has cost the user nothing,
+    // and saying so would contradict the `--clean-journal` instruction that
+    // sent them here.
+    if summary.trees_rescued.is_some_and(|trees| trees > 0) {
+        println!(
+            "What the journal recorded could not be used, so the refs it still \
+             pinned stood in for it. `git stash list` holds anything it had set \
+             aside."
+        );
+    }
     if summary.rescue_refs_kept > 0 {
         println!(
             "Kept {} rescued working tree(s) — uncommitted work git-tailor saved when \

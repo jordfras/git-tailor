@@ -21,10 +21,10 @@ use git_tailor::autofixup::AutofixupGroup;
 use git_tailor::repo::{GitRepo, RebaseOutcome, RepoRead};
 use git_tailor::{CommitInfo, Oid};
 
-use crate::autostash_save_or_bail;
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, settle_autostash,
 };
+use crate::start_operation_or_bail;
 
 /// Compute the autofixup plan from the already-loaded commit list (no git
 /// call needed) and show the confirmation dialog, or report nothing to do.
@@ -171,7 +171,7 @@ pub(crate) fn handle_execute_autofixup(
 ) -> Result<LoopAction> {
     let target_index =
         autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
-    autostash_save_or_bail!(git_repo, app);
+    start_operation_or_bail!(git_repo, app);
     match git_repo.autofixup(&head_oid, &reference_oid, &pairs, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(
             app,

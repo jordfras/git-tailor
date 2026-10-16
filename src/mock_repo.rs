@@ -90,6 +90,10 @@ pub(crate) struct MockRepo {
     pub(crate) rescue_ok: bool,
     /// What `read_journal` answers, for the startup-recovery tests.
     pub(crate) journal: Option<git_tailor::repo::InProgress>,
+    /// When set, the journal reads back as unreadable, with this as the reason.
+    pub(crate) journal_corrupt: Option<String>,
+    /// When set, the journal reads back as written by a newer format version.
+    pub(crate) journal_newer_version: Option<u32>,
     /// Counts `clear_journal` invocations, so a test can tell a discarded
     /// journal from a recovered one.
     pub(crate) clear_journal_calls: std::cell::Cell<usize>,
@@ -199,6 +203,8 @@ impl Default for MockRepo {
             recorded_lifted: None,
             rescue_ok: true,
             journal: None,
+            journal_corrupt: None,
+            journal_newer_version: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
             squash_probe: SquashProbe::default(),
@@ -378,7 +384,20 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("abort failed"))
         }
     }
+    fn refuse_if_journal_unusable(&self) -> anyhow::Result<()> {
+        match (&self.journal_corrupt, self.journal_newer_version) {
+            (Some(why), _) => anyhow::bail!("{why}"),
+            (None, Some(version)) => anyhow::bail!("journal format v{version}"),
+            (None, None) => Ok(()),
+        }
+    }
     fn read_journal(&mut self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
+        if let Some(why) = &self.journal_corrupt {
+            return Ok(git_tailor::repo::JournalStatus::Corrupt(why.clone()));
+        }
+        if let Some(version) = self.journal_newer_version {
+            return Ok(git_tailor::repo::JournalStatus::NewerVersion(version));
+        }
         Ok(match &self.journal {
             Some(record) => git_tailor::repo::JournalStatus::Recovered(Box::new(record.clone())),
             None => git_tailor::repo::JournalStatus::None,
@@ -397,6 +416,7 @@ impl RepoWrite for MockRepo {
             refs_removed: 0,
             journal_removed: false,
             rescue_refs_kept: 0,
+            trees_rescued: None,
         })
     }
     fn rescued_trees(&self) -> anyhow::Result<Vec<git_tailor::repo::RescuedTree>> {

@@ -279,3 +279,197 @@ fn clean_journal_in_one_worktree_leaves_another_worktrees_pin_alone() {
 
     let _ = std::fs::remove_dir_all(&wt_dir);
 }
+
+/// `--clean-journal` is what gt sends the user to when it refuses to start on an
+/// unreadable journal, so it has to keep their work without being able to read
+/// the record naming it. The pins are what is left: the tree ones name loose
+/// objects nothing else reaches.
+#[test]
+fn clean_keeps_the_pinned_trees_of_a_journal_it_cannot_read() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    std::fs::write(journal_path(&test), "{ this is not valid json").unwrap();
+
+    let summary = git_repo.clean_journal().unwrap();
+
+    let rescue = format!("refs/git-tailor/rescue/{}", lifted.worktree_tree);
+    assert!(
+        test.repo.find_reference(&rescue).is_ok(),
+        "the fold's working tree must be kept, not left as garbage"
+    );
+    assert_eq!(
+        summary.rescue_refs_kept, 1,
+        "and counted, since nothing else will tell the user"
+    );
+
+    let rescued = git_repo.rescued_trees().unwrap();
+    assert_eq!(rescued.len(), 1);
+    assert_eq!(
+        rescued[0].file_count,
+        Some(2),
+        "`--list-rescued` must be able to offer the restore command"
+    );
+}
+
+/// A commit pin names something the branch reflog still names, so keeping it
+/// would present history as rescued work. The distinction is the ref's own
+/// target: peeling a commit yields its tree, which would keep every one.
+#[test]
+fn clean_keeps_no_rescue_for_the_commit_pins_of_an_unreadable_journal() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    test.commit_file("c.txt", "c\n", "add c");
+    let mut git_repo = test.git_repo();
+    // A drop pins the tips it moved between, and nothing else.
+    git_repo
+        .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+        .unwrap();
+    std::fs::write(journal_path(&test), "{ this is not valid json").unwrap();
+
+    git_repo.clean_journal().unwrap();
+
+    assert_eq!(
+        git_tailor_ref_count(&test),
+        0,
+        "nothing of git-tailor's may be left"
+    );
+}
+
+/// The same rule `lift_op::rescue` applies on the readable path: a tree HEAD
+/// already reaches is not uncommitted work, so there is nothing to keep.
+#[test]
+fn clean_keeps_no_rescue_for_a_pinned_tree_head_already_reaches() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+
+    let mut git_repo = test.git_repo();
+    // Nothing unstaged, so the lift's working tree is the temporary commit's own.
+    common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    std::fs::write(journal_path(&test), "{ this is not valid json").unwrap();
+
+    git_repo.clean_journal().unwrap();
+
+    assert_eq!(git_tailor_ref_count(&test), 0);
+}
+
+/// What the user actually sees, which is the only thing telling them their work
+/// was kept — and that the stash still holds the row the fold set aside, since
+/// nothing read the record that would have dropped it.
+#[test]
+fn clean_journal_reports_what_it_kept_from_an_unreadable_journal() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    std::fs::write(journal_path(&test), "{ this is not valid json").unwrap();
+    drop(git_repo);
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gt"))
+        .arg("--clean-journal")
+        .current_dir(test.repo.workdir().unwrap())
+        .output()
+        .expect("failed to run gt");
+
+    assert!(out.status.success(), "exit: {:?}", out.status);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for expected in ["could not be used", "--list-rescued", "git stash list"] {
+        assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
+    }
+}
+
+/// gt tells the user to run this after an interrupted upgrade, promising their
+/// uncommitted work is kept. An older journal shape does not parse through the
+/// current schema either, so the report used to contradict the instruction that
+/// sent them here: "whatever it recorded is gone from git-tailor's view".
+#[test]
+fn clean_journal_does_not_claim_an_older_journal_was_unreadable() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let v1 = r#"{
+        "version": 1,
+        "in_progress": { "operation_label": "Squash", "original_branch_oid": "aaaa" },
+        "undo": [], "redo": [], "autostash": null
+    }"#;
+    std::fs::create_dir_all(journal_path(&test).parent().unwrap()).unwrap();
+    std::fs::write(journal_path(&test), v1).unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gt"))
+        .arg("--clean-journal")
+        .current_dir(test.repo.workdir().unwrap())
+        .output()
+        .expect("failed to run gt");
+
+    assert!(out.status.success(), "exit: {:?}", out.status);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("could not"),
+        "nothing was kept and nothing was lost, so there is nothing to report: {stdout}"
+    );
+}
+
+/// The readable path destroys what the unreadable one refuses to: a rescue that
+/// fails is swallowed, and the sweep then drops the pins that were the only
+/// refs reaching the fold's working tree.
+#[test]
+fn clean_refuses_rather_than_sweeping_a_fold_it_could_not_rescue() {
+    let test = common::TestRepo::new();
+    test.commit_files(&[("a.txt", "a1\n"), ("b.txt", "b1\n")], "base");
+    test.write_file("a.txt", "STAGED\n");
+    test.stage_file("a.txt");
+    test.write_file("b.txt", "UNSTAGED\n");
+
+    let mut git_repo = test.git_repo();
+    let lifted = common::lift_at_head(&mut git_repo, git_tailor::repo::WorktreeSource::Staged)
+        .unwrap()
+        .expect("the staged row has changes");
+    // A ref where the rescue namespace needs a directory, so no rescue ref can
+    // be written under it.
+    test.repo
+        .reference(
+            "refs/git-tailor/rescue",
+            head_oid(&test),
+            true,
+            "directory/file conflict",
+        )
+        .unwrap();
+
+    assert!(git_repo.clean_journal().is_err());
+
+    let pins: Vec<String> = test
+        .repo
+        .references_glob("refs/git-tailor/wt/**")
+        .unwrap()
+        .names()
+        .map(|name| name.unwrap().to_string())
+        .collect();
+    assert!(
+        pins.iter()
+            .any(|name| name.starts_with("refs/git-tailor/wt/")),
+        "the pins must still be there: {pins:?}"
+    );
+    assert!(
+        test.repo
+            .find_object(git2::Oid::from(&lifted.worktree_tree), None)
+            .is_ok(),
+        "and the fold's working tree still reachable through them"
+    );
+}

@@ -591,3 +591,96 @@ fn a_v2_journal_without_a_fold_migrates_and_keeps_undo() {
         "the undo stack must survive migration"
     );
 }
+
+/// A journal whose bytes cannot be parsed is one byte of evidence about what the
+/// repository is in the middle of, so `gt` refuses to start on it rather than
+/// opening and overwriting it with the first thing it writes.
+#[test]
+fn gt_refuses_to_start_on_an_unreadable_journal() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    write_raw_journal(&test, "{ this is not valid json");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gt"))
+        .current_dir(test.repo.workdir().unwrap())
+        .output()
+        .expect("failed to run gt");
+
+    assert!(!out.status.success(), "exit: {:?}", out.status);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("journal") && stderr.contains("--clean-journal"),
+        "stderr must name the journal and the way out: {stderr}"
+    );
+    assert!(journal_file_exists(&test), "the journal must be left alone");
+}
+
+/// Clearing a field of an unreadable journal used to default the document and
+/// write the result back — and since the result is empty, `save` removed the
+/// file. The record naming the user's stashed changes went with it.
+#[test]
+fn clearing_an_unreadable_journal_is_refused_and_keeps_it() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    // One brace short of what a paused operation with an auto-stash writes.
+    let truncated = r#"{
+        "version": 3,
+        "in_progress": null,
+        "autostash": {
+            "stash": "4444",
+            "pre_op_tip": "1111",
+            "applied_with_conflict": false,
+            "branch_refname": "refs/heads/main"
+        }
+    "#;
+    write_raw_journal(&test, truncated);
+    let mut git_repo = test.git_repo();
+
+    assert!(git_repo.clear_journal().is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(journal_path(&test)).unwrap(),
+        truncated,
+        "the journal must be byte-for-byte what it was"
+    );
+}
+
+/// An unreadable journal is not an empty one, so undo says it cannot be read
+/// rather than reporting that there is nothing to undo.
+#[test]
+fn undo_on_an_unreadable_journal_is_an_error() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    write_raw_journal(&test, "{ this is not valid json");
+    let mut git_repo = test.git_repo();
+
+    assert!(git_repo.undo().is_err());
+}
+
+/// A journal from a newer git-tailor cannot be added to either: its in-progress
+/// record may name a variant this build has never heard of, which fails the
+/// whole document. Carrying on used to clobber it.
+#[test]
+fn gt_refuses_to_start_on_a_journal_from_the_future() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let from_the_future = r#"{"version": 9, "in_progress": {"SomeNewOp": {"x": 1}}}"#;
+    write_raw_journal(&test, from_the_future);
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_gt"))
+        .current_dir(test.repo.workdir().unwrap())
+        .output()
+        .expect("failed to run gt");
+
+    assert!(!out.status.success(), "exit: {:?}", out.status);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("newer") && stderr.contains("--clean-journal"),
+        "stderr must name the cause and the way out: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(journal_path(&test)).unwrap(),
+        from_the_future,
+        "the journal must be left for the build that can read it"
+    );
+}

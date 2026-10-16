@@ -131,13 +131,32 @@ pub(crate) fn listed_tip(git_repo: &impl GitRepo, app: &mut AppState) -> Option<
     }
 }
 
-/// Auto-stash the working tree before a history-rewriting operation, setting an
-/// error message and returning `LoopAction::Proceed` from the enclosing function
-/// if the stash fails. Used by the dispatch handlers; `LoopAction` must be in
-/// scope at the call site.
+/// Refuse an operation the journal cannot record, setting an error message and
+/// returning `LoopAction::Proceed` from the enclosing function.
+///
+/// Belongs at the top of the handler, ahead of the stash, the editor and the
+/// dialog, because that is where a refusal costs the user nothing — the journal
+/// is otherwise first touched where the operation writes it, which for a rewrite
+/// is after the branch has moved. Every handler that reaches a `RepoWrite`
+/// method owes this; the two whose return type does not fit a macro spell it out
+/// instead. Used by the dispatch handlers; `LoopAction` must be in scope at the
+/// call site.
 #[macro_export]
-macro_rules! autostash_save_or_bail {
+macro_rules! refuse_unrecordable_or_bail {
     ($git_repo:expr, $app:expr) => {
+        if let Err(e) = $git_repo.refuse_if_journal_unusable() {
+            $app.set_error_message(format!("{e:#}"));
+            return Ok(LoopAction::Proceed);
+        }
+    };
+}
+
+/// [`refuse_unrecordable_or_bail`], then set the working tree aside for the
+/// operation. For the handlers that stash unconditionally.
+#[macro_export]
+macro_rules! start_operation_or_bail {
+    ($git_repo:expr, $app:expr) => {
+        $crate::refuse_unrecordable_or_bail!($git_repo, $app);
         if let Err(e) = $git_repo.autostash_save() {
             $app.set_error_message(format!("Auto-stash failed: {e:#}"));
             return Ok(LoopAction::Proceed);
