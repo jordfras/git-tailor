@@ -37,6 +37,11 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // taken against a tree that no longer matches.
     let mut edit_abort_failed = false;
 
+    // Set when the journal cannot be read, which the restore below needs for a
+    // different reason: it reads the same journal to find the stash, fails on
+    // it, and its own message would be the one left on screen.
+    let mut journal_unreadable = false;
+
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(record)) => match *record {
             InProgress::Edit(_) => {
@@ -117,6 +122,7 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
         // became unreadable between that read and this one. Nothing is ignored:
         // every operation needs to add to it, and will refuse.
         Ok(JournalStatus::Corrupt(e)) => {
+            journal_unreadable = true;
             app.set_error_message(format!(
                 "Cannot read the operation journal: {e}. Nothing can run against \
                  it — restart, or run `gt --clean-journal` to discard it"
@@ -124,6 +130,7 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
         }
         Ok(JournalStatus::None) => {}
         Err(e) => {
+            journal_unreadable = true;
             app.set_error_message(format!("Failed to read operation journal: {e:#}"));
         }
     }
@@ -132,7 +139,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !edit_abort_failed && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+    if !edit_abort_failed && !journal_unreadable && !matches!(app.mode, AppMode::RecoverConfirm(_))
+    {
         match git_repo.autostash_restore() {
             Ok(AutostashRestore::Done) => {}
             Ok(AutostashRestore::Conflict { files }) => {
