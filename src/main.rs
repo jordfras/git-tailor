@@ -114,10 +114,13 @@ fn main() -> Result<()> {
     // should not be refused because a TUI happens to be open.
     let _session = acquire_session_lock(&git_repo)?;
 
-    // Two journals the TUI must not open on, both of which would drop the user
+    // The journals the TUI must not open on, each of which would drop the user
     // into a confusing half-finished state. Checked here, while the terminal is
     // still in its normal mode, so the message is readable — and after the
     // maintenance paths above, so `--clean-journal` is always reachable.
+    //
+    // Matched variant by variant rather than with a `_` arm: a status nobody has
+    // decided about must not default to opening anyway.
     match git_repo.read_journal()? {
         JournalStatus::UpgradeInterrupted { op } => {
             eprintln!(
@@ -144,7 +147,22 @@ fn main() -> Result<()> {
             );
             std::process::exit(1);
         }
-        _ => {}
+        // Reading it is not the problem; adding to it is. Every write goes
+        // through the current schema, so the first one would rewrite a document
+        // this build cannot represent as one it can — and an in-progress record
+        // naming a variant it has never heard of fails the whole read anyway,
+        // which is the case above.
+        JournalStatus::NewerVersion(version) => {
+            eprintln!(
+                "git-tailor's operation journal was written by a newer version \
+                 (format v{version}), which this one cannot add to.\n\
+                 Upgrade git-tailor, or run `gt --clean-journal` to discard the \
+                 journal — any uncommitted work it recorded is kept, and \
+                 `gt --list-rescued` shows it. `gt --static` browses without it."
+            );
+            std::process::exit(1);
+        }
+        JournalStatus::Recovered(_) | JournalStatus::None => {}
     }
 
     // TUI path: resolve bounds first (fast), then start the TUI immediately.

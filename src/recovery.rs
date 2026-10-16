@@ -110,15 +110,9 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 }
             }
         },
-        Ok(JournalStatus::NewerVersion(v)) => {
-            app.set_error_message(format!(
-                "Ignoring a journal written by a newer git-tailor (format v{v}); \
-                 upgrade git-tailor or remove .git/git-tailor/journal.json"
-            ));
-        }
-        // Handled before the TUI starts (see main): this path bails out early,
+        // Handled before the TUI starts (see main): those paths bail out early,
         // so reaching here would be a bug. Nothing to do.
-        Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
+        Ok(JournalStatus::UpgradeInterrupted { .. }) | Ok(JournalStatus::NewerVersion(_)) => {}
         // Also refused before the TUI starts, so getting here means the journal
         // became unreadable between that read and this one. Nothing is ignored:
         // every operation needs to add to it, and will refuse.
