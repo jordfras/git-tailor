@@ -248,6 +248,32 @@ fn prune_clears_stale_undo_history_and_pins() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
+/// Pruning defaulted an unreadable journal, so it reconciled the pins against an
+/// empty document and deleted every one. For an interrupted fold those pins are
+/// the only thing holding the tree with the user's uncommitted work, and this
+/// runs at startup, before anything has told the user the journal is unreadable.
+#[test]
+fn prune_leaves_the_pins_alone_when_the_journal_cannot_be_read() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+    let pins_before = undo_pin_count(&test);
+    assert!(pins_before >= 1);
+
+    let journal = test.repo.path().join("git-tailor").join("journal.json");
+    std::fs::write(&journal, "{ this is not valid json").unwrap();
+
+    assert!(git_repo.prune_stale_journal().is_err());
+
+    assert_eq!(undo_pin_count(&test), pins_before);
+}
+
 #[test]
 fn prune_keeps_valid_undo_history_and_pins() {
     let test = common::TestRepo::new();

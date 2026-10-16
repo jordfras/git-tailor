@@ -196,12 +196,14 @@ fn a_fold_across_a_leftover_fold_commit_is_refused_before_the_lift() {
     assert_eq!(stash_count(&test), stashes, "nothing may be parked");
 }
 
-/// The journal is read only when a temporary commit turns up, so one that
-/// cannot be read does not stand in the way of an ordinary rewrite.
+/// The leftover check reads the journal only when a temporary commit turns up,
+/// so one that cannot be read does not stand in the way of the rewrite itself.
+/// Recording it is what fails — and `gt` refuses to start on such a journal, so
+/// getting here means it became unreadable mid-session.
 #[test]
-fn an_unreadable_journal_does_not_block_a_rewrite() {
+fn an_unreadable_journal_does_not_block_the_rewrite_itself() {
     let test = common::TestRepo::new();
-    test.commit_file("a.txt", "a1\n", "base");
+    let base = test.commit_file("a.txt", "a1\n", "base");
     let middle = test.commit_file("b.txt", "b1\n", "middle");
     test.commit_file("c.txt", "c1\n", "top");
     let journal_dir = test.repo.path().join("git-tailor");
@@ -210,9 +212,16 @@ fn an_unreadable_journal_does_not_block_a_rewrite() {
     let mut git_repo = test.git_repo();
     let head = git_repo.head_oid().unwrap();
 
-    git_repo
-        .drop_commit(&Oid::from(middle), &head)
-        .expect("nothing in the range needs the journal");
+    let result = git_repo.drop_commit(&Oid::from(middle), &head);
+
+    assert!(result.is_err(), "the drop cannot be recorded");
+    let tip = test.repo.head().unwrap().peel_to_commit().unwrap();
+    assert_eq!(tip.message_bytes(), b"top");
+    assert_eq!(
+        tip.parent_id(0).unwrap(),
+        base,
+        "the drop itself landed, with the middle commit gone"
+    );
 }
 
 fn stash_count(test: &common::TestRepo) -> usize {
