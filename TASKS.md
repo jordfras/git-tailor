@@ -12,24 +12,6 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T265 P2 bug - `--clean-journal` destroys an interrupted fold's uncommitted
-  work when the journal it is clearing cannot be read. `clean_journal`
-  (`src/repo/git2_impl.rs`) finds the working tree to rescue through
-  `journal::worktree_source(self).ok().flatten()`, so an unreadable journal skips
-  the rescue silently, and `journal::clean` then sweeps the `wt/<id>/undo/*` pins
-  that were the only things naming that tree. T263 made this the hatch gt sends
-  the user to, which is what raises it from a corner to a hole: refuse to start,
-  recommend `--clean-journal`, lose the work.
-  The information is not gone. The pins are still there, and the tree-valued ones
-  could be peeled into `refs/git-tailor/rescue/*` ahead of the sweep. A ref's own
-  target has to be type-checked rather than peeled, since peeling a commit pin
-  yields its tree and `rescued_trees` would then list it as rescued work. It
-  over-keeps: `IndexChange` and `MixedReset` records pin index trees too, and
-  nothing tells those from a fold's, so a repository with undo history would get
-  a few extra rescue refs. That is the right side to err on, and
-  `--list-rescued`/`--drop-rescued` already handle them.
-  Autostash and parked stashes survive in `git stash list` either way, which the
-  command's own output could say.
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
   made the journal durable, but the objects and ref moves of a rewrite are
   still written without a flush, so a power cut can leave the journal naming a
