@@ -61,6 +61,12 @@ The format is based on
   first thing that writes one. That overwrite could take an auto-stash record
   with it, leaving the stash holding your uncommitted changes referenced by
   nothing
+- `gt` also refuses to start on a journal written by a newer git-tailor, rather
+  than rewriting it as the current format with the first operation
+- An operation is now refused up front when git-tailor cannot record it in the
+  journal — before the editor a reword or commit opens, and before any history
+  is rewritten. It used to go ahead and then report a failure the branch
+  disagreed with, leaving the rewrite in place with no way to undo it
 - A rewrite is refused when it would replay the temporary commit an
   interrupted squash of the Staged or Unstaged row left on the branch, once
   `--clean-journal` or a branch moved since has dropped the record of it. It
