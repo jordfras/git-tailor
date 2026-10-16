@@ -12,33 +12,24 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T263 P1 bug - A journal that cannot be read is overwritten by the next
-  thing that writes one, instead of being left alone. Eleven mutating helpers in
-  `journal.rs` start from `load_doc(repo).unwrap_or_default()`, so a read or
-  parse failure is indistinguishable from an empty document: the mutation lands
-  on `JournalDoc::default()` and `save` writes that over the file. When the
-  mutation is a *clear* — `set_worktree_source(None)`, `set_autostash(None)` —
-  the result is empty, and `save` removes the journal outright.
-  The loss: a journal holding an `autostash` record and a paused `in_progress`
-  becomes unreadable, the next operation clears one field, and the stash naming
-  the user's uncommitted changes is no longer referenced by anything. Nothing
-  reapplies it and nothing says it is there.
-  Reachable without exotic failures, and T242 made it the *remaining* way to
-  lose work: startup reports a corrupt journal and carries on
-  (`recovery.rs`, "Ignoring unreadable operation journal"), and the first
-  operation after that warning is what destroys it. T242's own premise — that a
-  corrupt-but-present journal "comes back as `JournalStatus::Corrupt` and tells
-  the user" — is only true until something writes. Nor does it take
-  corruption: on Windows, a scanner holding the file for longer than the read
-  retries' 255 ms makes the read fail just the same.
-  The decision this needs, which is why it is filed rather than fixed: a
-  rewrite cannot proceed on a journal it cannot read, but refusing every
-  operation until `--clean-journal` is run is a hard stop for what may be one
-  stale byte. Likely shape: propagate the error from the mutating helpers
-  (`load_doc(repo)?`) so the operation refuses and names the journal, and let
-  `--clean-journal` remain the way out — but check what refuses *before* a
-  rewrite starts, so a refusal lands where the user can still act on it rather
-  than half-way through.
+- [ ] T265 P2 bug - `--clean-journal` destroys an interrupted fold's uncommitted
+  work when the journal it is clearing cannot be read. `clean_journal`
+  (`src/repo/git2_impl.rs`) finds the working tree to rescue through
+  `journal::worktree_source(self).ok().flatten()`, so an unreadable journal skips
+  the rescue silently, and `journal::clean` then sweeps the `wt/<id>/undo/*` pins
+  that were the only things naming that tree. T263 made this the hatch gt sends
+  the user to, which is what raises it from a corner to a hole: refuse to start,
+  recommend `--clean-journal`, lose the work.
+  The information is not gone. The pins are still there, and the tree-valued ones
+  could be peeled into `refs/git-tailor/rescue/*` ahead of the sweep. A ref's own
+  target has to be type-checked rather than peeled, since peeling a commit pin
+  yields its tree and `rescued_trees` would then list it as rescued work. It
+  over-keeps: `IndexChange` and `MixedReset` records pin index trees too, and
+  nothing tells those from a fold's, so a repository with undo history would get
+  a few extra rescue refs. That is the right side to err on, and
+  `--list-rescued`/`--drop-rescued` already handle them.
+  Autostash and parked stashes survive in `git stash list` either way, which the
+  command's own output could say.
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
   made the journal durable, but the objects and ref moves of a rewrite are
   still written without a flush, so a power cut can leave the journal naming a
