@@ -114,19 +114,37 @@ fn main() -> Result<()> {
     // should not be refused because a TUI happens to be open.
     let _session = acquire_session_lock(&git_repo)?;
 
-    // An operation interrupted under an older git-tailor cannot be resumed by
-    // this version. Refuse to start the TUI — which would drop the user into a
-    // confusing half-finished state — until they resolve it. Checked here, while
-    // the terminal is still in its normal mode, so the message is readable.
-    if let JournalStatus::UpgradeInterrupted { op } = git_repo.read_journal()? {
-        eprintln!(
-            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
-             This version cannot resume it. Finish it with the previous git-tailor, \
-             or run `gt --clean-journal` to discard it and start fresh — any \
-             uncommitted work it recorded is kept, and `gt --list-rescued` \
-             shows it."
-        );
-        std::process::exit(1);
+    // Two journals the TUI must not open on, both of which would drop the user
+    // into a confusing half-finished state. Checked here, while the terminal is
+    // still in its normal mode, so the message is readable — and after the
+    // maintenance paths above, so `--clean-journal` is always reachable.
+    match git_repo.read_journal()? {
+        JournalStatus::UpgradeInterrupted { op } => {
+            eprintln!(
+                "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
+                 This version cannot resume it. Finish it with the previous git-tailor, \
+                 or run `gt --clean-journal` to discard it and start fresh — any \
+                 uncommitted work it recorded is kept, and `gt --list-rescued` \
+                 shows it."
+            );
+            std::process::exit(1);
+        }
+        // The journal is the only record of what the repository is in the middle
+        // of, and every operation starts by reading it to add to it. Opening
+        // anyway means the first write defaults the document and puts that over
+        // the file — taking an auto-stash record, and the only reference to the
+        // stash holding the user's uncommitted changes, with it.
+        JournalStatus::Corrupt(why) => {
+            eprintln!(
+                "git-tailor cannot read its operation journal: {why}\n\
+                 Nothing can run against a journal it cannot add to. Run \
+                 `gt --clean-journal` to discard it — it keeps any uncommitted \
+                 work it can still find, and `git stash list` holds what was \
+                 stashed for an operation. `gt --static` browses without it."
+            );
+            std::process::exit(1);
+        }
+        _ => {}
     }
 
     // TUI path: resolve bounds first (fast), then start the TUI immediately.

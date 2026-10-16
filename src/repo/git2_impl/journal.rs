@@ -385,7 +385,13 @@ fn journal_path(repo: &Git2Repo) -> PathBuf {
     journal_dir(repo).join("journal.json")
 }
 
-/// Load the current document, returning an empty default when the file is absent.
+/// Load the current document, returning an empty default when the file is
+/// absent.
+///
+/// Only an absent file is the empty document. A read or parse failure is an
+/// error and must be propagated, never defaulted: the mutation would land on
+/// `JournalDoc::default()` and [`save`] would write that over a journal nobody
+/// could read, or remove it outright.
 fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
     let path = journal_path(repo);
     let Some(bytes) = durable_file::read(&path)? else {
@@ -438,7 +444,7 @@ pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
 /// Record (or clear, with `None`) the working-tree-source snapshot for the
 /// in-flight operation.
 pub(super) fn set_worktree_source(repo: &mut Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.worktree_source = snapshot;
     save(repo, &mut doc)
 }
@@ -450,7 +456,7 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 
 /// Record (or clear, with `None`) the auto-stash for the in-flight operation.
 pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.autostash = record;
     save(repo, &mut doc)
 }
@@ -462,7 +468,7 @@ pub(super) fn parked(repo: &Git2Repo) -> Result<Option<ParkedRow>> {
 
 /// Record (or clear, with `None`) the row a fold parked.
 pub(super) fn set_parked(repo: &mut Git2Repo, record: Option<ParkedRow>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.parked = record;
     save(repo, &mut doc)
 }
@@ -479,7 +485,7 @@ pub(super) fn drop_reverted_undo_record(
     pre_op_tip: &Oid,
     discarded_tip: &Oid,
 ) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     if doc.undo.last().is_some_and(|r| {
         matches!(
             r,
@@ -507,7 +513,7 @@ pub(super) fn drop_reverted_undo_record(
 ///   operation — dropping any orphans. The `orig` pin belongs to a paused
 ///   operation, so it is dropped whenever there is none.
 pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
 
     // A fold in flight is an operation in progress too, even before it reaches a
     // conflict: its temporary commit moves the branch off the tip the undo stack
@@ -605,7 +611,7 @@ fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
 
 /// Record `record` as the in-progress operation and pin the original branch tip.
 pub(super) fn set_in_progress(repo: &mut Git2Repo, record: &InProgress) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = Some(record.clone());
     save(repo, &mut doc)?;
 
@@ -627,7 +633,7 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 /// Clear the in-progress record after a clean completion or abort, keeping any
 /// undo/redo stack intact, and drop the in-progress pin ref.
 pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = None;
     save(repo, &mut doc)?;
     delete_orig_ref(repo);
@@ -635,13 +641,13 @@ pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
 }
 
 /// Abandon whatever operation was in flight: the paused record *and* the
-/// working-tree snapshot. Used when a journal is discarded as unusable, where
-/// leaving the snapshot behind would keep telling later operations that a dirty
-/// working tree is accounted for. Distinct from
+/// working-tree snapshot. Used when a journal no longer describes the
+/// repository, where leaving the snapshot behind would keep telling later
+/// operations that a dirty working tree is accounted for. Distinct from
 /// [`clear_in_progress`], which only ends one phase of an operation that is
 /// still running.
 pub(super) fn discard_in_flight(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = None;
     doc.worktree_source = None;
     save(repo, &mut doc)?;
@@ -881,7 +887,7 @@ pub(super) fn record_mixed_undo(
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
 fn push_undo(repo: &mut Git2Repo, record: UndoRecord) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.undo.push(record);
     doc.redo.clear();
     while doc.undo.len() > MAX_UNDO_DEPTH {
@@ -913,7 +919,7 @@ pub(super) fn pending_redo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
 /// history-rewriting op restores its pre-operation tip; an index-only op restores
 /// its pre-operation index tree; a commit soft-resets to its parent.
 pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     let Some(record) = doc.undo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
@@ -982,7 +988,7 @@ pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
 /// Redo the most recently undone operation, moving its record back to the undo
 /// stack: restore its post-operation tip, or its post-operation index tree.
 pub(super) fn apply_redo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     let Some(record) = doc.redo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
@@ -1195,7 +1201,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     // cleanly rather than mis-parsed.
     let header: VersionHeader = match serde_json::from_slice(&bytes) {
         Ok(h) => h,
-        Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+        Err(e) => return invalid_json(&path, &e),
     };
     if header.version > JOURNAL_VERSION {
         return JournalStatus::NewerVersion(header.version);
@@ -1213,7 +1219,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         if header.version < 2 {
             let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
                 Ok(d) => d,
-                Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+                Err(e) => return invalid_json(&path, &e),
             };
             if let Some(op) = old.interrupted_op_label() {
                 return JournalStatus::UpgradeInterrupted { op };
@@ -1227,7 +1233,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         // means something different between them.
         let old: JournalDoc = match serde_json::from_slice(&bytes) {
             Ok(d) => d,
-            Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+            Err(e) => return invalid_json(&path, &e),
         };
         match migrate_v2(old) {
             Ok(upgraded) => {
@@ -1249,9 +1255,15 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
 
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
-        Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+        Err(e) => return invalid_json(&path, &e),
     };
     classify(doc)
+}
+
+/// A journal whose bytes will not parse. Names the file, because the user is
+/// being told to go and deal with it.
+fn invalid_json(path: &std::path::Path, e: &serde_json::Error) -> JournalStatus {
+    JournalStatus::Corrupt(format!("invalid JSON in {}: {e}", path.display()))
 }
 
 fn classify(doc: JournalDoc) -> JournalStatus {
