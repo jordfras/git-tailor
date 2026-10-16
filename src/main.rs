@@ -386,13 +386,15 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
         summary.refs_removed
     );
     // Ahead of the count below, which the kept trees are part of: this is what
-    // says where they came from, and it is the only report the user gets of a
-    // journal whose contents nothing could read.
-    if let Some(trees) = summary.trees_rescued {
+    // says where they came from. Only when there are some: a journal whose
+    // record could not be used but pinned nothing has cost the user nothing,
+    // and saying so would contradict the `--clean-journal` instruction that
+    // sent them here.
+    if summary.trees_rescued.is_some_and(|trees| trees > 0) {
         println!(
-            "The journal could not be read, so whatever it recorded is gone from \
-             git-tailor's view. {trees} tree(s) its pins still named were kept, and \
-             `git stash list` holds anything it had set aside."
+            "What the journal recorded could not be used, so the refs it still \
+             pinned stood in for it. `git stash list` holds anything it had set \
+             aside."
         );
     }
     if summary.rescue_refs_kept > 0 {

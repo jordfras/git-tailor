@@ -391,7 +391,7 @@ fn clean_journal_reports_what_it_kept_from_an_unreadable_journal() {
 
     assert!(out.status.success(), "exit: {:?}", out.status);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for expected in ["could not be read", "--list-rescued", "git stash list"] {
+    for expected in ["could not be used", "--list-rescued", "git stash list"] {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
 }
