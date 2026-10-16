@@ -51,6 +51,11 @@ The format is based on
 
 ### Fixed
 
+- `gt` now refuses to start on an operation journal it cannot read, and says how
+  to discard it, instead of starting and leaving it to be overwritten by the
+  first thing that writes one. That overwrite could take an auto-stash record
+  with it, leaving the stash holding your uncommitted changes referenced by
+  nothing
 - A rewrite is refused when it would replay the temporary commit an
   interrupted squash of the Staged or Unstaged row left on the branch, once
   `--clean-journal` or a branch moved since has dropped the record of it. It

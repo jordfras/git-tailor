@@ -119,8 +119,14 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
         // Handled before the TUI starts (see main): this path bails out early,
         // so reaching here would be a bug. Nothing to do.
         Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
+        // Also refused before the TUI starts, so getting here means the journal
+        // became unreadable between that read and this one. Nothing is ignored:
+        // every operation needs to add to it, and will refuse.
         Ok(JournalStatus::Corrupt(e)) => {
-            app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
+            app.set_error_message(format!(
+                "Cannot read the operation journal: {e}. Nothing can run against \
+                 it — restart, or run `gt --clean-journal` to discard it"
+            ));
         }
         Ok(JournalStatus::None) => {}
         Err(e) => {
