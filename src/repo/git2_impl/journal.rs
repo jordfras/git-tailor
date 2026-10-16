@@ -431,6 +431,19 @@ fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
         .with_context(|| format!("failed to parse journal at {}", path.display()))
 }
 
+/// Refuse when the journal is not this build's to add to, before an operation
+/// that would have to add to it starts.
+///
+/// Every mutating helper begins by loading the document, so without this the
+/// refusal lands wherever that load happens to sit — for a rewrite, after the
+/// branch has already moved, which reports a landed rewrite as a failure and
+/// leaves no undo entry. One parse buys the refusal while it is still free.
+pub(super) fn refuse_if_unusable(repo: &Git2Repo) -> Result<()> {
+    load_doc(repo)
+        .map(|_| ())
+        .context("git-tailor cannot record this operation, so it will not run")
+}
+
 fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
     let dir = journal_dir(repo);
     std::fs::create_dir_all(&dir)

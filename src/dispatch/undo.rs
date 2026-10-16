@@ -21,11 +21,15 @@ use git_tailor::app::AppState;
 use git_tailor::repo::{AutostashRestore, GitRepo, UndoOutcome};
 
 use crate::dispatch::{LoopAction, settle_autostash};
+use crate::refuse_unrecordable_or_bail;
 
 pub(crate) fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
     // A working-tree-preserving undo (stage/unstage all, or a commit's soft
     // reset) restores the very state that auto-stash would squirrel away and
     // reapply — running the stash dance would negate it — so bypass it for those.
+    // Not inside the `skip_autostash` arm below: the journal is what undo reads
+    // to know what to undo, whether or not a stash is taken for it.
+    refuse_unrecordable_or_bail!(git_repo, app);
     let skip_autostash = git_repo.pending_undo_skips_autostash().unwrap_or(false);
     if !skip_autostash && let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e:#}"));
@@ -61,7 +65,8 @@ pub(crate) fn handle_undo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Re
 }
 
 pub(crate) fn handle_redo(git_repo: &mut impl GitRepo, app: &mut AppState) -> Result<LoopAction> {
-    // See handle_undo: skip the auto-stash dance for a working-tree-preserving redo.
+    // See handle_undo, for both of these.
+    refuse_unrecordable_or_bail!(git_repo, app);
     let skip_autostash = git_repo.pending_redo_skips_autostash().unwrap_or(false);
     if !skip_autostash && let Err(e) = git_repo.autostash_save() {
         app.set_error_message(format!("Auto-stash failed: {e:#}"));

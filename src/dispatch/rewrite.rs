@@ -22,11 +22,12 @@ use git_tailor::Oid;
 use git_tailor::app::{AppState, SquashMode, SquashSource};
 use git_tailor::repo::{GitRepo, LiftedRow};
 
-use crate::autostash_save_or_bail;
 use crate::dispatch::{
     LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
     settle_autostash_after_failure,
 };
+use crate::refuse_unrecordable_or_bail;
+use crate::start_operation_or_bail;
 
 pub(crate) fn handle_execute_drop(
     git_repo: &mut impl GitRepo,
@@ -34,7 +35,7 @@ pub(crate) fn handle_execute_drop(
     commit_oid: Oid,
     head_oid: Oid,
 ) -> Result<LoopAction> {
-    autostash_save_or_bail!(git_repo, app);
+    start_operation_or_bail!(git_repo, app);
     let outcome = git_repo.drop_commit(&commit_oid, &head_oid);
     Ok(handle_rebase_outcome(
         git_repo,
@@ -54,7 +55,7 @@ pub(crate) fn handle_execute_move(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
-    autostash_save_or_bail!(git_repo, app);
+    start_operation_or_bail!(git_repo, app);
     let outcome = git_repo.move_commit(&source_oid, insert_after_oid.as_ref(), &head_oid);
     Ok(handle_rebase_outcome(
         git_repo,
@@ -75,6 +76,9 @@ pub(crate) fn handle_prepare_reword(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
+    // Before the editor: a message typed into one and then thrown away is worth
+    // more than the keystroke that opened it.
+    refuse_unrecordable_or_bail!(git_repo, app);
     // Read from the repository, never from the list's rendering of the
     // message: that rendering is lossy, and seeding the editor with it would
     // write its replacement characters back as the message.
@@ -370,6 +374,10 @@ pub(super) fn prepare_source(
     let Some(tip) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(None);
     };
+    if let Err(e) = git_repo.refuse_if_journal_unusable() {
+        app.set_error_message(format!("{e:#}"));
+        return Ok(None);
+    }
     match source {
         SquashSource::Commit { oid, .. } => {
             let head_oid = tip;

@@ -384,6 +384,13 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("abort failed"))
         }
     }
+    fn refuse_if_journal_unusable(&self) -> anyhow::Result<()> {
+        match (&self.journal_corrupt, self.journal_newer_version) {
+            (Some(why), _) => anyhow::bail!("{why}"),
+            (None, Some(version)) => anyhow::bail!("journal format v{version}"),
+            (None, None) => Ok(()),
+        }
+    }
     fn read_journal(&mut self) -> anyhow::Result<git_tailor::repo::JournalStatus> {
         if let Some(why) = &self.journal_corrupt {
             return Ok(git_tailor::repo::JournalStatus::Corrupt(why.clone()));
