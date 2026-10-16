@@ -44,6 +44,39 @@ fn execute_drop_complete_sets_success_message() {
     assert!(!app.status.is_error);
 }
 
+/// An operation that cannot record itself must not start. The refusal is taken
+/// before the stash, the editor and the dialog, where it costs the user nothing
+/// — not where the journal is first written, which for a rewrite is after the
+/// branch has already moved.
+#[test]
+fn an_operation_is_refused_before_anything_when_the_journal_cannot_record_it() {
+    let mut repo = MockRepo {
+        journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    let result = handle_execute_drop(
+        &mut repo,
+        &mut app,
+        Oid::from("a".repeat(40)),
+        Oid::from("b".repeat(40)),
+    );
+
+    assert!(matches!(result, Ok(LoopAction::Proceed)));
+    assert!(app.status.is_error);
+    assert_eq!(
+        repo.autostash_save_calls.get(),
+        0,
+        "the refusal comes before the working tree is touched"
+    );
+    assert_ne!(
+        app.status.message.as_deref(),
+        Some("Commit dropped"),
+        "and before the drop"
+    );
+}
+
 #[test]
 fn execute_drop_opens_stash_conflict_dialog_on_conflict() {
     // The drop completed, but reapplying the auto-stash conflicted. Instead of a
