@@ -161,6 +161,36 @@ fn worktree_id(name: &std::ffi::OsStr) -> String {
     }
 }
 
+/// Every ref whose name starts with one of `prefixes`.
+fn refs_matching(repo: &Git2Repo, prefixes: &[&str]) -> Result<Vec<String>> {
+    let mut refs = repo
+        .inner
+        .references()
+        .context("failed to enumerate references")?;
+    Ok(refs
+        .names()
+        .filter_map(|name| name.ok())
+        .filter(|name| prefixes.iter().any(|prefix| name.starts_with(prefix)))
+        .map(String::from)
+        .collect())
+}
+
+/// Pins belonging to this working tree, under `mine` — plus anything an older
+/// version left under the flat names. Another working tree's pin may be the only
+/// thing keeping a paused conflict or interrupted fold of its own reachable, and
+/// this tree's journal knows nothing about it.
+fn my_pins(repo: &Git2Repo, mine: &str) -> Result<Vec<String>> {
+    let mut prefixes = vec![mine];
+    prefixes.extend(LEGACY_PIN_PREFIXES);
+    refs_matching(repo, &prefixes)
+}
+
+/// Every rescue ref. Repository-wide: they are content-addressed and record no
+/// owning working tree.
+fn rescue_ref_names(repo: &Git2Repo) -> Result<Vec<String>> {
+    refs_matching(repo, &[&format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}")])
+}
+
 /// Full name of the in-progress `orig` pin for this working tree.
 fn orig_ref(repo: &Git2Repo) -> String {
     format!("{}{ORIG_REF_LEAF}", worktree_prefix(repo))
@@ -567,22 +597,9 @@ fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
     // Only this working tree's pins, plus anything an older version left under
     // the flat names. Another working tree's belong to its journal, not ours.
     let mine = format!("{prefix}{UNDO_REF_LEAF}");
-    if let Ok(mut refs) = repo.inner.references() {
-        let names: Vec<String> = refs
-            .names()
-            .filter_map(|n| n.ok())
-            .filter(|name| {
-                name.starts_with(&mine)
-                    || LEGACY_PIN_PREFIXES
-                        .iter()
-                        .any(|legacy| name.starts_with(legacy))
-            })
-            .map(String::from)
-            .collect();
-        for name in names {
-            if let Ok(mut r) = repo.inner.find_reference(&name) {
-                let _ = r.delete();
-            }
+    for name in my_pins(repo, &mine).unwrap_or_default() {
+        if let Ok(mut r) = repo.inner.find_reference(&name) {
+            let _ = r.delete();
         }
     }
 
@@ -667,40 +684,15 @@ fn delete_orig_ref(repo: &mut Git2Repo) {
 ///
 /// Refs are discovered by namespace rather than from the journal, so stray refs
 /// are removed even when the journal is missing, corrupt, or out of sync — this
-/// is the manual escape hatch behind `--clean-journal`. Scoped to this working
-/// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
-/// another working tree's pin may be the only thing keeping a paused conflict
-/// or interrupted fold of its own reachable, and this tree's journal knows
-/// nothing about it.
+/// is the manual escape hatch behind `--clean-journal`.
 ///
 /// Rescue refs are left alone and only counted. They are repository-wide, and
 /// each is uncommitted work with no other copy — a per-working-tree cleanup has
 /// no business destroying it, least of all silently.
 pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
-    let mine = worktree_prefix(repo);
-    let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
-    let mut refs = repo
-        .inner
-        .references()
-        .context("failed to enumerate references")?;
-    let mut rescue_refs_kept = 0;
-    let names: Vec<String> = refs
-        .names()
-        .filter_map(|n| n.ok())
-        .filter(|name| {
-            if name.starts_with(&rescue_prefix) {
-                rescue_refs_kept += 1;
-                return false;
-            }
-            name.starts_with(&mine)
-                || LEGACY_PIN_PREFIXES
-                    .iter()
-                    .any(|legacy| name.starts_with(legacy))
-        })
-        .map(|name| name.to_string())
-        .collect();
+    let rescue_refs_kept = rescue_ref_names(repo)?.len();
     let mut refs_removed = 0;
-    for name in names {
+    for name in my_pins(repo, &worktree_prefix(repo))? {
         if let Ok(mut r) = repo.inner.find_reference(&name)
             && r.delete().is_ok()
         {
@@ -724,18 +716,7 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
 
 /// Every working tree kept under the rescue namespace.
 pub(super) fn rescued_trees(repo: &Git2Repo) -> Result<Vec<crate::repo::RescuedTree>> {
-    let prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
-    let mut refs = repo
-        .inner
-        .references()
-        .context("failed to enumerate references")?;
-    let names: Vec<String> = refs
-        .names()
-        .filter_map(|n| n.ok())
-        .filter(|name| name.starts_with(&prefix))
-        .map(|name| name.to_string())
-        .collect();
-
+    let names = rescue_ref_names(repo)?;
     let mut out = Vec::with_capacity(names.len());
     for refname in names {
         let Ok(reference) = repo.inner.find_reference(&refname) else {
