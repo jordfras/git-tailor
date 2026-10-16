@@ -855,3 +855,43 @@ fn autostash_restore_refuses_a_colliding_untracked_file_by_name() {
         "the stash is kept so the user can retry once the path is clear"
     );
 }
+
+/// A clean working tree has nothing to stash, so whether the journal can be read
+/// is beside the point. Asking it first meant an operation on a clean tree
+/// failed with "Auto-stash failed" over a journal it was never going to write.
+#[test]
+fn a_clean_tree_does_not_need_the_journal_to_skip_stashing() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let journal = test.repo.path().join("git-tailor");
+    std::fs::create_dir_all(&journal).unwrap();
+    std::fs::write(journal.join("journal.json"), "{ this is not valid json").unwrap();
+
+    let mut git_repo = test.git_repo();
+
+    git_repo
+        .autostash_save()
+        .expect("there is nothing to stash, so there is nothing to record");
+}
+
+/// A dirty one does need it: the stash has to be recorded to be put back, and an
+/// idempotence check that cannot read the journal cannot tell whether one is
+/// already waiting.
+#[test]
+fn a_dirty_tree_still_refuses_when_the_journal_cannot_be_read() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    test.write_file("a.txt", "DIRTY\n");
+    let journal = test.repo.path().join("git-tailor");
+    std::fs::create_dir_all(&journal).unwrap();
+    std::fs::write(journal.join("journal.json"), "{ this is not valid json").unwrap();
+
+    let mut git_repo = test.git_repo();
+
+    assert!(git_repo.autostash_save().is_err());
+    assert_eq!(
+        stash_count(test.repo.path()),
+        0,
+        "and nothing may be stashed that nothing records"
+    );
+}
