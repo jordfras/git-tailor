@@ -698,6 +698,10 @@ impl RepoWrite for Git2Repo {
         journal::clear_in_progress(self)
     }
 
+    fn refuse_if_journal_unusable(&self) -> Result<()> {
+        journal::refuse_if_unusable(self)
+    }
+
     fn read_journal(&mut self) -> Result<super::JournalStatus> {
         Ok(journal::read(self))
     }

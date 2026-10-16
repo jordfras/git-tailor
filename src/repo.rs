@@ -790,6 +790,16 @@ pub trait RepoWrite {
     /// working tree and index.
     fn rebase_abort(&mut self, state: &ConflictState) -> Result<()>;
 
+    /// Refuse when the operation journal is not this build's to add to, so an
+    /// operation that cannot record itself never starts.
+    ///
+    /// Taken before anything an operation does — stash, editor, dialog, rewrite
+    /// — because that is where a refusal costs nothing. Without it the failure
+    /// lands wherever the journal is first written, which for a rewrite is after
+    /// the branch has moved: reported as a failure, with the rewrite landed and
+    /// no undo entry.
+    fn refuse_if_journal_unusable(&self) -> Result<()>;
+
     /// Read the crash-safety journal to detect an operation interrupted by a
     /// previous run (process killed or crashed mid-conflict).
     ///

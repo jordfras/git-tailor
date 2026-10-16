@@ -15,6 +15,7 @@
 // Side-effect handlers for resolving rebase and auto-stash conflicts: running
 // the merge tool or editor, and continuing or aborting the paused operation.
 
+use crate::refuse_unrecordable_or_bail;
 use anyhow::Result;
 use bstr::ByteSlice;
 use git_tailor::app::{AppMode, AppState};
@@ -34,6 +35,7 @@ pub(crate) fn handle_rebase_abort(
     pending: &mut PendingAutofixupSelection,
     state: ConflictState,
 ) -> Result<LoopAction> {
+    refuse_unrecordable_or_bail!(git_repo, app);
     // Aborting unwinds the whole (possibly autofixup) operation back to its
     // original tip, so any pending cursor-restoration index no longer
     // applies — clear it rather than risk it leaking into a later reload.
@@ -72,6 +74,7 @@ pub(crate) fn handle_rebase_continue(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
+    refuse_unrecordable_or_bail!(git_repo, app);
     let is_autofixup = state.autofixup_context.is_some();
     let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
     if let Resume::Squash(ref ctx) = state.resume {
