@@ -397,6 +397,7 @@ impl RepoWrite for MockRepo {
             refs_removed: 0,
             journal_removed: false,
             rescue_refs_kept: 0,
+            trees_rescued: None,
         })
     }
     fn rescued_trees(&self) -> anyhow::Result<Vec<git_tailor::repo::RescuedTree>> {

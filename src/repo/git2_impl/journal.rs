@@ -708,7 +708,57 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
         refs_removed,
         journal_removed,
         rescue_refs_kept,
+        // The caller knows whether the journal could be read; this does not.
+        trees_rescued: None,
     })
+}
+
+/// Keep every tree this working tree's pins name under the rescue namespace, so
+/// [`clean`] can drop the pins without the trees becoming garbage. Reports how
+/// many were kept.
+///
+/// For a journal that cannot be read, where the pins are all that is left of
+/// what it referenced and nothing tells a fold's working tree from an undo
+/// record's index tree. Both are kept: over-keeping costs a ref the user can see
+/// with `--list-rescued` and remove with `--drop-rescued`, where under-keeping
+/// costs the only assembled copy of a working tree.
+///
+/// Commit pins are not kept. A branch reflog still names those, while a tree
+/// object is reached by nothing once the pin is gone.
+pub(super) fn rescue_pinned_trees(repo: &mut Git2Repo) -> Result<usize> {
+    let head_tree = reads::head_oid(repo)
+        .and_then(|head| repo.commit_tree_id(git2::Oid::from(&head)))
+        .ok();
+    let trees: BTreeSet<git2::Oid> = my_pins(repo, &worktree_prefix(repo))?
+        .iter()
+        .filter_map(|name| pinned_tree(repo, name))
+        // A tree HEAD reaches is not uncommitted work, as in [`lift_op::rescue`].
+        .filter(|tree| Some(*tree) != head_tree)
+        .collect();
+
+    let mut kept = 0;
+    for tree in trees {
+        repo.inner
+            .reference(
+                &rescue_ref(&Oid::from(tree)),
+                tree,
+                true,
+                "git-tailor: kept the tree of a journal that could not be read",
+            )
+            .with_context(|| format!("failed to keep the tree {tree}"))?;
+        kept += 1;
+    }
+    Ok(kept)
+}
+
+/// The tree `refname` points at, or `None` when it points at anything else.
+///
+/// The ref's own target, not `peel`: peeling a commit pin yields that commit's
+/// tree, and every undo tip would come back as a tree to rescue.
+fn pinned_tree(repo: &Git2Repo, refname: &str) -> Option<git2::Oid> {
+    let oid = repo.inner.find_reference(refname).ok()?.target()?;
+    let object = repo.inner.find_object(oid, None).ok()?;
+    (object.kind() == Some(git2::ObjectType::Tree)).then_some(oid)
 }
 
 /// Every working tree kept under the rescue namespace.

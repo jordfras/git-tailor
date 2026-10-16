@@ -62,6 +62,10 @@ pub struct JournalCleanSummary {
     /// Rescued working trees left in place. Each is uncommitted work with no
     /// other copy, so removing one is asked for separately.
     pub rescue_refs_kept: usize,
+    /// `Some` when the journal could not be read, counting the trees its pins
+    /// still named that were kept because of it. `None` when it was read, where
+    /// the record itself says what to rescue.
+    pub trees_rescued: Option<usize>,
 }
 
 /// A working tree git-tailor kept when it had to discard the record naming it.
@@ -815,7 +819,8 @@ pub trait RepoWrite {
     /// `--clean-journal` CLI flag); returns a summary of what was removed.
     ///
     /// Rescued working trees are kept and counted, not removed — see
-    /// [`Self::drop_rescued_trees`].
+    /// [`Self::drop_rescued_trees`]. A journal that cannot be read adds to them:
+    /// the pins are then all that names what it referenced.
     fn clean_journal(&mut self) -> Result<JournalCleanSummary>;
 
     /// Every working tree kept under `refs/git-tailor/rescue/*`.

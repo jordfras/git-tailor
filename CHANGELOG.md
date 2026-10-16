@@ -51,6 +51,11 @@ The format is based on
 
 ### Fixed
 
+- `gt --clean-journal` no longer destroys the uncommitted work of an interrupted
+  squash of the Staged or Unstaged row when the journal it is discarding cannot
+  be read. It could not tell which working tree the journal named, and removed
+  the refs that were the only thing keeping it; it now keeps every one of them
+  as a rescued working tree, and says so
 - `gt` now refuses to start on an operation journal it cannot read, and says how
   to discard it, instead of starting and leaving it to be overwritten by the
   first thing that writes one. That overwrite could take an auto-stash record
