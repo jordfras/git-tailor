@@ -277,6 +277,22 @@ mod tests {
         );
     }
 
+    /// A journal from the future is not ours to touch either. Restoring an
+    /// auto-stash from it reads it through the current schema, and a document
+    /// that happens to parse is then written back as this version — the clobber
+    /// main refuses to open on.
+    #[test]
+    fn a_journal_from_the_future_is_left_alone() {
+        let mut repo = MockRepo {
+            journal_newer_version: Some(9),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.autostash_restore_calls.get(), 0);
+        assert_eq!(app.status.message, None, "main has already said it");
+    }
+
     /// The row the fold started from names itself in the report, so the user can
     /// tell which half of their work just came back.
     #[test]
