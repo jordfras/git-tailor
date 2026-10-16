@@ -714,21 +714,21 @@ impl RepoWrite for Git2Repo {
         // Both arms run before the sweep, which removes the only things naming
         // an in-flight fold's working tree. Neither is counted here — the sweep
         // counts what it leaves.
+        //
+        // Both refuse rather than carry on, because sweeping the pins after
+        // failing to keep what they name is the destruction this exists to
+        // prevent. That leaves the escape hatch refusing too, so the error says
+        // what is still there to reach the work by.
+        let still_pinned = "nothing was cleaned, so the objects are still \
+                            pinned: `git for-each-ref refs/git-tailor` lists them";
         let trees_rescued = match journal::worktree_source(self) {
-            // Best-effort: a failed rescue must not block the escape hatch.
             Ok(Some(lifted)) => {
-                let _ = lift_op::rescue(self, &lifted);
+                lift_op::rescue(self, &lifted).context(still_pinned)?;
                 None
             }
             Ok(None) => None,
-            // No record to rescue from, so the pins stand in for it — and here
-            // the refusal is the point. Sweeping the pins after failing to keep
-            // what they name is the destruction this exists to prevent, so the
-            // error says what is left to reach it by.
-            Err(_) => Some(journal::rescue_pinned_trees(self).context(
-                "nothing was cleaned, so the trees are still pinned: \
-                 `git for-each-ref refs/git-tailor` lists them",
-            )?),
+            // No record to rescue from, so the pins stand in for it.
+            Err(_) => Some(journal::rescue_pinned_trees(self).context(still_pinned)?),
         };
 
         Ok(super::JournalCleanSummary {
