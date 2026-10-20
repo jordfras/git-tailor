@@ -251,6 +251,9 @@ The format is based on
 - Canceling a reload with Ctrl-C now says the list may be out of date and that
   `R` reloads it. The list it kept on screen can name commits an operation has
   just rewritten
+- Ctrl-C works while the hunk group matrix is being built and while a split
+  works out its pieces. It used to be ignored there: now it quits at startup,
+  cancels a reload, and cancels a split as `Esc` does
 
 ### Removed
 

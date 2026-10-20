@@ -168,7 +168,12 @@ pub fn load_with_progress(
     .flatten()
     .collect();
 
-    let matrix = build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?;
+    let matrix = match build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?
+    {
+        HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
+        HunkGroupMatrixBuild::Skipped => None,
+        HunkGroupMatrixBuild::Interrupted => return Ok(false),
+    };
 
     let mut all_commits = commits;
     for d in &extra_diffs {
@@ -340,18 +345,26 @@ fn walk_commits(
     Ok(Some(raw))
 }
 
-/// Build the fragmap with a live progress dialog for each phase. Returns
-/// `Ok(None)` when any diff is missing (matrix skipped) or when the user
-/// presses `s`/`S` during file clustering.
+/// How building the hunk group matrix ended.
+enum HunkGroupMatrixBuild {
+    Built(fragmap::FragMap),
+    /// A diff is missing, or `s`/`S` was pressed during file clustering: the
+    /// list goes on without a matrix.
+    Skipped,
+    /// Ctrl-C, which abandons the whole load, as it does in [`walk_commits`].
+    Interrupted,
+}
+
+/// Build the fragmap with a live progress dialog for each phase.
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
     diff_opts: Vec<Option<CommitDiff>>,
     extra_diffs: &[CommitDiff],
     full: bool,
-) -> Result<Option<git_tailor::fragmap::FragMap>> {
+) -> Result<HunkGroupMatrixBuild> {
     let Some(mut diffs) = diff_opts.into_iter().collect::<Option<Vec<CommitDiff>>>() else {
-        return Ok(None);
+        return Ok(HunkGroupMatrixBuild::Skipped);
     };
     diffs.extend_from_slice(extra_diffs);
 
@@ -380,8 +393,12 @@ fn build_hunk_group_matrix(
         ),
         FragMapProgress::ReadingCommits { .. } => true,
     });
+    let interrupted = screen.interrupted();
     screen.finish()?;
-    Ok(result)
+    if interrupted {
+        return Ok(HunkGroupMatrixBuild::Interrupted);
+    }
+    Ok(result.map_or(HunkGroupMatrixBuild::Skipped, HunkGroupMatrixBuild::Built))
 }
 
 /// Choose the initial selection index for a commit list:
