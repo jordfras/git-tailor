@@ -109,7 +109,8 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
 }
 
 /// Load commits and diffs with a live counter dialog, then optionally build the
-/// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`.
+/// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`;
+/// on a cancel or an error the loading dialog is left for the caller to replace.
 ///
 /// When `app.list.commits` is non-empty (reload case), the dialog is shown as an
 /// overlay on top of the existing commit list. When empty (initial load), the
@@ -126,15 +127,12 @@ pub fn load_with_progress(
     full: bool,
 ) -> Result<bool> {
     let total = git_repo.commit_walker(from_oid, reference_oid)?.count();
-    let saved_mode = std::mem::replace(
-        &mut app.mode,
-        AppMode::Loading {
-            title: "Loading Commits",
-            message: "Loading commits\u{2026}",
-            progress: Some((0, total)),
-            escape: None,
-        },
-    );
+    app.mode = AppMode::Loading {
+        title: "Loading Commits",
+        message: "Loading commits\u{2026}",
+        progress: Some((0, total)),
+        escape: None,
+    };
     terminal_guard
         .terminal()
         .draw(|frame| views::loading::render(app, frame))?;
@@ -148,7 +146,6 @@ pub fn load_with_progress(
         total,
     )?
     else {
-        app.mode = saved_mode;
         return Ok(false);
     };
 
