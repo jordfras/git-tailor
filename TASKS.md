@@ -89,25 +89,6 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
-- [X] T243 P3 fix - Recognize a leftover fold commit before rewriting over it.
-  A fold moves the branch onto a temporary "git-tailor: working-tree changes"
-  commit and parks the other row in a stash. If its journal record goes before
-  the fold finishes, the branch keeps that commit and the tree is clean, so the
-  next rewrite treats the commit as the user's own. Nothing is lost: discarding
-  the record first keeps the whole working tree in a rescue ref and drops the
-  stash, or leaves the stash if keeping it failed.
-  Only two paths get there, both after a crash. Startup unwinds an interrupted
-  fold and offers a paused one for resuming; it discards the record only when
-  the branch has moved since (`discard_stale`), e.g. a `git commit` on top of
-  the temporary commit. Or `--clean-journal` with a fold interrupted or
-  paused, which leaves the branch on the temporary commit. Auto-stash cannot
-  produce a synthetic commit, and startup restores its leftover record itself.
-  Done without an ownership model for parked work: every rewrite, a fold's
-  included before it lifts, refuses one whose range holds a commit with exactly
-  the temporary message, unless it is the fold in flight's own and the
-  operation starts from it, or the rewrite drops that commit. The refusal says
-  to drop it and points at `gt --list-rescued`, rather than giving a reset
-  recipe. No warning when the list loads.
 - [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that
