@@ -165,8 +165,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     }
 }
 
-/// Discard a journal that no longer describes the repository, keeping whatever
-/// uncommitted work the fold behind it recorded.
+/// Discard a stale journal, one written before the branch moved, keeping
+/// whatever uncommitted work the fold behind it recorded.
 ///
 /// Shared by both stale paths — an interrupted fold, and a paused conflict with
 /// a fold behind it. `fold` is `None` for a conflict with no fold.
