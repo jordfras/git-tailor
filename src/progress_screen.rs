@@ -16,8 +16,8 @@
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use git_tailor::app::{AppMode, AppState, LoadingEscape};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use git_tailor::app::{AppMode, AppState, LoadingEscape, is_force_quit};
 use git_tailor::views;
 
 use crate::terminal_guard::TerminalGuard;
@@ -105,13 +105,13 @@ impl ShowProgress for ProgressScreen<'_> {
         let Some(key) = waiting_key() else {
             return true;
         };
-        self.interrupted |= is_interrupt(&key);
+        self.interrupted |= is_force_quit(&key);
         !stops(&key, escape)
     }
 }
 
 /// The key waiting to be read, if any.
-fn waiting_key() -> Option<KeyEvent> {
+pub(crate) fn waiting_key() -> Option<KeyEvent> {
     let Ok(true) = crossterm::event::poll(Duration::ZERO) else {
         return None;
     };
@@ -121,18 +121,12 @@ fn waiting_key() -> Option<KeyEvent> {
     }
 }
 
-fn is_interrupt(key: &KeyEvent) -> bool {
-    key.kind == KeyEventKind::Press
-        && key.code == KeyCode::Char('c')
-        && key.modifiers.contains(KeyModifiers::CONTROL)
-}
-
 /// Whether `key` stops a computation offering `escape`.
 fn stops(key: &KeyEvent, escape: Option<LoadingEscape>) -> bool {
     if key.kind != KeyEventKind::Press {
         return false;
     }
-    if is_interrupt(key) {
+    if is_force_quit(key) {
         return true;
     }
     match escape {
@@ -145,6 +139,7 @@ fn stops(key: &KeyEvent, escape: Option<LoadingEscape>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::KeyModifiers;
 
     /// Ctrl-C stops the commit walk before it, so it stops this too, whether or
     /// not the phase offers a key of its own.

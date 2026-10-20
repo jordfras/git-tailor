@@ -24,7 +24,7 @@ pub mod state;
 
 pub use commit_list::{CommitListState, ScrollMargin, ViewportSnapshot};
 pub use detail::{DetailContextLines, DetailState};
-pub use keymap::{KeyCommand, read_event};
+pub use keymap::{KeyCommand, is_force_quit, read_event};
 pub use operation::Operation;
 pub use scroll::ScrollState;
 pub use search::SearchState;

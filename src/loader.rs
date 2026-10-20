@@ -16,17 +16,16 @@
 // progress display, and matrix confirmation.
 
 use anyhow::{Context, Result};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use git_tailor::repo::RepoRead;
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
-    app::{AppMode, AppState, LoadingEscape},
+    app::{AppMode, AppState, LoadingEscape, is_force_quit},
     fragmap::{self, FragMapProgress},
     views,
 };
 
 use crate::cli::Cli;
-use crate::progress_screen::{ProgressScreen, ShowProgress};
+use crate::progress_screen::{ProgressScreen, ShowProgress, waiting_key};
 use crate::terminal_guard::TerminalGuard;
 
 /// Commits as loaded from git, before synthetic working-tree rows and virtual
@@ -328,15 +327,7 @@ fn walk_commits(
                 .terminal()
                 .draw(|frame| views::loading::render(app, frame))?;
 
-            if crossterm::event::poll(std::time::Duration::ZERO)?
-                && let Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('c'),
-                    modifiers,
-                    kind: KeyEventKind::Press,
-                    ..
-                })) = crossterm::event::read()
-                && modifiers.contains(KeyModifiers::CONTROL)
-            {
+            if waiting_key().is_some_and(|key| is_force_quit(&key)) {
                 return Ok(None);
             }
         }
