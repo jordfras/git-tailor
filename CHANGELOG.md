@@ -242,6 +242,18 @@ The format is based on
   the uncommitted work it lifts safe from `git gc`. It used to go ahead with
   nothing holding that work, so a `git gc` before the squash finished could
   delete it
+- A reload that fails partway, after an operation or on `R`, now says why and
+  goes back to the view it started from. It used to leave the loading dialog
+  up, where every key but Ctrl-C was ignored
+- `R` in the commit detail view refreshes it in place, on the same commit and
+  scrolled where it was. It used to reload the list and drop back to it, with
+  the selection back where gt starts it
+- Canceling a reload with Ctrl-C now says the list may be out of date and that
+  `R` reloads it. The list it kept on screen can name commits an operation has
+  just rewritten
+- Ctrl-C works while the hunk group matrix is being built and while a split
+  works out its pieces. It used to be ignored there: now it quits at startup,
+  cancels a reload, and cancels a split as `Esc` does
 
 ### Removed
 

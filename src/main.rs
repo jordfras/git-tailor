@@ -29,7 +29,7 @@ mod update_check;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use git_tailor::repo::{Git2Repo, GitRepo, RepoRead, RepoWrite};
+use git_tailor::repo::{Git2Repo, GitRepo, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState},
@@ -40,7 +40,7 @@ use crate::cli::Cli;
 use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
-use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
+use crate::loader::{load_initial_commits, load_with_progress, reload, resolve_oid_bounds};
 use crate::recovery::{check_journal_recovery, journal_refusal};
 use crate::session_lock::{LockRefusal, SessionLock};
 use crate::terminal_guard::setup_terminal;
@@ -182,7 +182,7 @@ fn main() -> Result<()> {
                 frame.area(),
             );
             let mode = app.mode.clone();
-            render_mode(&mode, &mut app, frame);
+            views::render(&mode, &mut app, frame);
         })?;
 
         let event = app::read_event()?;
@@ -237,34 +237,7 @@ fn main() -> Result<()> {
             continue;
         }
 
-        // Mode-first dispatch: each view module handles its own actions.
-        let mode = app.mode.clone();
-        let result = match mode {
-            AppMode::Loading { .. } => AppAction::Handled,
-            AppMode::CommitList => views::commit_list::handle_key(action, &mut app),
-            AppMode::CommitDetail => views::commit_detail::handle_key(action, &mut app),
-            AppMode::OperationSelect { .. } => {
-                views::operation_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
-            AppMode::SplitFilesSelect { .. } => {
-                views::split_files_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitHunksSelect { .. } => {
-                views::split_hunks_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
-            AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
-            AppMode::AutofixupConfirm(_) => views::autofixup::handle_confirm_key(action, &mut app),
-            AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
-            AppMode::StashConflict(_) => {
-                views::stash_conflict::handle_stash_conflict_key(action, &mut app)
-            }
-            AppMode::RecoverConfirm(_) => views::recover::handle_recover_key(action, &mut app),
-            AppMode::SquashSelect { .. } => views::squash_select::handle_key(action, &mut app),
-            AppMode::MoveSelect { .. } => views::move_select::handle_key(action, &mut app),
-            AppMode::Help(_) => views::help::handle_key(action, &mut app),
-        };
+        let result = views::handle_key(action, &mut app);
 
         let dispatch_result = dispatch_action(
             result,
@@ -278,45 +251,13 @@ fn main() -> Result<()> {
         match dispatch_result {
             LoopAction::Continue => continue,
             LoopAction::Proceed => {}
-            LoopAction::Reload | LoopAction::ReloadPreserving | LoopAction::ReloadSelecting(_) => {
-                let preserve = matches!(dispatch_result, LoopAction::ReloadPreserving);
-                let saved_idx = match dispatch_result {
-                    LoopAction::ReloadSelecting(idx) => idx,
-                    _ => app.list.selection_index,
-                };
-                match git_repo.head_oid() {
-                    Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
-                    Ok(head_oid) => {
-                        let reference_oid = app.reference_oid.clone();
-                        let include_ref = app.include_reference_oid;
-                        let full = app.full_fragmap;
-                        match load_with_progress(
-                            &git_repo,
-                            &mut terminal_guard,
-                            &mut app,
-                            &head_oid,
-                            &reference_oid,
-                            include_ref,
-                            full,
-                        ) {
-                            Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
-                            Ok(true)
-                                if preserve
-                                    || matches!(
-                                        dispatch_result,
-                                        LoopAction::ReloadSelecting(_)
-                                    ) =>
-                            {
-                                app.list.selection_index =
-                                    saved_idx.min(app.list.commits.len().saturating_sub(1));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                if matches!(app.mode, AppMode::CommitDetail) {
-                    views::commit_detail::load_diff(&git_repo, &mut app);
-                }
+            LoopAction::Reload => reload(&git_repo, &mut terminal_guard, &mut app, None),
+            LoopAction::ReloadPreserving => {
+                let select = Some(app.list.selection_index);
+                reload(&git_repo, &mut terminal_guard, &mut app, select);
+            }
+            LoopAction::ReloadSelecting(index) => {
+                reload(&git_repo, &mut terminal_guard, &mut app, Some(index));
             }
         }
 
@@ -464,32 +405,6 @@ fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli)
         )
     );
     Ok(())
-}
-
-/// Render a mode, recursively drawing its background first for overlay modes.
-fn render_mode(mode: &AppMode, app: &mut AppState, frame: &mut ratatui::Frame) {
-    if let Some(bg) = mode.background() {
-        render_mode(&bg, app, frame);
-    }
-
-    match mode {
-        AppMode::Loading { .. } => views::loading::render(app, frame),
-        AppMode::CommitList => views::commit_list::render(app, frame),
-        AppMode::CommitDetail => views::main_view::render(app, frame),
-        AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
-        AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
-        AppMode::SplitFilesSelect { .. } => views::split_files_select::render(app, frame),
-        AppMode::SplitHunksSelect { .. } => views::split_hunks_select::render(app, frame),
-        AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
-        AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
-        AppMode::AutofixupConfirm(_) => views::autofixup::render_autofixup_confirm(app, frame),
-        AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
-        AppMode::StashConflict(_) => views::stash_conflict::render_stash_conflict(app, frame),
-        AppMode::RecoverConfirm(_) => views::recover::render_recover(app, frame),
-        AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
-        AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
-        AppMode::Help(prev) => views::help::render(prev, app, frame),
-    }
 }
 
 /// Take the session lock, or explain why git-tailor is not going to run.

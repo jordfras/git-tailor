@@ -17,6 +17,14 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use super::AppMode;
 
+/// Whether `key` is Ctrl-C, which quits from any mode and stops a computation
+/// on the loading screen.
+pub fn is_force_quit(key: &KeyEvent) -> bool {
+    key.kind == event::KeyEventKind::Press
+        && key.code == KeyCode::Char('c')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
 /// Semantic commands derived from keyboard input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyCommand {
@@ -123,6 +131,11 @@ impl AppMode {
     /// decide whether that command does anything. Only keys whose *meaning*
     /// genuinely differs by mode are disambiguated here with a `match self`.
     pub fn parse_key(&self, event: Event) -> KeyCommand {
+        if let Event::Key(key) = &event
+            && is_force_quit(key)
+        {
+            return KeyCommand::ForceQuit;
+        }
         if let Event::Key(KeyEvent {
             code,
             modifiers,
@@ -133,8 +146,6 @@ impl AppMode {
         {
             if modifiers.contains(KeyModifiers::CONTROL) {
                 match code {
-                    // Ctrl+C always force-quits regardless of mode.
-                    KeyCode::Char('c') => return KeyCommand::ForceQuit,
                     // Ctrl-Z (Unix only): suspend the process with SIGTSTP.
                     #[cfg(unix)]
                     KeyCode::Char('z') => return KeyCommand::Suspend,

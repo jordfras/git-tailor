@@ -2280,3 +2280,31 @@
   `--list-rescued`/`--drop-rescued` already handle them.
   Autostash and parked stashes survive in `git stash list` either way, which the
   command's own output could say.
+- [X] T266 P3 refactor - Take the event loop out of `main`. `fn main` is still
+  some 270 lines, most of it the loop: the mode-to-handler `match` and the
+  `Reload*` arm, which reloads, restores the selection and refreshes a detail
+  view, together run to about 80 lines. Each could be a function taking
+  `&mut AppState`, the repo and, for the reload, the terminal guard.
+- [X] T243 P3 fix - Recognize a leftover fold commit before rewriting over it.
+  A fold moves the branch onto a temporary "git-tailor: working-tree changes"
+  commit and parks the other row in a stash. If its journal record goes before
+  the fold finishes, the branch keeps that commit and the tree is clean, so the
+  next rewrite treats the commit as the user's own. Nothing is lost: discarding
+  the record first keeps the whole working tree in a rescue ref and drops the
+  stash, or leaves the stash if keeping it failed.
+  Only two paths get there, both after a crash. Startup unwinds an interrupted
+  fold and offers a paused one for resuming; it discards the record only when
+  the branch has moved since (`discard_stale`), e.g. a `git commit` on top of
+  the temporary commit. Or `--clean-journal` with a fold interrupted or
+  paused, which leaves the branch on the temporary commit. Auto-stash cannot
+  produce a synthetic commit, and startup restores its leftover record itself.
+  Done without an ownership model for parked work: every rewrite, a fold's
+  included before it lifts, refuses one whose range holds a commit with exactly
+  the temporary message, unless it is the fold in flight's own and the
+  operation starts from it, or the rewrite drops that commit. The refusal says
+  to drop it and points at `gt --list-rescued`, rather than giving a reset
+  recipe. No warning when the list loads.
+- [X] T267 P3 refactor - Move `render_mode` from `main.rs` to `views`, beside
+  `views::handle_key`. Both are a `match` with one arm per `AppMode`, so a new
+  mode needs an arm in each, and today one lives in the binary and the other in
+  the library.

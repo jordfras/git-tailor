@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Startup loading: commit walking, progress display, and matrix confirmation.
+// Loading the commit list, at startup and after each operation: commit walking,
+// progress display, and matrix confirmation.
 
 use anyhow::{Context, Result};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use git_tailor::repo::RepoRead;
 use git_tailor::{
     CommitDiff, CommitInfo, Oid, VirtualOid,
-    app::{AppMode, AppState, LoadingEscape},
+    app::{AppMode, AppState, LoadingEscape, is_force_quit},
     fragmap::{self, FragMapProgress},
     views,
 };
 
 use crate::cli::Cli;
-use crate::progress_screen::{ProgressScreen, ShowProgress};
+use crate::progress_screen::{ProgressScreen, ShowProgress, waiting_key};
 use crate::terminal_guard::TerminalGuard;
 
 /// Commits as loaded from git, before synthetic working-tree rows and virtual
@@ -108,7 +108,8 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
 }
 
 /// Load commits and diffs with a live counter dialog, then optionally build the
-/// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`.
+/// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`;
+/// on a cancel or an error the loading dialog is left for the caller to replace.
 ///
 /// When `app.list.commits` is non-empty (reload case), the dialog is shown as an
 /// overlay on top of the existing commit list. When empty (initial load), the
@@ -125,15 +126,12 @@ pub fn load_with_progress(
     full: bool,
 ) -> Result<bool> {
     let total = git_repo.commit_walker(from_oid, reference_oid)?.count();
-    let saved_mode = std::mem::replace(
-        &mut app.mode,
-        AppMode::Loading {
-            title: "Loading Commits",
-            message: "Loading commits\u{2026}",
-            progress: Some((0, total)),
-            escape: None,
-        },
-    );
+    app.mode = AppMode::Loading {
+        title: "Loading Commits",
+        message: "Loading commits\u{2026}",
+        progress: Some((0, total)),
+        escape: None,
+    };
     terminal_guard
         .terminal()
         .draw(|frame| views::loading::render(app, frame))?;
@@ -147,7 +145,6 @@ pub fn load_with_progress(
         total,
     )?
     else {
-        app.mode = saved_mode;
         return Ok(false);
     };
 
@@ -170,7 +167,12 @@ pub fn load_with_progress(
     .flatten()
     .collect();
 
-    let matrix = build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?;
+    let matrix = match build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?
+    {
+        HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
+        HunkGroupMatrixBuild::Skipped => None,
+        HunkGroupMatrixBuild::Interrupted => return Ok(false),
+    };
 
     let mut all_commits = commits;
     for d in &extra_diffs {
@@ -187,6 +189,101 @@ pub fn load_with_progress(
     app.mode = AppMode::CommitList;
 
     Ok(true)
+}
+
+/// Reload the list from HEAD, after an operation or on `R`, keeping the range
+/// and options it was loaded with. `select` is the row to land on, clamped to
+/// the new list; `None` takes the natural position. Refreshing the detail view
+/// ignores it and stays on the commit shown, wherever that row has moved to.
+pub fn reload(
+    git_repo: &impl RepoRead,
+    terminal_guard: &mut TerminalGuard,
+    app: &mut AppState,
+    select: Option<usize>,
+) {
+    let before = app.mode.clone();
+    let shown = match before {
+        AppMode::CommitDetail => app
+            .list
+            .commits
+            .get(app.list.selection_index)
+            .map(|c| Shown {
+                oid: c.oid.clone(),
+                offset: app.detail.v.offset,
+            }),
+        _ => None,
+    };
+    let loaded = git_repo.head_oid().and_then(|head_oid| {
+        let reference_oid = app.reference_oid.clone();
+        let include_reference_oid = app.include_reference_oid;
+        let full = app.full_fragmap;
+        load_with_progress(
+            git_repo,
+            terminal_guard,
+            app,
+            &head_oid,
+            &reference_oid,
+            include_reference_oid,
+            full,
+        )
+    });
+    settle_reload(git_repo, app, before, shown, loaded, select);
+}
+
+/// The commit the detail view showed when a refresh started, and how far down.
+struct Shown {
+    oid: VirtualOid,
+    offset: usize,
+}
+
+/// Put the screen right once a reload is over. `before` is the mode the reload
+/// started from, `shown` what the detail view showed if that is where, and
+/// `loaded` what [`load_with_progress`] returned.
+fn settle_reload(
+    git_repo: &impl RepoRead,
+    app: &mut AppState,
+    before: AppMode,
+    shown: Option<Shown>,
+    loaded: Result<bool>,
+    select: Option<usize>,
+) {
+    match loaded {
+        Err(e) => {
+            app.mode = before;
+            app.set_error_message(format!("Reload failed: {e:#}"));
+        }
+        // A load lands on the list, which is right after an operation but not
+        // after refreshing the detail view.
+        Ok(true) => match shown {
+            Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
+                Some(index) => {
+                    app.list.selection_index = index;
+                    app.detail.v.offset = shown.offset;
+                    app.mode = before;
+                }
+                None => {
+                    app.search.clear();
+                    app.set_error_message(
+                        "The commit the detail view showed is no longer on the branch",
+                    );
+                }
+            },
+            None => {
+                if let Some(index) = select {
+                    app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+                }
+            }
+        },
+        Ok(false) => {
+            app.mode = before;
+            app.set_error_message(
+                "Reload canceled — the list may be out of date; press R to reload",
+            );
+        }
+    }
+    if matches!(app.mode, AppMode::CommitDetail) {
+        views::commit_detail::load_diff(git_repo, app);
+    }
 }
 
 /// Walk commits from `from_oid` back to `reference_oid`, collecting each
@@ -233,15 +330,7 @@ fn walk_commits(
                 .terminal()
                 .draw(|frame| views::loading::render(app, frame))?;
 
-            if crossterm::event::poll(std::time::Duration::ZERO)?
-                && let Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('c'),
-                    modifiers,
-                    kind: KeyEventKind::Press,
-                    ..
-                })) = crossterm::event::read()
-                && modifiers.contains(KeyModifiers::CONTROL)
-            {
+            if waiting_key().is_some_and(|key| is_force_quit(&key)) {
                 return Ok(None);
             }
         }
@@ -250,18 +339,26 @@ fn walk_commits(
     Ok(Some(raw))
 }
 
-/// Build the fragmap with a live progress dialog for each phase. Returns
-/// `Ok(None)` when any diff is missing (matrix skipped) or when the user
-/// presses `s`/`S` during file clustering.
+/// How building the hunk group matrix ended.
+enum HunkGroupMatrixBuild {
+    Built(fragmap::FragMap),
+    /// A diff is missing, or `s`/`S` was pressed during file clustering: the
+    /// list goes on without a matrix.
+    Skipped,
+    /// Ctrl-C, which abandons the whole load, as it does in [`walk_commits`].
+    Interrupted,
+}
+
+/// Build the fragmap with a live progress dialog for each phase.
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
     diff_opts: Vec<Option<CommitDiff>>,
     extra_diffs: &[CommitDiff],
     full: bool,
-) -> Result<Option<git_tailor::fragmap::FragMap>> {
+) -> Result<HunkGroupMatrixBuild> {
     let Some(mut diffs) = diff_opts.into_iter().collect::<Option<Vec<CommitDiff>>>() else {
-        return Ok(None);
+        return Ok(HunkGroupMatrixBuild::Skipped);
     };
     diffs.extend_from_slice(extra_diffs);
 
@@ -290,8 +387,12 @@ fn build_hunk_group_matrix(
         ),
         FragMapProgress::ReadingCommits { .. } => true,
     });
+    let interrupted = screen.interrupted();
     screen.finish()?;
-    Ok(result)
+    if interrupted {
+        return Ok(HunkGroupMatrixBuild::Interrupted);
+    }
+    Ok(result.map_or(HunkGroupMatrixBuild::Skipped, HunkGroupMatrixBuild::Built))
 }
 
 /// Choose the initial selection index for a commit list:
@@ -304,4 +405,172 @@ fn select_initial_index(commits: &[CommitInfo]) -> usize {
         return i;
     }
     commits.len().saturating_sub(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock_repo::MockRepo;
+
+    /// What [`load_with_progress`] leaves behind when it fails partway.
+    fn loading() -> AppMode {
+        AppMode::Loading {
+            title: "Loading Commits",
+            message: "Loading commits\u{2026}",
+            progress: None,
+            escape: None,
+        }
+    }
+
+    /// The loading dialog ignores every key but Ctrl-C, which quits.
+    #[test]
+    fn a_failed_reload_goes_back_to_the_view_it_started_from() {
+        let mut app = AppState {
+            mode: loading(),
+            ..AppState::default()
+        };
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Err(anyhow::anyhow!("unreadable file")),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
+        assert!(app.status.is_error);
+    }
+
+    fn commit(oid: &str) -> CommitInfo {
+        CommitInfo {
+            oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
+            summary: String::new(),
+            summary_key: Default::default(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        }
+    }
+
+    /// What [`load_with_progress`] leaves after loading `commits`: the list,
+    /// with the cursor at the natural position.
+    fn loaded_list(commits: &[&str]) -> AppState {
+        let mut app = AppState {
+            mode: AppMode::CommitList,
+            ..AppState::default()
+        };
+        app.list.commits = commits.iter().map(|oid| commit(oid)).collect();
+        app.list.selection_index = commits.len() - 1;
+        app
+    }
+
+    fn shown(oid: &str, offset: usize) -> Option<Shown> {
+        Some(Shown {
+            oid: commit(oid).oid,
+            offset,
+        })
+    }
+
+    /// A commit made in the meantime moves the row the detail view was on, so
+    /// keeping the row would quietly show another commit.
+    #[test]
+    fn refreshing_the_detail_view_stays_on_the_commit_it_shows() {
+        let mut app = loaded_list(&["a", "b", "new"]);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 0),
+            Ok(true),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitDetail), "{:?}", app.mode);
+        assert_eq!(app.list.selection_index, 1);
+    }
+
+    #[test]
+    fn refreshing_the_detail_view_keeps_its_scroll_position() {
+        let mut app = loaded_list(&["a", "b"]);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 300),
+            Ok(true),
+            None,
+        );
+
+        assert_eq!(app.detail.v.offset, 300);
+    }
+
+    /// Rewritten or committed away: there is nothing left to stay on.
+    #[test]
+    fn refreshing_a_commit_no_longer_listed_goes_back_to_the_list() {
+        let mut app = loaded_list(&["a", "c"]);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 0),
+            Ok(true),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
+        assert!(app.status.message.is_some());
+    }
+
+    /// Leaving the detail view ends its search, or the next commit opened
+    /// would show the old one's matches.
+    #[test]
+    fn refreshing_a_commit_no_longer_listed_ends_the_search() {
+        let mut app = loaded_list(&["a", "c"]);
+        app.search.query = "foo".to_string();
+        app.search.active = true;
+        app.search.matches = vec![3, 7];
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 0),
+            Ok(true),
+            None,
+        );
+
+        assert!(!app.search.active);
+        assert!(app.search.query.is_empty());
+        assert!(app.search.matches.is_empty());
+    }
+
+    /// The branch may already have moved, so the list on screen may name commits
+    /// that are gone.
+    #[test]
+    fn a_canceled_reload_says_the_list_may_be_out_of_date() {
+        let mut app = AppState::default();
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Ok(false),
+            None,
+        );
+
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(message.contains("press R"), "{message:?}");
+    }
 }

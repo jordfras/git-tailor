@@ -17,7 +17,7 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
-use git_tailor::app::{AppMode, AppState, LoadingEscape};
+use git_tailor::app::{AppMode, AppState, LoadingEscape, is_force_quit};
 use git_tailor::views;
 
 use crate::terminal_guard::TerminalGuard;
@@ -28,7 +28,8 @@ const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 /// Shows a long computation's progress and tells it whether to go on.
 pub(crate) trait ShowProgress {
     /// Show `message` with `progress`, and return whether to go on: `false`
-    /// once `escape`'s key is pressed, or when the screen cannot be drawn.
+    /// once `escape`'s key or Ctrl-C is pressed, or when the screen cannot be
+    /// drawn.
     fn show(
         &mut self,
         app: &mut AppState,
@@ -45,6 +46,7 @@ pub(crate) struct ProgressScreen<'t> {
     title: &'static str,
     last_render: Option<(Instant, &'static str)>,
     render_error: Option<anyhow::Error>,
+    interrupted: bool,
 }
 
 impl<'t> ProgressScreen<'t> {
@@ -54,7 +56,14 @@ impl<'t> ProgressScreen<'t> {
             title,
             last_render: None,
             render_error: None,
+            interrupted: false,
         }
+    }
+
+    /// Whether the computation stopped for Ctrl-C, which abandons what it was
+    /// part of rather than only skipping this step.
+    pub(crate) fn interrupted(&self) -> bool {
+        self.interrupted
     }
 
     /// The error drawing the screen ran into, once the computation is over.
@@ -93,25 +102,62 @@ impl ShowProgress for ProgressScreen<'_> {
             self.render_error = Some(e.into());
             return false;
         }
-        !escape.is_some_and(pressed)
+        let Some(key) = waiting_key() else {
+            return true;
+        };
+        self.interrupted |= is_force_quit(&key);
+        !stops(&key, escape)
     }
 }
 
-/// Whether `escape`'s key is waiting to be read.
-fn pressed(escape: LoadingEscape) -> bool {
+/// The key waiting to be read, if any.
+pub(crate) fn waiting_key() -> Option<KeyEvent> {
     let Ok(true) = crossterm::event::poll(Duration::ZERO) else {
-        return false;
+        return None;
     };
-    let Ok(Event::Key(KeyEvent {
-        code,
-        kind: KeyEventKind::Press,
-        ..
-    })) = crossterm::event::read()
-    else {
+    match crossterm::event::read() {
+        Ok(Event::Key(key)) => Some(key),
+        _ => None,
+    }
+}
+
+/// Whether `key` stops a computation offering `escape`.
+fn stops(key: &KeyEvent, escape: Option<LoadingEscape>) -> bool {
+    if key.kind != KeyEventKind::Press {
         return false;
-    };
+    }
+    if is_force_quit(key) {
+        return true;
+    }
     match escape {
-        LoadingEscape::Skip => matches!(code, KeyCode::Char('s') | KeyCode::Char('S')),
-        LoadingEscape::Cancel => code == KeyCode::Esc,
+        Some(LoadingEscape::Skip) => matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')),
+        Some(LoadingEscape::Cancel) => key.code == KeyCode::Esc,
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyModifiers;
+
+    /// Ctrl-C stops the commit walk before it, so it stops this too, whether or
+    /// not the phase offers a key of its own.
+    #[test]
+    fn ctrl_c_stops_a_computation() {
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        for escape in [None, Some(LoadingEscape::Skip), Some(LoadingEscape::Cancel)] {
+            assert!(stops(&ctrl_c, escape), "{escape:?}");
+        }
+    }
+
+    #[test]
+    fn a_phase_stops_on_its_own_key_only() {
+        let s = KeyEvent::from(KeyCode::Char('s'));
+        let esc = KeyEvent::from(KeyCode::Esc);
+        assert!(stops(&s, Some(LoadingEscape::Skip)));
+        assert!(!stops(&esc, Some(LoadingEscape::Skip)));
+        assert!(stops(&esc, Some(LoadingEscape::Cancel)));
+        assert!(!stops(&s, None));
     }
 }
