@@ -38,6 +38,33 @@ pub mod theme;
 pub mod two_pane_picker;
 
 use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+use ratatui::Frame;
+
+/// Render a mode, recursively drawing its background first for overlay modes.
+pub fn render(mode: &AppMode, app: &mut AppState, frame: &mut Frame) {
+    if let Some(bg) = mode.background() {
+        render(&bg, app, frame);
+    }
+
+    match mode {
+        AppMode::Loading { .. } => loading::render(app, frame),
+        AppMode::CommitList => commit_list::render(app, frame),
+        AppMode::CommitDetail => main_view::render(app, frame),
+        AppMode::OperationSelect { .. } => operation_select::render(app, frame),
+        AppMode::SplitSelect { .. } => split_select::render(app, frame),
+        AppMode::SplitFilesSelect { .. } => split_files_select::render(app, frame),
+        AppMode::SplitHunksSelect { .. } => split_hunks_select::render(app, frame),
+        AppMode::SplitConfirm(_) => split_select::render_split_confirm(app, frame),
+        AppMode::DropConfirm(_) => drop::render_drop_confirm(app, frame),
+        AppMode::AutofixupConfirm(_) => autofixup::render_autofixup_confirm(app, frame),
+        AppMode::RebaseConflict(_) => conflict::render_conflict(app, frame),
+        AppMode::StashConflict(_) => stash_conflict::render_stash_conflict(app, frame),
+        AppMode::RecoverConfirm(_) => recover::render_recover(app, frame),
+        AppMode::SquashSelect { .. } => commit_list::render(app, frame),
+        AppMode::MoveSelect { .. } => commit_list::render(app, frame),
+        AppMode::Help(prev) => help::render(prev, app, frame),
+    }
+}
 
 /// Hand `action` to the view the app is showing, which turns it into what the
 /// app should do.

@@ -182,7 +182,7 @@ fn main() -> Result<()> {
                 frame.area(),
             );
             let mode = app.mode.clone();
-            render_mode(&mode, &mut app, frame);
+            views::render(&mode, &mut app, frame);
         })?;
 
         let event = app::read_event()?;
@@ -405,32 +405,6 @@ fn run_static_output(git_repo: &impl GitRepo, commits: &[CommitInfo], cli: &Cli)
         )
     );
     Ok(())
-}
-
-/// Render a mode, recursively drawing its background first for overlay modes.
-fn render_mode(mode: &AppMode, app: &mut AppState, frame: &mut ratatui::Frame) {
-    if let Some(bg) = mode.background() {
-        render_mode(&bg, app, frame);
-    }
-
-    match mode {
-        AppMode::Loading { .. } => views::loading::render(app, frame),
-        AppMode::CommitList => views::commit_list::render(app, frame),
-        AppMode::CommitDetail => views::main_view::render(app, frame),
-        AppMode::OperationSelect { .. } => views::operation_select::render(app, frame),
-        AppMode::SplitSelect { .. } => views::split_select::render(app, frame),
-        AppMode::SplitFilesSelect { .. } => views::split_files_select::render(app, frame),
-        AppMode::SplitHunksSelect { .. } => views::split_hunks_select::render(app, frame),
-        AppMode::SplitConfirm(_) => views::split_select::render_split_confirm(app, frame),
-        AppMode::DropConfirm(_) => views::drop::render_drop_confirm(app, frame),
-        AppMode::AutofixupConfirm(_) => views::autofixup::render_autofixup_confirm(app, frame),
-        AppMode::RebaseConflict(_) => views::conflict::render_conflict(app, frame),
-        AppMode::StashConflict(_) => views::stash_conflict::render_stash_conflict(app, frame),
-        AppMode::RecoverConfirm(_) => views::recover::render_recover(app, frame),
-        AppMode::SquashSelect { .. } => views::commit_list::render(app, frame),
-        AppMode::MoveSelect { .. } => views::commit_list::render(app, frame),
-        AppMode::Help(prev) => views::help::render(prev, app, frame),
-    }
 }
 
 /// Take the session lock, or explain why git-tailor is not going to run.
