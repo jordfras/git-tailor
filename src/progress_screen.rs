@@ -102,16 +102,46 @@ fn pressed(escape: LoadingEscape) -> bool {
     let Ok(true) = crossterm::event::poll(Duration::ZERO) else {
         return false;
     };
-    let Ok(Event::Key(KeyEvent {
-        code,
-        kind: KeyEventKind::Press,
-        ..
-    })) = crossterm::event::read()
-    else {
+    let Ok(Event::Key(key)) = crossterm::event::read() else {
         return false;
     };
+    stops(&key, Some(escape))
+}
+
+/// Whether `key` stops a computation offering `escape`.
+fn stops(key: &KeyEvent, escape: Option<LoadingEscape>) -> bool {
+    if key.kind != KeyEventKind::Press {
+        return false;
+    }
     match escape {
-        LoadingEscape::Skip => matches!(code, KeyCode::Char('s') | KeyCode::Char('S')),
-        LoadingEscape::Cancel => code == KeyCode::Esc,
+        Some(LoadingEscape::Skip) => matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S')),
+        Some(LoadingEscape::Cancel) => key.code == KeyCode::Esc,
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyModifiers;
+
+    /// Ctrl-C stops the commit walk before it, so it stops this too, whether or
+    /// not the phase offers a key of its own.
+    #[test]
+    fn ctrl_c_stops_a_computation() {
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        for escape in [None, Some(LoadingEscape::Skip), Some(LoadingEscape::Cancel)] {
+            assert!(stops(&ctrl_c, escape), "{escape:?}");
+        }
+    }
+
+    #[test]
+    fn a_phase_stops_on_its_own_key_only() {
+        let s = KeyEvent::from(KeyCode::Char('s'));
+        let esc = KeyEvent::from(KeyCode::Esc);
+        assert!(stops(&s, Some(LoadingEscape::Skip)));
+        assert!(!stops(&esc, Some(LoadingEscape::Skip)));
+        assert!(stops(&esc, Some(LoadingEscape::Cancel)));
+        assert!(!stops(&s, None));
     }
 }
