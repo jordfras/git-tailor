@@ -261,9 +261,12 @@ fn settle_reload(
                     app.detail.v.offset = shown.offset;
                     app.mode = before;
                 }
-                None => app.set_error_message(
-                    "The commit the detail view showed is no longer on the branch",
-                ),
+                None => {
+                    app.search.clear();
+                    app.set_error_message(
+                        "The commit the detail view showed is no longer on the branch",
+                    );
+                }
             },
             None => {
                 if let Some(index) = select {
