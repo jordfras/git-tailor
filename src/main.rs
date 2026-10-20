@@ -29,7 +29,7 @@ mod update_check;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use git_tailor::repo::{Git2Repo, GitRepo, JournalStatus, RepoRead, RepoWrite};
+use git_tailor::repo::{Git2Repo, GitRepo, RepoRead, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState},
@@ -41,7 +41,7 @@ use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
 use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
-use crate::recovery::check_journal_recovery;
+use crate::recovery::{check_journal_recovery, journal_refusal};
 use crate::session_lock::{LockRefusal, SessionLock};
 use crate::terminal_guard::setup_terminal;
 
@@ -114,18 +114,11 @@ fn main() -> Result<()> {
     // should not be refused because a TUI happens to be open.
     let _session = acquire_session_lock(&git_repo)?;
 
-    // An operation interrupted under an older git-tailor cannot be resumed by
-    // this version. Refuse to start the TUI — which would drop the user into a
-    // confusing half-finished state — until they resolve it. Checked here, while
-    // the terminal is still in its normal mode, so the message is readable.
-    if let JournalStatus::UpgradeInterrupted { op } = git_repo.read_journal()? {
-        eprintln!(
-            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
-             This version cannot resume it. Finish it with the previous git-tailor, \
-             or run `gt --clean-journal` to discard it and start fresh — any \
-             uncommitted work it recorded is kept, and `gt --list-rescued` \
-             shows it."
-        );
+    // Checked here, while the terminal is still in its normal mode, so the
+    // message is readable — and after the maintenance paths above, so
+    // `--clean-journal` is always reachable.
+    if let Some(why) = journal_refusal(&mut git_repo)? {
+        eprintln!("{why}");
         std::process::exit(1);
     }
 
@@ -349,6 +342,18 @@ fn run_clean_journal(git_repo: &mut impl GitRepo) -> Result<()> {
         "Cleaned git-tailor state: removed {} ref(s){journal_note}.",
         summary.refs_removed
     );
+    // Ahead of the count below, which the kept trees are part of: this is what
+    // says where they came from. Only when there are some: a journal whose
+    // record could not be used but pinned nothing has cost the user nothing,
+    // and saying so would contradict the `--clean-journal` instruction that
+    // sent them here.
+    if summary.trees_rescued.is_some_and(|trees| trees > 0) {
+        println!(
+            "What the journal recorded could not be used, so the refs it still \
+             pinned stood in for it. `git stash list` holds anything it had set \
+             aside."
+        );
+    }
     if summary.rescue_refs_kept > 0 {
         println!(
             "Kept {} rescued working tree(s) — uncommitted work git-tailor saved when \

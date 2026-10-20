@@ -62,6 +62,10 @@ pub struct JournalCleanSummary {
     /// Rescued working trees left in place. Each is uncommitted work with no
     /// other copy, so removing one is asked for separately.
     pub rescue_refs_kept: usize,
+    /// `Some` when the journal's own record could not be used — unreadable, or
+    /// a shape this version does not parse — counting the trees its pins still
+    /// named that were kept instead. `None` when the record drove the rescue.
+    pub trees_rescued: Option<usize>,
 }
 
 /// A working tree git-tailor kept when it had to discard the record naming it.
@@ -786,6 +790,16 @@ pub trait RepoWrite {
     /// working tree and index.
     fn rebase_abort(&mut self, state: &ConflictState) -> Result<()>;
 
+    /// Refuse when the operation journal is not this build's to add to, so an
+    /// operation that cannot record itself never starts.
+    ///
+    /// Taken before anything an operation does — stash, editor, dialog, rewrite
+    /// — because that is where a refusal costs nothing. Without it the failure
+    /// lands wherever the journal is first written, which for a rewrite is after
+    /// the branch has moved: reported as a failure, with the rewrite landed and
+    /// no undo entry.
+    fn refuse_if_journal_unusable(&self) -> Result<()>;
+
     /// Read the crash-safety journal to detect an operation interrupted by a
     /// previous run (process killed or crashed mid-conflict).
     ///
@@ -815,7 +829,8 @@ pub trait RepoWrite {
     /// `--clean-journal` CLI flag); returns a summary of what was removed.
     ///
     /// Rescued working trees are kept and counted, not removed — see
-    /// [`Self::drop_rescued_trees`].
+    /// [`Self::drop_rescued_trees`]. A journal that cannot be read adds to them:
+    /// the pins are then all that names what it referenced.
     fn clean_journal(&mut self) -> Result<JournalCleanSummary>;
 
     /// Every working tree kept under `refs/git-tailor/rescue/*`.

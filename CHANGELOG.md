@@ -51,6 +51,22 @@ The format is based on
 
 ### Fixed
 
+- `gt --clean-journal` no longer destroys the uncommitted work of an interrupted
+  squash of the Staged or Unstaged row when the journal it is discarding cannot
+  be read. It could not tell which working tree the journal named, and removed
+  the refs that were the only thing keeping it; it now keeps every one of them
+  as a rescued working tree, and says so
+- `gt` now refuses to start on an operation journal it cannot read, and says how
+  to discard it, instead of starting and leaving it to be overwritten by the
+  first thing that writes one. That overwrite could take an auto-stash record
+  with it, leaving the stash holding your uncommitted changes referenced by
+  nothing
+- `gt` also refuses to start on a journal written by a newer git-tailor, rather
+  than rewriting it as the current format with the first operation
+- An operation is now refused up front when git-tailor cannot record it in the
+  journal — before the editor a reword or commit opens, and before any history
+  is rewritten. It used to go ahead and then report a failure the branch
+  disagreed with, leaving the rewrite in place with no way to undo it
 - A rewrite is refused when it would replay the temporary commit an
   interrupted squash of the Staged or Unstaged row left on the branch, once
   `--clean-journal` or a branch moved since has dropped the record of it. It
@@ -222,6 +238,10 @@ The format is based on
 - The hunk group matrix's horizontal scrollbar now sits under the columns it
   scrolls. With a vertical scrollbar beside the commit list it was one column
   to the left, over the separator bar
+- Squashing the Staged or Unstaged row is refused when git-tailor cannot keep
+  the uncommitted work it lifts safe from `git gc`. It used to go ahead with
+  nothing holding that work, so a `git gc` before the squash finished could
+  delete it
 
 ### Removed
 

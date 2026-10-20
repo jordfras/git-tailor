@@ -248,6 +248,32 @@ fn prune_clears_stale_undo_history_and_pins() {
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Empty));
 }
 
+/// Pruning defaulted an unreadable journal, so it reconciled the pins against an
+/// empty document and deleted every one. For an interrupted fold those pins are
+/// the only thing holding the tree with the user's uncommitted work, and this
+/// runs at startup, before anything has told the user the journal is unreadable.
+#[test]
+fn prune_leaves_the_pins_alone_when_the_journal_cannot_be_read() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+    let pins_before = undo_pin_count(&test);
+    assert!(pins_before >= 1);
+
+    let journal = test.repo.path().join("git-tailor").join("journal.json");
+    std::fs::write(&journal, "{ this is not valid json").unwrap();
+
+    assert!(git_repo.prune_stale_journal().is_err());
+
+    assert_eq!(undo_pin_count(&test), pins_before);
+}
+
 #[test]
 fn prune_keeps_valid_undo_history_and_pins() {
     let test = common::TestRepo::new();
@@ -284,7 +310,7 @@ fn prune_drops_orphaned_orig_and_stray_pins_keeping_valid_history() {
     );
 
     // Refs not justified by the journal: an `orig` pin with no paused operation,
-    // and a stray undo pin outside the reconciled sequence.
+    // and a stray undo pin no record names.
     test.repo
         .reference("refs/git-tailor/orig", base, true, "stray")
         .unwrap();
@@ -303,6 +329,63 @@ fn prune_drops_orphaned_orig_and_stray_pins_keeping_valid_history() {
     );
     // …while the valid history (and its reconciled pins) survives.
     assert!(undo_pin_count(&test) >= 1);
+    assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+}
+
+/// 3.1.0 numbered this working tree's pins. Each is replaced by one named after
+/// what it holds, rather than dropped as a pin no record names.
+#[test]
+fn numbered_pins_from_an_older_version_are_renamed_not_lost() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "a\n", "base");
+    let c1 = test.commit_file("b.txt", "b\n", "add b");
+    let mut git_repo = test.git_repo();
+    assert_rebase_complete!(
+        git_repo
+            .drop_commit(&Oid::from(c1), &Oid::from(head_oid(&test)))
+            .unwrap()
+    );
+
+    let pinned: Vec<git2::Oid> = test
+        .repo
+        .references_glob("refs/git-tailor/wt/main/undo/*")
+        .unwrap()
+        .map(|r| r.unwrap())
+        .map(|mut r| {
+            let target = r.target().unwrap();
+            r.delete().unwrap();
+            target
+        })
+        .collect();
+    assert!(!pinned.is_empty());
+    for (i, oid) in pinned.iter().enumerate() {
+        test.repo
+            .reference(
+                &format!("refs/git-tailor/wt/main/undo/{i}"),
+                *oid,
+                false,
+                "3.1.0",
+            )
+            .unwrap();
+    }
+
+    git_repo.prune_stale_journal().unwrap();
+
+    for (i, oid) in pinned.iter().enumerate() {
+        assert!(
+            test.repo
+                .find_reference(&format!("refs/git-tailor/wt/main/undo/{i}"))
+                .is_err(),
+            "the numbered pin {i} should be gone"
+        );
+        assert_eq!(
+            test.repo
+                .find_reference(&format!("refs/git-tailor/wt/main/undo/{oid}"))
+                .unwrap()
+                .target(),
+            Some(*oid)
+        );
+    }
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
 }
 

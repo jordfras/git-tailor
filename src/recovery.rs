@@ -23,6 +23,49 @@
 use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashRestore, GitRepo, InProgress, JournalStatus, StashConflictState};
 
+/// Why the TUI must not open on this journal, as the message to print, or
+/// `None` when it may. Each refusal would otherwise drop the user into a
+/// confusing half-finished state.
+///
+/// Matched variant by variant rather than with a `_` arm: a status nobody has
+/// decided about must not default to opening anyway.
+pub(crate) fn journal_refusal(git_repo: &mut impl GitRepo) -> anyhow::Result<Option<String>> {
+    Ok(match git_repo.read_journal()? {
+        JournalStatus::UpgradeInterrupted { op } => Some(format!(
+            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
+             This version cannot resume it. Finish it with the previous git-tailor, \
+             or run `gt --clean-journal` to discard it and start fresh — any \
+             uncommitted work it recorded is kept, and `gt --list-rescued` \
+             shows it."
+        )),
+        // The journal is the only record of what the repository is in the middle
+        // of, and every operation starts by reading it to add to it. Opening
+        // anyway means the first write defaults the document and puts that over
+        // the file — taking an auto-stash record, and the only reference to the
+        // stash holding the user's uncommitted changes, with it.
+        JournalStatus::Corrupt(why) => Some(format!(
+            "git-tailor cannot read its operation journal: {why}\n\
+             Nothing can run against a journal it cannot add to. Run \
+             `gt --clean-journal` to discard it — it keeps any uncommitted \
+             work it can still find, and `git stash list` holds what was \
+             stashed for an operation. `gt --static` browses without it."
+        )),
+        // Reading it is not the problem; adding to it is. Every write goes
+        // through the current schema, so the first one would rewrite a document
+        // this build cannot represent as one it can — and an in-progress record
+        // naming a variant it has never heard of fails the whole read anyway,
+        // which is the case above.
+        JournalStatus::NewerVersion(version) => Some(format!(
+            "git-tailor's operation journal was written by a newer version \
+             (format v{version}), which this one cannot add to.\n\
+             Upgrade git-tailor, or run `gt --clean-journal` to discard the \
+             journal — any uncommitted work it recorded is kept, and \
+             `gt --list-rescued` shows it. `gt --static` browses without it."
+        )),
+        JournalStatus::Recovered(_) | JournalStatus::None => None,
+    })
+}
+
 /// On startup, detect an operation a previous run was killed in the middle of
 /// (from the persisted journal) and surface a recovery prompt — or inform the
 /// user when the journal can't be used.
@@ -36,6 +79,13 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // trailing auto-stash restore below has to know not to reapply a stash
     // taken against a tree that no longer matches.
     let mut edit_abort_failed = false;
+
+    // Set when the journal is not this build's to use — unreadable, or from a
+    // version it cannot represent. The restore below has to stay off it: it
+    // reads the same journal to find the stash, so it either fails and leaves
+    // its own message where the report should be, or parses a document it will
+    // then write back as this version.
+    let mut journal_unusable = false;
 
     match git_repo.read_journal() {
         Ok(JournalStatus::Recovered(record)) => match *record {
@@ -110,20 +160,26 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
                 }
             }
         },
-        Ok(JournalStatus::NewerVersion(v)) => {
-            app.set_error_message(format!(
-                "Ignoring a journal written by a newer git-tailor (format v{v}); \
-                 upgrade git-tailor or remove .git/git-tailor/journal.json"
-            ));
+        // Handled before the TUI starts (see main): those paths bail out early,
+        // so reaching here would be a bug. Nothing to do but keep away from the
+        // file — a journal this build cannot represent is one the restore below
+        // would rewrite as this version, or delete.
+        Ok(JournalStatus::UpgradeInterrupted { .. }) | Ok(JournalStatus::NewerVersion(_)) => {
+            journal_unusable = true;
         }
-        // Handled before the TUI starts (see main): this path bails out early,
-        // so reaching here would be a bug. Nothing to do.
-        Ok(JournalStatus::UpgradeInterrupted { .. }) => {}
+        // Also refused before the TUI starts, so getting here means the journal
+        // became unreadable between that read and this one. Nothing is ignored:
+        // every operation needs to add to it, and will refuse.
         Ok(JournalStatus::Corrupt(e)) => {
-            app.set_error_message(format!("Ignoring unreadable operation journal: {e}"));
+            journal_unusable = true;
+            app.set_error_message(format!(
+                "Cannot read the operation journal: {e}. Nothing can run against \
+                 it — restart, or run `gt --clean-journal` to discard it"
+            ));
         }
         Ok(JournalStatus::None) => {}
         Err(e) => {
+            journal_unusable = true;
             app.set_error_message(format!("Failed to read operation journal: {e:#}"));
         }
     }
@@ -132,7 +188,7 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     // op finished but before the stash was reapplied) — restore it now. If it
     // conflicts (or a previous run already left markers), open the resolution
     // dialog so the user can finish or abort rather than being stuck.
-    if !edit_abort_failed && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
+    if !edit_abort_failed && !journal_unusable && !matches!(app.mode, AppMode::RecoverConfirm(_)) {
         match git_repo.autostash_restore() {
             Ok(AutostashRestore::Done) => {}
             Ok(AutostashRestore::Conflict { files }) => {
@@ -152,8 +208,8 @@ pub(crate) fn check_journal_recovery(git_repo: &mut impl GitRepo, app: &mut AppS
     }
 }
 
-/// Discard a journal that no longer describes the repository, keeping whatever
-/// uncommitted work the fold behind it recorded.
+/// Discard a stale journal, one written before the branch moved, keeping
+/// whatever uncommitted work the fold behind it recorded.
 ///
 /// Shared by both stale paths — an interrupted fold, and a paused conflict with
 /// a fold behind it. `fold` is `None` for a conflict with no fold.
@@ -229,6 +285,56 @@ mod tests {
     }
 
     #[test]
+    fn an_operation_an_older_version_left_refuses_naming_it() {
+        let mut repo = MockRepo {
+            journal_upgrade_interrupted: Some("Squash".to_string()),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("\"Squash\""), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn an_unreadable_journal_refuses_with_its_reason_and_the_way_out() {
+        let mut repo = MockRepo {
+            journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("invalid JSON in journal.json"), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn a_journal_from_the_future_refuses_naming_its_version() {
+        let mut repo = MockRepo {
+            journal_newer_version: Some(9),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("v9"), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn a_journal_this_build_can_recover_does_not_refuse() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(conflict_at_head()))),
+            ..Default::default()
+        };
+        assert_eq!(journal_refusal(&mut repo).unwrap(), None);
+    }
+
+    #[test]
+    fn no_journal_does_not_refuse() {
+        assert_eq!(journal_refusal(&mut MockRepo::default()).unwrap(), None);
+    }
+
+    #[test]
     fn an_interrupted_fold_still_on_its_temporary_commit_is_unwound() {
         let mut repo = MockRepo {
             journal: Some(InProgress::WorktreeSquash(live_snapshot(
@@ -244,6 +350,45 @@ mod tests {
             app.status.message.as_deref(),
             Some("Recovered an interrupted squash of staged changes — restored the branch")
         );
+    }
+
+    /// A journal that went unreadable mid-session is reported with the way out
+    /// of it. The auto-stash restore that follows reads the same journal and
+    /// fails, and its own message would be the one the user is left looking at.
+    #[test]
+    fn an_unreadable_journal_is_reported_with_the_way_out() {
+        let mut repo = MockRepo {
+            journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(
+            repo.autostash_restore_calls.get(),
+            0,
+            "restoring a stash named by a journal that will not parse cannot work"
+        );
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(
+            message.contains("--clean-journal"),
+            "the report has to carry the way out: {message}"
+        );
+    }
+
+    /// A journal from the future is not ours to touch either. Restoring an
+    /// auto-stash from it reads it through the current schema, and a document
+    /// that happens to parse is then written back as this version — the clobber
+    /// main refuses to open on.
+    #[test]
+    fn a_journal_from_the_future_is_left_alone() {
+        let mut repo = MockRepo {
+            journal_newer_version: Some(9),
+            ..Default::default()
+        };
+        let app = recover(&mut repo);
+
+        assert_eq!(repo.autostash_restore_calls.get(), 0);
+        assert_eq!(app.status.message, None, "main has already said it");
     }
 
     /// The row the fold started from names itself in the report, so the user can

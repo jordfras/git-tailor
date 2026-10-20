@@ -21,9 +21,9 @@ use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
 use std::path::{Path, PathBuf};
 
-use crate::autostash_save_or_bail;
 use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
 use crate::progress_screen::ShowProgress;
+use crate::start_operation_or_bail;
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
@@ -166,7 +166,7 @@ pub(crate) fn handle_execute_split_out_files(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
-    autostash_save_or_bail!(git_repo, app);
+    start_operation_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_files(&commit_oid, &file_paths, &head_oid);
     Ok(settle_split_autostash(git_repo, app, result))
 }
@@ -181,7 +181,7 @@ pub(crate) fn handle_execute_split_out_hunks(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
-    autostash_save_or_bail!(git_repo, app);
+    start_operation_or_bail!(git_repo, app);
     let result = git_repo.split_commit_out_hunks(&commit_oid, &hunks, &head_oid, context_lines);
     Ok(settle_split_autostash(git_repo, app, result))
 }
@@ -195,6 +195,10 @@ pub(crate) fn execute_split(
     head_oid: &Oid,
     screen: &mut impl ShowProgress,
 ) -> LoopAction {
+    if let Err(e) = git_repo.refuse_if_journal_unusable() {
+        app.set_error_message(format!("{e:#}"));
+        return LoopAction::Proceed;
+    }
     // Stash dirty state first so a split whose files overlap uncommitted changes
     // is not refused: a split reproduces the same final tree, so reapplying the
     // stash afterwards is always conflict-free.

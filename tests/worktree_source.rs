@@ -1569,6 +1569,28 @@ fn a_fold_in_flight_pins_everything_its_snapshot_names() {
     }
 }
 
+/// The pins are the only thing keeping the working tree a fold lifts out of
+/// `git gc`'s reach, so a fold that cannot pin it must not start.
+#[test]
+fn a_fold_that_cannot_pin_its_snapshot_does_not_start() {
+    let test = mixed_state();
+    let tip = test.repo.head().unwrap().target().unwrap();
+    // A ref where the pins' directory has to go: nothing can be created under it.
+    test.repo
+        .reference("refs/git-tailor/wt/main/undo", tip, true, "blocker")
+        .unwrap();
+    let mut git_repo = test.git_repo();
+
+    let result = common::lift_at_head(&mut git_repo, WorktreeSource::Staged);
+
+    assert!(result.is_err(), "the fold started with nothing pinning it");
+    assert_eq!(test.repo.head().unwrap().target().unwrap(), tip);
+    assert!(matches!(
+        test.git_repo().read_journal().unwrap(),
+        git_tailor::repo::JournalStatus::None
+    ));
+}
+
 /// A completed fold pins what its undo entry needs, including the index trees —
 /// neither of which any ref reaches once the branch has moved on.
 #[test]

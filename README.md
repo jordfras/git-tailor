@@ -232,7 +232,9 @@ rewriting, having the branch pushed to a
 remote is still a good extra safety net. Should the recovery state ever get
 stuck, `gt --clean-journal` discards the journal and this working tree's
 git-tailor refs, then exits without opening the TUI. It keeps any uncommitted
-work it finds, saving it under `refs/git-tailor/rescue/*`; `gt --list-rescued`
+work it finds, saving it under `refs/git-tailor/rescue/*` — including when the
+journal is the thing it cannot read, where it keeps everything the refs still
+point at rather than guessing; `gt --list-rescued`
 shows those with the command that restores each, and `gt --drop-rescued`
 removes them. The third
 tutorial in the

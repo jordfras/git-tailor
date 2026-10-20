@@ -698,6 +698,10 @@ impl RepoWrite for Git2Repo {
         journal::clear_in_progress(self)
     }
 
+    fn refuse_if_journal_unusable(&self) -> Result<()> {
+        journal::refuse_if_unusable(self)
+    }
+
     fn read_journal(&mut self) -> Result<super::JournalStatus> {
         Ok(journal::read(self))
     }
@@ -711,14 +715,30 @@ impl RepoWrite for Git2Repo {
     }
 
     fn clean_journal(&mut self) -> Result<super::JournalCleanSummary> {
-        // Before the sweep, which removes the only things naming an in-flight
-        // fold's working tree. Best-effort: a failed rescue must not block the
-        // escape hatch. Not counted here — the sweep counts what it leaves.
-        if let Some(lifted) = journal::worktree_source(self).ok().flatten() {
-            let _ = lift_op::rescue(self, &lifted);
-        }
+        // Both arms run before the sweep, which removes the only things naming
+        // an in-flight fold's working tree. Neither is counted here — the sweep
+        // counts what it leaves.
+        //
+        // Both refuse rather than carry on, because sweeping the pins after
+        // failing to keep what they name is the destruction this exists to
+        // prevent. That leaves the escape hatch refusing too, so the error says
+        // what is still there to reach the work by.
+        let still_pinned = "nothing was cleaned, so the objects are still \
+                            pinned: `git for-each-ref refs/git-tailor` lists them";
+        let trees_rescued = match journal::worktree_source(self) {
+            Ok(Some(lifted)) => {
+                lift_op::rescue(self, &lifted).context(still_pinned)?;
+                None
+            }
+            Ok(None) => None,
+            // No record to rescue from, so the pins stand in for it.
+            Err(_) => Some(journal::rescue_pinned_trees(self).context(still_pinned)?),
+        };
 
-        journal::clean(self)
+        Ok(super::JournalCleanSummary {
+            trees_rescued,
+            ..journal::clean(self)?
+        })
     }
 
     fn rescued_trees(&self) -> Result<Vec<super::RescuedTree>> {

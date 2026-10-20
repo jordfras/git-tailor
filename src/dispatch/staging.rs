@@ -15,6 +15,7 @@
 // Side-effect handlers for the working-tree/index staging operations: stage all,
 // unstage all, and committing the staged changes.
 
+use crate::refuse_unrecordable_or_bail;
 use anyhow::Result;
 use bstr::ByteSlice;
 use git_tailor::app::AppState;
@@ -26,6 +27,7 @@ pub(crate) fn handle_stage_all(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
 ) -> Result<LoopAction> {
+    refuse_unrecordable_or_bail!(git_repo, app);
     let outcome = git_repo.stage_all();
     Ok(report_stage_outcome(
         app,
@@ -39,6 +41,7 @@ pub(crate) fn handle_unstage_all(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
 ) -> Result<LoopAction> {
+    refuse_unrecordable_or_bail!(git_repo, app);
     let outcome = git_repo.unstage_all();
     Ok(report_stage_outcome(
         app,
@@ -56,6 +59,8 @@ pub(crate) fn handle_commit_staged(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
+    // Before the editor, as for a reword.
+    refuse_unrecordable_or_bail!(git_repo, app);
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "".into());
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),

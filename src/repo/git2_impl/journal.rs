@@ -83,12 +83,12 @@ const REF_NAMESPACE: &str = "refs/git-tailor/";
 /// pins, as `wt/<id>/…`.
 ///
 /// The journal is per-working-tree — `repo.path()` is `<gitdir>/worktrees/<name>/`
-/// for a linked one — while refs are shared across all of them. Flat pin names
-/// meant [`sync_undo_pins`], which clears the lot before rewriting what its own
-/// journal names, unpinned every *other* working tree's objects. For an
-/// interrupted fold that is the user's uncommitted work: the recorded working
-/// tree is a tree object no commit and no reflog names, so the pin is the only
-/// thing holding it.
+/// for a linked one — while refs are shared across all of them. Under flat pin
+/// names, [`drop_unwanted_pins`], which drops every pin its own journal does not
+/// name, would unpin every *other* working tree's objects. For an interrupted
+/// fold that is the user's uncommitted work: the recorded working tree is a
+/// tree object no commit and no reflog names, so the pin is the only thing
+/// holding it.
 ///
 /// Not git's own `refs/worktree/` namespace, which would isolate them properly
 /// and is the obvious answer — `git gc` prunes straight through it. See
@@ -101,7 +101,8 @@ const WORKTREE_REF_LEAF: &str = "wt/";
 const ORIG_REF_LEAF: &str = "orig";
 
 /// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
-/// subdirectory pinning every tip referenced by the undo/redo stacks.
+/// subdirectory pinning every object the journal names: the undo/redo stacks'
+/// tips and index trees, and a fold's snapshot.
 const UNDO_REF_LEAF: &str = "undo/";
 
 /// Pin names written by versions before pins were scoped per working tree.
@@ -159,6 +160,36 @@ fn worktree_id(name: &std::ffi::OsStr) -> String {
         // better than failing an operation over a pin name.
         Err(_) => "unknown".to_string(),
     }
+}
+
+/// Every ref whose name starts with one of `prefixes`.
+fn refs_matching(repo: &Git2Repo, prefixes: &[&str]) -> Result<Vec<String>> {
+    let mut refs = repo
+        .inner
+        .references()
+        .context("failed to enumerate references")?;
+    Ok(refs
+        .names()
+        .filter_map(|name| name.ok())
+        .filter(|name| prefixes.iter().any(|prefix| name.starts_with(prefix)))
+        .map(String::from)
+        .collect())
+}
+
+/// Pins belonging to this working tree, under `mine` — plus anything an older
+/// version left under the flat names. Another working tree's pin may be the only
+/// thing keeping a paused conflict or interrupted fold of its own reachable, and
+/// this tree's journal knows nothing about it.
+fn my_pins(repo: &Git2Repo, mine: &str) -> Result<Vec<String>> {
+    let mut prefixes = vec![mine];
+    prefixes.extend(LEGACY_PIN_PREFIXES);
+    refs_matching(repo, &prefixes)
+}
+
+/// Every rescue ref. Repository-wide: they are content-addressed and record no
+/// owning working tree.
+fn rescue_ref_names(repo: &Git2Repo) -> Result<Vec<String>> {
+    refs_matching(repo, &[&format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}")])
 }
 
 /// Full name of the in-progress `orig` pin for this working tree.
@@ -386,6 +417,9 @@ fn journal_path(repo: &Git2Repo) -> PathBuf {
 }
 
 /// Load the current document, returning an empty default when the file is absent.
+///
+/// Never default an error from this: [`save`] would then overwrite or remove a
+/// journal nobody could read.
 fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
     let path = journal_path(repo);
     let Some(bytes) = durable_file::read(&path)? else {
@@ -393,6 +427,19 @@ fn load_doc(repo: &Git2Repo) -> Result<JournalDoc> {
     };
     serde_json::from_slice(&bytes)
         .with_context(|| format!("failed to parse journal at {}", path.display()))
+}
+
+/// Refuse when the journal is not this build's to add to, before an operation
+/// that would have to add to it starts.
+///
+/// Every mutating helper begins by loading the document, so without this the
+/// refusal lands wherever that load happens to sit — for a rewrite, after the
+/// branch has already moved, which reports a landed rewrite as a failure and
+/// leaves no undo entry. One parse buys the refusal while it is still free.
+pub(super) fn refuse_if_unusable(repo: &Git2Repo) -> Result<()> {
+    load_doc(repo)
+        .map(|_| ())
+        .context("git-tailor cannot record this operation, so it will not run")
 }
 
 fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
@@ -408,15 +455,17 @@ fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
 }
 
 /// Persist the document — removing the file when nothing is left to store — and
-/// reconcile the undo pin refs with the stacks.
+/// reconcile the pin refs with it: pinned before the record that relies on
+/// them, dropped only once it no longer does.
 fn save(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
+    add_pins(repo, doc)?;
     if is_empty(doc) {
         durable_file::remove(&journal_path(repo))?;
     } else {
         write_doc(repo, doc)?;
     }
-    sync_undo_pins(repo, doc);
+    drop_unwanted_pins(repo, doc);
     Ok(())
 }
 
@@ -438,7 +487,7 @@ pub(super) fn worktree_source(repo: &Git2Repo) -> Result<Option<LiftedRow>> {
 /// Record (or clear, with `None`) the working-tree-source snapshot for the
 /// in-flight operation.
 pub(super) fn set_worktree_source(repo: &mut Git2Repo, snapshot: Option<LiftedRow>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.worktree_source = snapshot;
     save(repo, &mut doc)
 }
@@ -450,7 +499,7 @@ pub(super) fn autostash(repo: &Git2Repo) -> Result<Option<AutostashRecord>> {
 
 /// Record (or clear, with `None`) the auto-stash for the in-flight operation.
 pub(super) fn set_autostash(repo: &mut Git2Repo, record: Option<AutostashRecord>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.autostash = record;
     save(repo, &mut doc)
 }
@@ -462,7 +511,7 @@ pub(super) fn parked(repo: &Git2Repo) -> Result<Option<ParkedRow>> {
 
 /// Record (or clear, with `None`) the row a fold parked.
 pub(super) fn set_parked(repo: &mut Git2Repo, record: Option<ParkedRow>) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.parked = record;
     save(repo, &mut doc)
 }
@@ -479,7 +528,7 @@ pub(super) fn drop_reverted_undo_record(
     pre_op_tip: &Oid,
     discarded_tip: &Oid,
 ) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     if doc.undo.last().is_some_and(|r| {
         matches!(
             r,
@@ -507,7 +556,7 @@ pub(super) fn drop_reverted_undo_record(
 ///   operation — dropping any orphans. The `orig` pin belongs to a paused
 ///   operation, so it is dropped whenever there is none.
 pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
 
     // A fold in flight is an operation in progress too, even before it reaches a
     // conflict: its temporary commit moves the branch off the tip the undo stack
@@ -528,7 +577,8 @@ pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
         // `save` removes the now-empty journal and reconciles the undo pins.
         save(repo, &mut doc)
     } else {
-        sync_undo_pins(repo, &doc);
+        add_pins(repo, &doc)?;
+        drop_unwanted_pins(repo, &doc);
         Ok(())
     }
 }
@@ -547,65 +597,78 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
     Ok(current != Some(&reads::head_oid(repo)?))
 }
 
-/// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
-/// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
-/// caller (pins are only a gc optimization).
-///
-/// The pins are dropped before they are rewritten, so for that moment the
-/// objects they name are unreferenced and a `git gc --prune=now` running right
-/// then could take them. Rebuilding the set in place is not worth the
-/// complication: the window is microseconds, git's default prune expiry is two
-/// weeks, and the journal still names the oids either way.
-fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
-    let prefix = worktree_prefix(repo);
-    // Only this working tree's pins, plus anything an older version left under
-    // the flat names. Another working tree's belong to its journal, not ours.
-    let mine = format!("{prefix}{UNDO_REF_LEAF}");
-    if let Ok(mut refs) = repo.inner.references() {
-        let names: Vec<String> = refs
-            .names()
-            .filter_map(|n| n.ok())
-            .filter(|name| {
-                name.starts_with(&mine)
-                    || LEGACY_PIN_PREFIXES
-                        .iter()
-                        .any(|legacy| name.starts_with(legacy))
-            })
-            .map(String::from)
-            .collect();
-        for name in names {
-            if let Ok(mut r) = repo.inner.find_reference(&name) {
-                let _ = r.delete();
-            }
-        }
-    }
-
-    let mut oids: BTreeSet<&Oid> = BTreeSet::new();
-    for rec in doc.undo.iter().chain(doc.redo.iter()) {
-        oids.extend(rec.pinned_oids());
-    }
-    // The snapshot's trees are loose objects no ref reaches.
-    if let Some(snapshot) = &doc.worktree_source {
-        oids.extend([
+/// What the snapshot names: loose objects no ref reaches, among them the only
+/// copy of the working tree the fold lifted.
+fn snapshot_oids(doc: &JournalDoc) -> impl Iterator<Item = &Oid> {
+    doc.worktree_source.iter().flat_map(|snapshot| {
+        [
             &snapshot.tip_before,
             &snapshot.index_tree_before,
             &snapshot.worktree_tree,
             &snapshot.temp_oid,
-        ]);
+        ]
+    })
+}
+
+fn undo_oids(doc: &JournalDoc) -> impl Iterator<Item = &Oid> {
+    doc.undo
+        .iter()
+        .chain(doc.redo.iter())
+        .flat_map(UndoRecord::pinned_oids)
+}
+
+/// Prefix of this working tree's pins. Each is named after the oid it holds, so
+/// a pin still wanted is left alone, never dropped and rewritten.
+fn pin_prefix(repo: &Git2Repo) -> String {
+    format!("{}{UNDO_REF_LEAF}", worktree_prefix(repo))
+}
+
+/// Pin everything `doc` names against `git gc`. Failing to pin the snapshot is
+/// an error, since it holds the user's uncommitted work. The undo stacks' pins
+/// are best-effort: failing on them would report a rewrite that already landed.
+fn add_pins(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
+    let prefix = pin_prefix(repo);
+    for oid in snapshot_oids(doc) {
+        add_pin(repo, &prefix, oid)
+            .with_context(|| format!("failed to pin {oid} against git gc"))?;
     }
-    for (i, oid) in oids.into_iter().enumerate() {
-        let _ = repo.inner.reference(
-            &format!("{prefix}{UNDO_REF_LEAF}{i}"),
-            git2::Oid::from(oid),
-            true,
-            "git-tailor: undo pin",
-        );
+    for oid in undo_oids(doc) {
+        let _ = add_pin(repo, &prefix, oid);
+    }
+    Ok(())
+}
+
+fn add_pin(repo: &mut Git2Repo, prefix: &str, oid: &Oid) -> Result<()> {
+    let name = format!("{prefix}{oid}");
+    if repo.inner.find_reference(&name).is_err() {
+        repo.inner
+            .reference(&name, git2::Oid::from(oid), false, "git-tailor: pin")?;
+    }
+    Ok(())
+}
+
+/// Drop this working tree's pins `doc` no longer names, plus anything an older
+/// version left under the flat names. Another working tree's belong to its
+/// journal, not ours.
+fn drop_unwanted_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
+    let prefix = pin_prefix(repo);
+    let wanted: BTreeSet<String> = snapshot_oids(doc)
+        .chain(undo_oids(doc))
+        .map(|oid| format!("{prefix}{oid}"))
+        .collect();
+    // Pins that could not be listed stay put, which only keeps objects alive longer.
+    for name in my_pins(repo, &prefix).unwrap_or_default() {
+        if !wanted.contains(&name)
+            && let Ok(mut r) = repo.inner.find_reference(&name)
+        {
+            let _ = r.delete();
+        }
     }
 }
 
 /// Record `record` as the in-progress operation and pin the original branch tip.
 pub(super) fn set_in_progress(repo: &mut Git2Repo, record: &InProgress) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = Some(record.clone());
     save(repo, &mut doc)?;
 
@@ -627,7 +690,7 @@ pub(super) fn in_progress(repo: &Git2Repo) -> Result<Option<InProgress>> {
 /// Clear the in-progress record after a clean completion or abort, keeping any
 /// undo/redo stack intact, and drop the in-progress pin ref.
 pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = None;
     save(repo, &mut doc)?;
     delete_orig_ref(repo);
@@ -635,13 +698,12 @@ pub(super) fn clear_in_progress(repo: &mut Git2Repo) -> Result<()> {
 }
 
 /// Abandon whatever operation was in flight: the paused record *and* the
-/// working-tree snapshot. Used when a journal is discarded as unusable, where
-/// leaving the snapshot behind would keep telling later operations that a dirty
-/// working tree is accounted for. Distinct from
-/// [`clear_in_progress`], which only ends one phase of an operation that is
-/// still running.
+/// working-tree snapshot. Used when a stale journal is discarded, where leaving
+/// the snapshot behind would keep telling later operations that a dirty working
+/// tree is accounted for. Distinct from [`clear_in_progress`], which only ends
+/// one phase of an operation that is still running.
 pub(super) fn discard_in_flight(repo: &mut Git2Repo) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.in_progress = None;
     doc.worktree_source = None;
     save(repo, &mut doc)?;
@@ -661,40 +723,15 @@ fn delete_orig_ref(repo: &mut Git2Repo) {
 ///
 /// Refs are discovered by namespace rather than from the journal, so stray refs
 /// are removed even when the journal is missing, corrupt, or out of sync — this
-/// is the manual escape hatch behind `--clean-journal`. Scoped to this working
-/// tree's own `wt/<id>/` prefix for the same reason [`sync_undo_pins`] is:
-/// another working tree's pin may be the only thing keeping a paused conflict
-/// or interrupted fold of its own reachable, and this tree's journal knows
-/// nothing about it.
+/// is the manual escape hatch behind `--clean-journal`.
 ///
 /// Rescue refs are left alone and only counted. They are repository-wide, and
 /// each is uncommitted work with no other copy — a per-working-tree cleanup has
 /// no business destroying it, least of all silently.
 pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
-    let mine = worktree_prefix(repo);
-    let rescue_prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
-    let mut refs = repo
-        .inner
-        .references()
-        .context("failed to enumerate references")?;
-    let mut rescue_refs_kept = 0;
-    let names: Vec<String> = refs
-        .names()
-        .filter_map(|n| n.ok())
-        .filter(|name| {
-            if name.starts_with(&rescue_prefix) {
-                rescue_refs_kept += 1;
-                return false;
-            }
-            name.starts_with(&mine)
-                || LEGACY_PIN_PREFIXES
-                    .iter()
-                    .any(|legacy| name.starts_with(legacy))
-        })
-        .map(|name| name.to_string())
-        .collect();
+    let rescue_refs_kept = rescue_ref_names(repo)?.len();
     let mut refs_removed = 0;
-    for name in names {
+    for name in my_pins(repo, &worktree_prefix(repo))? {
         if let Ok(mut r) = repo.inner.find_reference(&name)
             && r.delete().is_ok()
         {
@@ -713,23 +750,62 @@ pub(super) fn clean(repo: &mut Git2Repo) -> Result<JournalCleanSummary> {
         refs_removed,
         journal_removed,
         rescue_refs_kept,
+        // The caller knows whether the journal could be read; this does not.
+        trees_rescued: None,
     })
+}
+
+/// Keep every tree this working tree's pins name under the rescue namespace, so
+/// [`clean`] can drop the pins without the trees becoming garbage. Reports how
+/// many were kept.
+///
+/// For a journal that cannot be read, where the pins are all that is left of
+/// what it referenced and nothing tells a fold's working tree from an undo
+/// record's index tree. Both are kept: over-keeping costs a ref the user can see
+/// with `--list-rescued` and remove with `--drop-rescued`, where under-keeping
+/// costs the only assembled copy of a working tree.
+///
+/// Commit pins are not kept. A branch reflog still names those, while a tree
+/// object is reached by nothing once the pin is gone.
+pub(super) fn rescue_pinned_trees(repo: &mut Git2Repo) -> Result<usize> {
+    let head_tree = reads::head_oid(repo)
+        .and_then(|head| repo.commit_tree_id(git2::Oid::from(&head)))
+        .ok();
+    let trees: BTreeSet<git2::Oid> = my_pins(repo, &worktree_prefix(repo))?
+        .iter()
+        .filter_map(|name| pinned_tree(repo, name))
+        // A tree HEAD reaches is not uncommitted work, as in [`lift_op::rescue`].
+        .filter(|tree| Some(*tree) != head_tree)
+        .collect();
+
+    let mut kept = 0;
+    for tree in trees {
+        repo.inner
+            .reference(
+                &rescue_ref(&Oid::from(tree)),
+                tree,
+                true,
+                "git-tailor: kept the tree of a journal that could not be read",
+            )
+            .with_context(|| format!("failed to keep the tree {tree}"))?;
+        kept += 1;
+    }
+    Ok(kept)
+}
+
+/// The tree `refname` points at, or `None` when it points at anything else.
+///
+/// The ref's own target, not `peel`: peeling a commit pin yields that commit's
+/// tree, and every undo tip would come back as a tree to rescue.
+fn pinned_tree(repo: &Git2Repo, refname: &str) -> Option<git2::Oid> {
+    let oid = repo.inner.find_reference(refname).ok()?.target()?;
+    let object = repo.inner.find_object(oid, None).ok()?;
+    (object.kind() == Some(git2::ObjectType::Tree)).then_some(oid)
 }
 
 /// Every working tree kept under the rescue namespace.
 pub(super) fn rescued_trees(repo: &Git2Repo) -> Result<Vec<crate::repo::RescuedTree>> {
-    let prefix = format!("{REF_NAMESPACE}{RESCUE_REF_LEAF}");
-    let mut refs = repo
-        .inner
-        .references()
-        .context("failed to enumerate references")?;
-    let names: Vec<String> = refs
-        .names()
-        .filter_map(|n| n.ok())
-        .filter(|name| name.starts_with(&prefix))
-        .map(|name| name.to_string())
-        .collect();
-
+    let names = rescue_ref_names(repo)?;
     let mut out = Vec::with_capacity(names.len());
     for refname in names {
         let Ok(reference) = repo.inner.find_reference(&refname) else {
@@ -881,7 +957,7 @@ pub(super) fn record_mixed_undo(
 /// Append a record to the undo stack, clearing the redo stack (a new action
 /// invalidates redo) and capping the depth.
 fn push_undo(repo: &mut Git2Repo, record: UndoRecord) -> Result<()> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     doc.undo.push(record);
     doc.redo.clear();
     while doc.undo.len() > MAX_UNDO_DEPTH {
@@ -913,7 +989,7 @@ pub(super) fn pending_redo_skips_autostash(repo: &Git2Repo) -> Result<bool> {
 /// history-rewriting op restores its pre-operation tip; an index-only op restores
 /// its pre-operation index tree; a commit soft-resets to its parent.
 pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     let Some(record) = doc.undo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
@@ -982,7 +1058,7 @@ pub(super) fn apply_undo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
 /// Redo the most recently undone operation, moving its record back to the undo
 /// stack: restore its post-operation tip, or its post-operation index tree.
 pub(super) fn apply_redo(repo: &mut Git2Repo) -> Result<UndoOutcome> {
-    let mut doc = load_doc(repo).unwrap_or_default();
+    let mut doc = load_doc(repo)?;
     let Some(record) = doc.redo.last().cloned() else {
         return Ok(UndoOutcome::Empty);
     };
@@ -1195,7 +1271,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
     // cleanly rather than mis-parsed.
     let header: VersionHeader = match serde_json::from_slice(&bytes) {
         Ok(h) => h,
-        Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+        Err(e) => return invalid_json(&path, &e),
     };
     if header.version > JOURNAL_VERSION {
         return JournalStatus::NewerVersion(header.version);
@@ -1213,7 +1289,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         if header.version < 2 {
             let old: JournalDocV1 = match serde_json::from_slice(&bytes) {
                 Ok(d) => d,
-                Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+                Err(e) => return invalid_json(&path, &e),
             };
             if let Some(op) = old.interrupted_op_label() {
                 return JournalStatus::UpgradeInterrupted { op };
@@ -1227,7 +1303,7 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
         // means something different between them.
         let old: JournalDoc = match serde_json::from_slice(&bytes) {
             Ok(d) => d,
-            Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+            Err(e) => return invalid_json(&path, &e),
         };
         match migrate_v2(old) {
             Ok(upgraded) => {
@@ -1249,9 +1325,15 @@ pub(super) fn read(repo: &mut Git2Repo) -> JournalStatus {
 
     let doc: JournalDoc = match serde_json::from_slice(&bytes) {
         Ok(d) => d,
-        Err(e) => return JournalStatus::Corrupt(format!("invalid journal JSON: {e}")),
+        Err(e) => return invalid_json(&path, &e),
     };
     classify(doc)
+}
+
+/// A journal whose bytes will not parse. Names the file, because the user is
+/// being told to go and deal with it.
+fn invalid_json(path: &std::path::Path, e: &serde_json::Error) -> JournalStatus {
+    JournalStatus::Corrupt(format!("invalid JSON in {}: {e}", path.display()))
 }
 
 fn classify(doc: JournalDoc) -> JournalStatus {
