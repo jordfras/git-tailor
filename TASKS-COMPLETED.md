@@ -2280,3 +2280,8 @@
   `--list-rescued`/`--drop-rescued` already handle them.
   Autostash and parked stashes survive in `git stash list` either way, which the
   command's own output could say.
+- [X] T266 P3 refactor - Take the event loop out of `main`. `fn main` is still
+  some 270 lines, most of it the loop: the mode-to-handler `match` and the
+  `Reload*` arm, which reloads, restores the selection and refreshes a detail
+  view, together run to about 80 lines. Each could be a function taking
+  `&mut AppState`, the repo and, for the reload, the terminal guard.

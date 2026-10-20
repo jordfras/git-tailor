@@ -12,11 +12,6 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T266 P3 refactor - Take the event loop out of `main`. `fn main` is still
-  some 270 lines, most of it the loop: the mode-to-handler `match` and the
-  `Reload*` arm, which reloads, restores the selection and refreshes a detail
-  view, together run to about 80 lines. Each could be a function taking
-  `&mut AppState`, the repo and, for the reload, the terminal guard.
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
   made the journal durable, but the objects and ref moves of a rewrite are
   still written without a flush, so a power cut can leave the journal naming a
