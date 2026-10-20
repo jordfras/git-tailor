@@ -246,7 +246,12 @@ fn settle_reload(
                 app.mode = before;
             }
         }
-        Ok(false) => {}
+        Ok(false) => {
+            app.mode = before;
+            app.set_error_message(
+                "Reload canceled — the list may be out of date; press R to reload",
+            );
+        }
     }
     if matches!(app.mode, AppMode::CommitDetail) {
         views::commit_detail::load_diff(git_repo, app);

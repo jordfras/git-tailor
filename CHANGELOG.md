@@ -247,6 +247,9 @@ The format is based on
   up, where every key but Ctrl-C was ignored
 - `R` in the commit detail view refreshes it in place. It used to reload the
   list and drop back to it, with the selection back where gt starts it
+- Canceling a reload with Ctrl-C now says the list may be out of date and that
+  `R` reloads it. The list it kept on screen can name commits an operation has
+  just rewritten
 
 ### Removed
 
