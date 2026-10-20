@@ -216,15 +216,23 @@ pub fn reload(
             full,
         )
     });
-    settle_reload(git_repo, app, before, loaded, select);
+    settle_reload(git_repo, app, before, None, loaded, select);
+}
+
+/// The commit the detail view showed when a refresh started, and how far down.
+struct Shown {
+    oid: VirtualOid,
+    offset: usize,
 }
 
 /// Put the screen right once a reload is over. `before` is the mode the reload
-/// started from, and `loaded` what [`load_with_progress`] returned.
+/// started from, `shown` what the detail view showed if that is where, and
+/// `loaded` what [`load_with_progress`] returned.
 fn settle_reload(
     git_repo: &impl RepoRead,
     app: &mut AppState,
     before: AppMode,
+    _shown: Option<Shown>,
     loaded: Result<bool>,
     select: Option<usize>,
 ) {
@@ -399,6 +407,7 @@ mod tests {
             &MockRepo::default(),
             &mut app,
             AppMode::CommitList,
+            None,
             Err(anyhow::anyhow!("unreadable file")),
             None,
         );
@@ -407,22 +416,93 @@ mod tests {
         assert!(app.status.is_error);
     }
 
-    #[test]
-    fn refreshing_the_detail_view_stays_in_it() {
+    fn commit(oid: &str) -> CommitInfo {
+        CommitInfo {
+            oid: VirtualOid::Real(Oid::new(oid.repeat(40))),
+            summary: String::new(),
+            summary_key: Default::default(),
+            author: None,
+            date: None,
+            parent_oids: vec![],
+            message: String::new(),
+            author_email: None,
+            author_date: None,
+            committer: None,
+            committer_email: None,
+            commit_date: None,
+        }
+    }
+
+    /// What [`load_with_progress`] leaves after loading `commits`: the list,
+    /// with the cursor at the natural position.
+    fn loaded_list(commits: &[&str]) -> AppState {
         let mut app = AppState {
             mode: AppMode::CommitList,
             ..AppState::default()
         };
+        app.list.commits = commits.iter().map(|oid| commit(oid)).collect();
+        app.list.selection_index = commits.len() - 1;
+        app
+    }
+
+    fn shown(oid: &str, offset: usize) -> Option<Shown> {
+        Some(Shown {
+            oid: commit(oid).oid,
+            offset,
+        })
+    }
+
+    /// A commit made in the meantime moves the row the detail view was on, so
+    /// keeping the row would quietly show another commit.
+    #[test]
+    fn refreshing_the_detail_view_stays_on_the_commit_it_shows() {
+        let mut app = loaded_list(&["a", "b", "new"]);
 
         settle_reload(
             &MockRepo::default(),
             &mut app,
             AppMode::CommitDetail,
+            shown("b", 0),
             Ok(true),
             None,
         );
 
         assert!(matches!(app.mode, AppMode::CommitDetail), "{:?}", app.mode);
+        assert_eq!(app.list.selection_index, 1);
+    }
+
+    #[test]
+    fn refreshing_the_detail_view_keeps_its_scroll_position() {
+        let mut app = loaded_list(&["a", "b"]);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 300),
+            Ok(true),
+            None,
+        );
+
+        assert_eq!(app.detail.v.offset, 300);
+    }
+
+    /// Rewritten or committed away: there is nothing left to stay on.
+    #[test]
+    fn refreshing_a_commit_no_longer_listed_goes_back_to_the_list() {
+        let mut app = loaded_list(&["a", "c"]);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            shown("b", 0),
+            Ok(true),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
+        assert!(app.status.message.is_some());
     }
 
     /// The branch may already have moved, so the list on screen may name commits
@@ -435,6 +515,7 @@ mod tests {
             &MockRepo::default(),
             &mut app,
             AppMode::CommitList,
+            None,
             Ok(false),
             None,
         );
