@@ -242,6 +242,9 @@ The format is based on
   the uncommitted work it lifts safe from `git gc`. It used to go ahead with
   nothing holding that work, so a `git gc` before the squash finished could
   delete it
+- A reload that fails partway, after an operation or on `R`, now says why and
+  goes back to the view it started from. It used to leave the loading dialog
+  up, where every key but Ctrl-C was ignored
 
 ### Removed
 

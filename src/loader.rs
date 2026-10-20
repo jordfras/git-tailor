@@ -222,12 +222,15 @@ pub fn reload(
 fn settle_reload(
     git_repo: &impl RepoRead,
     app: &mut AppState,
-    _before: AppMode,
+    before: AppMode,
     loaded: Result<bool>,
     select: Option<usize>,
 ) {
     match loaded {
-        Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
+        Err(e) => {
+            app.mode = before;
+            app.set_error_message(format!("Reload failed: {e:#}"));
+        }
         Ok(true) => {
             if let Some(index) = select {
                 app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
