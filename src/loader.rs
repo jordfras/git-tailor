@@ -200,6 +200,11 @@ pub fn reload(
     select: Option<usize>,
 ) {
     let before = app.mode.clone();
+    // The detail view shows one commit, so refreshing it keeps that row.
+    let select = match before {
+        AppMode::CommitDetail => select.or(Some(app.list.selection_index)),
+        _ => select,
+    };
     let loaded = git_repo.head_oid().and_then(|head_oid| {
         let reference_oid = app.reference_oid.clone();
         let include_reference_oid = app.include_reference_oid;
@@ -234,6 +239,11 @@ fn settle_reload(
         Ok(true) => {
             if let Some(index) = select {
                 app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+            }
+            // A load lands on the list, which is right after an operation but
+            // not after refreshing the detail view.
+            if matches!(before, AppMode::CommitDetail) {
+                app.mode = before;
             }
         }
         Ok(false) => {}

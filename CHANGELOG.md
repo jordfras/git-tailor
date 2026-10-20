@@ -245,6 +245,8 @@ The format is based on
 - A reload that fails partway, after an operation or on `R`, now says why and
   goes back to the view it started from. It used to leave the loading dialog
   up, where every key but Ctrl-C was ignored
+- `R` in the commit detail view refreshes it in place. It used to reload the
+  list and drop back to it, with the selection back where gt starts it
 
 ### Removed
 
