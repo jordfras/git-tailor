@@ -356,3 +356,39 @@ fn select_initial_index(commits: &[CommitInfo]) -> usize {
     }
     commits.len().saturating_sub(1)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock_repo::MockRepo;
+
+    /// What [`load_with_progress`] leaves behind when it fails partway.
+    fn loading() -> AppMode {
+        AppMode::Loading {
+            title: "Loading Commits",
+            message: "Loading commits\u{2026}",
+            progress: None,
+            escape: None,
+        }
+    }
+
+    /// The loading dialog ignores every key but Ctrl-C, which quits.
+    #[test]
+    fn a_failed_reload_goes_back_to_the_view_it_started_from() {
+        let mut app = AppState {
+            mode: loading(),
+            ..AppState::default()
+        };
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            Err(anyhow::anyhow!("unreadable file")),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
+        assert!(app.status.is_error);
+    }
+}
