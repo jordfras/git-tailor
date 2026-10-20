@@ -23,6 +23,49 @@
 use git_tailor::app::{AppMode, AppState};
 use git_tailor::repo::{AutostashRestore, GitRepo, InProgress, JournalStatus, StashConflictState};
 
+/// Why the TUI must not open on this journal, as the message to print, or
+/// `None` when it may. Each refusal would otherwise drop the user into a
+/// confusing half-finished state.
+///
+/// Matched variant by variant rather than with a `_` arm: a status nobody has
+/// decided about must not default to opening anyway.
+pub(crate) fn journal_refusal(git_repo: &mut impl GitRepo) -> anyhow::Result<Option<String>> {
+    Ok(match git_repo.read_journal()? {
+        JournalStatus::UpgradeInterrupted { op } => Some(format!(
+            "git-tailor was upgraded while \"{op}\" was interrupted mid-operation.\n\
+             This version cannot resume it. Finish it with the previous git-tailor, \
+             or run `gt --clean-journal` to discard it and start fresh — any \
+             uncommitted work it recorded is kept, and `gt --list-rescued` \
+             shows it."
+        )),
+        // The journal is the only record of what the repository is in the middle
+        // of, and every operation starts by reading it to add to it. Opening
+        // anyway means the first write defaults the document and puts that over
+        // the file — taking an auto-stash record, and the only reference to the
+        // stash holding the user's uncommitted changes, with it.
+        JournalStatus::Corrupt(why) => Some(format!(
+            "git-tailor cannot read its operation journal: {why}\n\
+             Nothing can run against a journal it cannot add to. Run \
+             `gt --clean-journal` to discard it — it keeps any uncommitted \
+             work it can still find, and `git stash list` holds what was \
+             stashed for an operation. `gt --static` browses without it."
+        )),
+        // Reading it is not the problem; adding to it is. Every write goes
+        // through the current schema, so the first one would rewrite a document
+        // this build cannot represent as one it can — and an in-progress record
+        // naming a variant it has never heard of fails the whole read anyway,
+        // which is the case above.
+        JournalStatus::NewerVersion(version) => Some(format!(
+            "git-tailor's operation journal was written by a newer version \
+             (format v{version}), which this one cannot add to.\n\
+             Upgrade git-tailor, or run `gt --clean-journal` to discard the \
+             journal — any uncommitted work it recorded is kept, and \
+             `gt --list-rescued` shows it. `gt --static` browses without it."
+        )),
+        JournalStatus::Recovered(_) | JournalStatus::None => None,
+    })
+}
+
 /// On startup, detect an operation a previous run was killed in the middle of
 /// (from the persisted journal) and surface a recovery prompt — or inform the
 /// user when the journal can't be used.
@@ -239,6 +282,56 @@ mod tests {
         let mut app = AppState::default();
         check_journal_recovery(repo, &mut app);
         app
+    }
+
+    #[test]
+    fn an_operation_an_older_version_left_refuses_naming_it() {
+        let mut repo = MockRepo {
+            journal_upgrade_interrupted: Some("Squash".to_string()),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("\"Squash\""), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn an_unreadable_journal_refuses_with_its_reason_and_the_way_out() {
+        let mut repo = MockRepo {
+            journal_corrupt: Some("invalid JSON in journal.json".to_string()),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("invalid JSON in journal.json"), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn a_journal_from_the_future_refuses_naming_its_version() {
+        let mut repo = MockRepo {
+            journal_newer_version: Some(9),
+            ..Default::default()
+        };
+        let why = journal_refusal(&mut repo).unwrap().unwrap();
+
+        assert!(why.contains("v9"), "{why}");
+        assert!(why.contains("--clean-journal"), "{why}");
+    }
+
+    #[test]
+    fn a_journal_this_build_can_recover_does_not_refuse() {
+        let mut repo = MockRepo {
+            journal: Some(InProgress::Conflict(Box::new(conflict_at_head()))),
+            ..Default::default()
+        };
+        assert_eq!(journal_refusal(&mut repo).unwrap(), None);
+    }
+
+    #[test]
+    fn no_journal_does_not_refuse() {
+        assert_eq!(journal_refusal(&mut MockRepo::default()).unwrap(), None);
     }
 
     #[test]
