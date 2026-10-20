@@ -187,9 +187,10 @@ pub fn load_with_progress(
     Ok(true)
 }
 
-/// Reload the list from HEAD after an operation, keeping the range and options
-/// it was loaded with. `select` is the row to land on, clamped to the new list;
-/// `None` takes the natural position.
+/// Reload the list from HEAD, after an operation or on `R`, keeping the range
+/// and options it was loaded with. `select` is the row to land on, clamped to
+/// the new list; `None` takes the natural position. Refreshing the detail view
+/// ignores it and stays on the commit shown, wherever that row has moved to.
 pub fn reload(
     git_repo: &impl RepoRead,
     terminal_guard: &mut TerminalGuard,
@@ -197,10 +198,16 @@ pub fn reload(
     select: Option<usize>,
 ) {
     let before = app.mode.clone();
-    // The detail view shows one commit, so refreshing it keeps that row.
-    let select = match before {
-        AppMode::CommitDetail => select.or(Some(app.list.selection_index)),
-        _ => select,
+    let shown = match before {
+        AppMode::CommitDetail => app
+            .list
+            .commits
+            .get(app.list.selection_index)
+            .map(|c| Shown {
+                oid: c.oid.clone(),
+                offset: app.detail.v.offset,
+            }),
+        _ => None,
     };
     let loaded = git_repo.head_oid().and_then(|head_oid| {
         let reference_oid = app.reference_oid.clone();
@@ -216,7 +223,7 @@ pub fn reload(
             full,
         )
     });
-    settle_reload(git_repo, app, before, None, loaded, select);
+    settle_reload(git_repo, app, before, shown, loaded, select);
 }
 
 /// The commit the detail view showed when a refresh started, and how far down.
@@ -232,7 +239,7 @@ fn settle_reload(
     git_repo: &impl RepoRead,
     app: &mut AppState,
     before: AppMode,
-    _shown: Option<Shown>,
+    shown: Option<Shown>,
     loaded: Result<bool>,
     select: Option<usize>,
 ) {
@@ -241,16 +248,25 @@ fn settle_reload(
             app.mode = before;
             app.set_error_message(format!("Reload failed: {e:#}"));
         }
-        Ok(true) => {
-            if let Some(index) = select {
-                app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+        // A load lands on the list, which is right after an operation but not
+        // after refreshing the detail view.
+        Ok(true) => match shown {
+            Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
+                Some(index) => {
+                    app.list.selection_index = index;
+                    app.detail.v.offset = shown.offset;
+                    app.mode = before;
+                }
+                None => app.set_error_message(
+                    "The commit the detail view showed is no longer on the branch",
+                ),
+            },
+            None => {
+                if let Some(index) = select {
+                    app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+                }
             }
-            // A load lands on the list, which is right after an operation but
-            // not after refreshing the detail view.
-            if matches!(before, AppMode::CommitDetail) {
-                app.mode = before;
-            }
-        }
+        },
         Ok(false) => {
             app.mode = before;
             app.set_error_message(
