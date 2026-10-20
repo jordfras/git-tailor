@@ -83,12 +83,12 @@ const REF_NAMESPACE: &str = "refs/git-tailor/";
 /// pins, as `wt/<id>/…`.
 ///
 /// The journal is per-working-tree — `repo.path()` is `<gitdir>/worktrees/<name>/`
-/// for a linked one — while refs are shared across all of them. Flat pin names
-/// meant [`sync_undo_pins`], which clears the lot before rewriting what its own
-/// journal names, unpinned every *other* working tree's objects. For an
-/// interrupted fold that is the user's uncommitted work: the recorded working
-/// tree is a tree object no commit and no reflog names, so the pin is the only
-/// thing holding it.
+/// for a linked one — while refs are shared across all of them. Under flat pin
+/// names, [`drop_unwanted_pins`], which drops every pin its own journal does not
+/// name, would unpin every *other* working tree's objects. For an interrupted
+/// fold that is the user's uncommitted work: the recorded working tree is a
+/// tree object no commit and no reflog names, so the pin is the only thing
+/// holding it.
 ///
 /// Not git's own `refs/worktree/` namespace, which would isolate them properly
 /// and is the obvious answer — `git gc` prunes straight through it. See
@@ -101,7 +101,8 @@ const WORKTREE_REF_LEAF: &str = "wt/";
 const ORIG_REF_LEAF: &str = "orig";
 
 /// Leaf (under this working tree's [`WORKTREE_REF_LEAF`] subdirectory) of the
-/// subdirectory pinning every tip referenced by the undo/redo stacks.
+/// subdirectory pinning every object the journal names: the undo/redo stacks'
+/// tips and index trees, and a fold's snapshot.
 const UNDO_REF_LEAF: &str = "undo/";
 
 /// Pin names written by versions before pins were scoped per working tree.
@@ -454,15 +455,17 @@ fn write_doc(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
 }
 
 /// Persist the document — removing the file when nothing is left to store — and
-/// reconcile the undo pin refs with the stacks.
+/// reconcile the pin refs with it: pinned before the record that relies on
+/// them, dropped only once it no longer does.
 fn save(repo: &mut Git2Repo, doc: &mut JournalDoc) -> Result<()> {
     doc.version = JOURNAL_VERSION;
+    add_pins(repo, doc)?;
     if is_empty(doc) {
         durable_file::remove(&journal_path(repo))?;
     } else {
         write_doc(repo, doc)?;
     }
-    sync_undo_pins(repo, doc);
+    drop_unwanted_pins(repo, doc);
     Ok(())
 }
 
@@ -574,7 +577,8 @@ pub(super) fn prune_stale(repo: &mut Git2Repo) -> Result<()> {
         // `save` removes the now-empty journal and reconciles the undo pins.
         save(repo, &mut doc)
     } else {
-        sync_undo_pins(repo, &doc);
+        add_pins(repo, &doc)?;
+        drop_unwanted_pins(repo, &doc);
         Ok(())
     }
 }
@@ -593,47 +597,72 @@ fn stacks_stale(repo: &Git2Repo, doc: &JournalDoc) -> Result<bool> {
     Ok(current != Some(&reads::head_oid(repo)?))
 }
 
-/// Recreate `refs/git-tailor/undo/*` so exactly the tips referenced by the
-/// stacks are pinned against `git gc`. Best-effort: pin failures never abort the
-/// caller (pins are only a gc optimization).
-///
-/// The pins are dropped before they are rewritten, so for that moment the
-/// objects they name are unreferenced and a `git gc --prune=now` running right
-/// then could take them. Rebuilding the set in place is not worth the
-/// complication: the window is microseconds, git's default prune expiry is two
-/// weeks, and the journal still names the oids either way.
-fn sync_undo_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
-    let prefix = worktree_prefix(repo);
-    // Only this working tree's pins, plus anything an older version left under
-    // the flat names. Another working tree's belong to its journal, not ours.
-    let mine = format!("{prefix}{UNDO_REF_LEAF}");
-    // Pins that could not be listed stay put, which only keeps objects alive longer.
-    for name in my_pins(repo, &mine).unwrap_or_default() {
-        if let Ok(mut r) = repo.inner.find_reference(&name) {
-            let _ = r.delete();
-        }
-    }
-
-    let mut oids: BTreeSet<&Oid> = BTreeSet::new();
-    for rec in doc.undo.iter().chain(doc.redo.iter()) {
-        oids.extend(rec.pinned_oids());
-    }
-    // The snapshot's trees are loose objects no ref reaches.
-    if let Some(snapshot) = &doc.worktree_source {
-        oids.extend([
+/// What the snapshot names: loose objects no ref reaches, among them the only
+/// copy of the working tree the fold lifted.
+fn snapshot_oids(doc: &JournalDoc) -> impl Iterator<Item = &Oid> {
+    doc.worktree_source.iter().flat_map(|snapshot| {
+        [
             &snapshot.tip_before,
             &snapshot.index_tree_before,
             &snapshot.worktree_tree,
             &snapshot.temp_oid,
-        ]);
+        ]
+    })
+}
+
+fn undo_oids(doc: &JournalDoc) -> impl Iterator<Item = &Oid> {
+    doc.undo
+        .iter()
+        .chain(doc.redo.iter())
+        .flat_map(UndoRecord::pinned_oids)
+}
+
+/// Prefix of this working tree's pins. Each is named after the oid it holds, so
+/// a pin still wanted is left alone, never dropped and rewritten.
+fn pin_prefix(repo: &Git2Repo) -> String {
+    format!("{}{UNDO_REF_LEAF}", worktree_prefix(repo))
+}
+
+/// Pin everything `doc` names against `git gc`. Failing to pin the snapshot is
+/// an error, since it holds the user's uncommitted work. The undo stacks' pins
+/// are best-effort: failing on them would report a rewrite that already landed.
+fn add_pins(repo: &mut Git2Repo, doc: &JournalDoc) -> Result<()> {
+    let prefix = pin_prefix(repo);
+    for oid in snapshot_oids(doc) {
+        add_pin(repo, &prefix, oid)
+            .with_context(|| format!("failed to pin {oid} against git gc"))?;
     }
-    for (i, oid) in oids.into_iter().enumerate() {
-        let _ = repo.inner.reference(
-            &format!("{prefix}{UNDO_REF_LEAF}{i}"),
-            git2::Oid::from(oid),
-            true,
-            "git-tailor: undo pin",
-        );
+    for oid in undo_oids(doc) {
+        let _ = add_pin(repo, &prefix, oid);
+    }
+    Ok(())
+}
+
+fn add_pin(repo: &mut Git2Repo, prefix: &str, oid: &Oid) -> Result<()> {
+    let name = format!("{prefix}{oid}");
+    if repo.inner.find_reference(&name).is_err() {
+        repo.inner
+            .reference(&name, git2::Oid::from(oid), false, "git-tailor: pin")?;
+    }
+    Ok(())
+}
+
+/// Drop this working tree's pins `doc` no longer names, plus anything an older
+/// version left under the flat names. Another working tree's belong to its
+/// journal, not ours.
+fn drop_unwanted_pins(repo: &mut Git2Repo, doc: &JournalDoc) {
+    let prefix = pin_prefix(repo);
+    let wanted: BTreeSet<String> = snapshot_oids(doc)
+        .chain(undo_oids(doc))
+        .map(|oid| format!("{prefix}{oid}"))
+        .collect();
+    // Pins that could not be listed stay put, which only keeps objects alive longer.
+    for name in my_pins(repo, &prefix).unwrap_or_default() {
+        if !wanted.contains(&name)
+            && let Ok(mut r) = repo.inner.find_reference(&name)
+        {
+            let _ = r.delete();
+        }
     }
 }
 

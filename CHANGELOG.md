@@ -238,6 +238,10 @@ The format is based on
 - The hunk group matrix's horizontal scrollbar now sits under the columns it
   scrolls. With a vertical scrollbar beside the commit list it was one column
   to the left, over the separator bar
+- Squashing the Staged or Unstaged row is refused when git-tailor cannot keep
+  the uncommitted work it lifts safe from `git gc`. It used to go ahead with
+  nothing holding that work, so a `git gc` before the squash finished could
+  delete it
 
 ### Removed
 
