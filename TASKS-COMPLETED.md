@@ -2304,3 +2304,7 @@
   operation starts from it, or the rewrite drops that commit. The refusal says
   to drop it and points at `gt --list-rescued`, rather than giving a reset
   recipe. No warning when the list loads.
+- [X] T267 P3 refactor - Move `render_mode` from `main.rs` to `views`, beside
+  `views::handle_key`. Both are a `match` with one arm per `AppMode`, so a new
+  mode needs an arm in each, and today one lives in the binary and the other in
+  the library.

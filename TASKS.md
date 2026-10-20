@@ -12,10 +12,6 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Architecture & Robustness
-- [ ] T267 P3 refactor - Move `render_mode` from `main.rs` to `views`, beside
-  `views::handle_key`. Both are a `match` with one arm per `AppMode`, so a new
-  mode needs an arm in each, and today one lives in the binary and the other in
-  the library.
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
   made the journal durable, but the objects and ref moves of a rewrite are
   still written without a flush, so a power cut can leave the journal naming a
