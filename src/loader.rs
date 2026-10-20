@@ -422,4 +422,22 @@ mod tests {
 
         assert!(matches!(app.mode, AppMode::CommitDetail), "{:?}", app.mode);
     }
+
+    /// The branch may already have moved, so the list on screen may name commits
+    /// that are gone.
+    #[test]
+    fn a_canceled_reload_says_the_list_may_be_out_of_date() {
+        let mut app = AppState::default();
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            Ok(false),
+            None,
+        );
+
+        let message = app.status.message.as_deref().unwrap_or_default();
+        assert!(message.contains("press R"), "{message:?}");
+    }
 }
