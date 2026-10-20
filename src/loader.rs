@@ -192,14 +192,14 @@ pub fn load_with_progress(
 
 /// Reload the list from HEAD after an operation, keeping the range and options
 /// it was loaded with. `select` is the row to land on, clamped to the new list;
-/// `None` takes the natural position. A failure is reported in the status bar,
-/// over the list as it was.
+/// `None` takes the natural position.
 pub fn reload(
     git_repo: &impl RepoRead,
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
     select: Option<usize>,
 ) {
+    let before = app.mode.clone();
     let loaded = git_repo.head_oid().and_then(|head_oid| {
         let reference_oid = app.reference_oid.clone();
         let include_reference_oid = app.include_reference_oid;
@@ -214,6 +214,18 @@ pub fn reload(
             full,
         )
     });
+    settle_reload(git_repo, app, before, loaded, select);
+}
+
+/// Put the screen right once a reload is over. `before` is the mode the reload
+/// started from, and `loaded` what [`load_with_progress`] returned.
+fn settle_reload(
+    git_repo: &impl RepoRead,
+    app: &mut AppState,
+    _before: AppMode,
+    loaded: Result<bool>,
+    select: Option<usize>,
+) {
     match loaded {
         Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
         Ok(true) => {
