@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Startup loading: commit walking, progress display, and matrix confirmation.
+// Loading the commit list, at startup and after each operation: commit walking,
+// progress display, and matrix confirmation.
 
 use anyhow::{Context, Result};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -187,6 +188,44 @@ pub fn load_with_progress(
     app.mode = AppMode::CommitList;
 
     Ok(true)
+}
+
+/// Reload the list from HEAD after an operation, keeping the range and options
+/// it was loaded with. `select` is the row to land on, clamped to the new list;
+/// `None` takes the natural position. A failure is reported in the status bar,
+/// over the list as it was.
+pub fn reload(
+    git_repo: &impl RepoRead,
+    terminal_guard: &mut TerminalGuard,
+    app: &mut AppState,
+    select: Option<usize>,
+) {
+    let loaded = git_repo.head_oid().and_then(|head_oid| {
+        let reference_oid = app.reference_oid.clone();
+        let include_reference_oid = app.include_reference_oid;
+        let full = app.full_fragmap;
+        load_with_progress(
+            git_repo,
+            terminal_guard,
+            app,
+            &head_oid,
+            &reference_oid,
+            include_reference_oid,
+            full,
+        )
+    });
+    match loaded {
+        Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
+        Ok(true) => {
+            if let Some(index) = select {
+                app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+            }
+        }
+        Ok(false) => {}
+    }
+    if matches!(app.mode, AppMode::CommitDetail) {
+        views::commit_detail::load_diff(git_repo, app);
+    }
 }
 
 /// Walk commits from `from_oid` back to `reference_oid`, collecting each

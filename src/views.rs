@@ -36,3 +36,51 @@ pub mod squash_select;
 pub mod stash_conflict;
 pub mod theme;
 pub mod two_pane_picker;
+
+use crate::app::{AppAction, AppMode, AppState, KeyCommand};
+
+/// Hand `action` to the view the app is showing, which turns it into what the
+/// app should do.
+pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
+    match app.mode {
+        AppMode::Loading { .. } => AppAction::Handled,
+        AppMode::CommitList => commit_list::handle_key(action, app),
+        AppMode::CommitDetail => commit_detail::handle_key(action, app),
+        AppMode::OperationSelect { .. } => operation_select::handle_key(action, app),
+        AppMode::SplitSelect { .. } => split_select::handle_key(action, app),
+        AppMode::SplitFilesSelect { .. } => split_files_select::handle_key(action, app),
+        AppMode::SplitHunksSelect { .. } => split_hunks_select::handle_key(action, app),
+        AppMode::SplitConfirm(_) => split_select::handle_confirm_key(action, app),
+        AppMode::DropConfirm(_) => drop::handle_confirm_key(action, app),
+        AppMode::AutofixupConfirm(_) => autofixup::handle_confirm_key(action, app),
+        AppMode::RebaseConflict(_) => conflict::handle_conflict_key(action, app),
+        AppMode::StashConflict(_) => stash_conflict::handle_stash_conflict_key(action, app),
+        AppMode::RecoverConfirm(_) => recover::handle_recover_key(action, app),
+        AppMode::SquashSelect { .. } => squash_select::handle_key(action, app),
+        AppMode::MoveSelect { .. } => move_select::handle_key(action, app),
+        AppMode::Help(_) => help::handle_key(action, app),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The same key means different things to different views: `q` closes help,
+    /// and quits from the commit list.
+    #[test]
+    fn a_key_goes_to_the_view_on_screen() {
+        let mut app = AppState::new();
+        app.mode = AppMode::Help(Box::new(AppMode::CommitList));
+
+        assert!(matches!(
+            handle_key(KeyCommand::Quit, &mut app),
+            AppAction::Handled
+        ));
+        assert!(matches!(app.mode, AppMode::CommitList));
+        assert!(matches!(
+            handle_key(KeyCommand::Quit, &mut app),
+            AppAction::Quit
+        ));
+    }
+}

@@ -29,7 +29,7 @@ mod update_check;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use git_tailor::repo::{Git2Repo, GitRepo, RepoRead, RepoWrite};
+use git_tailor::repo::{Git2Repo, GitRepo, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
     app::{self, AppAction, AppMode, AppState},
@@ -40,7 +40,7 @@ use crate::cli::Cli;
 use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
-use crate::loader::{load_initial_commits, load_with_progress, resolve_oid_bounds};
+use crate::loader::{load_initial_commits, load_with_progress, reload, resolve_oid_bounds};
 use crate::recovery::{check_journal_recovery, journal_refusal};
 use crate::session_lock::{LockRefusal, SessionLock};
 use crate::terminal_guard::setup_terminal;
@@ -237,34 +237,7 @@ fn main() -> Result<()> {
             continue;
         }
 
-        // Mode-first dispatch: each view module handles its own actions.
-        let mode = app.mode.clone();
-        let result = match mode {
-            AppMode::Loading { .. } => AppAction::Handled,
-            AppMode::CommitList => views::commit_list::handle_key(action, &mut app),
-            AppMode::CommitDetail => views::commit_detail::handle_key(action, &mut app),
-            AppMode::OperationSelect { .. } => {
-                views::operation_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitSelect { .. } => views::split_select::handle_key(action, &mut app),
-            AppMode::SplitFilesSelect { .. } => {
-                views::split_files_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitHunksSelect { .. } => {
-                views::split_hunks_select::handle_key(action, &mut app)
-            }
-            AppMode::SplitConfirm(_) => views::split_select::handle_confirm_key(action, &mut app),
-            AppMode::DropConfirm(_) => views::drop::handle_confirm_key(action, &mut app),
-            AppMode::AutofixupConfirm(_) => views::autofixup::handle_confirm_key(action, &mut app),
-            AppMode::RebaseConflict(_) => views::conflict::handle_conflict_key(action, &mut app),
-            AppMode::StashConflict(_) => {
-                views::stash_conflict::handle_stash_conflict_key(action, &mut app)
-            }
-            AppMode::RecoverConfirm(_) => views::recover::handle_recover_key(action, &mut app),
-            AppMode::SquashSelect { .. } => views::squash_select::handle_key(action, &mut app),
-            AppMode::MoveSelect { .. } => views::move_select::handle_key(action, &mut app),
-            AppMode::Help(_) => views::help::handle_key(action, &mut app),
-        };
+        let result = views::handle_key(action, &mut app);
 
         let dispatch_result = dispatch_action(
             result,
@@ -278,45 +251,13 @@ fn main() -> Result<()> {
         match dispatch_result {
             LoopAction::Continue => continue,
             LoopAction::Proceed => {}
-            LoopAction::Reload | LoopAction::ReloadPreserving | LoopAction::ReloadSelecting(_) => {
-                let preserve = matches!(dispatch_result, LoopAction::ReloadPreserving);
-                let saved_idx = match dispatch_result {
-                    LoopAction::ReloadSelecting(idx) => idx,
-                    _ => app.list.selection_index,
-                };
-                match git_repo.head_oid() {
-                    Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
-                    Ok(head_oid) => {
-                        let reference_oid = app.reference_oid.clone();
-                        let include_ref = app.include_reference_oid;
-                        let full = app.full_fragmap;
-                        match load_with_progress(
-                            &git_repo,
-                            &mut terminal_guard,
-                            &mut app,
-                            &head_oid,
-                            &reference_oid,
-                            include_ref,
-                            full,
-                        ) {
-                            Err(e) => app.set_error_message(format!("Reload failed: {e:#}")),
-                            Ok(true)
-                                if preserve
-                                    || matches!(
-                                        dispatch_result,
-                                        LoopAction::ReloadSelecting(_)
-                                    ) =>
-                            {
-                                app.list.selection_index =
-                                    saved_idx.min(app.list.commits.len().saturating_sub(1));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                if matches!(app.mode, AppMode::CommitDetail) {
-                    views::commit_detail::load_diff(&git_repo, &mut app);
-                }
+            LoopAction::Reload => reload(&git_repo, &mut terminal_guard, &mut app, None),
+            LoopAction::ReloadPreserving => {
+                let select = Some(app.list.selection_index);
+                reload(&git_repo, &mut terminal_guard, &mut app, select);
+            }
+            LoopAction::ReloadSelecting(index) => {
+                reload(&git_repo, &mut terminal_guard, &mut app, Some(index));
             }
         }
 
