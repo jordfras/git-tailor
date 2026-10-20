@@ -394,4 +394,22 @@ mod tests {
         assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
         assert!(app.status.is_error);
     }
+
+    #[test]
+    fn refreshing_the_detail_view_stays_in_it() {
+        let mut app = AppState {
+            mode: AppMode::CommitList,
+            ..AppState::default()
+        };
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitDetail,
+            Ok(true),
+            None,
+        );
+
+        assert!(matches!(app.mode, AppMode::CommitDetail), "{:?}", app.mode);
+    }
 }
