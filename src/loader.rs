@@ -262,7 +262,7 @@ fn settle_reload(
                     app.mode = before;
                 }
                 None => {
-                    app.search.clear();
+                    app.detail.search.clear();
                     app.set_error_message(
                         "The commit the detail view showed is no longer on the branch",
                     );
@@ -537,9 +537,9 @@ mod tests {
     #[test]
     fn refreshing_a_commit_no_longer_listed_ends_the_search() {
         let mut app = loaded_list(&["a", "c"]);
-        app.search.query = "foo".to_string();
-        app.search.active = true;
-        app.search.matches = vec![3, 7];
+        app.detail.search.query = "foo".to_string();
+        app.detail.search.active = true;
+        app.detail.search.matches = vec![3, 7];
 
         settle_reload(
             &MockRepo::default(),
@@ -550,9 +550,9 @@ mod tests {
             None,
         );
 
-        assert!(!app.search.active);
-        assert!(app.search.query.is_empty());
-        assert!(app.search.matches.is_empty());
+        assert!(!app.detail.search.active);
+        assert!(app.detail.search.query.is_empty());
+        assert!(app.detail.search.matches.is_empty());
     }
 
     /// The branch may already have moved, so the list on screen may name commits

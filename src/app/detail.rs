@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// State of the commit detail view: scroll position, diff context, file offsets.
+// State of the commit detail view: scroll position, diff context, file offsets
+// and search.
 
 use crate::CommitDiff;
 use crate::app::ScrollState;
+use crate::app::search::SearchState;
 use crate::repo::DEFAULT_CONTEXT_LINES;
 
 /// Number of diff context lines shown in the commit detail view. A newtype so
@@ -45,6 +47,8 @@ pub struct DetailState {
     pub diff: Option<CommitDiff>,
     /// Line indices of file-diff headers in the content (updated during render).
     pub file_start_lines: Vec<usize>,
+    /// The `/` search over the content.
+    pub search: SearchState,
 }
 
 impl DetailState {
