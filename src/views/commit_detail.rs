@@ -111,7 +111,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Search => {
-            app.search.activate();
+            app.detail.search.activate();
             AppAction::Handled
         }
         KeyCommand::SearchNext => {
@@ -132,8 +132,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
-            if app.search.active {
-                app.search.clear();
+            if app.detail.search.active {
+                app.detail.search.clear();
             } else {
                 app.toggle_detail_view();
             }
@@ -200,7 +200,7 @@ pub fn render_without_footer(frame: &mut Frame, app: &mut AppState, area: Rect) 
 fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_height: u16) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
-    let search_bar_height: u16 = if app.search.active { 1 } else { 0 };
+    let search_bar_height: u16 = if app.detail.search.active { 1 } else { 0 };
     let [header_area, content_area, search_bar_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
@@ -287,7 +287,7 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
     }
 
     // Render search bar (row above footer, only when search is active)
-    if app.search.active {
+    if app.detail.search.active {
         search::render_bar(frame, app, search_info, search_bar_area);
     }
 

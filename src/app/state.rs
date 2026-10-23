@@ -25,7 +25,6 @@ use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, Spl
 use crate::app::ScrollState;
 use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
-use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
 /// Transient status message shown in the footer, cleared on the next keypress.
@@ -110,8 +109,6 @@ pub struct AppState {
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
-    /// Regex search state for the detail view.
-    pub search: SearchState,
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `status.clear`); shown in the footer hint slot.
     pub update_notice: Option<String>,
@@ -437,7 +434,7 @@ impl AppState {
         let new_mode = match &self.mode {
             AppMode::CommitList => AppMode::CommitDetail,
             AppMode::CommitDetail => {
-                self.search.clear();
+                self.detail.search.clear();
                 AppMode::CommitList
             }
             AppMode::Help(_)
