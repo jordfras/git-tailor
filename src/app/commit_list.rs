@@ -18,6 +18,8 @@ use std::collections::HashMap;
 
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
+use crate::domain::search::{CommitHits, CommitQuery};
+use crate::fragmap::CommitPos;
 use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
 
 /// How many rows to keep between the cursor and the edge of the commit list,
@@ -121,6 +123,18 @@ impl CommitListState {
     /// The changes of the row `oid`, `None` when none were loaded for it.
     pub fn diff_files(&self, oid: &VirtualOid) -> Option<&[FileDiff]> {
         self.diffs.get(oid).map(Vec::as_slice)
+    }
+
+    /// The rows `query` matches, in row order, with where each matched.
+    pub fn search(&self, query: &CommitQuery) -> Vec<(CommitPos, CommitHits)> {
+        self.commits
+            .iter()
+            .enumerate()
+            .filter_map(|(row, commit)| {
+                let hits = query.hits(commit, self.diff_files(&commit.oid))?;
+                Some((CommitPos(row), hits))
+            })
+            .collect()
     }
 
     /// The selected row, if the index is in range.
@@ -398,6 +412,36 @@ mod tests {
 
         assert_eq!(paths_of(&list, &old.oid), None);
         assert_eq!(paths_of(&list, &new.oid), Some(vec!["b.txt".into()]));
+    }
+
+    #[test]
+    fn search_reports_matching_rows_by_position() {
+        use crate::domain::search::SearchScope;
+        let commits: Vec<CommitInfo> = (0..3)
+            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
+            .collect();
+        let mut list = CommitListState::default();
+        list.set_rows(
+            commits.clone(),
+            vec![
+                diff_touching(&commits[0], "a.txt"),
+                diff_touching(&commits[1], "b.txt"),
+            ],
+        );
+
+        let rows = |scope, pattern| -> Vec<CommitPos> {
+            let query = CommitQuery::new(scope, pattern).unwrap();
+            list.search(&query)
+                .into_iter()
+                .map(|(pos, _)| pos)
+                .collect()
+        };
+        assert_eq!(rows(SearchScope::Paths, "b.txt"), vec![CommitPos(1)]);
+        // The last row has no diff, so only its message can match.
+        assert_eq!(
+            rows(SearchScope::Message, "c[02]"),
+            vec![CommitPos(0), CommitPos(2)]
+        );
     }
 
     #[test]
