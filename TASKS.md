@@ -47,7 +47,7 @@ carry the search into the detail view.
     (`src/views/*.rs`), like `.gitignore`;
   * message + diff — the default, the union of the first two.
   Same regex flavor as the detail search (`regex` crate).
-- [ ] T271 P2 feat - Search bar in the commit list. `/` in `CommitList` opens
+- [X] T271 P2 feat - Search bar in the commit list. `/` in `CommitList` opens
   it; raw keys are forwarded to it as `main.rs` does for the detail search. It
   takes the bottom row of the list area: full width in list-only mode, left of
   the separator in the split view (the detail's bar sits right of it). Matching
@@ -64,10 +64,11 @@ carry the search into the detail view.
   `--palette`, and that selection, squash/move marking and conflict coloring
   still read.
 - [ ] T273 P2 feat - `n`/`N` in the commit list move the selection to the
-  next/previous matching commit, wrapping, keeping it on screen. Matches are
-  stored as `CommitPos` and recomputed after every reload (an operation or
-  `R`), so they never point at rows that moved. Decide whether `n`/`N` also
-  work in `SquashSelect`/`MoveSelect` to find a target.
+  next/previous matching commit, wrapping, keeping it on screen. Step from
+  the selection, not from the last match, since `j`/`k` may have moved it.
+  (Re-running the search on every reload already landed with T271, in
+  `CommitListState::set_rows`.) Decide whether `n`/`N` also work in
+  `SquashSelect`/`MoveSelect` to find a target.
 - [ ] T274 P2 feat - Tab in the search bar cycles the scope (message + diff →
   message → diff → paths), shown as a tag in the bar (`[diff] /foo█ [3/17]`).
   Changing scope re-runs the search. An invalid glob in the paths scope shows
