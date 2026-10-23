@@ -43,7 +43,7 @@ git -C $R log --oneline main..
 | command | what it does |
 |---|---|
 | `driver.sh start REPO [GT_ARGS...]` | launch gt in REPO in tmux session `gt` (140x30), wait until the list is drawn |
-| `driver.sh keys KEY...` | send tmux keys one at a time (`Enter`, `Space`, `Esc`, `Up`, or a character) |
+| `driver.sh keys KEY...` | send tmux keys one at a time (tmux key names such as `Enter`, `Space`, `Escape`, `Up`, `C-c`, or a character; a name tmux does not know, like `Esc`, is typed out letter by letter) |
 | `driver.sh wait TEXT [SECS]` | wait for TEXT on screen; on timeout prints the screen and fails |
 | `driver.sh screen` | print the screen, with the empty rows of dialog borders dropped |
 | `driver.sh stop` | kill the session |
