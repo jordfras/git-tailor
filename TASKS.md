@@ -35,7 +35,7 @@ carry the search into the detail view.
   them all at once anyway. If a huge `--all` ever needs it, pack each commit's
   lines into one buffer with offsets; not up front. Keep them also when the
   matrix build is skipped (`s`/`S`), so search works without the matrix.
-- [ ] T270 P2 feat - Domain-level commit search over the kept diffs, as pure
+- [X] T270 P2 feat - Domain-level commit search over the kept diffs, as pure
   functions returning the matching `CommitPos`es (and, for T276, the matching
   hunks), unit tested with fabricated `CommitDiff`s. Scopes:
   * message — regex over the full commit message;
