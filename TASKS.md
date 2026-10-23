@@ -24,7 +24,7 @@ carry the search into the detail view.
   specific: matching rendered `Line`s, highlighting, scrolling to a match.
   `app.search` becomes the detail's instance; the list gets its own in T271.
   Pure refactor — no behavior change, existing tests pass unchanged.
-- [ ] T269 P2 feat - Refactor: keep the hunk group matrix diffs after loading.
+- [X] T269 P2 feat - Refactor: keep the hunk group matrix diffs after loading.
   `walk_commits` already reads a zero-context `commit_diff_for_fragmap` for
   every commit, and `build_hunk_group_matrix` drops them; keep them, plus the
   staged/unstaged rows' diffs, so searching needs no git reads. They live with
