@@ -14,9 +14,11 @@
 
 // The commit list: its rows, which one is selected, and where it is scrolled.
 
+use std::collections::HashMap;
+
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
-use crate::{CommitInfo, Oid, VirtualOid};
+use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -56,6 +58,10 @@ impl ScrollMargin {
 pub struct CommitListState {
     /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
     pub commits: Vec<CommitInfo>,
+    /// Each row's changes, as read for the hunk group matrix. Keyed by oid
+    /// rather than kept in row order so that rows written without it can only
+    /// lack a diff, never be handed another row's.
+    diffs: HashMap<VirtualOid, Vec<FileDiff>>,
     /// The branch tip `commits` were listed from. Every rewrite is handed it,
     /// so one chosen from this list is refused once the branch has moved.
     pub tip: Oid,
@@ -100,6 +106,21 @@ impl CommitListState {
             selection_index,
             ..Default::default()
         }
+    }
+
+    /// Replace the rows and their diffs together, so neither outlives a load
+    /// of the other.
+    pub fn set_rows(&mut self, commits: Vec<CommitInfo>, diffs: Vec<CommitDiff>) {
+        self.commits = commits;
+        self.diffs = diffs
+            .into_iter()
+            .map(|diff| (diff.commit.oid, diff.files))
+            .collect();
+    }
+
+    /// The changes of the row `oid`, `None` when none were loaded for it.
+    pub fn diff_files(&self, oid: &VirtualOid) -> Option<&[FileDiff]> {
+        self.diffs.get(oid).map(Vec::as_slice)
     }
 
     /// The selected row, if the index is in range.
@@ -311,6 +332,72 @@ mod tests {
             selection_index: selection,
             ..Default::default()
         }
+    }
+
+    fn diff_touching(commit: &CommitInfo, path: &str) -> CommitDiff {
+        CommitDiff {
+            commit: commit.clone(),
+            files: vec![FileDiff {
+                old_path: Some(path.into()),
+                new_path: Some(path.into()),
+                status: crate::DeltaStatus::Modified,
+                is_binary: false,
+                hunks: vec![],
+            }],
+        }
+    }
+
+    fn paths_of(list: &CommitListState, oid: &VirtualOid) -> Option<Vec<String>> {
+        list.diff_files(oid).map(|files| {
+            files
+                .iter()
+                .map(|f| f.new_path.as_ref().unwrap().display().to_string())
+                .collect()
+        })
+    }
+
+    #[test]
+    fn set_rows_keeps_each_rows_diff() {
+        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
+        let staged = CommitInfo {
+            oid: VirtualOid::Staged,
+            ..create_test_commit(&format!("{:040x}", 2), "staged")
+        };
+        let mut list = CommitListState::default();
+        list.set_rows(
+            vec![commit.clone(), staged.clone()],
+            vec![
+                diff_touching(&commit, "a.txt"),
+                diff_touching(&staged, "b.txt"),
+            ],
+        );
+
+        assert_eq!(paths_of(&list, &commit.oid), Some(vec!["a.txt".into()]));
+        assert_eq!(
+            paths_of(&list, &VirtualOid::Staged),
+            Some(vec!["b.txt".into()])
+        );
+    }
+
+    #[test]
+    fn diff_files_is_none_for_a_row_without_a_diff() {
+        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
+        let mut list = CommitListState::default();
+        list.set_rows(vec![commit.clone()], vec![]);
+
+        assert_eq!(paths_of(&list, &commit.oid), None);
+    }
+
+    #[test]
+    fn set_rows_drops_the_previous_loads_diffs() {
+        let old = create_test_commit(&format!("{:040x}", 1), "old");
+        let new = create_test_commit(&format!("{:040x}", 2), "new");
+        let mut list = CommitListState::default();
+        list.set_rows(vec![old.clone()], vec![diff_touching(&old, "a.txt")]);
+        list.set_rows(vec![new.clone()], vec![diff_touching(&new, "b.txt")]);
+
+        assert_eq!(paths_of(&list, &old.oid), None);
+        assert_eq!(paths_of(&list, &new.oid), Some(vec!["b.txt".into()]));
     }
 
     #[test]

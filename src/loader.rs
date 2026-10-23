@@ -167,18 +167,22 @@ pub fn load_with_progress(
     .flatten()
     .collect();
 
-    let matrix = match build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?
-    {
-        HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
-        HunkGroupMatrixBuild::Skipped => None,
-        HunkGroupMatrixBuild::Interrupted => return Ok(false),
+    let diff_missing = diff_opts.iter().any(Option::is_none);
+    let mut all_commits = commits;
+    all_commits.extend(extra_diffs.iter().map(|d| d.commit.clone()));
+    let diffs: Vec<CommitDiff> = diff_opts.into_iter().flatten().chain(extra_diffs).collect();
+
+    let matrix = if diff_missing {
+        None
+    } else {
+        match build_hunk_group_matrix(terminal_guard, app, &diffs, full)? {
+            HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
+            HunkGroupMatrixBuild::Skipped => None,
+            HunkGroupMatrixBuild::Interrupted => return Ok(false),
+        }
     };
 
-    let mut all_commits = commits;
-    for d in &extra_diffs {
-        all_commits.push(d.commit.clone());
-    }
-    app.list.commits = all_commits;
+    app.list.set_rows(all_commits, diffs);
     app.list.tip = from_oid.clone();
     app.list.branch = git_repo.head_branch().unwrap_or_default();
     app.fragmap = matrix;
@@ -342,8 +346,8 @@ fn walk_commits(
 /// How building the hunk group matrix ended.
 enum HunkGroupMatrixBuild {
     Built(fragmap::FragMap),
-    /// A diff is missing, or `s`/`S` was pressed during file clustering: the
-    /// list goes on without a matrix.
+    /// `s`/`S` was pressed during file clustering: the list goes on without a
+    /// matrix.
     Skipped,
     /// Ctrl-C, which abandons the whole load, as it does in [`walk_commits`].
     Interrupted,
@@ -353,17 +357,11 @@ enum HunkGroupMatrixBuild {
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
-    diff_opts: Vec<Option<CommitDiff>>,
-    extra_diffs: &[CommitDiff],
+    diffs: &[CommitDiff],
     full: bool,
 ) -> Result<HunkGroupMatrixBuild> {
-    let Some(mut diffs) = diff_opts.into_iter().collect::<Option<Vec<CommitDiff>>>() else {
-        return Ok(HunkGroupMatrixBuild::Skipped);
-    };
-    diffs.extend_from_slice(extra_diffs);
-
     let mut screen = ProgressScreen::new(terminal_guard, "Hunk Group Matrix");
-    let result = fragmap::build_fragmap(&diffs, !full, &mut |phase| match phase {
+    let result = fragmap::build_fragmap(diffs, !full, &mut |phase| match phase {
         FragMapProgress::ClusteringFile {
             files_done,
             files_total,
