@@ -32,7 +32,7 @@ use clap::{CommandFactory, Parser};
 use git_tailor::repo::{Git2Repo, GitRepo, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
-    app::{self, AppAction, AppMode, AppState},
+    app::{self, AppMode, AppState},
     views,
 };
 
@@ -201,13 +201,7 @@ fn main() -> Result<()> {
             if dismiss_status {
                 app.clear_status_message();
             }
-            let result = views::commit_detail::handle_search_event(event, &mut app);
-            if matches!(result, AppAction::Quit) {
-                app.should_quit = true;
-            }
-            if app.should_quit {
-                break;
-            }
+            views::commit_detail::handle_search_event(event, &mut app);
             continue;
         }
 

@@ -12,24 +12,56 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Regex search state for the commit detail view.
+// Regex search state shared by the views that search: query entry and the
+// cursor over whatever the view matched.
 
-/// Search query, results and cursor for the detail view's regex search.
-#[derive(Debug, Default)]
-pub struct SearchState {
+use crossterm::event::{self, Event, KeyCode, KeyEvent};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SearchDirection {
+    Next,
+    Prev,
+}
+
+/// What a key typed into the search bar did to the query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryEdit {
+    /// Enter: typing is over and the search stays active.
+    Confirmed,
+    /// Esc: the search is gone.
+    Dismissed,
+    Edited,
+    Ignored,
+}
+
+/// Search query, results and cursor. `M` is what one match points at in the
+/// view searched.
+#[derive(Debug)]
+pub struct SearchState<M> {
     /// Current search query string (regex pattern).
     pub query: String,
     /// Whether the user is actively typing in the search bar.
     pub input_active: bool,
     /// Whether search results (highlights, match navigation) are active.
     pub active: bool,
-    /// Line indices in the detail content that match the search regex.
-    pub matches: Vec<usize>,
+    pub matches: Vec<M>,
     /// Index into `matches` for the current match.
     pub match_index: Option<usize>,
 }
 
-impl SearchState {
+impl<M> Default for SearchState<M> {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            input_active: false,
+            active: false,
+            matches: Vec::new(),
+            match_index: None,
+        }
+    }
+}
+
+impl<M> SearchState<M> {
     /// Clear all search state.
     pub fn clear(&mut self) {
         *self = Self::default();
@@ -42,5 +74,92 @@ impl SearchState {
             active: true,
             ..Self::default()
         };
+    }
+
+    /// Apply a key typed while the search bar takes input.
+    pub fn edit(&mut self, event: &Event) -> QueryEdit {
+        let Event::Key(KeyEvent { code, kind, .. }) = event else {
+            return QueryEdit::Ignored;
+        };
+        if *kind != event::KeyEventKind::Press {
+            return QueryEdit::Ignored;
+        }
+        match code {
+            KeyCode::Esc => {
+                self.clear();
+                QueryEdit::Dismissed
+            }
+            KeyCode::Enter => {
+                self.input_active = false;
+                QueryEdit::Confirmed
+            }
+            KeyCode::Backspace => {
+                self.query.pop();
+                QueryEdit::Edited
+            }
+            KeyCode::Char(c) => {
+                self.query.push(*c);
+                QueryEdit::Edited
+            }
+            _ => QueryEdit::Ignored,
+        }
+    }
+
+    /// Step to the next or previous match, wrapping around, and return it.
+    /// `None`, leaving the cursor alone, when there is nothing to step over.
+    pub fn advance(&mut self, dir: SearchDirection) -> Option<&M> {
+        if !self.active || self.matches.is_empty() {
+            return None;
+        }
+        let index = next_match_index(self.match_index, self.matches.len(), dir);
+        self.match_index = Some(index);
+        self.matches.get(index)
+    }
+}
+
+/// Return the next match index given the current index, list length, and direction.
+/// Wraps around at both ends.
+fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) -> usize {
+    match (current, dir) {
+        (Some(idx), SearchDirection::Next) => (idx + 1) % len,
+        (Some(0), SearchDirection::Prev) => len - 1,
+        (Some(idx), SearchDirection::Prev) => idx - 1,
+        (None, SearchDirection::Next) => 0,
+        (None, SearchDirection::Prev) => len - 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_from_none_forward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Next), 0);
+    }
+
+    #[test]
+    fn next_from_none_backward() {
+        assert_eq!(next_match_index(None, 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_wraps_forward() {
+        assert_eq!(next_match_index(Some(4), 5, SearchDirection::Next), 0);
+    }
+
+    #[test]
+    fn next_wraps_backward() {
+        assert_eq!(next_match_index(Some(0), 5, SearchDirection::Prev), 4);
+    }
+
+    #[test]
+    fn next_advances_forward() {
+        assert_eq!(next_match_index(Some(2), 5, SearchDirection::Next), 3);
+    }
+
+    #[test]
+    fn next_advances_backward() {
+        assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
     }
 }
