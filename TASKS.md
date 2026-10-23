@@ -16,7 +16,7 @@ gitk-style search from the commit list: find commits whose message matches,
 whose added/removed lines match, or which touch paths matching a glob; mark
 them in the list and the hunk group matrix, step between them with `n`/`N`, and
 carry the search into the detail view.
-- [ ] T268 P2 feat - Refactor: split the detail view's search into a shared
+- [X] T268 P2 feat - Refactor: split the detail view's search into a shared
   part and a detail-specific part, so the list can reuse the first. Shared:
   the query string, input-active flag, raw key handling (`handle_search_event`
   — typing, Backspace, Enter, Esc, Ctrl-C) and the bar (`render_bar`: `/`,
