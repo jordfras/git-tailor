@@ -8,6 +8,12 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Press `/` in the commit list to search commit messages and added or removed
+  lines with a regex. Enter selects the first match at or below the selection,
+  and Esc dismisses the search
+
 ### Changed
 
 - Uncommitted changes are now stashed around an operation by default, and put

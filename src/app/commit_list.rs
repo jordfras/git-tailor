@@ -14,6 +14,8 @@
 
 // The commit list: its rows, which one is selected, and where it is scrolled.
 
+mod search;
+
 use std::collections::HashMap;
 
 use crate::app::ScrollState;
@@ -21,6 +23,8 @@ use crate::app::scroll::{half_page_size, page_size};
 use crate::domain::search::{CommitHits, CommitQuery};
 use crate::fragmap::CommitPos;
 use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
+
+pub use search::ListSearch;
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -80,6 +84,8 @@ pub struct CommitListState {
     pub scroll: ScrollState,
     /// Rows kept between the cursor and the top or bottom of the list.
     pub scroll_margin: ScrollMargin,
+    /// The `/` search over the rows.
+    pub search: ListSearch,
     /// Selection the viewport was last settled against, so `follow_selection`
     /// can tell the cursor having moved from the viewport having been scrolled
     /// under a standing cursor. Bookkeeping, so unlike its neighbors it is
@@ -118,6 +124,9 @@ impl CommitListState {
             .into_iter()
             .map(|diff| (diff.commit.oid, diff.files))
             .collect();
+        if self.search.state.active {
+            self.rerun_search();
+        }
     }
 
     /// The changes of the row `oid`, `None` when none were loaded for it.
@@ -125,8 +134,53 @@ impl CommitListState {
         self.diffs.get(oid).map(Vec::as_slice)
     }
 
+    /// Match the search query against the rows again, after either changed.
+    /// The current match becomes the first at or below the selection on
+    /// screen, wrapping to the top.
+    pub fn rerun_search(&mut self) {
+        self.search.compile();
+        self.search.state.matches = match self.search.compiled() {
+            Some(query) => self
+                .matching_rows(query)
+                .into_iter()
+                .map(|(pos, _)| pos)
+                .collect(),
+            None => Vec::new(),
+        };
+        self.search.state.match_index = self.first_match_from_selection();
+    }
+
+    fn first_match_from_selection(&self) -> Option<usize> {
+        let matches = &self.search.state.matches;
+        if matches.is_empty() {
+            return None;
+        }
+        let selection = self.selection_index;
+        // Drawn newest first, "below" is toward the oldest row.
+        let index = if self.reverse {
+            matches
+                .iter()
+                .rposition(|pos| pos.0 <= selection)
+                .unwrap_or(matches.len() - 1)
+        } else {
+            matches
+                .iter()
+                .position(|pos| pos.0 >= selection)
+                .unwrap_or(0)
+        };
+        Some(index)
+    }
+
+    /// Select the current search match.
+    pub fn confirm_search(&mut self) {
+        let state = &self.search.state;
+        if let Some(&pos) = state.match_index.and_then(|i| state.matches.get(i)) {
+            self.selection_index = pos.0;
+        }
+    }
+
     /// The rows `query` matches, in row order, with where each matched.
-    pub fn search(&self, query: &CommitQuery) -> Vec<(CommitPos, CommitHits)> {
+    pub fn matching_rows(&self, query: &CommitQuery) -> Vec<(CommitPos, CommitHits)> {
         self.commits
             .iter()
             .enumerate()
@@ -431,7 +485,7 @@ mod tests {
 
         let rows = |scope, pattern| -> Vec<CommitPos> {
             let query = CommitQuery::new(scope, pattern).unwrap();
-            list.search(&query)
+            list.matching_rows(&query)
                 .into_iter()
                 .map(|(pos, _)| pos)
                 .collect()
@@ -442,6 +496,83 @@ mod tests {
             rows(SearchScope::Message, "c[02]"),
             vec![CommitPos(0), CommitPos(2)]
         );
+    }
+
+    /// Rows `c0`..`c5`, `selection` selected, searching for `query`.
+    fn searched(selection: usize, reverse: bool, query: &str) -> CommitListState {
+        let mut list = list_of(6, selection);
+        list.reverse = reverse;
+        list.search.activate();
+        list.search.state.query = query.to_string();
+        list.rerun_search();
+        list
+    }
+
+    fn current_match(list: &CommitListState) -> Option<CommitPos> {
+        let state = &list.search.state;
+        state.match_index.map(|i| state.matches[i])
+    }
+
+    #[test]
+    fn search_starts_from_the_first_match_at_or_below_the_selection() {
+        let list = searched(2, false, "c[135]");
+        assert_eq!(
+            list.search.state.matches,
+            vec![CommitPos(1), CommitPos(3), CommitPos(5)]
+        );
+        assert_eq!(current_match(&list), Some(CommitPos(3)));
+        assert_eq!(
+            current_match(&searched(3, false, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(5, false, "c[01]")),
+            Some(CommitPos(0))
+        );
+    }
+
+    #[test]
+    fn search_drawn_newest_first_looks_toward_older_rows() {
+        assert_eq!(
+            current_match(&searched(4, true, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(0, true, "c[45]")),
+            Some(CommitPos(5))
+        );
+    }
+
+    #[test]
+    fn search_with_no_query_or_an_invalid_one_matches_nothing() {
+        let empty = searched(0, false, "");
+        assert!(empty.search.state.matches.is_empty());
+        assert!(!empty.search.pattern_is_invalid());
+
+        let invalid = searched(0, false, "c(");
+        assert!(invalid.search.state.matches.is_empty());
+        assert!(invalid.search.pattern_is_invalid());
+    }
+
+    #[test]
+    fn confirming_a_search_selects_the_current_match() {
+        let mut list = searched(2, false, "c[135]");
+        list.confirm_search();
+        assert_eq!(list.selection_index, 3);
+    }
+
+    #[test]
+    fn set_rows_reruns_an_active_search() {
+        let mut list = searched(0, false, "new");
+        assert!(list.search.state.matches.is_empty());
+        list.set_rows(
+            vec![
+                create_test_commit(&format!("{:040x}", 7), "old"),
+                create_test_commit(&format!("{:040x}", 8), "new"),
+            ],
+            vec![],
+        );
+        assert_eq!(list.search.state.matches, vec![CommitPos(1)]);
     }
 
     #[test]

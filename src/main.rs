@@ -192,16 +192,25 @@ fn main() -> Result<()> {
             app.update_notice = Some(format!("Version {version} available"));
         }
 
-        // When the search-input bar is active in CommitDetail, forward raw
-        // key events to the search handler instead of routing through parse_key.
-        if matches!(app.mode, AppMode::CommitDetail) && app.detail.search.input_active {
+        // While a search bar takes input, forward raw key events to it instead
+        // of routing them through parse_key.
+        let typing_search: Option<fn(crossterm::event::Event, &mut AppState)> = match app.mode {
+            AppMode::CommitDetail if app.detail.search.input_active => {
+                Some(views::commit_detail::handle_search_event)
+            }
+            AppMode::CommitList if app.list.search.state.input_active => {
+                Some(views::commit_list::handle_search_event)
+            }
+            _ => None,
+        };
+        if let Some(handle_search_event) = typing_search {
             if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
                 break;
             }
             if dismiss_status {
                 app.clear_status_message();
             }
-            views::commit_detail::handle_search_event(event, &mut app);
+            handle_search_event(event, &mut app);
             continue;
         }
 
