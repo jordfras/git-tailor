@@ -48,7 +48,7 @@ pub struct DetailState {
     /// Line indices of file-diff headers in the content (updated during render).
     pub file_start_lines: Vec<usize>,
     /// The `/` search over the content.
-    pub search: SearchState,
+    pub search: SearchState<usize>,
 }
 
 impl DetailState {

@@ -12,82 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Regex search within the commit detail view — query entry, match navigation,
-// highlighting, and the search bar.
+// Regex search within the commit detail view: matching the content,
+// highlighting matches, and scrolling to them.
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::Event;
 use ratatui::{
-    Frame,
-    layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::Paragraph,
 };
 use regex::RegexBuilder;
 
-use crate::app::{AppAction, AppState};
+use crate::app::AppState;
+use crate::app::search::{QueryEdit, SearchDirection};
 use crate::views::palette::Colors;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SearchDirection {
-    Next,
-    Prev,
-}
-
-/// Transient info about the search bar, computed during render.
-pub(super) enum SearchBarInfo {
-    NoMatches,
-    InvalidPattern,
-    Matches { current: usize, total: usize },
-}
+use crate::views::search_bar::SearchBarInfo;
 
 /// Handle raw keyboard events while the search input bar is active.
 ///
 /// Called from main.rs before `parse_key` so that character keys are
 /// captured as search-query input rather than dispatched as commands.
-pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
-    if let Event::Key(KeyEvent {
-        code,
-        kind,
-        modifiers,
-        ..
-    }) = event
-        && kind == event::KeyEventKind::Press
-    {
-        if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
-            return AppAction::Quit;
-        }
-        match code {
-            KeyCode::Esc => {
-                app.detail.search.clear();
-            }
-            KeyCode::Enter => {
-                app.detail.search.input_active = false;
-                // Jump to the first match at or after the current scroll
-                // position, wrapping to match 0 when all matches lie above —
-                // the same behavior as `less`.
-                if !app.detail.search.matches.is_empty() {
-                    let next_idx = app
-                        .detail
-                        .search
-                        .matches
-                        .iter()
-                        .position(|&line| line >= app.detail.v.offset)
-                        .unwrap_or(0);
-                    app.detail.search.match_index = Some(next_idx);
-                    scroll_to_current_match(app);
-                }
-            }
-            KeyCode::Backspace => {
-                app.detail.search.query.pop();
-            }
-            KeyCode::Char(c) => {
-                app.detail.search.query.push(c);
-            }
-            _ => {}
-        }
+pub fn handle_search_event(event: Event, app: &mut AppState) {
+    if app.detail.search.edit(&event) != QueryEdit::Confirmed {
+        return;
     }
-    AppAction::Handled
+    // Jump to the first match at or after the current scroll position,
+    // wrapping to match 0 when all matches lie above — the same behavior as
+    // `less`.
+    let search = &mut app.detail.search;
+    if !search.matches.is_empty() {
+        let next_idx = search
+            .matches
+            .iter()
+            .position(|&line| line >= app.detail.v.offset)
+            .unwrap_or(0);
+        search.match_index = Some(next_idx);
+        scroll_to_current_match(app);
+    }
 }
 
 /// Advance to the next search match, wrapping around.
@@ -100,25 +60,9 @@ pub(super) fn prev_match(app: &mut AppState) {
     advance_search_match(app, SearchDirection::Prev);
 }
 
-/// Advance to the next or previous search match, wrapping around.
 fn advance_search_match(app: &mut AppState, dir: SearchDirection) {
-    if !app.detail.search.active || app.detail.search.matches.is_empty() {
-        return;
-    }
-    let len = app.detail.search.matches.len();
-    app.detail.search.match_index = Some(next_match_index(app.detail.search.match_index, len, dir));
-    scroll_to_current_match(app);
-}
-
-/// Return the next match index given the current index, list length, and direction.
-/// Wraps around at both ends.
-fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) -> usize {
-    match (current, dir) {
-        (Some(idx), SearchDirection::Next) => (idx + 1) % len,
-        (Some(0), SearchDirection::Prev) => len - 1,
-        (Some(idx), SearchDirection::Prev) => idx - 1,
-        (None, SearchDirection::Next) => 0,
-        (None, SearchDirection::Prev) => len - 1,
+    if let Some(&target_line) = app.detail.search.advance(dir) {
+        center_on_line(app, target_line);
     }
 }
 
@@ -302,80 +246,4 @@ fn apply_search_highlighting(
             highlight_line_matches(line, regex, is_current, colors)
         })
         .collect()
-}
-
-/// Render the search bar widget into the given area.
-pub(super) fn render_bar(
-    frame: &mut Frame,
-    app: &AppState,
-    search_info: Option<SearchBarInfo>,
-    area: Rect,
-) {
-    let colors = app.colors;
-    let dark_gray = colors.resolve(Color::DarkGray);
-    let red = colors.resolve(Color::Red);
-    let mut bar_spans = vec![
-        Span::styled("/", Style::default().fg(dark_gray)),
-        Span::styled(
-            app.detail.search.query.clone(),
-            Style::default().fg(colors.resolve(Color::White)),
-        ),
-    ];
-    if app.detail.search.input_active {
-        bar_spans.push(Span::styled("█", Style::default().fg(dark_gray)));
-    }
-    match search_info {
-        Some(SearchBarInfo::NoMatches) => {
-            bar_spans.push(Span::styled("  [no matches]", Style::default().fg(red)));
-        }
-        Some(SearchBarInfo::InvalidPattern) => {
-            bar_spans.push(Span::styled(
-                "  [invalid pattern]",
-                Style::default().fg(red),
-            ));
-        }
-        Some(SearchBarInfo::Matches { current, total }) => {
-            bar_spans.push(Span::styled(
-                format!("  [{}/{}]", current + 1, total),
-                Style::default().fg(dark_gray),
-            ));
-        }
-        None => {}
-    }
-    frame.render_widget(Paragraph::new(Line::from(bar_spans)), area);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn next_from_none_forward() {
-        assert_eq!(next_match_index(None, 5, SearchDirection::Next), 0);
-    }
-
-    #[test]
-    fn next_from_none_backward() {
-        assert_eq!(next_match_index(None, 5, SearchDirection::Prev), 4);
-    }
-
-    #[test]
-    fn next_wraps_forward() {
-        assert_eq!(next_match_index(Some(4), 5, SearchDirection::Next), 0);
-    }
-
-    #[test]
-    fn next_wraps_backward() {
-        assert_eq!(next_match_index(Some(0), 5, SearchDirection::Prev), 4);
-    }
-
-    #[test]
-    fn next_advances_forward() {
-        assert_eq!(next_match_index(Some(2), 5, SearchDirection::Next), 3);
-    }
-
-    #[test]
-    fn next_advances_backward() {
-        assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
-    }
 }

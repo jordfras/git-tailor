@@ -288,7 +288,13 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
 
     // Render search bar (row above footer, only when search is active)
     if app.detail.search.active {
-        search::render_bar(frame, app, search_info, search_bar_area);
+        super::search_bar::render(
+            frame,
+            &app.detail.search,
+            search_info,
+            app.colors,
+            search_bar_area,
+        );
     }
 
     super::commit_list::render_footer(frame, app, footer_area);
