@@ -669,3 +669,96 @@ fn test_measuring_the_fragmap_separator_leaves_the_viewport_alone() {
         "measuring must not scroll the list"
     );
 }
+
+fn search_key(code: crossterm::event::KeyCode) -> crossterm::event::Event {
+    crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        code,
+        crossterm::event::KeyModifiers::NONE,
+    ))
+}
+
+fn type_search(app: &mut AppState, query: &str) {
+    use crossterm::event::KeyCode;
+    for c in query.chars() {
+        views::commit_list::handle_search_event(search_key(KeyCode::Char(c)), app);
+    }
+}
+
+fn app_to_search() -> AppState {
+    let mut app = AppState::new();
+    app.list.commits = vec![
+        common::create_test_commit("abc123def456", "Initial commit"),
+        common::create_test_commit("def456ghi789", "Add feature X"),
+        common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
+    ];
+    app.list.selection_index = 0;
+    app.list.search.activate();
+    app
+}
+
+/// Typing searches as it goes and leaves the selection alone until Enter.
+#[test]
+fn search_typing_matches_and_enter_selects() {
+    let mut app = app_to_search();
+    type_search(&mut app, "parser");
+
+    assert_eq!(app.list.search.state.matches.len(), 1);
+    assert_eq!(app.list.selection_index, 0);
+
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+    assert!(!app.list.search.state.input_active);
+    assert!(app.list.search.state.active);
+    assert_eq!(app.list.selection_index, 2);
+}
+
+/// Esc while typing dismisses the search.
+#[test]
+fn search_escape_dismisses() {
+    let mut app = app_to_search();
+    type_search(&mut app, "feat");
+
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Esc), &mut app);
+    assert!(!app.list.search.state.active);
+    assert!(app.list.search.state.query.is_empty());
+    assert!(app.list.search.state.matches.is_empty());
+}
+
+/// Quit with a confirmed search clears it rather than leaving the application.
+#[test]
+fn quit_clears_search_before_quitting() {
+    use git_tailor::app::{AppAction, KeyCommand};
+    let mut app = app_to_search();
+    type_search(&mut app, "feat");
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+
+    let action = views::commit_list::handle_key(KeyCommand::Quit, &mut app);
+    assert!(matches!(action, AppAction::Handled));
+    assert!(!app.list.search.state.active);
+
+    let action = views::commit_list::handle_key(KeyCommand::Quit, &mut app);
+    assert!(matches!(action, AppAction::Quit));
+}
+
+/// Snapshot: the search bar sits above the footer while typing.
+#[test]
+fn test_commit_list_search_bar() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    type_search(&mut app, "i");
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// Snapshot: an invalid pattern says so in the bar.
+#[test]
+fn test_commit_list_search_bar_invalid_pattern() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    type_search(&mut app, "(");
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}

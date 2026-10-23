@@ -1,5 +1,6 @@
 ---
 source: tests/tui_help.rs
+assertion_line: 48
 expression: "harness.render(|frame|\n{\n    views::commit_list::render(&mut app, frame);\n    views::help::render(&AppMode::CommitList, &mut app, frame);\n})"
 ---
 Buffer {
@@ -16,7 +17,7 @@ Buffer {
         "            │   r              Reword commit message               █            ",
         "            │   d              Drop commit                         █            ",
         "            │   m              Move commit (pick new position)     █            ",
-        "            │   E              Edit commit in a shell              █            ",
+        "            │   E              Edit commit in a shell              │            ",
         "            │   F              Autofixup (fixup!/squash! commits)  │            ",
         "            │   a              Stage all tracked changes           │            ",
         "            │   A              Unstage all changes                 │            ",

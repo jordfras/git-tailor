@@ -14,6 +14,10 @@
 
 // Commit list view rendering
 
+mod search;
+
+pub use search::handle_search_event;
+
 use super::hunk_groups;
 use crate::VirtualOid;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
@@ -135,7 +139,18 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
-        KeyCommand::Quit => AppAction::Quit,
+        KeyCommand::Quit => {
+            if app.list.search.state.active {
+                app.list.search.clear();
+                AppAction::Handled
+            } else {
+                AppAction::Quit
+            }
+        }
+        KeyCommand::Search => {
+            app.list.search.activate();
+            AppAction::Handled
+        }
         KeyCommand::Move => {
             app.enter_move_select();
             AppAction::Handled
@@ -176,7 +191,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::None
         | KeyCommand::ForceQuit
         | KeyCommand::Suspend
-        | KeyCommand::Search
         | KeyCommand::SearchNext
         | KeyCommand::SearchPrev
         | KeyCommand::IncreaseContext
@@ -222,6 +236,7 @@ struct LayoutInfo {
     table_area: Rect,
     footer_area: Rect,
     h_scrollbar_area: Option<Rect>,
+    search_bar_area: Option<Rect>,
     available_height: usize,
     /// Rows the commit list itself may draw: `available_height`, less the row a
     /// move separator takes.
@@ -333,6 +348,10 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
 
     render_footer(frame, app, layout.footer_area);
 
+    if let Some(search_bar_area) = layout.search_bar_area {
+        search::render_bar(frame, app, search_bar_area);
+    }
+
     if let Some(hs_area) = layout.h_scrollbar_area {
         hunk_groups::render_horizontal_scrollbar(
             frame,
@@ -346,25 +365,27 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 }
 
-/// Split the frame into vertical areas: table, optional h-scrollbar, and footer.
+/// Split the frame into vertical areas: table, optional h-scrollbar, optional
+/// search bar, and footer.
 fn split_vertical_areas(
     frame_area: Rect,
     needs_h_scrollbar: bool,
+    needs_search_bar: bool,
     footer_height: u16,
-) -> (Rect, Option<Rect>, Rect) {
-    if needs_h_scrollbar {
-        let [t, hs, f] = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(footer_height),
-        ])
-        .areas(frame_area);
-        (t, Some(hs), f)
-    } else {
-        let [t, f] = Layout::vertical([Constraint::Min(0), Constraint::Length(footer_height)])
-            .areas(frame_area);
-        (t, None, f)
-    }
+) -> (Rect, Option<Rect>, Option<Rect>, Rect) {
+    let [table, h_scrollbar, search_bar, footer] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(u16::from(needs_h_scrollbar)),
+        Constraint::Length(u16::from(needs_search_bar)),
+        Constraint::Length(footer_height),
+    ])
+    .areas(frame_area);
+    (
+        table,
+        needs_h_scrollbar.then_some(h_scrollbar),
+        needs_search_bar.then_some(search_bar),
+        footer,
+    )
 }
 
 /// The widths of the title and fragmap columns, for one measurement of the
@@ -428,6 +449,7 @@ impl ColumnWidths {
 struct Geometry {
     table_area: Rect,
     h_scrollbar_area: Option<Rect>,
+    search_bar_area: Option<Rect>,
     footer_area: Rect,
     available_height: usize,
     has_v_scrollbar: bool,
@@ -441,8 +463,12 @@ fn measure_geometry(
     with_h_scrollbar: bool,
     footer_height: u16,
 ) -> Geometry {
-    let (table_area, h_scrollbar_area, footer_area) =
-        split_vertical_areas(frame_area, with_h_scrollbar, footer_height);
+    let (table_area, h_scrollbar_area, search_bar_area, footer_area) = split_vertical_areas(
+        frame_area,
+        with_h_scrollbar,
+        app.list.search.state.active,
+        footer_height,
+    );
 
     let available_height = table_area.height.saturating_sub(1) as usize;
     let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
@@ -455,6 +481,7 @@ fn measure_geometry(
     Geometry {
         table_area,
         h_scrollbar_area,
+        search_bar_area,
         footer_area,
         available_height,
         has_v_scrollbar,
@@ -540,6 +567,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect, footer_height: u16) -> L
         table_area: geometry.table_area,
         footer_area: geometry.footer_area,
         h_scrollbar_area: geometry.h_scrollbar_area,
+        search_bar_area: geometry.search_bar_area,
         available_height: geometry.available_height,
         commit_rows,
         has_v_scrollbar: geometry.has_v_scrollbar,
