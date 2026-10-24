@@ -54,6 +54,8 @@ pub struct DetailState {
     /// Scroll to the first file the list's path search matches, once the
     /// next render has laid the files out.
     pub scroll_to_matching_path: bool,
+    /// Make the last search match current, once the next render has matched.
+    pub start_at_last_match: bool,
 }
 
 impl DetailState {

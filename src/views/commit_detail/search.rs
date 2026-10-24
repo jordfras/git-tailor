@@ -96,11 +96,12 @@ pub(super) fn apply(
     prefixed_lines: &[usize],
 ) -> (Vec<Line<'static>>, Option<SearchBarInfo>) {
     let mut search_info = None;
+    let start_at_last = std::mem::take(&mut app.detail.start_at_last_match);
     if app.detail.search.active && !app.detail.search.query.is_empty() {
         match search_regex(&app.detail.search.query, app.detail.search_case) {
             Ok(regex) => {
                 let (info, prev_match_index) =
-                    compute_search_matches(app, &content, prefixed_lines, &regex);
+                    compute_search_matches(app, &content, prefixed_lines, &regex, start_at_last);
                 search_info = info;
                 if !app.detail.search.matches.is_empty() {
                     if !app.detail.search.input_active {
@@ -165,6 +166,7 @@ fn compute_search_matches(
     content: &[Line<'_>],
     prefixed_lines: &[usize],
     regex: &regex::Regex,
+    start_at_last: bool,
 ) -> (Option<SearchBarInfo>, Option<usize>) {
     let prev_match_index = app.detail.search.match_index;
 
@@ -181,11 +183,11 @@ fn compute_search_matches(
         app.detail.search.match_index = None;
         (Some(SearchBarInfo::NoMatches), prev_match_index)
     } else {
+        let last = app.detail.search.matches.len() - 1;
         match app.detail.search.match_index {
+            _ if start_at_last => app.detail.search.match_index = Some(last),
             None => app.detail.search.match_index = Some(0),
-            Some(idx) if idx >= app.detail.search.matches.len() => {
-                app.detail.search.match_index = Some(app.detail.search.matches.len() - 1);
-            }
+            Some(idx) if idx > last => app.detail.search.match_index = Some(last),
             _ => {}
         }
         (
