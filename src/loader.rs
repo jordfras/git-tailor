@@ -258,26 +258,32 @@ fn settle_reload(
         }
         // A load lands on the list, which is right after an operation but not
         // after refreshing the detail view.
-        Ok(true) => match shown {
-            Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
-                Some(index) => {
-                    app.list.selection_index = index;
-                    app.detail.v.offset = shown.offset;
-                    app.mode = before;
-                }
+        Ok(true) => {
+            match shown {
+                Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
+                    Some(index) => {
+                        app.list.selection_index = index;
+                        app.detail.v.offset = shown.offset;
+                        app.mode = before;
+                    }
+                    None => {
+                        app.detail.search.clear();
+                        app.set_error_message(
+                            "The commit the detail view showed is no longer on the branch",
+                        );
+                    }
+                },
                 None => {
-                    app.detail.search.clear();
-                    app.set_error_message(
-                        "The commit the detail view showed is no longer on the branch",
-                    );
-                }
-            },
-            None => {
-                if let Some(index) = select {
-                    app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+                    if let Some(index) = select {
+                        app.list.selection_index =
+                            index.min(app.list.commits.len().saturating_sub(1));
+                    }
                 }
             }
-        },
+            if app.list.search.state.active {
+                app.list.point_search_at_selection();
+            }
+        }
         Ok(false) => {
             app.mode = before;
             app.set_error_message(
