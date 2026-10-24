@@ -74,7 +74,7 @@ carry the search into the detail view.
   message → diff → paths), shown as a tag in the bar (`[diff] /foo█ [3/17]`).
   Changing scope re-runs the search. An invalid glob in the paths scope shows
   `[invalid pattern]` like an invalid regex.
-- [ ] T275 P2 feat - Carry the list search into the detail view. Opening a
+- [X] T275 P2 feat - Carry the list search into the detail view. Opening a
   commit while a regex-scope list search is active seeds the detail search
   with the same pattern, out of input mode, scrolled to its first match, so
   `n`/`N` work at once. The detail view shows context lines, so it may also
