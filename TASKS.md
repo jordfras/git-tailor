@@ -100,7 +100,7 @@ carry the search into the detail view.
   and opens it at its first (last) match, gitk-style. Only when the detail
   search was seeded from the list (T275). (Flags: WONT DO — overshooting the
   last match would leave the commit unasked; see T280 for a separate key.)
-- [ ] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
+- [X] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
   query contains an uppercase letter, as in vim's `smartcase` and ripgrep's
   `-S`. Applies to the list search and the detail search alike.
 - [X] T279 P2 feat - In `SquashSelect`, `n`/`N` select the squash target: the
