@@ -200,6 +200,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::None
         | KeyCommand::ForceQuit
         | KeyCommand::Suspend
+        | KeyCommand::NextMatchingCommit
+        | KeyCommand::PrevMatchingCommit
         | KeyCommand::IncreaseContext
         | KeyCommand::DecreaseContext => AppAction::Handled,
         KeyCommand::SeparatorLeft => {

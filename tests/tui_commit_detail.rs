@@ -1030,3 +1030,208 @@ fn detail_search_follows_the_case_setting() {
         assert_eq!(!app.detail.search.matches.is_empty(), found, "{case:?}");
     }
 }
+
+fn ctrl(c: char) -> crossterm::event::Event {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+}
+
+/// Press `key` in the detail view, then load and draw what it asks for.
+fn press_in_detail(
+    app: &mut AppState,
+    repo: &common::StubRepo,
+    harness: &mut TuiTestHarness,
+    key: git_tailor::app::KeyCommand,
+) -> git_tailor::app::AppAction {
+    let action = views::commit_detail::handle_key(key, app);
+    if matches!(action, git_tailor::app::AppAction::LoadDetailDiff) {
+        views::commit_detail::load_diff(repo, app);
+    }
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, app, area);
+    });
+    action
+}
+
+#[test]
+fn ctrl_n_and_ctrl_p_map_to_matching_commit_steps() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    assert_eq!(
+        AppMode::CommitDetail.parse_key(ctrl('n')),
+        KeyCommand::NextMatchingCommit
+    );
+    assert_eq!(
+        AppMode::CommitDetail.parse_key(ctrl('p')),
+        KeyCommand::PrevMatchingCommit
+    );
+}
+
+/// Ctrl-n opens the next matching commit at its first match, Ctrl-p the
+/// previous one at its last, both wrapping around.
+#[test]
+fn ctrl_n_and_ctrl_p_open_the_next_and_previous_matching_commit() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert!(matches!(app.mode, AppMode::CommitDetail));
+    assert_eq!(app.list.selection_index, 1);
+    assert_eq!(app.detail.search.query, "needle");
+    assert_eq!(app.detail.search.match_index, Some(0));
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::PrevMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 0);
+    let last = app.detail.search.matches.len() - 1;
+    assert_eq!(app.detail.search.match_index, Some(last));
+    let last_line = app.detail.search.matches[last];
+    let v = &app.detail.v;
+    assert!(v.offset <= last_line && last_line < v.offset + v.visible_height);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::PrevMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 1, "wraps to the last commit");
+}
+
+/// A search started in the detail view is what Ctrl-n steps by.
+#[test]
+fn ctrl_n_steps_by_a_search_made_in_the_detail_view() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("straw".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 1);
+    assert_eq!(app.list.search.state.query, "straw");
+    assert_eq!(app.detail.search.query, "straw");
+}
+
+/// With no search, or none matching another commit, Ctrl-n stays and says why.
+#[test]
+fn ctrl_n_without_another_match_stays_and_says_so() {
+    use git_tailor::app::{AppAction, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    for query in ["", "Three files"] {
+        let (mut app, repo) = list_searched(SearchScope::Message, query);
+        app.list.commits[1].message = "Something else".to_string();
+        app.list.rerun_search();
+        if query.is_empty() {
+            app.list.search.clear();
+        }
+        open_detail(&mut app, &repo, &mut harness);
+        let seeded = app.detail.search.query.clone();
+
+        let action = press_in_detail(
+            &mut app,
+            &repo,
+            &mut harness,
+            KeyCommand::NextMatchingCommit,
+        );
+        assert!(matches!(action, AppAction::Handled), "{query:?}");
+        assert_eq!(app.list.selection_index, 0);
+        assert_eq!(app.detail.search.query, seeded);
+        assert!(app.status.is_error);
+    }
+}
+
+/// Ctrl-n on a pattern that does not compile says so, rather than that no
+/// other commit matches.
+#[test]
+fn ctrl_n_on_an_invalid_pattern_says_it_is_invalid() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("needle(".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 0);
+    assert!(app.status.is_error);
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("Invalid search pattern")
+    );
+}
+/// An invalid detail pattern leaves the list's own search as it was.
+#[test]
+fn ctrl_n_on_an_invalid_pattern_keeps_the_list_search() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "c.txt");
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("needle(".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    assert_eq!(app.list.search.state.query, "c.txt");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+}
+
+/// A search confirmed with nothing typed is no search to step through.
+#[test]
+fn ctrl_n_on_an_empty_search_says_there_is_none() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+    open_detail(&mut app, &repo, &mut harness);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("No search to step through")
+    );
+}

@@ -26,6 +26,7 @@ use std::path::Path;
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
+use crate::app::search::SearchDirection;
 use crate::app::{AppAction, AppState, KeyCommand};
 use crate::repo::RepoRead;
 use crate::views::palette::Colors;
@@ -122,6 +123,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             search::prev_match(app);
             AppAction::Handled
         }
+        KeyCommand::NextMatchingCommit => open_matching_commit(app, SearchDirection::Next),
+        KeyCommand::PrevMatchingCommit => open_matching_commit(app, SearchDirection::Prev),
         KeyCommand::IncreaseContext => {
             app.detail.increase_context_lines();
             AppAction::LoadDetailDiff
@@ -148,6 +151,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         _ => AppAction::Handled,
+    }
+}
+
+fn open_matching_commit(app: &mut AppState, dir: SearchDirection) -> AppAction {
+    if app.open_matching_commit(dir) {
+        AppAction::LoadDetailDiff
+    } else {
+        AppAction::Handled
     }
 }
 
