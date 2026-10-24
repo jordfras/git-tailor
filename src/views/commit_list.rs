@@ -1006,7 +1006,11 @@ fn render_squash_footer(
         squash_mode.label(),
         source_index,
         " into\u{2026}",
-        &[("Enter", " confirm \u{b7} "), ("Esc", " cancel")],
+        &[
+            ("n", " target \u{b7} "),
+            ("Enter", " confirm \u{b7} "),
+            ("Esc", " cancel"),
+        ],
     );
 }
 

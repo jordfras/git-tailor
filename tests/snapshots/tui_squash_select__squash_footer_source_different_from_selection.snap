@@ -28,7 +28,7 @@ Buffer {
         "                                                                                ",
         "                                                                                ",
         "                                                                                ",
-        " Squash 33333333 "Newest commit (HEAD)" into… · Enter confirm · Esc cancel      ",
+        " Squash 33333333 "Newest commit …" into… · n target · Enter confirm · Esc cancel",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -43,9 +43,11 @@ Buffer {
         x: 0, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
         x: 8, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
         x: 16, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 48, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 53, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 64, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 67, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 43, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 44, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 54, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 59, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 70, y: 23, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 73, y: 23, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
     ]
 }
