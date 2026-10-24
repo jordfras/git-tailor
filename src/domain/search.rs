@@ -283,6 +283,21 @@ mod tests {
     }
 
     #[test]
+    fn a_staged_or_unstaged_row_matches_by_its_diff_only() {
+        let files = [file(
+            Some("a.txt"),
+            Some("a.txt"),
+            vec![hunk(vec![line(DiffLineKind::Addition, "in diff")])],
+        )];
+        let staged = CommitInfo {
+            oid: VirtualOid::Staged,
+            ..commit("Staged changes")
+        };
+        assert_eq!(hits(SearchScope::Message, "changes", &staged, &files), None);
+        assert!(hits(SearchScope::MessageAndDiff, "diff", &staged, &files).is_some());
+    }
+
+    #[test]
     fn diff_matches_added_and_removed_lines_but_not_context() {
         let diff_hits = |kind| {
             let files = [file(
