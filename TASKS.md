@@ -109,7 +109,7 @@ carry the search into the detail view.
   commit would conflict. Say so in the status bar when there is none, or when
   the matrix was skipped. Not for `MoveSelect`: jumping to the furthest
   conflict-free position was judged not worth a key.
-- [ ] T280 P3 idea - In the detail view, Ctrl-N / Ctrl-P open the next /
+- [x] T280 P3 idea - In the detail view, Ctrl-n / Ctrl-p open the next /
   previous commit matching the list search, at its first / last match: what
   leaving, `n` in the list and opening again do, in one key. Only while a list
   search is active; status message when there is no other match.
