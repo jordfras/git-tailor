@@ -95,7 +95,7 @@ carry the search into the detail view.
 - [ ] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
   query contains an uppercase letter, as in vim's `smartcase` and ripgrep's
   `-S`. Applies to the list search and the detail search alike.
-- [ ] T279 P2 feat - In `SquashSelect`, `n`/`N` select the squash target: the
+- [X] T279 P2 feat - In `SquashSelect`, `n`/`N` select the squash target: the
   commit `FragMap::squash_target` folds the source into without conflict, the
   row drawn green. There is at most one, since folding past a nearer related
   commit would conflict. Say so in the status bar when there is none, or when
