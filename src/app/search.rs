@@ -77,12 +77,6 @@ impl<M> SearchState<M> {
         }
     }
 
-    /// Make the last match current once the view has matched: views clamp an
-    /// index past the end to the last match.
-    pub fn start_at_last_match(&mut self) {
-        self.match_index = Some(usize::MAX);
-    }
-
     /// Activate search mode: clear the query and show the search bar.
     pub fn activate(&mut self) {
         *self = Self {

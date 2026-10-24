@@ -518,7 +518,7 @@ impl AppState {
         }
         self.carry_list_search_into_detail();
         if dir == SearchDirection::Prev {
-            self.detail.search.start_at_last_match();
+            self.detail.start_at_last_match = true;
         }
         self.detail.v.offset = 0;
         true
