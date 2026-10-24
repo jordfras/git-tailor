@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
 use crate::app::search::{SearchDirection, SearchState};
-use crate::domain::search::{CommitHits, CommitQuery, SearchScope};
+use crate::domain::search::{CommitQuery, SearchScope};
 use crate::fragmap::CommitPos;
 use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
 
@@ -194,11 +194,7 @@ impl CommitListState {
     fn match_rows(&mut self) {
         self.search.compile();
         self.search.state.matches = match self.search.compiled() {
-            Some(query) => self
-                .matching_rows(query)
-                .into_iter()
-                .map(|(pos, _)| pos)
-                .collect(),
+            Some(query) => self.matching_rows(query),
             None => Vec::new(),
         };
     }
@@ -221,15 +217,13 @@ impl CommitListState {
         }
     }
 
-    /// The rows `query` matches, in row order, with where each matched.
-    pub fn matching_rows(&self, query: &CommitQuery) -> Vec<(CommitPos, CommitHits)> {
+    /// The rows `query` matches, in row order.
+    pub fn matching_rows(&self, query: &CommitQuery) -> Vec<CommitPos> {
         self.commits
             .iter()
             .enumerate()
-            .filter_map(|(row, commit)| {
-                let hits = query.hits(commit, self.diff_files(&commit.oid))?;
-                Some((CommitPos(row), hits))
-            })
+            .filter(|(_, commit)| query.matches(commit, self.diff_files(&commit.oid)))
+            .map(|(row, _)| CommitPos(row))
             .collect()
     }
 
@@ -530,9 +524,6 @@ mod tests {
                 CommitQuery::new(scope, pattern, crate::domain::search::SearchCase::Sensitive)
                     .unwrap();
             list.matching_rows(&query)
-                .into_iter()
-                .map(|(pos, _)| pos)
-                .collect()
         };
         assert_eq!(rows(SearchScope::Paths, "b.txt"), vec![CommitPos(1)]);
         // The last row has no diff, so only its message can match.

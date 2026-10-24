@@ -82,23 +82,6 @@ enum Matcher {
     Paths(GlobSet),
 }
 
-/// Where a commit matched. Positions are numbered as in the commit's
-/// zero-context diff, the one the hunk group matrix is built from.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CommitHits {
-    pub message: bool,
-    /// An added or removed line matched.
-    pub diff: bool,
-    /// Changes whose old or new path matched.
-    pub paths: Vec<ChangePos>,
-}
-
-impl CommitHits {
-    fn is_empty(&self) -> bool {
-        !self.message && !self.diff && self.paths.is_empty()
-    }
-}
-
 impl CommitQuery {
     pub fn new(
         scope: SearchScope,
@@ -123,24 +106,30 @@ impl CommitQuery {
         }
     }
 
-    /// Where `commit` matches, or `None` when it does not. `files` is its diff;
-    /// without one only the message can match.
-    pub fn hits(&self, commit: &CommitInfo, files: Option<&[FileDiff]>) -> Option<CommitHits> {
+    /// Whether `commit` matches. `files` is its diff; without one only the
+    /// message can match.
+    pub fn matches(&self, commit: &CommitInfo, files: Option<&[FileDiff]>) -> bool {
         let files = files.unwrap_or_default();
-        let mut hits = CommitHits::default();
         match &self.matcher {
             Matcher::Text(regex) => {
                 // A staged or unstaged row's message is a placeholder of ours.
-                if self.scope != SearchScope::Diff && !commit.oid.is_synthetic() {
-                    hits.message = commit.message.lines().any(|line| regex.is_match(line));
-                }
-                if self.scope != SearchScope::Message {
-                    hits.diff = diff_matches(files, regex);
-                }
+                let message_matches = self.scope != SearchScope::Diff
+                    && !commit.oid.is_synthetic()
+                    && commit.message.lines().any(|line| regex.is_match(line));
+                message_matches
+                    || (self.scope != SearchScope::Message && diff_matches(files, regex))
             }
-            Matcher::Paths(globs) => hits.paths = matching_changes(files, globs),
+            Matcher::Paths(globs) => first_matching_change(files, globs).is_some(),
         }
-        (!hits.is_empty()).then_some(hits)
+    }
+
+    /// The first change in `files` whose old or new path matches, `None` also
+    /// when this is not a path search.
+    pub fn first_matching_path(&self, files: &[FileDiff]) -> Option<ChangePos> {
+        match &self.matcher {
+            Matcher::Paths(globs) => first_matching_change(files, globs),
+            Matcher::Text(_) => None,
+        }
     }
 }
 
@@ -155,18 +144,16 @@ fn diff_matches(files: &[FileDiff], regex: &Regex) -> bool {
         })
 }
 
-fn matching_changes(files: &[FileDiff], globs: &GlobSet) -> Vec<ChangePos> {
+fn first_matching_change(files: &[FileDiff], globs: &GlobSet) -> Option<ChangePos> {
     files
         .iter()
-        .enumerate()
-        .filter(|(_, file)| {
+        .position(|file| {
             [&file.old_path, &file.new_path]
                 .into_iter()
                 .flatten()
                 .any(|path| globs.is_match(Path::new(path)))
         })
-        .map(|(change, _)| ChangePos(change))
-        .collect()
+        .map(ChangePos)
 }
 
 /// `pattern` compiled as `case` says.
@@ -260,27 +247,24 @@ mod tests {
         file(Some(path), Some(path), vec![])
     }
 
-    fn hits(
-        scope: SearchScope,
-        pattern: &str,
-        c: &CommitInfo,
-        files: &[FileDiff],
-    ) -> Option<CommitHits> {
-        CommitQuery::new(scope, pattern, SearchCase::Sensitive)
-            .unwrap()
-            .hits(c, Some(files))
+    fn query(scope: SearchScope, pattern: &str) -> CommitQuery {
+        CommitQuery::new(scope, pattern, SearchCase::Sensitive).unwrap()
+    }
+
+    fn matches(scope: SearchScope, pattern: &str, c: &CommitInfo, files: &[FileDiff]) -> bool {
+        query(scope, pattern).matches(c, Some(files))
     }
 
     fn path_matches(pattern: &str, path: &str) -> bool {
-        hits(SearchScope::Paths, pattern, &commit("m"), &[modified(path)]).is_some()
+        matches(SearchScope::Paths, pattern, &commit("m"), &[modified(path)])
     }
 
     #[test]
     fn message_is_matched_line_by_line() {
         let c = commit("Summary\n\nfix: the body line");
-        assert!(hits(SearchScope::Message, "^fix", &c, &[]).is_some());
-        assert!(hits(SearchScope::Message, "^Summary$", &c, &[]).is_some());
-        assert_eq!(hits(SearchScope::Message, "^the", &c, &[]), None);
+        assert!(matches(SearchScope::Message, "^fix", &c, &[]));
+        assert!(matches(SearchScope::Message, "^Summary$", &c, &[]));
+        assert!(!matches(SearchScope::Message, "^the", &c, &[]));
     }
 
     #[test]
@@ -294,25 +278,28 @@ mod tests {
             oid: VirtualOid::Staged,
             ..commit("Staged changes")
         };
-        assert_eq!(hits(SearchScope::Message, "changes", &staged, &files), None);
-        assert!(hits(SearchScope::MessageAndDiff, "diff", &staged, &files).is_some());
+        assert!(!matches(SearchScope::Message, "changes", &staged, &files));
+        assert!(matches(
+            SearchScope::MessageAndDiff,
+            "diff",
+            &staged,
+            &files
+        ));
     }
 
     #[test]
     fn diff_matches_added_and_removed_lines_but_not_context() {
-        let diff_hits = |kind| {
+        let diff_matches = |kind| {
             let files = [file(
                 Some("a.txt"),
                 Some("a.txt"),
                 vec![hunk(vec![line(kind, "needle")])],
             )];
-            hits(SearchScope::Diff, "needle", &commit("m"), &files)
+            matches(SearchScope::Diff, "needle", &commit("m"), &files)
         };
-        let found = diff_hits(DiffLineKind::Deletion).unwrap();
-        assert!(found.diff);
-        assert!(!found.message);
-        assert!(diff_hits(DiffLineKind::Addition).is_some());
-        assert_eq!(diff_hits(DiffLineKind::Context), None);
+        assert!(diff_matches(DiffLineKind::Deletion));
+        assert!(diff_matches(DiffLineKind::Addition));
+        assert!(!diff_matches(DiffLineKind::Context));
     }
 
     #[test]
@@ -322,7 +309,7 @@ mod tests {
             Some("a.txt"),
             vec![hunk(vec![line(DiffLineKind::Addition, "ends with foo")])],
         )];
-        assert!(hits(SearchScope::Diff, "foo$", &commit("m"), &files).is_some());
+        assert!(matches(SearchScope::Diff, "foo$", &commit("m"), &files));
     }
 
     #[test]
@@ -333,8 +320,8 @@ mod tests {
             vec![hunk(vec![line(DiffLineKind::Addition, "in diff")])],
         )];
         let c = commit("in message");
-        assert_eq!(hits(SearchScope::Diff, "message", &c, &files), None);
-        assert_eq!(hits(SearchScope::Message, "diff", &c, &files), None);
+        assert!(!matches(SearchScope::Diff, "message", &c, &files));
+        assert!(!matches(SearchScope::Message, "diff", &c, &files));
     }
 
     #[test]
@@ -344,15 +331,18 @@ mod tests {
             Some("a.txt"),
             vec![hunk(vec![line(DiffLineKind::Addition, "word")])],
         )];
-        let found = hits(
+        assert!(matches(
             SearchScope::MessageAndDiff,
             "word",
             &commit("a word"),
-            &files,
-        )
-        .unwrap();
-        assert!(found.message);
-        assert!(found.diff);
+            &[]
+        ));
+        assert!(matches(
+            SearchScope::MessageAndDiff,
+            "word",
+            &commit("m"),
+            &files
+        ));
     }
 
     #[test]
@@ -395,8 +385,8 @@ mod tests {
     fn a_commit_without_a_diff_matches_on_its_message() {
         let query =
             CommitQuery::new(SearchScope::MessageAndDiff, "word", SearchCase::Sensitive).unwrap();
-        assert!(query.hits(&commit("a word"), None).is_some());
-        assert_eq!(query.hits(&commit("other"), None), None);
+        assert!(query.matches(&commit("a word"), None));
+        assert!(!query.matches(&commit("other"), None));
     }
 
     #[test]
@@ -430,16 +420,15 @@ mod tests {
             file(Some("old.txt"), Some("new.txt"), vec![]),
             file(Some("gone.txt"), None, vec![]),
         ];
-        let c = commit("m");
-        let paths = |p| hits(SearchScope::Paths, p, &c, &files).map(|h| h.paths);
-        assert_eq!(paths("old.txt"), Some(vec![ChangePos(1)]));
-        assert_eq!(paths("new.txt"), Some(vec![ChangePos(1)]));
-        assert_eq!(paths("gone.txt"), Some(vec![ChangePos(2)]));
+        let first = |p| query(SearchScope::Paths, p).first_matching_path(&files);
+        assert_eq!(first("old.txt"), Some(ChangePos(1)));
+        assert_eq!(first("new.txt"), Some(ChangePos(1)));
+        assert_eq!(first("gone.txt"), Some(ChangePos(2)));
     }
 
     #[test]
     fn paths_scope_ignores_the_message() {
-        assert_eq!(hits(SearchScope::Paths, "word", &commit("word"), &[]), None);
+        assert!(!matches(SearchScope::Paths, "word", &commit("word"), &[]));
     }
 
     #[test]
