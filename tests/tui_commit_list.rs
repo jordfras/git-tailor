@@ -864,3 +864,22 @@ fn search_marks_follow_the_palette() {
         Color::Rgb(0xc1, 0x9c, 0x00)
     );
 }
+
+/// `n`/`N` step between the matching commits, wrapping.
+#[test]
+fn search_next_and_prev_step_between_matches() {
+    use git_tailor::app::KeyCommand;
+    let mut app = app_to_search();
+    type_search(&mut app, "i");
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+    assert_eq!(app.list.selection_index, 0);
+
+    assert_eq!(app.list.search.state.matches.len(), 2);
+
+    views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+    views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 0);
+    views::commit_list::handle_key(KeyCommand::SearchPrev, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+}

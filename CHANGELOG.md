@@ -13,8 +13,9 @@ The format is based on
 - Press `/` in the commit list to search commit messages and added or removed
   lines with a regex. Typing selects the first match at or below where the
   search started, every matching commit's SHA is marked, and a match in the
-  title is highlighted. Enter keeps the selection, and Esc dismisses the
-  search and returns to where it started
+  title is highlighted. Enter keeps the selection, `n`/`N` step to the next
+  or previous matching commit, and Esc dismisses the search and returns to
+  where it started
 
 ### Changed
 

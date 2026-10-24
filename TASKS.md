@@ -68,8 +68,8 @@ carry the search into the detail view.
   the selection, not from the last match, since `j`/`k` may have moved it.
   Typing already selects the current match, so the two agree until then.
   (Re-running the search on every reload already landed with T271, in
-  `CommitListState::set_rows`.) Decide whether `n`/`N` also work in
-  `SquashSelect`/`MoveSelect` to find a target.
+  `CommitListState::set_rows`.) In `SquashSelect`, `n`/`N` select the squash
+  target instead (T279); `MoveSelect` leaves them unbound.
 - [ ] T274 P2 feat - Tab in the search bar cycles the scope (message + diff →
   message → diff → paths), shown as a tag in the bar (`[diff] /foo█ [3/17]`).
   Changing scope re-runs the search. An invalid glob in the paths scope shows
@@ -95,6 +95,12 @@ carry the search into the detail view.
 - [ ] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
   query contains an uppercase letter, as in vim's `smartcase` and ripgrep's
   `-S`. Applies to the list search and the detail search alike.
+- [ ] T279 P2 feat - In `SquashSelect`, `n`/`N` select the squash target: the
+  commit `FragMap::squash_target` folds the source into without conflict, the
+  row drawn green. There is at most one, since folding past a nearer related
+  commit would conflict. Say so in the status bar when there is none, or when
+  the matrix was skipped. Not for `MoveSelect`: jumping to the furthest
+  conflict-free position was judged not worth a key.
 
 ## Architecture & Robustness
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
