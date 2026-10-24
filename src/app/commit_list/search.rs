@@ -49,7 +49,7 @@ impl ListSearch {
             (!self.state.query.is_empty()).then(|| CommitQuery::new(self.scope, &self.state.query));
     }
 
-    pub(super) fn compiled(&self) -> Option<&CommitQuery> {
+    pub fn compiled(&self) -> Option<&CommitQuery> {
         self.query.as_ref()?.as_ref().ok()
     }
 }

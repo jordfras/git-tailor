@@ -78,6 +78,15 @@ impl CommitQuery {
         Ok(Self { scope, matcher })
     }
 
+    /// The regex the commit message is matched with, `None` when the scope
+    /// leaves the message out.
+    pub fn message_regex(&self) -> Option<&Regex> {
+        match &self.matcher {
+            Matcher::Text(regex) if self.scope != SearchScope::Diff => Some(regex),
+            _ => None,
+        }
+    }
+
     /// Where `commit` matches, or `None` when it does not. `files` is its diff;
     /// without one only the message can match.
     pub fn hits(&self, commit: &CommitInfo, files: Option<&[FileDiff]>) -> Option<CommitHits> {
@@ -291,6 +300,20 @@ mod tests {
         .unwrap();
         assert!(found.message);
         assert_eq!(found.lines, vec![(ChangePos(0), HunkPos(0))]);
+    }
+
+    #[test]
+    fn only_scopes_with_the_message_have_a_message_regex() {
+        let has_regex = |scope| {
+            CommitQuery::new(scope, "x")
+                .unwrap()
+                .message_regex()
+                .is_some()
+        };
+        assert!(has_regex(SearchScope::MessageAndDiff));
+        assert!(has_regex(SearchScope::Message));
+        assert!(!has_regex(SearchScope::Diff));
+        assert!(!has_regex(SearchScope::Paths));
     }
 
     #[test]

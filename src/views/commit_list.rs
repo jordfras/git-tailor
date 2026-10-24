@@ -21,7 +21,7 @@ pub use search::handle_search_event;
 use super::hunk_groups;
 use crate::VirtualOid;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
-use crate::fragmap::TouchKind;
+use crate::fragmap::{CommitPos, TouchKind};
 use crate::views::palette::Colors;
 use ratatui::{
     Frame,
@@ -772,9 +772,18 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         };
         let text_cell_style = app.colors.resolve_style(text_cell_style);
 
+        let row_match = search::row_match_style(app, CommitPos(commit_idx_in_fragmap));
         let mut cells = vec![
-            Cell::from(Span::styled(short_sha, text_cell_style)),
-            Cell::from(Span::styled(commit.summary.clone(), text_cell_style)),
+            Cell::from(Span::styled(
+                short_sha,
+                row_match.unwrap_or(text_cell_style),
+            )),
+            Cell::from(search::summary_line(
+                app,
+                &commit.summary,
+                text_cell_style,
+                row_match,
+            )),
         ];
 
         if let Some(ref fragmap) = app.fragmap

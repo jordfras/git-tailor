@@ -762,3 +762,103 @@ fn test_commit_list_search_bar_invalid_pattern() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+
+/// Rows where `parser` turns up in the summary, in a changed line, or nowhere,
+/// searched for it with the first row selected.
+fn app_searched_for_parser() -> AppState {
+    use git_tailor::{CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
+
+    let commits = vec![
+        common::create_test_commit("abc123def456", "Initial commit"),
+        common::create_test_commit("def456ghi789", "Add the parser"),
+        common::create_test_commit("ghi789jkl012", "Refactor the lexer"),
+        common::create_test_commit("jkl012mno345", "Fix a typo"),
+    ];
+    let lexer_diff = CommitDiff {
+        commit: commits[2].clone(),
+        files: vec![FileDiff {
+            old_path: Some("lexer.rs".into()),
+            new_path: Some("lexer.rs".into()),
+            status: DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![DiffLine {
+                    kind: DiffLineKind::Addition,
+                    content: "// feeds the parser\n".to_string(),
+                }],
+            }],
+        }],
+    };
+    let mut app = AppState::new();
+    app.list.set_rows(commits, vec![lexer_diff]);
+    app.list.selection_index = 0;
+    app.list.search.activate();
+    type_search(&mut app, "parser");
+    app
+}
+
+/// Where `text` starts in `buf`.
+fn find_text(buf: &ratatui::buffer::Buffer, text: &str) -> (u16, u16) {
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        let row: String = (area.left()..area.right())
+            .map(|x| buf[(x, y)].symbol())
+            .collect();
+        if let Some(x) = row.find(text) {
+            return (x as u16, y);
+        }
+    }
+    panic!("{text:?} not on screen");
+}
+
+/// Snapshot: every matching row's SHA is marked, the current match more
+/// strongly, and a match in the summary is highlighted there too.
+#[test]
+fn test_commit_list_search_marks_matching_rows() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// The match marks stay on in squash select, beside the source's own style.
+#[test]
+fn search_marks_survive_squash_select() {
+    use git_tailor::app::{AppMode, SquashMode};
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+    app.list.selection_index = 3;
+    app.mode = AppMode::SquashSelect {
+        source_index: 3,
+        squash_mode: SquashMode::Squash,
+    };
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    assert_eq!(buf[find_text(&buf, "def456g")].bg, Color::LightCyan);
+    assert_eq!(buf[find_text(&buf, "ghi789j")].bg, Color::Yellow);
+    assert_ne!(buf[find_text(&buf, "Fix a typo")].bg, Color::Yellow);
+}
+
+#[test]
+fn search_marks_follow_the_palette() {
+    use git_tailor::views::palette::{Colors, Scheme};
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+    app.colors = Colors::Fixed(Scheme::CAMPBELL);
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    assert_eq!(
+        buf[find_text(&buf, "ghi789j")].bg,
+        Color::Rgb(0xc1, 0x9c, 0x00)
+    );
+}
