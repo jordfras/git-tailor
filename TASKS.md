@@ -70,7 +70,7 @@ carry the search into the detail view.
   (Re-running the search on every reload already landed with T271, in
   `CommitListState::set_rows`.) In `SquashSelect`, `n`/`N` select the squash
   target instead (T279); `MoveSelect` leaves them unbound.
-- [ ] T274 P2 feat - Tab in the search bar cycles the scope (message + diff →
+- [X] T274 P2 feat - Tab in the search bar cycles the scope (message + diff →
   message → diff → paths), shown as a tag in the bar (`[diff] /foo█ [3/17]`).
   Changing scope re-runs the search. An invalid glob in the paths scope shows
   `[invalid pattern]` like an invalid regex.
