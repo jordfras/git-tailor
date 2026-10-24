@@ -84,13 +84,17 @@ carry the search into the detail view.
   back as the list search (paths scope falls back to message + diff);
   otherwise the list search stays as it was, so search → open → leave → open
   another commit keeps seeding each one.
-- [ ] T276 P2 feat - Highlight the hunk group matrix columns holding a match:
+- [-] T276 P2 feat - Highlight the hunk group matrix columns holding a match:
   for the diff scope, the clusters whose hunks contain a matching line; for the
   paths scope, the clusters of matching files; none for the message scope.
   Shows *where* in the code the hits are, which gitk cannot. Map matching hunks
   to clusters through the fragmap, so T270 must report hunks, not only
   commits. Columns deduplicated away (without `--full`) must still light up
-  through the column that represents them.
+  through the column that represents them. (Flags: WONT DO — the matrix keeps
+  no hunk → column link. Lighting the matching commit's columns per file is
+  cheap but adds little; per hunk means enumerating every column through a
+  hunk's node in the SPG, which is intricate and adds little more over the
+  marked rows, `n`/`N` and the seeded detail view.)
 - [-] T277 P3 idea - In the detail view, `n` past the last match (`N` before
   the first) moves on to the next (previous) commit matching the list search
   and opens it at its first (last) match, gitk-style. Only when the detail
