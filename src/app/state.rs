@@ -25,9 +25,9 @@ use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, Spl
 use crate::app::ScrollState;
 use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
-use crate::app::search::SearchState;
+use crate::app::search::{SearchDirection, SearchState};
 use crate::autofixup::AutofixupPair;
-use crate::domain::search::SearchCase;
+use crate::domain::search::{SearchCase, search_regex};
 
 /// Transient status message shown in the footer, cleared on the next keypress.
 #[derive(Debug, Default)]
@@ -485,6 +485,43 @@ impl AppState {
         if search.active && !search.query.is_empty() {
             self.list.adopt_search(search.query);
         }
+    }
+
+    /// Step from the commit in the detail view to the next or previous one the
+    /// search matches and open that, at its first or last match, or for a path
+    /// search at its first matching file: what leaving, `n`/`N` in the list and
+    /// opening again do. Returns whether it moved, saying why in the status bar
+    /// when not.
+    pub fn open_matching_commit(&mut self, dir: SearchDirection) -> bool {
+        let detail = &self.detail.search;
+        if detail.active && !detail.query.is_empty() {
+            if search_regex(&detail.query, self.list.search.case).is_err() {
+                self.set_error_message("Invalid search pattern");
+                return false;
+            }
+            self.list.adopt_search(detail.query.clone());
+        }
+        let list = &self.list.search;
+        if !list.state.active || list.state.query.is_empty() {
+            self.set_error_message("No search to step through");
+            return false;
+        }
+        if list.compiled().is_none() {
+            self.set_error_message("Invalid search pattern");
+            return false;
+        }
+        let from = self.list.selection_index;
+        self.list.step_search(dir);
+        if self.list.selection_index == from {
+            self.set_error_message("No other matching commit");
+            return false;
+        }
+        self.carry_list_search_into_detail();
+        if dir == SearchDirection::Prev {
+            self.detail.search.start_at_last_match();
+        }
+        self.detail.v.offset = 0;
+        true
     }
 
     /// Show help dialog, saving current mode to return to later.

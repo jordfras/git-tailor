@@ -23,6 +23,8 @@ The format is based on
   list when it is closed
 - In squash and fixup target selection, `n` selects the commit the changes
   fold into without conflict, the one drawn green
+- In the commit detail view, Ctrl-n and Ctrl-p open the next and previous
+  commit matching the search, at its first or last match
 
 ### Changed
 
