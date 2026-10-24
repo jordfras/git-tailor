@@ -142,6 +142,7 @@ fn main() -> Result<()> {
     app.list.reverse = cli.reverse;
     app.list.scroll_margin = cli.scroll_margin;
     app.theme = cli.matrix_theme.unwrap_or_default();
+    app.set_search_case(cli.search_case);
     app.colors = colors;
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;

@@ -920,3 +920,20 @@ fn test_commit_list_search_bar_paths_invalid_glob() {
     let (_, y) = find_text(&buf, "[paths] /src/[");
     assert!(find_text(&buf, "[invalid pattern]").1 == y);
 }
+
+/// Smart case: a lowercase query ignores case, an uppercase letter makes it
+/// count, and `--search-case sensitive` always counts it.
+#[test]
+fn search_case_follows_the_setting() {
+    use git_tailor::domain::search::SearchCase;
+    let matches = |case, query: &str| {
+        let mut app = app_to_search();
+        app.set_search_case(case);
+        type_search(&mut app, query);
+        app.list.search.state.matches.len()
+    };
+    assert_eq!(matches(SearchCase::Smart, "fix"), 1);
+    assert_eq!(matches(SearchCase::Smart, "FIX"), 0);
+    assert_eq!(matches(SearchCase::Sensitive, "fix"), 0);
+    assert_eq!(matches(SearchCase::Insensitive, "FIX"), 1);
+}

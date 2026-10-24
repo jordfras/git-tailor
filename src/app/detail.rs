@@ -18,6 +18,7 @@
 use crate::CommitDiff;
 use crate::app::ScrollState;
 use crate::app::search::SearchState;
+use crate::domain::search::SearchCase;
 use crate::repo::DEFAULT_CONTEXT_LINES;
 
 /// Number of diff context lines shown in the commit detail view. A newtype so
@@ -49,6 +50,7 @@ pub struct DetailState {
     pub file_start_lines: Vec<usize>,
     /// The `/` search over the content.
     pub search: SearchState<usize>,
+    pub search_case: SearchCase,
     /// Scroll to the first file the list's path search matches, once the
     /// next render has laid the files out.
     pub scroll_to_matching_path: bool,

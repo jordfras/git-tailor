@@ -16,13 +16,14 @@
 // it matched.
 
 use crate::app::search::SearchState;
-use crate::domain::search::{CommitQuery, SearchScope};
+use crate::domain::search::{CommitQuery, SearchCase, SearchScope};
 use crate::fragmap::CommitPos;
 
 #[derive(Debug, Default)]
 pub struct ListSearch {
     pub state: SearchState<CommitPos>,
     pub scope: SearchScope,
+    pub case: SearchCase,
     /// The row selected when the search was opened, which typing searches
     /// from and Esc returns to.
     pub(super) origin: CommitPos,
@@ -64,7 +65,7 @@ impl ListSearch {
 
     pub(super) fn compile(&mut self) {
         self.query = (!self.state.query.is_empty())
-            .then(|| CommitQuery::new(self.scope, &self.state.query).ok())
+            .then(|| CommitQuery::new(self.scope, &self.state.query, self.case).ok())
             .flatten();
     }
 

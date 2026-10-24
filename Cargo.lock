@@ -755,6 +755,7 @@ dependencies = [
  "libc",
  "ratatui",
  "regex",
+ "regex-syntax",
  "semver",
  "serde",
  "serde_json",

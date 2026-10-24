@@ -27,6 +27,7 @@ use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
 use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
+use crate::domain::search::SearchCase;
 
 /// Transient status message shown in the footer, cleared on the next keypress.
 #[derive(Debug, Default)]
@@ -458,6 +459,12 @@ impl AppState {
         };
         self.mode = new_mode;
         self.detail.v.offset = 0;
+    }
+
+    /// How both searches treat letter case.
+    pub fn set_search_case(&mut self, case: SearchCase) {
+        self.list.search.case = case;
+        self.detail.search_case = case;
     }
 
     /// Open the detail view on the list search: the same regex, confirmed, or

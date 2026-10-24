@@ -1,5 +1,6 @@
 ---
 source: tests/tui_commit_list.rs
+assertion_line: 751
 expression: "harness.render(|frame| { views::commit_list::render(&mut app, frame); })"
 ---
 Buffer {
@@ -34,7 +35,8 @@ Buffer {
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
         x: 0, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
         x: 8, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-        x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 11, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
+        x: 12, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 13, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
         x: 14, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 15, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,

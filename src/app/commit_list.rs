@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn search_reports_matching_rows_by_position() {
-        use crate::domain::search::SearchScope;
+        use crate::domain::search::{SearchCase, SearchScope};
         let commits: Vec<CommitInfo> = (0..3)
             .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
             .collect();
@@ -526,7 +526,7 @@ mod tests {
         );
 
         let rows = |scope, pattern| -> Vec<CommitPos> {
-            let query = CommitQuery::new(scope, pattern).unwrap();
+            let query = CommitQuery::new(scope, pattern, SearchCase::Sensitive).unwrap();
             list.matching_rows(&query)
                 .into_iter()
                 .map(|(pos, _)| pos)
