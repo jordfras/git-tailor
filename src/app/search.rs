@@ -178,4 +178,22 @@ mod tests {
     fn next_advances_backward() {
         assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
     }
+
+    #[test]
+    fn ctrl_and_alt_chords_are_not_typed_into_the_query() {
+        use crossterm::event::KeyModifiers;
+        let mut search = SearchState::<usize>::default();
+        search.activate();
+        for modifiers in [
+            KeyModifiers::NONE,
+            KeyModifiers::SHIFT,
+            KeyModifiers::CONTROL,
+            KeyModifiers::ALT,
+            // AltGr, as Windows reports it, types a character.
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ] {
+            search.edit(&Event::Key(KeyEvent::new(KeyCode::Char('x'), modifiers)));
+        }
+        assert_eq!(search.query, "xxx");
+    }
 }
