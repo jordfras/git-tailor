@@ -526,7 +526,9 @@ mod tests {
         );
 
         let rows = |scope, pattern| -> Vec<CommitPos> {
-            let query = CommitQuery::new(scope, pattern).unwrap();
+            let query =
+                CommitQuery::new(scope, pattern, crate::domain::search::SearchCase::Sensitive)
+                    .unwrap();
             list.matching_rows(&query)
                 .into_iter()
                 .map(|(pos, _)| pos)

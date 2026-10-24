@@ -17,10 +17,10 @@
 
 use crossterm::event::Event;
 use ratatui::text::{Line, Span};
-use regex::RegexBuilder;
 
 use crate::app::AppState;
 use crate::app::search::{QueryEdit, SearchDirection};
+use crate::domain::search::search_regex;
 use crate::views::palette::Colors;
 use crate::views::search_bar::SearchBarInfo;
 use crate::views::search_match::{highlight_matches, match_style};
@@ -95,7 +95,7 @@ pub(super) fn apply(
 ) -> (Vec<Line<'static>>, Option<SearchBarInfo>) {
     let mut search_info = None;
     if app.detail.search.active && !app.detail.search.query.is_empty() {
-        match RegexBuilder::new(&app.detail.search.query).build() {
+        match search_regex(&app.detail.search.query, app.detail.search_case) {
             Ok(regex) => {
                 let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
                 search_info = info;

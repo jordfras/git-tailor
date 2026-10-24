@@ -26,6 +26,10 @@ The format is based on
 
 ### Changed
 
+- Searches ignore case unless the pattern has an uppercase letter of its own
+  (`\S` and the like do not count), in the detail view as well as the commit
+  list. `-S sensitive` or `-S insensitive` (`--search-case`, or
+  `GT_SEARCH_CASE`) changes that
 - Uncommitted changes are now stashed around an operation by default, and put
   back afterwards, instead of the operation refusing to run. The new `--no-stash`
   flag, or `GT_NO_STASH=true`, turns that off — and with it, squashing the Staged

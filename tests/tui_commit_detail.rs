@@ -1009,3 +1009,24 @@ fn an_invalid_list_search_seeds_nothing() {
     assert!(!app.detail.search.active);
     assert_eq!(app.detail.v.offset, 0);
 }
+
+/// The detail search follows the same case setting as the list: `three`
+/// finds the summary "Three files" only when case is ignored.
+#[test]
+fn detail_search_follows_the_case_setting() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::{SearchCase, SearchScope};
+
+    let mut harness = TuiTestHarness::typical();
+    for (case, found) in [(SearchCase::Smart, true), (SearchCase::Sensitive, false)] {
+        let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+        app.set_search_case(case);
+        open_detail(&mut app, &repo, &mut harness);
+        app.detail.search = SearchState::confirmed("three".to_string());
+        harness.render(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(frame, &mut app, area);
+        });
+        assert_eq!(!app.detail.search.matches.is_empty(), found, "{case:?}");
+    }
+}

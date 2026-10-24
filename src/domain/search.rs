@@ -15,10 +15,14 @@
 // Matching one commit against a search: its message, its changed lines, or the
 // paths it touches.
 
+mod case;
+
 use std::path::Path;
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
+
+pub use case::SearchCase;
 
 use crate::fragmap::{ChangePos, HunkPos};
 use crate::{CommitInfo, DiffLineKind, FileDiff};
@@ -96,10 +100,16 @@ impl CommitHits {
 }
 
 impl CommitQuery {
-    pub fn new(scope: SearchScope, pattern: &str) -> Result<Self, InvalidPattern> {
+    pub fn new(
+        scope: SearchScope,
+        pattern: &str,
+        case: SearchCase,
+    ) -> Result<Self, InvalidPattern> {
         let matcher = match scope {
-            SearchScope::Paths => Matcher::Paths(path_glob(pattern)?),
-            _ => Matcher::Text(Regex::new(pattern).map_err(|_| InvalidPattern)?),
+            SearchScope::Paths => {
+                Matcher::Paths(path_glob(pattern, case.ignores_case_in_glob(pattern))?)
+            }
+            _ => Matcher::Text(search_regex(pattern, case).map_err(|_| InvalidPattern)?),
         };
         Ok(Self { scope, matcher })
     }
@@ -163,11 +173,18 @@ fn matching_changes(files: &[FileDiff], globs: &GlobSet) -> Vec<ChangePos> {
         .collect()
 }
 
+/// `pattern` compiled as `case` says.
+pub fn search_regex(pattern: &str, case: SearchCase) -> Result<Regex, regex::Error> {
+    RegexBuilder::new(pattern)
+        .case_insensitive(case.ignores_case_in_regex(pattern))
+        .build()
+}
+
 /// Compile `pattern` the way `.gitignore` reads one: without a `/` it matches
 /// at any depth, with one it is anchored at the repository root, and a trailing
 /// `/` restricts it to directories. A pattern naming a directory matches every
 /// path beneath it.
-fn path_glob(pattern: &str) -> Result<GlobSet, InvalidPattern> {
+fn path_glob(pattern: &str, ignore_case: bool) -> Result<GlobSet, InvalidPattern> {
     let (pattern, directory_only) = match pattern.strip_suffix('/') {
         Some(rest) => (rest, true),
         None => (pattern, false),
@@ -186,6 +203,7 @@ fn path_glob(pattern: &str) -> Result<GlobSet, InvalidPattern> {
         set.add(
             GlobBuilder::new(&glob)
                 .literal_separator(true)
+                .case_insensitive(ignore_case)
                 .build()
                 .map_err(|_| InvalidPattern)?,
         );
@@ -252,7 +270,7 @@ mod tests {
         c: &CommitInfo,
         files: &[FileDiff],
     ) -> Option<CommitHits> {
-        CommitQuery::new(scope, pattern)
+        CommitQuery::new(scope, pattern, SearchCase::Sensitive)
             .unwrap()
             .hits(c, Some(files))
     }
@@ -353,7 +371,7 @@ mod tests {
     #[test]
     fn only_scopes_with_the_message_have_a_message_regex() {
         let has_regex = |scope| {
-            CommitQuery::new(scope, "x")
+            CommitQuery::new(scope, "x", SearchCase::Sensitive)
                 .unwrap()
                 .message_regex()
                 .is_some()
@@ -366,7 +384,8 @@ mod tests {
 
     #[test]
     fn a_commit_without_a_diff_matches_on_its_message() {
-        let query = CommitQuery::new(SearchScope::MessageAndDiff, "word").unwrap();
+        let query =
+            CommitQuery::new(SearchScope::MessageAndDiff, "word", SearchCase::Sensitive).unwrap();
         assert!(query.hits(&commit("a word"), None).is_some());
         assert_eq!(query.hits(&commit("other"), None), None);
     }
@@ -417,11 +436,11 @@ mod tests {
     #[test]
     fn invalid_patterns_are_reported() {
         assert_eq!(
-            CommitQuery::new(SearchScope::Diff, "(").unwrap_err(),
+            CommitQuery::new(SearchScope::Diff, "(", SearchCase::Sensitive).unwrap_err(),
             InvalidPattern
         );
         assert_eq!(
-            CommitQuery::new(SearchScope::Paths, "a[").unwrap_err(),
+            CommitQuery::new(SearchScope::Paths, "a[", SearchCase::Sensitive).unwrap_err(),
             InvalidPattern
         );
     }
