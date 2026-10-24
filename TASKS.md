@@ -10,6 +10,12 @@ Guidelines:
 - Completed tasks are archived in TASKS-COMPLETED.md.
 
 ## UNCATEGORIZED
+- [ ] T281 P3 fix - The detail search matches a line on its whole text but
+  highlights each span on its own, so a match that crosses spans, such as
+  `^Commit: aaa111` or `M  src/`, counts and is stepped to by `n` with
+  nothing highlighted. Highlight from match positions in the joined line text
+  (less a diff line's prefix span), mapped back onto the spans, so matching and
+  highlighting cannot disagree. Already true on main.
 
 ## Architecture & Robustness
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
