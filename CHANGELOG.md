@@ -77,6 +77,8 @@ The format is based on
   its `+` or `-`, so `^fn` finds a line that starts with `fn`
 - Ctrl and Alt key combinations pressed while typing a search are no longer
   added to it as letters
+- Ctrl-C while typing a search puts auto-stashed changes back before quitting,
+  as it does everywhere else, and Ctrl-Z suspends
 - `gt --clean-journal` no longer destroys the uncommitted work of an interrupted
   squash of the Staged or Unstaged row when the journal it is discarding cannot
   be read. It could not tell which working tree the journal named, and removed

@@ -204,10 +204,14 @@ fn main() -> Result<()> {
             }
             _ => None,
         };
-        if let Some(handle_search_event) = typing_search {
-            if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
-                break;
-            }
+        // Ctrl-C and Ctrl-Z still quit and suspend while typing, through the
+        // handling below.
+        if let Some(handle_search_event) = typing_search
+            && !matches!(
+                app.mode.parse_key(event.clone()),
+                app::KeyCommand::ForceQuit | app::KeyCommand::Suspend
+            )
+        {
             if dismiss_status {
                 app.clear_status_message();
             }
