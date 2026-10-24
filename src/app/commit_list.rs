@@ -134,10 +134,42 @@ impl CommitListState {
         self.diffs.get(oid).map(Vec::as_slice)
     }
 
-    /// Match the search query against the rows again, after either changed.
-    /// The current match becomes the first at or below the selection on
-    /// screen, wrapping to the top.
+    /// Open the search bar, searching from the selected row.
+    pub fn start_search(&mut self) {
+        self.search.activate(CommitPos(self.selection_index));
+    }
+
+    /// Search for the query typed so far and select the current match, or
+    /// the row the search started from while nothing matches.
+    pub fn search_as_typed(&mut self) {
+        let origin = self.search.origin;
+        self.rerun_search_from(origin);
+        let state = &self.search.state;
+        let target = state
+            .match_index
+            .and_then(|i| state.matches.get(i))
+            .copied()
+            .unwrap_or(origin);
+        self.selection_index = target.0;
+        self.clamp_selection();
+    }
+
+    /// Dismiss the search being typed and select the row it started from.
+    pub fn cancel_search(&mut self) {
+        self.selection_index = self.search.origin.0;
+        self.clamp_selection();
+        self.search.clear();
+    }
+
+    /// Match the search query against the rows again, after they changed,
+    /// leaving the selection where it is.
     pub fn rerun_search(&mut self) {
+        self.rerun_search_from(CommitPos(self.selection_index));
+    }
+
+    /// Match the search query against the rows. The current match becomes
+    /// the first at or below `from` on screen, wrapping to the top.
+    fn rerun_search_from(&mut self, from: CommitPos) {
         self.search.compile();
         self.search.state.matches = match self.search.compiled() {
             Some(query) => self
@@ -147,36 +179,24 @@ impl CommitListState {
                 .collect(),
             None => Vec::new(),
         };
-        self.search.state.match_index = self.first_match_from_selection();
+        self.search.state.match_index = self.first_match_from(from);
     }
 
-    fn first_match_from_selection(&self) -> Option<usize> {
+    fn first_match_from(&self, from: CommitPos) -> Option<usize> {
         let matches = &self.search.state.matches;
         if matches.is_empty() {
             return None;
         }
-        let selection = self.selection_index;
         // Drawn newest first, "below" is toward the oldest row.
         let index = if self.reverse {
             matches
                 .iter()
-                .rposition(|pos| pos.0 <= selection)
+                .rposition(|&pos| pos <= from)
                 .unwrap_or(matches.len() - 1)
         } else {
-            matches
-                .iter()
-                .position(|pos| pos.0 >= selection)
-                .unwrap_or(0)
+            matches.iter().position(|&pos| pos >= from).unwrap_or(0)
         };
         Some(index)
-    }
-
-    /// Select the current search match.
-    pub fn confirm_search(&mut self) {
-        let state = &self.search.state;
-        if let Some(&pos) = state.match_index.and_then(|i| state.matches.get(i)) {
-            self.selection_index = pos.0;
-        }
     }
 
     /// The rows `query` matches, in row order, with where each matched.
@@ -502,9 +522,9 @@ mod tests {
     fn searched(selection: usize, reverse: bool, query: &str) -> CommitListState {
         let mut list = list_of(6, selection);
         list.reverse = reverse;
-        list.search.activate();
+        list.start_search();
         list.search.state.query = query.to_string();
-        list.rerun_search();
+        list.search_as_typed();
         list
     }
 
@@ -555,10 +575,43 @@ mod tests {
     }
 
     #[test]
-    fn confirming_a_search_selects_the_current_match() {
-        let mut list = searched(2, false, "c[135]");
-        list.confirm_search();
+    fn typing_selects_the_current_match() {
+        assert_eq!(searched(2, false, "c[135]").selection_index, 3);
+    }
+
+    #[test]
+    fn typing_searches_from_where_the_search_started() {
+        let mut list = searched(2, false, "c");
+        assert_eq!(list.selection_index, 2);
+        list.search.state.query = "c[135]".to_string();
+        list.search_as_typed();
         assert_eq!(list.selection_index, 3);
+    }
+
+    #[test]
+    fn typing_returns_to_the_origin_while_nothing_matches() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.query = "nothing".to_string();
+        list.search_as_typed();
+        assert_eq!(list.selection_index, 2);
+    }
+
+    #[test]
+    fn canceling_a_search_returns_to_the_origin() {
+        let mut list = searched(2, false, "c[135]");
+        list.cancel_search();
+        assert_eq!(list.selection_index, 2);
+        assert!(!list.search.state.active);
+    }
+
+    #[test]
+    fn rerunning_a_search_leaves_the_selection_alone() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.input_active = false;
+        list.selection_index = 4;
+        list.rerun_search();
+        assert_eq!(list.selection_index, 4);
+        assert_eq!(current_match(&list), Some(CommitPos(5)));
     }
 
     #[test]

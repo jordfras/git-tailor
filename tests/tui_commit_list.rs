@@ -692,18 +692,18 @@ fn app_to_search() -> AppState {
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
     ];
     app.list.selection_index = 0;
-    app.list.search.activate();
+    app.list.start_search();
     app
 }
 
-/// Typing searches as it goes and leaves the selection alone until Enter.
+/// Typing searches as it goes and selects the match; Enter keeps it.
 #[test]
-fn search_typing_matches_and_enter_selects() {
+fn search_typing_selects_the_match_and_enter_keeps_it() {
     let mut app = app_to_search();
     type_search(&mut app, "parser");
 
     assert_eq!(app.list.search.state.matches.len(), 1);
-    assert_eq!(app.list.selection_index, 0);
+    assert_eq!(app.list.selection_index, 2);
 
     views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
     assert!(!app.list.search.state.input_active);
@@ -711,16 +711,18 @@ fn search_typing_matches_and_enter_selects() {
     assert_eq!(app.list.selection_index, 2);
 }
 
-/// Esc while typing dismisses the search.
+/// Esc while typing dismisses the search and returns to where it started.
 #[test]
 fn search_escape_dismisses() {
     let mut app = app_to_search();
     type_search(&mut app, "feat");
+    assert_eq!(app.list.selection_index, 1);
 
     views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Esc), &mut app);
     assert!(!app.list.search.state.active);
     assert!(app.list.search.state.query.is_empty());
     assert!(app.list.search.state.matches.is_empty());
+    assert_eq!(app.list.selection_index, 0);
 }
 
 /// Quit with a confirmed search clears it rather than leaving the application.
@@ -796,7 +798,7 @@ fn app_searched_for_parser() -> AppState {
     let mut app = AppState::new();
     app.list.set_rows(commits, vec![lexer_diff]);
     app.list.selection_index = 0;
-    app.list.search.activate();
+    app.list.start_search();
     type_search(&mut app, "parser");
     app
 }

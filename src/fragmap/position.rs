@@ -16,7 +16,7 @@
 //! of that commit's diff, which hunk of that change.
 
 /// A commit's position in the commits a fragmap is built from, oldest first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CommitPos(pub usize);
 
 /// A change's position in its commit's diff.
