@@ -20,6 +20,7 @@ use std::collections::HashMap;
 
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
+use crate::app::search::SearchDirection;
 use crate::domain::search::{CommitHits, CommitQuery};
 use crate::fragmap::CommitPos;
 use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
@@ -143,14 +144,10 @@ impl CommitListState {
     /// the row the search started from while nothing matches.
     pub fn search_as_typed(&mut self) {
         let origin = self.search.origin;
-        self.rerun_search_from(origin);
-        let state = &self.search.state;
-        let target = state
-            .match_index
-            .and_then(|i| state.matches.get(i))
-            .copied()
-            .unwrap_or(origin);
-        self.selection_index = target.0;
+        self.match_rows();
+        let found = self.match_from(origin, SearchDirection::Next, true);
+        self.search.state.match_index = found;
+        self.selection_index = found.map_or(origin, |i| self.search.state.matches[i]).0;
         self.clamp_selection();
     }
 
@@ -161,15 +158,28 @@ impl CommitListState {
         self.search.clear();
     }
 
+    /// Select the next or previous match on screen from the selection,
+    /// wrapping.
+    pub fn step_search(&mut self, dir: SearchDirection) {
+        if !self.search.state.active {
+            return;
+        }
+        let selection = CommitPos(self.selection_index);
+        if let Some(i) = self.match_from(selection, dir, false) {
+            self.search.state.match_index = Some(i);
+            self.selection_index = self.search.state.matches[i].0;
+        }
+    }
+
     /// Match the search query against the rows again, after they changed,
     /// leaving the selection where it is.
     pub fn rerun_search(&mut self) {
-        self.rerun_search_from(CommitPos(self.selection_index));
+        self.match_rows();
+        let selection = CommitPos(self.selection_index);
+        self.search.state.match_index = self.match_from(selection, SearchDirection::Next, true);
     }
 
-    /// Match the search query against the rows. The current match becomes
-    /// the first at or below `from` on screen, wrapping to the top.
-    fn rerun_search_from(&mut self, from: CommitPos) {
+    fn match_rows(&mut self) {
         self.search.compile();
         self.search.state.matches = match self.search.compiled() {
             Some(query) => self
@@ -179,24 +189,24 @@ impl CommitListState {
                 .collect(),
             None => Vec::new(),
         };
-        self.search.state.match_index = self.first_match_from(from);
     }
 
-    fn first_match_from(&self, from: CommitPos) -> Option<usize> {
+    /// The index of the first match past `from` going `dir` on screen,
+    /// wrapping around, counting `from` itself when `inclusive`.
+    fn match_from(&self, from: CommitPos, dir: SearchDirection, inclusive: bool) -> Option<usize> {
         let matches = &self.search.state.matches;
-        if matches.is_empty() {
-            return None;
-        }
-        // Drawn newest first, "below" is toward the oldest row.
-        let index = if self.reverse {
-            matches
-                .iter()
-                .rposition(|&pos| pos <= from)
-                .unwrap_or(matches.len() - 1)
-        } else {
-            matches.iter().position(|&pos| pos >= from).unwrap_or(0)
+        // Drawn newest first, "next" is toward the oldest row.
+        let toward_newer = (dir == SearchDirection::Next) != self.reverse;
+        let is_past = |&pos: &CommitPos| {
+            (inclusive && pos == from) || if toward_newer { pos > from } else { pos < from }
         };
-        Some(index)
+        if toward_newer {
+            let first = (!matches.is_empty()).then_some(0);
+            matches.iter().position(is_past).or(first)
+        } else {
+            let last = matches.len().checked_sub(1);
+            matches.iter().rposition(is_past).or(last)
+        }
     }
 
     /// The rows `query` matches, in row order, with where each matched.
@@ -612,6 +622,53 @@ mod tests {
         list.rerun_search();
         assert_eq!(list.selection_index, 4);
         assert_eq!(current_match(&list), Some(CommitPos(5)));
+    }
+
+    fn stepped(mut list: CommitListState, dir: SearchDirection) -> usize {
+        list.search.state.input_active = false;
+        list.step_search(dir);
+        list.selection_index
+    }
+
+    #[test]
+    fn stepping_moves_to_the_next_or_previous_match_wrapping() {
+        let list = || searched(3, false, "c[135]");
+        assert_eq!(stepped(list(), SearchDirection::Next), 5);
+        assert_eq!(stepped(list(), SearchDirection::Prev), 1);
+        assert_eq!(
+            stepped(searched(5, false, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(1, false, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_starts_from_the_selection_not_the_last_match() {
+        let mut list = searched(1, false, "c[135]");
+        list.selection_index = 4;
+        assert_eq!(stepped(list, SearchDirection::Next), 5);
+    }
+
+    #[test]
+    fn stepping_drawn_newest_first_goes_toward_older_rows() {
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_without_a_search_does_nothing() {
+        let mut list = list_of(6, 2);
+        list.step_search(SearchDirection::Next);
+        assert_eq!(list.selection_index, 2);
     }
 
     #[test]

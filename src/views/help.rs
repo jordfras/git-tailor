@@ -81,6 +81,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   Ctrl-←/→       ", "Move separator bar left/right")
         .section(" Search")
         .key_binding("   /              ", "Search messages and changed lines")
+        .key_binding("   n/N            ", "Next/previous matching commit")
         .key_binding("   Esc            ", "Dismiss search")
         .section(" Other")
         .key_binding("   Esc, q         ", "Close dialog / Quit application")

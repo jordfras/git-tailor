@@ -20,6 +20,7 @@ pub use search::handle_search_event;
 
 use super::hunk_groups;
 use crate::VirtualOid;
+use crate::app::search::SearchDirection;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
 use crate::fragmap::{CommitPos, TouchKind};
 use crate::views::palette::Colors;
@@ -151,6 +152,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             app.list.start_search();
             AppAction::Handled
         }
+        KeyCommand::SearchNext => {
+            app.list.step_search(SearchDirection::Next);
+            AppAction::Handled
+        }
+        KeyCommand::SearchPrev => {
+            app.list.step_search(SearchDirection::Prev);
+            AppAction::Handled
+        }
         KeyCommand::Move => {
             app.enter_move_select();
             AppAction::Handled
@@ -191,8 +200,6 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::None
         | KeyCommand::ForceQuit
         | KeyCommand::Suspend
-        | KeyCommand::SearchNext
-        | KeyCommand::SearchPrev
         | KeyCommand::IncreaseContext
         | KeyCommand::DecreaseContext => AppAction::Handled,
         KeyCommand::SeparatorLeft => {
