@@ -16,6 +16,8 @@ The format is based on
   title is highlighted. Enter keeps the selection, `n`/`N` step to the next
   or previous matching commit, and Esc dismisses the search and returns to
   where it started
+- In squash and fixup target selection, `n` selects the commit the changes
+  fold into without conflict, the one drawn green
 
 ### Changed
 

@@ -74,6 +74,7 @@ fn render_commit_list_help(app: &mut crate::app::AppState, frame: &mut Frame) {
         .key_binding("   Ctrl-↓/↑       ", "Scroll list, keep selection")
         .key_binding("   g/G            ", "Jump to first/last commit")
         .key_binding("   Home/End       ", "Jump to first/last commit")
+        .key_binding("   n/N            ", "Go to squash target when squashing")
         .key_binding("   ←/→            ", "Scroll matrix left/right")
         .key_binding("   0/$            ", "Scroll matrix to left/right edge")
         .key_binding("   Ctrl-a/e       ", "Scroll matrix to left/right edge")

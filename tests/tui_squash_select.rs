@@ -533,3 +533,77 @@ fn test_squash_from_a_worktree_row_dims_the_other_row() {
         harness.render(|frame| views::commit_list::render(&mut app, frame))
     );
 }
+
+/// Rows 0 and 2 touch `config.rs`, row 1 touches `other.rs`, so row 2 folds
+/// into row 0 without conflict and row 1 into nothing.
+fn app_with_a_squash_target(source_index: usize) -> AppState {
+    let mut app = make_app_in_squash_select(source_index, source_index);
+    app.fragmap = Some(create_fragmap(
+        vec!["111111111111", "222222222222", "333333333333"],
+        vec![
+            simple_cluster("config.rs", 10, 20, &["111111111111", "333333333333"]),
+            simple_cluster("other.rs", 1, 5, &["222222222222"]),
+        ],
+        vec![
+            vec![TouchKind::Added, TouchKind::None],
+            vec![TouchKind::None, TouchKind::Modified],
+            vec![TouchKind::Modified, TouchKind::None],
+        ],
+    ));
+    app
+}
+
+#[test]
+fn test_next_and_prev_select_the_squash_target() {
+    for key in [KeyCommand::SearchNext, KeyCommand::SearchPrev] {
+        let mut app = app_with_a_squash_target(2);
+        views::squash_select::handle_key(key, &mut app);
+        assert_eq!(app.list.selection_index, 0);
+        assert!(app.status.message.is_none());
+    }
+}
+
+#[test]
+fn test_next_without_a_squash_target_says_so() {
+    let mut app = app_with_a_squash_target(1);
+    views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 1);
+    assert!(app.status.is_error);
+}
+
+#[test]
+fn test_next_without_the_matrix_says_so() {
+    let mut app = make_app_in_squash_select(2, 2);
+    views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+    assert!(app.status.is_error);
+}
+
+/// The staged row is never a squash target, even when the unstaged changes
+/// fold into it cleanly.
+#[test]
+fn test_next_does_not_select_the_staged_row() {
+    let mut app = app_with_worktree_rows();
+    app.list.selection_index = 2;
+    app.mode = AppMode::SquashSelect {
+        source_index: 2,
+        squash_mode: SquashMode::Fixup,
+    };
+    app.fragmap = Some(git_tailor::fragmap::FragMap {
+        commits: vec![
+            VirtualOid::Real(Oid::from("aaa111bbb222")),
+            VirtualOid::Staged,
+            VirtualOid::Unstaged,
+        ],
+        clusters: vec![simple_cluster("a.rs", 1, 2, &[])],
+        matrix: vec![
+            vec![TouchKind::None],
+            vec![TouchKind::Modified],
+            vec![TouchKind::Modified],
+        ],
+    });
+
+    views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+    assert!(app.status.is_error);
+}
