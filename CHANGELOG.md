@@ -17,7 +17,10 @@ The format is based on
   or previous matching commit, and Esc dismisses the search and returns to
   where it started. Tab and Shift-Tab while typing switch between searching
   messages and changed lines, messages only, changed lines only, or changed
-  paths by glob
+  paths by glob. Opening a commit during a search starts its detail search on
+  the same pattern at the first match, or for a path glob at the first
+  matching file, and a search made in the detail view carries back to the
+  list when it is closed
 - In squash and fixup target selection, `n` selects the commit the changes
   fold into without conflict, the one drawn green
 

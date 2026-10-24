@@ -49,6 +49,9 @@ pub struct DetailState {
     pub file_start_lines: Vec<usize>,
     /// The `/` search over the content.
     pub search: SearchState<usize>,
+    /// Scroll to the first file the list's path search matches, once the
+    /// next render has laid the files out.
+    pub scroll_to_matching_path: bool,
 }
 
 impl DetailState {

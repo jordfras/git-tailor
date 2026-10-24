@@ -25,6 +25,7 @@ use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, Spl
 use crate::app::ScrollState;
 use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
+use crate::app::search::SearchState;
 use crate::autofixup::AutofixupPair;
 
 /// Transient status message shown in the footer, cleared on the next keypress.
@@ -432,9 +433,12 @@ impl AppState {
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
         let new_mode = match &self.mode {
-            AppMode::CommitList => AppMode::CommitDetail,
+            AppMode::CommitList => {
+                self.carry_list_search_into_detail();
+                AppMode::CommitDetail
+            }
             AppMode::CommitDetail => {
-                self.detail.search.clear();
+                self.carry_detail_search_into_list();
                 AppMode::CommitList
             }
             AppMode::Help(_)
@@ -454,6 +458,26 @@ impl AppState {
         };
         self.mode = new_mode;
         self.detail.v.offset = 0;
+    }
+
+    /// Open the detail view on the list search: the same regex, confirmed, or
+    /// for a path glob the first file it matches.
+    fn carry_list_search_into_detail(&mut self) {
+        let search = &self.list.search;
+        self.detail.search = match search.line_pattern() {
+            Some(pattern) => SearchState::confirmed(pattern.to_string()),
+            None => SearchState::default(),
+        };
+        self.detail.scroll_to_matching_path = search.is_path_search();
+    }
+
+    /// A search made or kept in the detail view becomes the list search; with
+    /// none the list search stays, ready to seed the next commit opened.
+    fn carry_detail_search_into_list(&mut self) {
+        let search = std::mem::take(&mut self.detail.search);
+        if search.active && !search.query.is_empty() {
+            self.list.adopt_search(search.query);
+        }
     }
 
     /// Show help dialog, saving current mode to return to later.
