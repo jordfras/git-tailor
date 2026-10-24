@@ -16,16 +16,14 @@
 // highlighting matches, and scrolling to them.
 
 use crossterm::event::Event;
-use ratatui::{
-    style::{Color, Style},
-    text::{Line, Span},
-};
+use ratatui::text::{Line, Span};
 use regex::RegexBuilder;
 
 use crate::app::AppState;
 use crate::app::search::{QueryEdit, SearchDirection};
 use crate::views::palette::Colors;
 use crate::views::search_bar::SearchBarInfo;
+use crate::views::search_match::{highlight_matches, match_style};
 
 /// Handle raw keyboard events while the search input bar is active.
 ///
@@ -121,37 +119,6 @@ pub(super) fn apply(
     (content, search_info)
 }
 
-/// Highlight regex matches within a single styled Span, returning one or more
-/// replacement Spans.
-fn highlight_span_matches(
-    span: &Span<'_>,
-    regex: &regex::Regex,
-    highlight_style: Style,
-) -> Vec<Span<'static>> {
-    let text = span.content.as_ref();
-    let style = span.style;
-    let mut result = Vec::new();
-    let mut last_end = 0;
-
-    for m in regex.find_iter(text) {
-        if m.start() > last_end {
-            result.push(Span::styled(text[last_end..m.start()].to_string(), style));
-        }
-        result.push(Span::styled(
-            text[m.start()..m.end()].to_string(),
-            highlight_style,
-        ));
-        last_end = m.end();
-    }
-    if last_end < text.len() {
-        result.push(Span::styled(text[last_end..].to_string(), style));
-    }
-    if result.is_empty() {
-        result.push(Span::styled(text.to_string(), style));
-    }
-    result
-}
-
 /// Apply search-match highlighting to an entire Line.
 fn highlight_line_matches(
     line: Line<'_>,
@@ -159,15 +126,11 @@ fn highlight_line_matches(
     is_current_match: bool,
     colors: Colors,
 ) -> Line<'static> {
-    let highlight_style = if is_current_match {
-        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::LightCyan))
-    } else {
-        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::Yellow))
-    };
+    let highlight_style = match_style(is_current_match, colors);
     let new_spans: Vec<Span<'static>> = line
         .spans
         .iter()
-        .flat_map(|span| highlight_span_matches(span, regex, highlight_style))
+        .flat_map(|span| highlight_matches(span, regex, highlight_style))
         .collect();
     Line::from(new_spans)
 }
