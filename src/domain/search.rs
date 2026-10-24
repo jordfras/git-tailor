@@ -24,7 +24,7 @@ use regex::{Regex, RegexBuilder};
 
 pub use case::SearchCase;
 
-use crate::fragmap::{ChangePos, HunkPos};
+use crate::fragmap::ChangePos;
 use crate::{CommitInfo, DiffLineKind, FileDiff};
 
 /// What part of a commit a search looks at.
@@ -87,15 +87,15 @@ enum Matcher {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommitHits {
     pub message: bool,
-    /// Hunks holding an added or removed line that matched.
-    pub lines: Vec<(ChangePos, HunkPos)>,
+    /// An added or removed line matched.
+    pub diff: bool,
     /// Changes whose old or new path matched.
     pub paths: Vec<ChangePos>,
 }
 
 impl CommitHits {
     fn is_empty(&self) -> bool {
-        !self.message && self.lines.is_empty() && self.paths.is_empty()
+        !self.message && !self.diff && self.paths.is_empty()
     }
 }
 
@@ -134,7 +134,7 @@ impl CommitQuery {
                     hits.message = commit.message.lines().any(|line| regex.is_match(line));
                 }
                 if self.scope != SearchScope::Message {
-                    hits.lines = matching_hunks(files, regex);
+                    hits.diff = diff_matches(files, regex);
                 }
             }
             Matcher::Paths(globs) => hits.paths = matching_changes(files, globs),
@@ -143,20 +143,15 @@ impl CommitQuery {
     }
 }
 
-fn matching_hunks(files: &[FileDiff], regex: &Regex) -> Vec<(ChangePos, HunkPos)> {
-    let mut found = Vec::new();
-    for (change, file) in files.iter().enumerate() {
-        for (hunk_pos, hunk) in file.hunks.iter().enumerate() {
-            let changed_line_matches = hunk.lines.iter().any(|line| {
-                line.kind != DiffLineKind::Context
-                    && regex.is_match(line.content.trim_end_matches(['\n', '\r']))
-            });
-            if changed_line_matches {
-                found.push((ChangePos(change), HunkPos(hunk_pos)));
-            }
-        }
-    }
-    found
+fn diff_matches(files: &[FileDiff], regex: &Regex) -> bool {
+    files
+        .iter()
+        .flat_map(|file| &file.hunks)
+        .flat_map(|hunk| &hunk.lines)
+        .any(|line| {
+            line.kind != DiffLineKind::Context
+                && regex.is_match(line.content.trim_end_matches(['\n', '\r']))
+        })
 }
 
 fn matching_changes(files: &[FileDiff], globs: &GlobSet) -> Vec<ChangePos> {
@@ -289,21 +284,19 @@ mod tests {
 
     #[test]
     fn diff_matches_added_and_removed_lines_but_not_context() {
-        let files = [file(
-            Some("a.txt"),
-            Some("a.txt"),
-            vec![
-                hunk(vec![line(DiffLineKind::Context, "needle in context")]),
-                hunk(vec![line(DiffLineKind::Deletion, "removed needle")]),
-                hunk(vec![line(DiffLineKind::Addition, "added needle")]),
-            ],
-        )];
-        let found = hits(SearchScope::Diff, "needle", &commit("m"), &files).unwrap();
-        assert_eq!(
-            found.lines,
-            vec![(ChangePos(0), HunkPos(1)), (ChangePos(0), HunkPos(2))]
-        );
+        let diff_hits = |kind| {
+            let files = [file(
+                Some("a.txt"),
+                Some("a.txt"),
+                vec![hunk(vec![line(kind, "needle")])],
+            )];
+            hits(SearchScope::Diff, "needle", &commit("m"), &files)
+        };
+        let found = diff_hits(DiffLineKind::Deletion).unwrap();
+        assert!(found.diff);
         assert!(!found.message);
+        assert!(diff_hits(DiffLineKind::Addition).is_some());
+        assert_eq!(diff_hits(DiffLineKind::Context), None);
     }
 
     #[test]
@@ -343,7 +336,7 @@ mod tests {
         )
         .unwrap();
         assert!(found.message);
-        assert_eq!(found.lines, vec![(ChangePos(0), HunkPos(0))]);
+        assert!(found.diff);
     }
 
     #[test]
