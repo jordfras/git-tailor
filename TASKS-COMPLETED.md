@@ -2308,3 +2308,106 @@
   `views::handle_key`. Both are a `match` with one arm per `AppMode`, so a new
   mode needs an arm in each, and today one lives in the binary and the other in
   the library.
+
+## Commit List Search
+gitk-style search from the commit list: find commits whose message matches,
+whose added/removed lines match, or which touch paths matching a glob; mark
+them in the list and the hunk group matrix, step between them with `n`/`N`, and
+carry the search into the detail view.
+- [X] T268 P2 feat - Refactor: split the detail view's search into a shared
+  part and a detail-specific part, so the list can reuse the first. Shared:
+  the query string, input-active flag, raw key handling (`handle_search_event`
+  — typing, Backspace, Enter, Esc, Ctrl-C) and the bar (`render_bar`: `/`,
+  query, cursor, `[no matches]` / `[invalid pattern]` / `[i/n]`). Detail
+  specific: matching rendered `Line`s, highlighting, scrolling to a match.
+  `app.search` becomes the detail's instance; the list gets its own in T271.
+  Pure refactor — no behavior change, existing tests pass unchanged.
+- [X] T269 P2 feat - Refactor: keep the hunk group matrix diffs after loading.
+  `walk_commits` already reads a zero-context `commit_diff_for_fragmap` for
+  every commit, and `build_hunk_group_matrix` drops them; keep them, plus the
+  staged/unstaged rows' diffs, so searching needs no git reads. They live with
+  the commit list and are replaced together with it on every load and reload —
+  not a parallel `Vec` on `AppState` that can drift from `app.list.commits`.
+  Measured: ~0.8 MB for this repo's last 100 commits, ~19 MB for its whole
+  history (1,439 commits), and no higher peak than today since the load holds
+  them all at once anyway. If a huge `--all` ever needs it, pack each commit's
+  lines into one buffer with offsets; not up front. Keep them also when the
+  matrix build is skipped (`s`/`S`), so search works without the matrix.
+- [X] T270 P2 feat - Domain-level commit search over the kept diffs, as pure
+  functions returning the matching `CommitPos`es (and, for T276, the matching
+  hunks), unit tested with fabricated `CommitDiff`s. Scopes:
+  * message — regex over the full commit message;
+  * diff — regex over added and removed lines (`git log -G` semantics; `-S`
+    occurrence counting is deliberately left out);
+  * paths — glob via `globset` (new dependency), matched against both old and
+    new path, as bytes since paths need not be UTF-8. A pattern without `/`
+    matches at any depth (`*.rs`), one with `/` is anchored at the repo root
+    (`src/views/*.rs`), like `.gitignore`;
+  * message + diff — the default, the union of the first two.
+  Same regex flavor as the detail search (`regex` crate).
+- [X] T271 P2 feat - Search bar in the commit list. `/` in `CommitList` opens
+  it; raw keys are forwarded to it as `main.rs` does for the detail search. It
+  takes the bottom row of the list area: full width in list-only mode, left of
+  the separator in the split view (the detail's bar sits right of it). Matching
+  runs in `dispatch` when the query changes, never in `render`. Enter leaves
+  input mode and selects the first match at or after the selection, wrapping
+  (as `less`); Esc dismisses. Shows the match counter. Measure typing latency
+  on a large `--all` history; if live search lags, search on Enter instead.
+  Update the help screen.
+- [X] T272 P2 feat - Mark matching commits in the list. Matches are often in
+  the diff rather than the summary, so a row-level marker is needed: e.g. a
+  highlighted short-SHA cell for each match and a stronger style for the
+  current one. When the summary itself matches, also highlight the matched
+  text in the title, like the detail view does. Check it under every
+  `--palette`, and that selection, squash/move marking and conflict coloring
+  still read.
+- [X] T273 P2 feat - `n`/`N` in the commit list move the selection to the
+  next/previous matching commit, wrapping, keeping it on screen. Step from
+  the selection, not from the last match, since `j`/`k` may have moved it.
+  Typing already selects the current match, so the two agree until then.
+  (Re-running the search on every reload already landed with T271, in
+  `CommitListState::set_rows`.) In `SquashSelect`, `n`/`N` select the squash
+  target instead (T279); `MoveSelect` leaves them unbound.
+- [X] T274 P2 feat - Tab in the search bar cycles the scope (message + diff →
+  message → diff → paths), shown as a tag in the bar (`[diff] /foo█ [3/17]`).
+  Changing scope re-runs the search. An invalid glob in the paths scope shows
+  `[invalid pattern]` like an invalid regex.
+- [X] T275 P2 feat - Carry the list search into the detail view. Opening a
+  commit while a regex-scope list search is active seeds the detail search
+  with the same pattern, out of input mode, scrolled to its first match, so
+  `n`/`N` work at once. The detail view shows context lines, so it may also
+  stop on a matching context line — acceptable. For the paths scope there is no
+  line regex: open at the first matching file instead (the file jump `f`
+  uses). Leaving the detail view with a non-empty detail search carries it
+  back as the list search (paths scope falls back to message + diff);
+  otherwise the list search stays as it was, so search → open → leave → open
+  another commit keeps seeding each one.
+- [-] T276 P2 feat - Highlight the hunk group matrix columns holding a match:
+  for the diff scope, the clusters whose hunks contain a matching line; for the
+  paths scope, the clusters of matching files; none for the message scope.
+  Shows *where* in the code the hits are, which gitk cannot. Map matching hunks
+  to clusters through the fragmap, so T270 must report hunks, not only
+  commits. Columns deduplicated away (without `--full`) must still light up
+  through the column that represents them. (Flags: WONT DO — the matrix keeps
+  no hunk → column link. Lighting the matching commit's columns per file is
+  cheap but adds little; per hunk means enumerating every column through a
+  hunk's node in the SPG, which is intricate and adds little more over the
+  marked rows, `n`/`N` and the seeded detail view.)
+- [-] T277 P3 idea - In the detail view, `n` past the last match (`N` before
+  the first) moves on to the next (previous) commit matching the list search
+  and opens it at its first (last) match, gitk-style. Only when the detail
+  search was seeded from the list (T275). (Flags: WONT DO — overshooting the
+  last match would leave the commit unasked; see T280 for a separate key.)
+- [X] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
+  query contains an uppercase letter, as in vim's `smartcase` and ripgrep's
+  `-S`. Applies to the list search and the detail search alike.
+- [X] T279 P2 feat - In `SquashSelect`, `n`/`N` select the squash target: the
+  commit `FragMap::squash_target` folds the source into without conflict, the
+  row drawn green. There is at most one, since folding past a nearer related
+  commit would conflict. Say so in the status bar when there is none, or when
+  the matrix was skipped. Not for `MoveSelect`: jumping to the furthest
+  conflict-free position was judged not worth a key.
+- [X] T280 P3 idea - In the detail view, Ctrl-n / Ctrl-p open the next /
+  previous commit matching the list search, at its first / last match: what
+  leaving, `n` in the list and opening again do, in one key. Only while a list
+  search is active; status message when there is no other match.
