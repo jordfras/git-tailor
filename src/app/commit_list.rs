@@ -118,7 +118,9 @@ impl CommitListState {
     }
 
     /// Replace the rows and their diffs together, so neither outlives a load
-    /// of the other.
+    /// of the other. An active search is matched against the new rows; which
+    /// match is current waits for [`Self::point_search_at_selection`], once the
+    /// selection is settled.
     pub fn set_rows(&mut self, commits: Vec<CommitInfo>, diffs: Vec<CommitDiff>) {
         self.commits = commits;
         self.diffs = diffs
@@ -126,7 +128,7 @@ impl CommitListState {
             .map(|diff| (diff.commit.oid, diff.files))
             .collect();
         if self.search.state.active {
-            self.rerun_search();
+            self.match_rows();
         }
     }
 
@@ -187,6 +189,11 @@ impl CommitListState {
     /// leaving the selection where it is.
     pub fn rerun_search(&mut self) {
         self.match_rows();
+        self.point_search_at_selection();
+    }
+
+    /// Make the current match the first at or past the selection.
+    pub fn point_search_at_selection(&mut self) {
         let selection = CommitPos(self.selection_index);
         self.search.state.match_index = self.match_from(selection, SearchDirection::Next, true);
     }
