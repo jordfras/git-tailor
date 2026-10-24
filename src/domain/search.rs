@@ -34,6 +34,32 @@ pub enum SearchScope {
     Paths,
 }
 
+impl SearchScope {
+    const CYCLE: [SearchScope; 4] = [
+        SearchScope::MessageAndDiff,
+        SearchScope::Message,
+        SearchScope::Diff,
+        SearchScope::Paths,
+    ];
+
+    /// The scope after this one, wrapping around.
+    pub fn next(self) -> Self {
+        Self::CYCLE[(self.cycle_index() + 1) % Self::CYCLE.len()]
+    }
+
+    /// The scope before this one, wrapping around.
+    pub fn prev(self) -> Self {
+        Self::CYCLE[(self.cycle_index() + Self::CYCLE.len() - 1) % Self::CYCLE.len()]
+    }
+
+    fn cycle_index(self) -> usize {
+        Self::CYCLE
+            .iter()
+            .position(|&s| s == self)
+            .unwrap_or_default()
+    }
+}
+
 /// The pattern does not compile as a regex, or for [`SearchScope::Paths`] as a
 /// glob.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -300,6 +326,28 @@ mod tests {
         .unwrap();
         assert!(found.message);
         assert_eq!(found.lines, vec![(ChangePos(0), HunkPos(0))]);
+    }
+
+    #[test]
+    fn scopes_cycle_both_ways() {
+        let mut scope = SearchScope::default();
+        let mut seen = vec![];
+        for _ in 0..4 {
+            seen.push(scope);
+            scope = scope.next();
+        }
+        assert_eq!(
+            seen,
+            [
+                SearchScope::MessageAndDiff,
+                SearchScope::Message,
+                SearchScope::Diff,
+                SearchScope::Paths
+            ]
+        );
+        assert_eq!(scope, SearchScope::MessageAndDiff);
+        assert_eq!(SearchScope::MessageAndDiff.prev(), SearchScope::Paths);
+        assert_eq!(SearchScope::Paths.prev(), SearchScope::Diff);
     }
 
     #[test]

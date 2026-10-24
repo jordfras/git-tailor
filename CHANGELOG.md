@@ -15,7 +15,9 @@ The format is based on
   search started, every matching commit's SHA is marked, and a match in the
   title is highlighted. Enter keeps the selection, `n`/`N` step to the next
   or previous matching commit, and Esc dismisses the search and returns to
-  where it started
+  where it started. Tab and Shift-Tab while typing switch between searching
+  messages and changed lines, messages only, changed lines only, or changed
+  paths by glob
 - In squash and fixup target selection, `n` selects the commit the changes
   fold into without conflict, the one drawn green
 

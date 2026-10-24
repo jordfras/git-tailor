@@ -32,23 +32,32 @@ pub enum SearchBarInfo {
     Matches { current: usize, total: usize },
 }
 
-/// Render the search bar widget into the given area.
+/// Render the search bar widget into the given area, `tag` naming what the
+/// search looks at when the view has a choice.
 pub fn render<M>(
     frame: &mut Frame,
     search: &SearchState<M>,
+    tag: Option<&str>,
     info: Option<SearchBarInfo>,
     colors: Colors,
     area: Rect,
 ) {
     let dark_gray = colors.resolve(Color::DarkGray);
     let red = colors.resolve(Color::Red);
-    let mut bar_spans = vec![
+    let mut bar_spans = Vec::new();
+    if let Some(tag) = tag {
+        bar_spans.push(Span::styled(
+            format!("[{tag}] "),
+            Style::default().fg(colors.resolve(Color::Cyan)),
+        ));
+    }
+    bar_spans.extend([
         Span::styled("/", Style::default().fg(dark_gray)),
         Span::styled(
             search.query.clone(),
             Style::default().fg(colors.resolve(Color::White)),
         ),
-    ];
+    ]);
     if search.input_active {
         bar_spans.push(Span::styled("█", Style::default().fg(dark_gray)));
     }
