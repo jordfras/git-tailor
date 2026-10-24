@@ -1,6 +1,5 @@
 ---
 source: tests/tui_commit_list.rs
-assertion_line: 749
 expression: "harness.render(|frame| { views::commit_list::render(&mut app, frame); })"
 ---
 Buffer {
@@ -33,10 +32,22 @@ Buffer {
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
-        x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 0, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
         x: 8, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 11, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 13, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
+        x: 14, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 15, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
+        x: 16, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 23, y: 1, fg: Black, bg: LightCyan, underline: Reset, modifier: NONE,
+        x: 24, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
         x: 25, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Black, bg: Yellow, underline: Reset, modifier: NONE,
+        x: 8, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 12, y: 3, fg: Black, bg: Yellow, underline: Reset, modifier: NONE,
+        x: 13, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 19, y: 3, fg: Black, bg: Yellow, underline: Reset, modifier: NONE,
+        x: 20, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 22, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 1, y: 22, fg: White, bg: Reset, underline: Reset, modifier: NONE,
         x: 2, y: 22, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,

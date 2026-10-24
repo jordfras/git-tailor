@@ -51,7 +51,7 @@ impl ListSearch {
             .flatten();
     }
 
-    pub(super) fn compiled(&self) -> Option<&CommitQuery> {
+    pub fn compiled(&self) -> Option<&CommitQuery> {
         self.query.as_ref()
     }
 }

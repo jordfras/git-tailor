@@ -15,12 +15,19 @@
 // The commit list's search bar: typing the query and drawing the bar.
 
 use crossterm::event::Event;
-use ratatui::{Frame, layout::Rect};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::Style,
+    text::{Line, Span},
+};
 
 use crate::app::AppState;
 use crate::app::ListSearch;
 use crate::app::search::QueryEdit;
+use crate::fragmap::CommitPos;
 use crate::views::search_bar::{self, SearchBarInfo};
+use crate::views::search_match::{highlight_matches, match_style};
 
 /// Handle raw keyboard events while the search bar takes input.
 ///
@@ -53,5 +60,32 @@ fn bar_info(search: &ListSearch) -> Option<SearchBarInfo> {
             current: state.match_index.unwrap_or(0),
             total: state.matches.len(),
         })
+    }
+}
+
+/// The style marking row `pos` as a match, `None` when it is not one.
+pub(super) fn row_match_style(app: &AppState, pos: CommitPos) -> Option<Style> {
+    let state = &app.list.search.state;
+    let found = state.matches.binary_search(&pos).ok()?;
+    Some(match_style(state.match_index == Some(found), app.colors))
+}
+
+/// `summary` in `style`, with the text the search matched highlighted when
+/// the row is a match and the search looks at messages.
+pub(super) fn summary_line(
+    app: &AppState,
+    summary: &str,
+    style: Style,
+    row_match: Option<Style>,
+) -> Line<'static> {
+    let span = Span::styled(summary.to_string(), style);
+    let regex = app
+        .list
+        .search
+        .compiled()
+        .and_then(|query| query.message_regex());
+    match (regex, row_match) {
+        (Some(regex), Some(highlight)) => Line::from(highlight_matches(&span, regex, highlight)),
+        _ => Line::from(span),
     }
 }
