@@ -15,7 +15,7 @@
 // Regex search state shared by the views that search: query entry and the
 // cursor over whatever the view matched.
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SearchDirection {
@@ -94,7 +94,13 @@ impl<M> SearchState<M> {
 
     /// Apply a key typed while the search bar takes input.
     pub fn edit(&mut self, event: &Event) -> QueryEdit {
-        let Event::Key(KeyEvent { code, kind, .. }) = event else {
+        let Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        }) = event
+        else {
             return QueryEdit::Ignored;
         };
         if *kind != event::KeyEventKind::Press {
@@ -112,6 +118,13 @@ impl<M> SearchState<M> {
             KeyCode::Backspace => {
                 self.query.pop();
                 QueryEdit::Edited
+            }
+            // AltGr arrives as Ctrl and Alt together on Windows, and types.
+            KeyCode::Char(_)
+                if modifiers.contains(KeyModifiers::CONTROL)
+                    != modifiers.contains(KeyModifiers::ALT) =>
+            {
+                QueryEdit::Ignored
             }
             KeyCode::Char(c) => {
                 self.query.push(*c);
@@ -181,7 +194,6 @@ mod tests {
 
     #[test]
     fn ctrl_and_alt_chords_are_not_typed_into_the_query() {
-        use crossterm::event::KeyModifiers;
         let mut search = SearchState::<usize>::default();
         search.activate();
         for modifiers in [
