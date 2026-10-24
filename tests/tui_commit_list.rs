@@ -883,3 +883,40 @@ fn search_next_and_prev_step_between_matches() {
     views::commit_list::handle_key(KeyCommand::SearchPrev, &mut app);
     assert_eq!(app.list.selection_index, 2);
 }
+
+/// Tab steps to the next scope and searches again: the paths scope finds the
+/// commit by the file it changed, not by its message.
+#[test]
+fn search_tab_cycles_the_scope() {
+    use crossterm::event::KeyCode;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut app = app_searched_for_parser();
+    type_search(&mut app, "x");
+    for _ in 0..3 {
+        views::commit_list::handle_search_event(search_key(KeyCode::Tab), &mut app);
+    }
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    app.list.search.state.query.clear();
+    type_search(&mut app, "lexer.rs");
+    assert_eq!(app.list.search.state.matches.len(), 1);
+    assert_eq!(app.list.selection_index, 2);
+
+    views::commit_list::handle_search_event(search_key(KeyCode::BackTab), &mut app);
+    assert_eq!(app.list.search.scope, SearchScope::Diff);
+    assert!(app.list.search.state.matches.is_empty());
+}
+
+/// Snapshot: the bar names the scope, and an invalid glob says so.
+#[test]
+fn test_commit_list_search_bar_paths_invalid_glob() {
+    use crossterm::event::KeyCode;
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    views::commit_list::handle_search_event(search_key(KeyCode::BackTab), &mut app);
+    type_search(&mut app, "src/[");
+
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let (_, y) = find_text(&buf, "[paths] /src/[");
+    assert!(find_text(&buf, "[invalid pattern]").1 == y);
+}

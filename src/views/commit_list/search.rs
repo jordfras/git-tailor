@@ -14,7 +14,7 @@
 
 // The commit list's search bar: typing the query and drawing the bar.
 
-use crossterm::event::Event;
+use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -25,6 +25,7 @@ use ratatui::{
 use crate::app::AppState;
 use crate::app::ListSearch;
 use crate::app::search::QueryEdit;
+use crate::domain::search::SearchScope;
 use crate::fragmap::CommitPos;
 use crate::views::search_bar::{self, SearchBarInfo};
 use crate::views::search_match::{highlight_matches, match_style};
@@ -34,6 +35,12 @@ use crate::views::search_match::{highlight_matches, match_style};
 /// Called from main.rs before `parse_key` so that character keys are
 /// captured as search-query input rather than dispatched as commands.
 pub fn handle_search_event(event: Event, app: &mut AppState) {
+    if let Some(cycle) = scope_cycle(&event) {
+        let search = &mut app.list.search;
+        search.scope = cycle(search.scope);
+        app.list.search_as_typed();
+        return;
+    }
     match app.list.search.state.edit(&event) {
         QueryEdit::Edited => app.list.search_as_typed(),
         QueryEdit::Dismissed => app.list.cancel_search(),
@@ -41,9 +48,41 @@ pub fn handle_search_event(event: Event, app: &mut AppState) {
     }
 }
 
+/// Tab and Shift-Tab step through the scopes.
+fn scope_cycle(event: &Event) -> Option<fn(SearchScope) -> SearchScope> {
+    let Event::Key(key) = event else {
+        return None;
+    };
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    match key.code {
+        KeyCode::Tab => Some(SearchScope::next),
+        KeyCode::BackTab => Some(SearchScope::prev),
+        _ => None,
+    }
+}
+
+fn scope_tag(scope: SearchScope) -> &'static str {
+    match scope {
+        SearchScope::MessageAndDiff => "msg+diff",
+        SearchScope::Message => "msg",
+        SearchScope::Diff => "diff",
+        SearchScope::Paths => "paths",
+    }
+}
+
 pub(super) fn render_bar(frame: &mut Frame, app: &AppState, area: Rect) {
     let search = &app.list.search;
-    search_bar::render(frame, &search.state, bar_info(search), app.colors, area);
+    let tag = Some(scope_tag(search.scope));
+    search_bar::render(
+        frame,
+        &search.state,
+        tag,
+        bar_info(search),
+        app.colors,
+        area,
+    );
 }
 
 fn bar_info(search: &ListSearch) -> Option<SearchBarInfo> {

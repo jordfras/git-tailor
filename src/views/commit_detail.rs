@@ -291,6 +291,7 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
         super::search_bar::render(
             frame,
             &app.detail.search,
+            None,
             search_info,
             app.colors,
             search_bar_area,

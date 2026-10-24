@@ -23,7 +23,8 @@ use regex::Regex;
 use crate::fragmap::{ChangePos, HunkPos};
 use crate::{CommitInfo, DiffLineKind, FileDiff};
 
-/// What part of a commit a search looks at.
+/// What part of a commit a search looks at. Tab cycles through the scopes in
+/// declaration order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SearchScope {
     #[default]
@@ -32,6 +33,30 @@ pub enum SearchScope {
     /// Added and removed lines, as `git log -G` matches them.
     Diff,
     Paths,
+}
+
+impl SearchScope {
+    const COUNT: usize = 4;
+
+    /// The scope after this one, wrapping around.
+    pub fn next(self) -> Self {
+        Self::from_index(self as usize + 1)
+    }
+
+    /// The scope before this one, wrapping around.
+    pub fn prev(self) -> Self {
+        Self::from_index(self as usize + Self::COUNT - 1)
+    }
+
+    fn from_index(index: usize) -> Self {
+        match index % Self::COUNT {
+            0 => Self::MessageAndDiff,
+            1 => Self::Message,
+            2 => Self::Diff,
+            3 => Self::Paths,
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// The pattern does not compile as a regex, or for [`SearchScope::Paths`] as a
@@ -300,6 +325,28 @@ mod tests {
         .unwrap();
         assert!(found.message);
         assert_eq!(found.lines, vec![(ChangePos(0), HunkPos(0))]);
+    }
+
+    #[test]
+    fn scopes_cycle_both_ways() {
+        let mut scope = SearchScope::default();
+        let mut seen = vec![];
+        for _ in 0..4 {
+            seen.push(scope);
+            scope = scope.next();
+        }
+        assert_eq!(
+            seen,
+            [
+                SearchScope::MessageAndDiff,
+                SearchScope::Message,
+                SearchScope::Diff,
+                SearchScope::Paths
+            ]
+        );
+        assert_eq!(scope, SearchScope::MessageAndDiff);
+        assert_eq!(SearchScope::MessageAndDiff.prev(), SearchScope::Paths);
+        assert_eq!(SearchScope::Paths.prev(), SearchScope::Diff);
     }
 
     #[test]
