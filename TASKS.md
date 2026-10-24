@@ -56,7 +56,7 @@ carry the search into the detail view.
   (as `less`); Esc dismisses. Shows the match counter. Measure typing latency
   on a large `--all` history; if live search lags, search on Enter instead.
   Update the help screen.
-- [ ] T272 P2 feat - Mark matching commits in the list. Matches are often in
+- [X] T272 P2 feat - Mark matching commits in the list. Matches are often in
   the diff rather than the summary, so a row-level marker is needed: e.g. a
   highlighted short-SHA cell for each match and a stronger style for the
   current one. When the summary itself matches, also highlight the matched
