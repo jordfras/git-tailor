@@ -1191,6 +1191,22 @@ fn ctrl_n_on_an_invalid_pattern_says_it_is_invalid() {
         Some("Invalid search pattern")
     );
 }
+
+/// The detail view matches a diff line without its `+` or `-`, as the list
+/// does, so an anchored search finds the lines the list matched the commit by.
+#[test]
+fn an_anchored_search_matches_diff_lines_without_their_prefix() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "^needle");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+    open_detail(&mut app, &repo, &mut harness);
+
+    assert_eq!(app.detail.search.query, "^needle");
+    assert_eq!(app.detail.search.matches.len(), 12);
+}
+
 /// An invalid detail pattern leaves the list's own search as it was.
 #[test]
 fn ctrl_n_on_an_invalid_pattern_keeps_the_list_search() {
@@ -1233,5 +1249,62 @@ fn ctrl_n_on_an_empty_search_says_there_is_none() {
     assert_eq!(
         app.status.message.as_deref(),
         Some("No search to step through")
+    );
+}
+
+/// Lines other than diff lines match as drawn, a label together with its
+/// value.
+#[test]
+fn a_search_matches_across_a_label_and_its_value() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("^Commit: aaa111".to_string());
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert_eq!(app.detail.search.matches.len(), 1);
+}
+
+/// Highlighting follows matching: a diff line's prefix is never highlighted,
+/// even by a pattern that matches the prefix alone.
+#[test]
+fn a_diff_lines_prefix_is_never_highlighted() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed(r"^\+$|needle 3".to_string());
+    let buffer = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert_eq!(app.detail.search.matches.len(), 1);
+    let area = buffer.area;
+    // Column 0 is the scrollbar.
+    let prefixes: Vec<_> = (0..area.height)
+        .filter(|&y| {
+            let row: String = (1..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            row.starts_with('+') && !row.starts_with("+++")
+        })
+        .map(|y| buffer[(1, y)].bg)
+        .collect();
+    assert!(!prefixes.is_empty());
+    assert!(
+        prefixes
+            .iter()
+            .all(|bg| ![Color::Yellow, Color::LightCyan].contains(bg)),
+        "{prefixes:?}"
     );
 }
