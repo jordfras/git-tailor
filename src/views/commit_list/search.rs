@@ -22,6 +22,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::CommitInfo;
 use crate::app::AppState;
 use crate::app::ListSearch;
 use crate::app::search::QueryEdit;
@@ -108,20 +109,22 @@ pub(super) fn row_match_style(app: &AppState, pos: CommitPos) -> Option<Style> {
     Some(match_style(state.match_index == Some(found), app.colors))
 }
 
-/// `summary` in `style`, with the text the search matched highlighted when
-/// the row is a match and the search looks at messages.
+/// `commit`'s summary in `style`, with the text the search matched
+/// highlighted when the row is a match and the search looks at messages. A
+/// staged or unstaged row's summary is a placeholder, never highlighted.
 pub(super) fn summary_line(
     app: &AppState,
-    summary: &str,
+    commit: &CommitInfo,
     style: Style,
     row_match: Option<Style>,
 ) -> Line<'static> {
-    let span = Span::styled(summary.to_string(), style);
+    let span = Span::styled(commit.summary.clone(), style);
     let regex = app
         .list
         .search
         .compiled()
-        .and_then(|query| query.message_regex());
+        .and_then(|query| query.message_regex())
+        .filter(|_| !commit.oid.is_synthetic());
     match (regex, row_match) {
         (Some(regex), Some(highlight)) => Line::from(highlight_matches(&span, regex, highlight)),
         _ => Line::from(span),

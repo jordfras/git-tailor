@@ -130,7 +130,8 @@ impl CommitQuery {
         let mut hits = CommitHits::default();
         match &self.matcher {
             Matcher::Text(regex) => {
-                if self.scope != SearchScope::Diff {
+                // A staged or unstaged row's message is a placeholder of ours.
+                if self.scope != SearchScope::Diff && !commit.oid.is_synthetic() {
                     hits.message = commit.message.lines().any(|line| regex.is_match(line));
                 }
                 if self.scope != SearchScope::Message {

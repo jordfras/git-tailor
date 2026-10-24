@@ -789,7 +789,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
             )),
             Cell::from(search::summary_line(
                 app,
-                &commit.summary,
+                commit,
                 text_cell_style,
                 row_match,
             )),
