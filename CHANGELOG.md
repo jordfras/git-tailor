@@ -73,6 +73,8 @@ The format is based on
 
 ### Fixed
 
+- A search in the commit detail view matches an added or removed line without
+  its `+` or `-`, so `^fn` finds a line that starts with `fn`
 - Ctrl and Alt key combinations pressed while typing a search are no longer
   added to it as letters
 - `gt --clean-journal` no longer destroys the uncommitted work of an interrupted

@@ -255,13 +255,15 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
 
         let mut content = build_metadata_lines(&selected, app.colors);
         let mut file_start_lines = Vec::new();
+        let mut prefixed_lines = Vec::new();
         if let Some(diff) = &app.detail.diff
             && !diff.files.is_empty()
         {
             content.extend(build_file_list_lines(&diff.files, app.colors));
-            let (diff_lines, file_offsets) = build_diff_lines(&diff.files, app.colors);
+            let (diff_lines, file_offsets, prefixed) = build_diff_lines(&diff.files, app.colors);
             let diff_start = content.len();
             file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
+            prefixed_lines = prefixed.iter().map(|&o| diff_start + o).collect();
             content.extend(diff_lines);
         }
         app.detail.file_start_lines = file_start_lines;
@@ -284,7 +286,7 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
             scroll_to_first_matching_file(app);
         }
 
-        (content, search_info) = search::apply(app, content);
+        (content, search_info) = search::apply(app, content, &prefixed_lines);
 
         let scroll_offset = app.detail.v.offset;
         let h_scroll = app.detail.h.offset;
@@ -437,9 +439,12 @@ pub(super) fn hunkless_marker(file: &crate::FileDiff) -> &'static str {
 }
 
 /// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
-/// Returns the lines and a vec of indices (within the returned vec) where each
-/// file's `--- ` header starts.
-fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'static>>, Vec<usize>) {
+/// Returns the lines and two vecs of indices within them: where each file's
+/// `--- ` header starts, and the lines drawn with a `+`, `-` or ` ` prefix.
+fn build_diff_lines(
+    files: &[crate::FileDiff],
+    colors: Colors,
+) -> (Vec<Line<'static>>, Vec<usize>, Vec<usize>) {
     let white = colors.resolve(Color::White);
     let mut lines = vec![
         Line::from(""),
@@ -451,6 +456,7 @@ fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'sta
     ];
 
     let mut file_header_indices: Vec<usize> = Vec::new();
+    let mut prefixed_lines = Vec::new();
 
     for file in files {
         let old_path = diff_path_with_prefix(file.old_path.as_deref(), "a");
@@ -494,17 +500,18 @@ fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'sta
                     DiffLineKind::Context => (" ", Style::default().fg(white)),
                 };
                 let content_str = diff_line.content.trim_end_matches(['\n', '\r']);
-                lines.push(Line::from(Span::styled(
-                    format!("{}{}", prefix, content_str),
-                    style,
-                )));
+                prefixed_lines.push(lines.len());
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled(content_str.to_string(), style),
+                ]));
             }
         }
 
         lines.push(Line::from(""));
     }
 
-    (lines, file_header_indices)
+    (lines, file_header_indices, prefixed_lines)
 }
 
 /// Geometry produced by [`compute_scroll_layout`].

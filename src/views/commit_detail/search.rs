@@ -88,22 +88,26 @@ fn scroll_to_current_match(app: &mut AppState) {
 
 /// Compute matches, auto-scroll to a newly selected one, and highlight the
 /// content lines. Returns the (possibly highlighted) content plus the info the
-/// search bar should display.
+/// search bar should display. `prefixed_lines`, in ascending order, are the
+/// diff lines whose first span is their `+`, `-` or ` ` prefix.
 pub(super) fn apply(
     app: &mut AppState,
     mut content: Vec<Line<'static>>,
+    prefixed_lines: &[usize],
 ) -> (Vec<Line<'static>>, Option<SearchBarInfo>) {
     let mut search_info = None;
     if app.detail.search.active && !app.detail.search.query.is_empty() {
         match search_regex(&app.detail.search.query, app.detail.search_case) {
             Ok(regex) => {
-                let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
+                let (info, prev_match_index) =
+                    compute_search_matches(app, &content, prefixed_lines, &regex);
                 search_info = info;
                 if !app.detail.search.matches.is_empty() {
                     if !app.detail.search.input_active {
                         auto_scroll_to_new_match(app, prev_match_index);
                     }
-                    content = apply_search_highlighting(content, app, &regex, app.colors);
+                    content =
+                        apply_search_highlighting(content, app, prefixed_lines, &regex, app.colors);
                 }
             }
             Err(_) => {
@@ -119,25 +123,38 @@ pub(super) fn apply(
     (content, search_info)
 }
 
-/// Apply search-match highlighting to an entire Line.
+/// Apply search-match highlighting to an entire Line, leaving a diff line's
+/// prefix span alone as matching does.
 fn highlight_line_matches(
     line: Line<'_>,
+    is_prefixed: bool,
     regex: &regex::Regex,
     is_current_match: bool,
     colors: Colors,
 ) -> Line<'static> {
     let highlight_style = match_style(is_current_match, colors);
-    let new_spans: Vec<Span<'static>> = line
+    let (prefix, rest) = line
         .spans
+        .split_at(usize::from(is_prefixed).min(line.spans.len()));
+    let spans = prefix
         .iter()
-        .flat_map(|span| highlight_matches(span, regex, highlight_style))
-        .collect();
-    Line::from(new_spans)
+        .map(|span| Span::styled(span.content.to_string(), span.style))
+        .chain(
+            rest.iter()
+                .flat_map(|span| highlight_matches(span, regex, highlight_style)),
+        );
+    Line::from(spans.collect::<Vec<_>>())
 }
 
-/// Return the plain-text content of a Line (all spans concatenated).
-fn line_text(line: &Line<'_>) -> String {
-    line.spans.iter().map(|s| s.content.as_ref()).collect()
+/// The text a search matches `line` against: all of it, without the prefix
+/// span of a diff line, as the commit list matches changed lines.
+fn line_text(line: &Line<'_>, is_prefixed: bool) -> String {
+    let skip = usize::from(is_prefixed);
+    line.spans
+        .iter()
+        .skip(skip)
+        .map(|s| s.content.as_ref())
+        .collect()
 }
 
 /// Find all content lines matching `regex`, update `app.detail.search.matches` and
@@ -146,6 +163,7 @@ fn line_text(line: &Line<'_>) -> String {
 fn compute_search_matches(
     app: &mut AppState,
     content: &[Line<'_>],
+    prefixed_lines: &[usize],
     regex: &regex::Regex,
 ) -> (Option<SearchBarInfo>, Option<usize>) {
     let prev_match_index = app.detail.search.match_index;
@@ -153,7 +171,9 @@ fn compute_search_matches(
     app.detail.search.matches = content
         .iter()
         .enumerate()
-        .filter(|(_, line)| regex.is_match(&line_text(line)))
+        .filter(|&(i, line)| {
+            regex.is_match(&line_text(line, prefixed_lines.binary_search(&i).is_ok()))
+        })
         .map(|(i, _)| i)
         .collect();
 
@@ -193,6 +213,7 @@ fn auto_scroll_to_new_match(app: &mut AppState, prev_match_index: Option<usize>)
 fn apply_search_highlighting(
     content: Vec<Line<'_>>,
     app: &AppState,
+    prefixed_lines: &[usize],
     regex: &regex::Regex,
     colors: Colors,
 ) -> Vec<Line<'static>> {
@@ -206,7 +227,8 @@ fn apply_search_highlighting(
         .enumerate()
         .map(|(i, line)| {
             let is_current = current_match_line == Some(i);
-            highlight_line_matches(line, regex, is_current, colors)
+            let is_prefixed = prefixed_lines.binary_search(&i).is_ok();
+            highlight_line_matches(line, is_prefixed, regex, is_current, colors)
         })
         .collect()
 }
