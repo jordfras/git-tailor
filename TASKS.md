@@ -63,7 +63,7 @@ carry the search into the detail view.
   text in the title, like the detail view does. Check it under every
   `--palette`, and that selection, squash/move marking and conflict coloring
   still read.
-- [ ] T273 P2 feat - `n`/`N` in the commit list move the selection to the
+- [X] T273 P2 feat - `n`/`N` in the commit list move the selection to the
   next/previous matching commit, wrapping, keeping it on screen. Step from
   the selection, not from the last match, since `j`/`k` may have moved it.
   Typing already selects the current match, so the two agree until then.
