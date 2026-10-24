@@ -315,7 +315,7 @@ fn test_list_search_bar_left_of_separator() {
     let repo = make_repo_with_empty_diff();
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
-    app.list.search.activate();
+    app.list.start_search();
     app.list.search.state.query = "feature".to_string();
     app.list.search.state.input_active = false;
     app.list.rerun_search();

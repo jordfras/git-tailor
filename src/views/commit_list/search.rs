@@ -35,10 +35,9 @@ use crate::views::search_match::{highlight_matches, match_style};
 /// captured as search-query input rather than dispatched as commands.
 pub fn handle_search_event(event: Event, app: &mut AppState) {
     match app.list.search.state.edit(&event) {
-        QueryEdit::Edited => app.list.rerun_search(),
-        QueryEdit::Confirmed => app.list.confirm_search(),
-        QueryEdit::Dismissed => app.list.search.clear(),
-        QueryEdit::Ignored => {}
+        QueryEdit::Edited => app.list.search_as_typed(),
+        QueryEdit::Dismissed => app.list.cancel_search(),
+        QueryEdit::Confirmed | QueryEdit::Ignored => {}
     }
 }
 

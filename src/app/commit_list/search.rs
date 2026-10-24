@@ -23,16 +23,21 @@ use crate::fragmap::CommitPos;
 pub struct ListSearch {
     pub state: SearchState<CommitPos>,
     pub scope: SearchScope,
+    /// The row selected when the search was opened, which typing searches
+    /// from and Esc returns to.
+    pub(super) origin: CommitPos,
     /// `state.query` compiled for `scope`, `None` while the query is empty
     /// or invalid.
     query: Option<CommitQuery>,
 }
 
 impl ListSearch {
-    /// Open the search bar on an empty query, keeping the scope.
-    pub fn activate(&mut self) {
+    /// Open the search bar on an empty query, searching from `origin` and
+    /// keeping the scope.
+    pub fn activate(&mut self, origin: CommitPos) {
         self.state.activate();
         self.query = None;
+        self.origin = origin;
     }
 
     /// Dismiss the search, keeping the scope.

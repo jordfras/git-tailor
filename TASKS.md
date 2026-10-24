@@ -66,6 +66,7 @@ carry the search into the detail view.
 - [ ] T273 P2 feat - `n`/`N` in the commit list move the selection to the
   next/previous matching commit, wrapping, keeping it on screen. Step from
   the selection, not from the last match, since `j`/`k` may have moved it.
+  Typing already selects the current match, so the two agree until then.
   (Re-running the search on every reload already landed with T271, in
   `CommitListState::set_rows`.) Decide whether `n`/`N` also work in
   `SquashSelect`/`MoveSelect` to find a target.

@@ -148,7 +148,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
         }
         KeyCommand::Search => {
-            app.list.search.activate();
+            app.list.start_search();
             AppAction::Handled
         }
         KeyCommand::Move => {
