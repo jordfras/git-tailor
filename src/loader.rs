@@ -477,6 +477,51 @@ mod tests {
         })
     }
 
+    /// The current match is the one at the row the reload lands on, not the
+    /// row the cursor was on while the list was replaced.
+    #[test]
+    fn a_reload_points_an_active_search_at_the_row_it_lands_on() {
+        let mut app = loaded_list(&["a", "b", "c"]);
+        for c in &mut app.list.commits {
+            c.message = "match".to_string();
+        }
+        app.list.adopt_search("match".to_string());
+        assert_eq!(app.list.search.state.match_index, Some(2));
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Ok(true),
+            Some(0),
+        );
+
+        assert_eq!(app.list.search.state.match_index, Some(0));
+    }
+
+    /// A canceled reload leaves the rows, and so the current match, as they were.
+    #[test]
+    fn a_canceled_reload_keeps_the_current_match() {
+        let mut app = loaded_list(&["a", "b", "c"]);
+        for c in &mut app.list.commits {
+            c.message = "match".to_string();
+        }
+        app.list.adopt_search("match".to_string());
+        app.list.search.state.match_index = Some(0);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Ok(false),
+            None,
+        );
+
+        assert_eq!(app.list.search.state.match_index, Some(0));
+    }
+
     /// A commit made in the meantime moves the row the detail view was on, so
     /// keeping the row would quietly show another commit.
     #[test]
