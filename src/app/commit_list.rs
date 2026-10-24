@@ -20,8 +20,8 @@ use std::collections::HashMap;
 
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
-use crate::app::search::SearchDirection;
-use crate::domain::search::{CommitHits, CommitQuery};
+use crate::app::search::{SearchDirection, SearchState};
+use crate::domain::search::{CommitHits, CommitQuery, SearchScope};
 use crate::fragmap::CommitPos;
 use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
 
@@ -149,6 +149,18 @@ impl CommitListState {
         self.search.state.match_index = found;
         self.selection_index = found.map_or(origin, |i| self.search.state.matches[i]).0;
         self.clamp_selection();
+    }
+
+    /// Search for `query` as if it had been typed and entered, leaving the
+    /// selection where it is. A path glob scope becomes message + diff, since
+    /// `query` is a regex.
+    pub fn adopt_search(&mut self, query: String) {
+        if self.search.scope == SearchScope::Paths {
+            self.search.scope = SearchScope::MessageAndDiff;
+        }
+        self.start_search();
+        self.search.state = SearchState::confirmed(query);
+        self.rerun_search();
     }
 
     /// Dismiss the search being typed and select the row it started from.

@@ -67,6 +67,16 @@ impl<M> SearchState<M> {
         *self = Self::default();
     }
 
+    /// A search for `query` that is already confirmed, as if typed and then
+    /// entered.
+    pub fn confirmed(query: String) -> Self {
+        Self {
+            query,
+            active: true,
+            ..Self::default()
+        }
+    }
+
     /// Activate search mode: clear the query and show the search bar.
     pub fn activate(&mut self) {
         *self = Self {

@@ -183,6 +183,19 @@ pub fn load_diff(repo: &impl RepoRead, app: &mut AppState) {
     };
 }
 
+/// Scroll to the header of the first file the list's path search matches.
+fn scroll_to_first_matching_file(app: &mut AppState, commit: &crate::CommitInfo) {
+    let (Some(query), Some(diff)) = (app.list.search.compiled(), &app.detail.diff) else {
+        return;
+    };
+    let first_file = query
+        .hits(commit, Some(&diff.files))
+        .and_then(|hits| hits.paths.first().copied());
+    if let Some(&line) = first_file.and_then(|change| app.detail.file_start_lines.get(change.0)) {
+        app.detail.v.scroll_to(line);
+    }
+}
+
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
@@ -257,6 +270,10 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
         app.detail
             .h
             .set_bounds(layout.max_h_scroll, layout.text_area_width);
+
+        if std::mem::take(&mut app.detail.scroll_to_matching_path) {
+            scroll_to_first_matching_file(app, &selected);
+        }
 
         (content, search_info) = search::apply(app, content);
 

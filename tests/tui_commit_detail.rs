@@ -837,3 +837,175 @@ fn a_wrapped_status_message_shortens_the_detail_view() {
         views::commit_detail::render(frame, &mut app, area);
     }));
 }
+
+/// A diff of three files, `needle` only in the last, with enough lines in
+/// each that the last starts below the first screen.
+fn three_file_diff(oid: &str) -> CommitDiff {
+    let file = |path: &str, word: &str| FileDiff {
+        old_path: Some(path.into()),
+        new_path: Some(path.into()),
+        status: DeltaStatus::Modified,
+        is_binary: false,
+        hunks: vec![Hunk {
+            old_start: 1,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 12,
+            lines: (0..12)
+                .map(|i| DiffLine {
+                    kind: DiffLineKind::Addition,
+                    content: format!("{word} {i}\n"),
+                })
+                .collect(),
+        }],
+    };
+    CommitDiff {
+        commit: common::create_test_commit(oid, "Three files"),
+        files: vec![
+            file("a.txt", "hay"),
+            file("b.txt", "straw"),
+            file("c.txt", "needle"),
+        ],
+    }
+}
+
+/// Two commits with the three-file diff, searched from the list for `query`
+/// in `scope`, confirmed, with the first commit selected.
+fn list_searched(
+    scope: git_tailor::domain::search::SearchScope,
+    query: &str,
+) -> (AppState, common::StubRepo) {
+    let diffs = vec![
+        three_file_diff("aaa111aaa111"),
+        three_file_diff("bbb222bbb222"),
+    ];
+    let commits = diffs.iter().map(|d| d.commit.clone()).collect();
+    let mut app = AppState::new();
+    app.list.set_rows(commits, diffs);
+    app.list.selection_index = 0;
+    app.list.search.scope = scope;
+    app.list.start_search();
+    app.list.search.state.query = query.to_string();
+    app.list.search_as_typed();
+    app.list.search.state.input_active = false;
+    let repo = StubRepoBuilder::new()
+        .with_commit_diff(three_file_diff("aaa111aaa111"))
+        .build();
+    (app, repo)
+}
+
+fn open_detail(app: &mut AppState, repo: &common::StubRepo, harness: &mut TuiTestHarness) {
+    use git_tailor::app::KeyCommand;
+    views::commit_list::handle_key(KeyCommand::ToggleDetail, app);
+    views::commit_detail::load_diff(repo, app);
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, app, area);
+    });
+}
+
+fn close_detail(app: &mut AppState) {
+    views::commit_detail::handle_key(git_tailor::app::KeyCommand::ToggleDetail, app);
+}
+
+/// Search, open a commit, leave, open another: each commit opens on the
+/// list's search, scrolled to its first match.
+#[test]
+fn list_search_seeds_every_commit_opened() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+
+    for row in [0, 1] {
+        assert_eq!(app.list.selection_index, row);
+        open_detail(&mut app, &repo, &mut harness);
+        let search = &app.detail.search;
+        assert_eq!(search.query, "needle");
+        assert!(search.active && !search.input_active);
+        assert_eq!(search.match_index, Some(0));
+        assert!(app.detail.v.offset > 0, "scrolled to the first match");
+
+        close_detail(&mut app);
+        assert!(matches!(app.mode, AppMode::CommitList));
+        assert_eq!(app.list.search.state.query, "needle");
+        assert!(!app.list.search.state.input_active);
+        assert_eq!(app.list.selection_index, row);
+        views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    }
+}
+
+/// A search changed in the detail view is what the list keeps, and a path
+/// glob scope falls back to messages and diffs for it.
+#[test]
+fn detail_search_is_carried_back_to_the_list() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "c.txt");
+    open_detail(&mut app, &repo, &mut harness);
+    views::commit_detail::handle_key(KeyCommand::Search, &mut app);
+    for c in "straw".chars() {
+        let key = Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        views::commit_detail::handle_search_event(key, &mut app);
+    }
+    let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    views::commit_detail::handle_search_event(enter, &mut app);
+
+    close_detail(&mut app);
+    assert_eq!(app.list.search.scope, SearchScope::MessageAndDiff);
+    assert_eq!(app.list.search.state.query, "straw");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+    assert_eq!(app.list.selection_index, 0);
+}
+
+/// A path glob opens each commit at the first file it matches, with no line
+/// search, and the list keeps it for the next commit.
+#[test]
+fn path_search_opens_at_the_matching_file() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "b.txt");
+    open_detail(&mut app, &repo, &mut harness);
+
+    assert!(!app.detail.search.active);
+    let header = app.detail.file_start_lines[1];
+    assert!(0 < header && header < app.detail.v.max);
+    assert_eq!(app.detail.v.offset, header);
+
+    close_detail(&mut app);
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    assert_eq!(app.list.search.state.query, "b.txt");
+}
+
+/// Dismissing the detail search and leaving keeps the list search.
+#[test]
+fn dismissing_the_detail_search_keeps_the_list_search() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+    views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
+    views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
+
+    assert_eq!(app.list.search.state.query, "needle");
+    assert!(app.list.search.state.active);
+}
+
+/// An invalid list pattern seeds nothing.
+#[test]
+fn an_invalid_list_search_seeds_nothing() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle(");
+    open_detail(&mut app, &repo, &mut harness);
+    assert!(!app.detail.search.active);
+    assert_eq!(app.detail.v.offset, 0);
+}

@@ -45,6 +45,18 @@ impl ListSearch {
         self.query = None;
     }
 
+    /// The query as a valid line regex, `None` in the paths scope or while
+    /// there is none.
+    pub fn line_pattern(&self) -> Option<&str> {
+        (self.scope != SearchScope::Paths && self.compiled().is_some())
+            .then_some(self.state.query.as_str())
+    }
+
+    /// Whether the search is a valid path glob.
+    pub fn is_path_search(&self) -> bool {
+        self.scope == SearchScope::Paths && self.compiled().is_some()
+    }
+
     pub fn pattern_is_invalid(&self) -> bool {
         matches!(self.query, Some(Err(_)))
     }
