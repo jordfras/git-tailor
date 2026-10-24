@@ -80,7 +80,10 @@ carry the search into the detail view.
   `n`/`N` work at once. The detail view shows context lines, so it may also
   stop on a matching context line — acceptable. For the paths scope there is no
   line regex: open at the first matching file instead (the file jump `f`
-  uses). Leaving the detail view keeps the list search.
+  uses). Leaving the detail view with a non-empty detail search carries it
+  back as the list search (paths scope falls back to message + diff);
+  otherwise the list search stays as it was, so search → open → leave → open
+  another commit keeps seeding each one.
 - [ ] T276 P2 feat - Highlight the hunk group matrix columns holding a match:
   for the diff scope, the clusters whose hunks contain a matching line; for the
   paths scope, the clusters of matching files; none for the message scope.
@@ -88,10 +91,11 @@ carry the search into the detail view.
   to clusters through the fragmap, so T270 must report hunks, not only
   commits. Columns deduplicated away (without `--full`) must still light up
   through the column that represents them.
-- [ ] T277 P3 idea - In the detail view, `n` past the last match (`N` before
+- [-] T277 P3 idea - In the detail view, `n` past the last match (`N` before
   the first) moves on to the next (previous) commit matching the list search
   and opens it at its first (last) match, gitk-style. Only when the detail
-  search was seeded from the list (T275).
+  search was seeded from the list (T275). (Flags: WONT DO — overshooting the
+  last match would leave the commit unasked; see T280 for a separate key.)
 - [ ] T278 P3 idea - Smart-case for both searches: case-insensitive unless the
   query contains an uppercase letter, as in vim's `smartcase` and ripgrep's
   `-S`. Applies to the list search and the detail search alike.
@@ -101,6 +105,10 @@ carry the search into the detail view.
   commit would conflict. Say so in the status bar when there is none, or when
   the matrix was skipped. Not for `MoveSelect`: jumping to the furthest
   conflict-free position was judged not worth a key.
+- [ ] T280 P3 idea - In the detail view, Ctrl-N / Ctrl-P open the next /
+  previous commit matching the list search, at its first / last match: what
+  leaving, `n` in the list and opening again do, in one key. Only while a list
+  search is active; status message when there is no other match.
 
 ## Architecture & Robustness
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
