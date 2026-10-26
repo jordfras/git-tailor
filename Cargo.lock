@@ -749,11 +749,13 @@ dependencies = [
  "etcetera",
  "fontdue",
  "git2",
+ "globset",
  "image",
  "insta",
  "libc",
  "ratatui",
  "regex",
+ "regex-syntax",
  "semver",
  "serde",
  "serde_json",
@@ -774,6 +776,18 @@ dependencies = [
  "libc",
  "libgit2-sys",
  "log",
+]
+
+[[package]]
+name = "globset"
+version = "0.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]

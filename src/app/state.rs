@@ -25,8 +25,9 @@ use super::{AppMode, Operation, PendingAutofixup, PendingDrop, PendingSplit, Spl
 use crate::app::ScrollState;
 use crate::app::commit_list::CommitListState;
 use crate::app::detail::DetailState;
-use crate::app::search::SearchState;
+use crate::app::search::{SearchDirection, SearchState};
 use crate::autofixup::AutofixupPair;
+use crate::domain::search::{SearchCase, search_regex};
 
 /// Transient status message shown in the footer, cleared on the next keypress.
 #[derive(Debug, Default)]
@@ -110,8 +111,6 @@ pub struct AppState {
     /// When true, the reference_oid commit is included in the commit list.
     /// Set when the user passes `--all` to browse the complete repository history.
     pub include_reference_oid: bool,
-    /// Regex search state for the detail view.
-    pub search: SearchState,
     /// Set when the background check detects a newer crates.io release. Persistent
     /// (NOT cleared by `status.clear`); shown in the footer hint slot.
     pub update_notice: Option<String>,
@@ -435,9 +434,12 @@ impl AppState {
     /// Toggle between CommitList and CommitDetail modes.
     pub fn toggle_detail_view(&mut self) {
         let new_mode = match &self.mode {
-            AppMode::CommitList => AppMode::CommitDetail,
+            AppMode::CommitList => {
+                self.carry_list_search_into_detail();
+                AppMode::CommitDetail
+            }
             AppMode::CommitDetail => {
-                self.search.clear();
+                self.carry_detail_search_into_list();
                 AppMode::CommitList
             }
             AppMode::Help(_)
@@ -457,6 +459,69 @@ impl AppState {
         };
         self.mode = new_mode;
         self.detail.v.offset = 0;
+    }
+
+    /// How both searches treat letter case.
+    pub fn set_search_case(&mut self, case: SearchCase) {
+        self.list.search.case = case;
+        self.detail.search_case = case;
+    }
+
+    /// Open the detail view on the list search: the same regex, confirmed, or
+    /// for a path glob the first file it matches.
+    fn carry_list_search_into_detail(&mut self) {
+        let search = &self.list.search;
+        self.detail.search = match search.line_pattern() {
+            Some(pattern) => SearchState::confirmed(pattern.to_string()),
+            None => SearchState::default(),
+        };
+        self.detail.scroll_to_matching_path = search.is_path_search();
+    }
+
+    /// A search made or kept in the detail view becomes the list search; with
+    /// none the list search stays, ready to seed the next commit opened.
+    fn carry_detail_search_into_list(&mut self) {
+        let search = std::mem::take(&mut self.detail.search);
+        if search.active && !search.query.is_empty() {
+            self.list.adopt_search(search.query);
+        }
+    }
+
+    /// Step from the commit in the detail view to the next or previous one the
+    /// search matches and open that, at its first or last match, or for a path
+    /// search at its first matching file: what leaving, `n`/`N` in the list and
+    /// opening again do. Returns whether it moved, saying why in the status bar
+    /// when not.
+    pub fn open_matching_commit(&mut self, dir: SearchDirection) -> bool {
+        let detail = &self.detail.search;
+        if detail.active && !detail.query.is_empty() {
+            if search_regex(&detail.query, self.list.search.case).is_err() {
+                self.set_error_message("Invalid search pattern");
+                return false;
+            }
+            self.list.adopt_search(detail.query.clone());
+        }
+        let list = &self.list.search;
+        if !list.state.active || list.state.query.is_empty() {
+            self.set_error_message("No search to step through");
+            return false;
+        }
+        if list.compiled().is_none() {
+            self.set_error_message("Invalid search pattern");
+            return false;
+        }
+        let from = self.list.selection_index;
+        self.list.step_search(dir);
+        if self.list.selection_index == from {
+            self.set_error_message("No other matching commit");
+            return false;
+        }
+        self.carry_list_search_into_detail();
+        if dir == SearchDirection::Prev {
+            self.detail.start_at_last_match = true;
+        }
+        self.detail.v.offset = 0;
+        true
     }
 
     /// Show help dialog, saving current mode to return to later.

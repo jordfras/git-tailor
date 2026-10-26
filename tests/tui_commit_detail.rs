@@ -262,8 +262,8 @@ fn test_commit_detail_search_bar_visible() {
     app.mode = AppMode::CommitDetail;
 
     // Activate search and type a query
-    app.search.activate();
-    app.search.query = "old".to_string();
+    app.detail.search.activate();
+    app.detail.search.query = "old".to_string();
 
     views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -313,9 +313,9 @@ fn test_commit_detail_search_highlight_matches() {
     app.mode = AppMode::CommitDetail;
 
     // Search for "hello" — should match 2 diff lines + file path
-    app.search.activate();
-    app.search.query = "hello".to_string();
-    app.search.input_active = false; // Confirmed search
+    app.detail.search.activate();
+    app.detail.search.query = "hello".to_string();
+    app.detail.search.input_active = false; // Confirmed search
 
     views::commit_detail::load_diff(&repo, &mut app);
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -329,15 +329,15 @@ fn test_commit_detail_search_highlight_matches() {
 fn test_search_event_char_input() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
+    app.detail.search.activate();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('f')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Char('o')), &mut app);
 
-    assert_eq!(app.search.query, "foo");
-    assert!(app.search.input_active);
-    assert!(app.search.active);
+    assert_eq!(app.detail.search.query, "foo");
+    assert!(app.detail.search.input_active);
+    assert!(app.detail.search.active);
 }
 
 /// Backspace removes the last character from the search query.
@@ -345,12 +345,12 @@ fn test_search_event_char_input() {
 fn test_search_event_backspace() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Backspace), &mut app);
 
-    assert_eq!(app.search.query, "fo");
+    assert_eq!(app.detail.search.query, "fo");
 }
 
 /// Enter confirms the search (keeps active, stops input).
@@ -358,14 +358,14 @@ fn test_search_event_backspace() {
 fn test_search_event_enter_confirms() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search.input_active);
-    assert!(app.search.active);
-    assert_eq!(app.search.query, "foo");
+    assert!(!app.detail.search.input_active);
+    assert!(app.detail.search.active);
+    assert_eq!(app.detail.search.query, "foo");
 }
 
 /// Enter jumps to the first match at or after the current scroll position.
@@ -373,17 +373,17 @@ fn test_search_event_enter_confirms() {
 fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
-    app.search.matches = vec![5, 20, 30];
-    app.search.match_index = Some(0);
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
+    app.detail.search.matches = vec![5, 20, 30];
+    app.detail.search.match_index = Some(0);
     app.detail.v.offset = 12;
     app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // First match at or after scroll offset 12 is line 20 (index 1).
-    assert_eq!(app.search.match_index, Some(1));
+    assert_eq!(app.detail.search.match_index, Some(1));
 }
 
 /// Enter wraps to match 0 when all matches lie above the current scroll position.
@@ -391,17 +391,17 @@ fn test_search_event_enter_jumps_to_match_at_scroll_offset() {
 fn test_search_event_enter_wraps_when_past_all_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
-    app.search.matches = vec![5, 8];
-    app.search.match_index = Some(1);
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
+    app.detail.search.matches = vec![5, 8];
+    app.detail.search.match_index = Some(1);
     app.detail.v.offset = 20;
     app.detail.v.visible_height = 50;
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
     // All matches are above scroll offset 20; wraps to first match.
-    assert_eq!(app.search.match_index, Some(0));
+    assert_eq!(app.detail.search.match_index, Some(0));
 }
 
 /// Enter is a no-op (for navigation) when there are no matches.
@@ -409,15 +409,15 @@ fn test_search_event_enter_wraps_when_past_all_matches() {
 fn test_search_event_enter_no_op_when_no_matches() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
     // search.matches is empty (default)
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Enter), &mut app);
 
-    assert!(!app.search.input_active);
-    assert!(app.search.active);
-    assert_eq!(app.search.match_index, None);
+    assert!(!app.detail.search.input_active);
+    assert!(app.detail.search.active);
+    assert_eq!(app.detail.search.match_index, None);
 }
 
 /// Escape dismisses the search entirely.
@@ -425,14 +425,14 @@ fn test_search_event_enter_no_op_when_no_matches() {
 fn test_search_event_escape_dismisses() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "foo".to_string();
+    app.detail.search.activate();
+    app.detail.search.query = "foo".to_string();
 
     views::commit_detail::handle_search_event(make_key_event(KeyCode::Esc), &mut app);
 
-    assert!(!app.search.input_active);
-    assert!(!app.search.active);
-    assert!(app.search.query.is_empty());
+    assert!(!app.detail.search.input_active);
+    assert!(!app.detail.search.active);
+    assert!(app.detail.search.query.is_empty());
 }
 
 /// Quit (Esc) in confirmed-search mode clears search instead of leaving detail.
@@ -440,13 +440,13 @@ fn test_search_event_escape_dismisses() {
 fn test_quit_clears_search_before_leaving_detail() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.active = true;
-    app.search.query = "foo".to_string();
+    app.detail.search.active = true;
+    app.detail.search.query = "foo".to_string();
 
     let result = views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
 
     assert!(matches!(result, AppAction::Handled));
-    assert!(!app.search.active);
+    assert!(!app.detail.search.active);
     // Still in CommitDetail — didn't leave
     assert!(matches!(app.mode, AppMode::CommitDetail));
 }
@@ -456,25 +456,25 @@ fn test_quit_clears_search_before_leaving_detail() {
 fn test_search_next_prev_wraps() {
     let mut app = AppState::new();
     app.mode = AppMode::CommitDetail;
-    app.search.active = true;
-    app.search.matches = vec![5, 10, 20];
-    app.search.match_index = Some(0);
+    app.detail.search.active = true;
+    app.detail.search.matches = vec![5, 10, 20];
+    app.detail.search.match_index = Some(0);
     app.detail.v.visible_height = 100; // large enough to avoid scrolling
 
     // Forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search.match_index, Some(1));
+    assert_eq!(app.detail.search.match_index, Some(1));
 
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search.match_index, Some(2));
+    assert_eq!(app.detail.search.match_index, Some(2));
 
     // Wrap forward
     views::commit_detail::handle_key(KeyCommand::SearchNext, &mut app);
-    assert_eq!(app.search.match_index, Some(0));
+    assert_eq!(app.detail.search.match_index, Some(0));
 
     // Wrap backward
     views::commit_detail::handle_key(KeyCommand::SearchPrev, &mut app);
-    assert_eq!(app.search.match_index, Some(2));
+    assert_eq!(app.detail.search.match_index, Some(2));
 }
 
 /// Regex search is case-sensitive: "FOO" must not match "foo".
@@ -514,9 +514,9 @@ fn test_search_case_sensitive() {
     app.mode = AppMode::CommitDetail;
 
     // "FOO" must only match uppercase occurrences, not "foo"
-    app.search.activate();
-    app.search.query = "FOO".to_string();
-    app.search.input_active = false;
+    app.detail.search.activate();
+    app.detail.search.query = "FOO".to_string();
+    app.detail.search.input_active = false;
 
     views::commit_detail::load_diff(&repo, &mut app);
     let buf = harness.render(|frame| {
@@ -526,7 +526,7 @@ fn test_search_case_sensitive() {
 
     // "FOO" appears in the commit message and "+FOO bar" diff line.
     // "foo" in file path and "+foo baz" must NOT match.
-    assert_eq!(app.search.matches.len(), 2);
+    assert_eq!(app.detail.search.matches.len(), 2);
 
     insta::assert_debug_snapshot!(buf);
 }
@@ -623,9 +623,9 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
     app.list.commits = vec![common::create_test_commit("abc123", "Long diff")];
     app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
-    app.search.activate();
-    app.search.query = "NEEDLE".to_string();
-    app.search.input_active = false;
+    app.detail.search.activate();
+    app.detail.search.query = "NEEDLE".to_string();
+    app.detail.search.input_active = false;
 
     // Short terminal: render, then scroll to the bottom.
     let mut short = TuiTestHarness::new(80, 20);
@@ -638,7 +638,7 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
     let stale = app.detail.v.offset;
 
     // Force the match index to change so the auto-scroll runs this frame.
-    app.search.match_index = Some(999);
+    app.detail.search.match_index = Some(999);
 
     // Taller terminal: more fits, so the maximum drops below `stale`.
     let mut tall = TuiTestHarness::new(80, 45);
@@ -649,7 +649,7 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
 
     let max = app.detail.v.max;
     let vh = app.detail.v.visible_height;
-    let target = app.search.matches[app.search.match_index.unwrap()];
+    let target = app.detail.search.matches[app.detail.search.match_index.unwrap()];
 
     // Guard the premises, so a layout change makes this test fail loudly rather
     // than pass without exercising anything.
@@ -836,4 +836,475 @@ fn a_wrapped_status_message_shortens_the_detail_view() {
         let area = frame.area();
         views::commit_detail::render(frame, &mut app, area);
     }));
+}
+
+/// A diff of three files, `needle` only in the last, with enough lines in
+/// each that the last starts below the first screen.
+fn three_file_diff(oid: &str) -> CommitDiff {
+    let file = |path: &str, word: &str| FileDiff {
+        old_path: Some(path.into()),
+        new_path: Some(path.into()),
+        status: DeltaStatus::Modified,
+        is_binary: false,
+        hunks: vec![Hunk {
+            old_start: 1,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 12,
+            lines: (0..12)
+                .map(|i| DiffLine {
+                    kind: DiffLineKind::Addition,
+                    content: format!("{word} {i}\n"),
+                })
+                .collect(),
+        }],
+    };
+    CommitDiff {
+        commit: common::create_test_commit(oid, "Three files"),
+        files: vec![
+            file("a.txt", "hay"),
+            file("b.txt", "straw"),
+            file("c.txt", "needle"),
+        ],
+    }
+}
+
+/// Two commits with the three-file diff, searched from the list for `query`
+/// in `scope`, confirmed, with the first commit selected.
+fn list_searched(
+    scope: git_tailor::domain::search::SearchScope,
+    query: &str,
+) -> (AppState, common::StubRepo) {
+    let diffs = vec![
+        three_file_diff("aaa111aaa111"),
+        three_file_diff("bbb222bbb222"),
+    ];
+    let commits = diffs.iter().map(|d| d.commit.clone()).collect();
+    let mut app = AppState::new();
+    app.list.set_rows(commits, diffs);
+    app.list.selection_index = 0;
+    app.list.search.scope = scope;
+    app.list.start_search();
+    app.list.search.state.query = query.to_string();
+    app.list.search_as_typed();
+    app.list.search.state.input_active = false;
+    let repo = StubRepoBuilder::new()
+        .with_commit_diff(three_file_diff("aaa111aaa111"))
+        .build();
+    (app, repo)
+}
+
+fn open_detail(app: &mut AppState, repo: &common::StubRepo, harness: &mut TuiTestHarness) {
+    use git_tailor::app::KeyCommand;
+    views::commit_list::handle_key(KeyCommand::ToggleDetail, app);
+    views::commit_detail::load_diff(repo, app);
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, app, area);
+    });
+}
+
+fn close_detail(app: &mut AppState) {
+    views::commit_detail::handle_key(git_tailor::app::KeyCommand::ToggleDetail, app);
+}
+
+/// Search, open a commit, leave, open another: each commit opens on the
+/// list's search, scrolled to its first match.
+#[test]
+fn list_search_seeds_every_commit_opened() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+
+    for row in [0, 1] {
+        assert_eq!(app.list.selection_index, row);
+        open_detail(&mut app, &repo, &mut harness);
+        let search = &app.detail.search;
+        assert_eq!(search.query, "needle");
+        assert!(search.active && !search.input_active);
+        assert_eq!(search.match_index, Some(0));
+        assert!(app.detail.v.offset > 0, "scrolled to the first match");
+
+        close_detail(&mut app);
+        assert!(matches!(app.mode, AppMode::CommitList));
+        assert_eq!(app.list.search.state.query, "needle");
+        assert!(!app.list.search.state.input_active);
+        assert_eq!(app.list.selection_index, row);
+        views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    }
+}
+
+/// A search changed in the detail view is what the list keeps, and a path
+/// glob scope falls back to messages and diffs for it.
+#[test]
+fn detail_search_is_carried_back_to_the_list() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "c.txt");
+    open_detail(&mut app, &repo, &mut harness);
+    views::commit_detail::handle_key(KeyCommand::Search, &mut app);
+    for c in "straw".chars() {
+        let key = Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        views::commit_detail::handle_search_event(key, &mut app);
+    }
+    let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    views::commit_detail::handle_search_event(enter, &mut app);
+
+    close_detail(&mut app);
+    assert_eq!(app.list.search.scope, SearchScope::MessageAndDiff);
+    assert_eq!(app.list.search.state.query, "straw");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+    assert_eq!(app.list.selection_index, 0);
+}
+
+/// A path glob opens each commit at the first file it matches, with no line
+/// search, and the list keeps it for the next commit.
+#[test]
+fn path_search_opens_at_the_matching_file() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "b.txt");
+    open_detail(&mut app, &repo, &mut harness);
+
+    assert!(!app.detail.search.active);
+    let header = app.detail.file_start_lines[1];
+    assert!(0 < header && header < app.detail.v.max);
+    assert_eq!(app.detail.v.offset, header);
+
+    close_detail(&mut app);
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    assert_eq!(app.list.search.state.query, "b.txt");
+}
+
+/// Dismissing the detail search and leaving keeps the list search.
+#[test]
+fn dismissing_the_detail_search_keeps_the_list_search() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+    views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
+    views::commit_detail::handle_key(KeyCommand::Quit, &mut app);
+
+    assert_eq!(app.list.search.state.query, "needle");
+    assert!(app.list.search.state.active);
+}
+
+/// An invalid list pattern seeds nothing.
+#[test]
+fn an_invalid_list_search_seeds_nothing() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle(");
+    open_detail(&mut app, &repo, &mut harness);
+    assert!(!app.detail.search.active);
+    assert_eq!(app.detail.v.offset, 0);
+}
+
+/// The detail search follows the same case setting as the list: `three`
+/// finds the summary "Three files" only when case is ignored.
+#[test]
+fn detail_search_follows_the_case_setting() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::{SearchCase, SearchScope};
+
+    let mut harness = TuiTestHarness::typical();
+    for (case, found) in [(SearchCase::Smart, true), (SearchCase::Sensitive, false)] {
+        let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+        app.set_search_case(case);
+        open_detail(&mut app, &repo, &mut harness);
+        app.detail.search = SearchState::confirmed("three".to_string());
+        harness.render(|frame| {
+            let area = frame.area();
+            views::commit_detail::render(frame, &mut app, area);
+        });
+        assert_eq!(!app.detail.search.matches.is_empty(), found, "{case:?}");
+    }
+}
+
+fn ctrl(c: char) -> crossterm::event::Event {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+}
+
+/// Press `key` in the detail view, then load and draw what it asks for.
+fn press_in_detail(
+    app: &mut AppState,
+    repo: &common::StubRepo,
+    harness: &mut TuiTestHarness,
+    key: git_tailor::app::KeyCommand,
+) -> git_tailor::app::AppAction {
+    let action = views::commit_detail::handle_key(key, app);
+    if matches!(action, git_tailor::app::AppAction::LoadDetailDiff) {
+        views::commit_detail::load_diff(repo, app);
+    }
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, app, area);
+    });
+    action
+}
+
+#[test]
+fn ctrl_n_and_ctrl_p_map_to_matching_commit_steps() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    assert_eq!(
+        AppMode::CommitDetail.parse_key(ctrl('n')),
+        KeyCommand::NextMatchingCommit
+    );
+    assert_eq!(
+        AppMode::CommitDetail.parse_key(ctrl('p')),
+        KeyCommand::PrevMatchingCommit
+    );
+}
+
+/// Ctrl-n opens the next matching commit at its first match, Ctrl-p the
+/// previous one at its last, both wrapping around.
+#[test]
+fn ctrl_n_and_ctrl_p_open_the_next_and_previous_matching_commit() {
+    use git_tailor::app::{AppMode, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert!(matches!(app.mode, AppMode::CommitDetail));
+    assert_eq!(app.list.selection_index, 1);
+    assert_eq!(app.detail.search.query, "needle");
+    assert_eq!(app.detail.search.match_index, Some(0));
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::PrevMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 0);
+    let last = app.detail.search.matches.len() - 1;
+    assert_eq!(app.detail.search.match_index, Some(last));
+    let last_line = app.detail.search.matches[last];
+    let v = &app.detail.v;
+    assert!(v.offset <= last_line && last_line < v.offset + v.visible_height);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::PrevMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 1, "wraps to the last commit");
+}
+
+/// A search started in the detail view is what Ctrl-n steps by.
+#[test]
+fn ctrl_n_steps_by_a_search_made_in_the_detail_view() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("straw".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 1);
+    assert_eq!(app.list.search.state.query, "straw");
+    assert_eq!(app.detail.search.query, "straw");
+}
+
+/// With no search, or none matching another commit, Ctrl-n stays and says why.
+#[test]
+fn ctrl_n_without_another_match_stays_and_says_so() {
+    use git_tailor::app::{AppAction, KeyCommand};
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    for query in ["", "Three files"] {
+        let (mut app, repo) = list_searched(SearchScope::Message, query);
+        app.list.commits[1].message = "Something else".to_string();
+        app.list.rerun_search();
+        if query.is_empty() {
+            app.list.search.clear();
+        }
+        open_detail(&mut app, &repo, &mut harness);
+        let seeded = app.detail.search.query.clone();
+
+        let action = press_in_detail(
+            &mut app,
+            &repo,
+            &mut harness,
+            KeyCommand::NextMatchingCommit,
+        );
+        assert!(matches!(action, AppAction::Handled), "{query:?}");
+        assert_eq!(app.list.selection_index, 0);
+        assert_eq!(app.detail.search.query, seeded);
+        assert!(app.status.is_error);
+    }
+}
+
+/// Ctrl-n on a pattern that does not compile says so, rather than that no
+/// other commit matches.
+#[test]
+fn ctrl_n_on_an_invalid_pattern_says_it_is_invalid() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "needle");
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("needle(".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.selection_index, 0);
+    assert!(app.status.is_error);
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("Invalid search pattern")
+    );
+}
+
+/// The detail view matches a diff line without its `+` or `-`, as the list
+/// does, so an anchored search finds the lines the list matched the commit by.
+#[test]
+fn an_anchored_search_matches_diff_lines_without_their_prefix() {
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "^needle");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+    open_detail(&mut app, &repo, &mut harness);
+
+    assert_eq!(app.detail.search.query, "^needle");
+    assert_eq!(app.detail.search.matches.len(), 12);
+}
+
+/// An invalid detail pattern leaves the list's own search as it was.
+#[test]
+fn ctrl_n_on_an_invalid_pattern_keeps_the_list_search() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Paths, "c.txt");
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("needle(".to_string());
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    assert_eq!(app.list.search.state.query, "c.txt");
+    assert_eq!(app.list.search.state.matches.len(), 2);
+}
+
+/// A search confirmed with nothing typed is no search to step through.
+#[test]
+fn ctrl_n_on_an_empty_search_says_there_is_none() {
+    use git_tailor::app::KeyCommand;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::MessageAndDiff, "");
+    open_detail(&mut app, &repo, &mut harness);
+
+    press_in_detail(
+        &mut app,
+        &repo,
+        &mut harness,
+        KeyCommand::NextMatchingCommit,
+    );
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("No search to step through")
+    );
+}
+
+/// Lines other than diff lines match as drawn, a label together with its
+/// value.
+#[test]
+fn a_search_matches_across_a_label_and_its_value() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("^Commit: aaa111".to_string());
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert_eq!(app.detail.search.matches.len(), 1);
+}
+
+/// Highlighting follows matching: a diff line's prefix is never highlighted,
+/// even by a pattern that matches the prefix alone.
+#[test]
+fn a_diff_lines_prefix_is_never_highlighted() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed(r"^\+$|needle 3".to_string());
+    let buffer = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert_eq!(app.detail.search.matches.len(), 1);
+    let area = buffer.area;
+    // Column 0 is the scrollbar.
+    let prefixes: Vec<_> = (0..area.height)
+        .filter(|&y| {
+            let row: String = (1..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            row.starts_with('+') && !row.starts_with("+++")
+        })
+        .map(|y| buffer[(1, y)].bg)
+        .collect();
+    assert!(!prefixes.is_empty());
+    assert!(
+        prefixes
+            .iter()
+            .all(|bg| ![Color::Yellow, Color::LightCyan].contains(bg)),
+        "{prefixes:?}"
+    );
 }

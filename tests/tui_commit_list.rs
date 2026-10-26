@@ -669,3 +669,271 @@ fn test_measuring_the_fragmap_separator_leaves_the_viewport_alone() {
         "measuring must not scroll the list"
     );
 }
+
+fn search_key(code: crossterm::event::KeyCode) -> crossterm::event::Event {
+    crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        code,
+        crossterm::event::KeyModifiers::NONE,
+    ))
+}
+
+fn type_search(app: &mut AppState, query: &str) {
+    use crossterm::event::KeyCode;
+    for c in query.chars() {
+        views::commit_list::handle_search_event(search_key(KeyCode::Char(c)), app);
+    }
+}
+
+fn app_to_search() -> AppState {
+    let mut app = AppState::new();
+    app.list.commits = vec![
+        common::create_test_commit("abc123def456", "Initial commit"),
+        common::create_test_commit("def456ghi789", "Add feature X"),
+        common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
+    ];
+    app.list.selection_index = 0;
+    app.list.start_search();
+    app
+}
+
+/// Typing searches as it goes and selects the match; Enter keeps it.
+#[test]
+fn search_typing_selects_the_match_and_enter_keeps_it() {
+    let mut app = app_to_search();
+    type_search(&mut app, "parser");
+
+    assert_eq!(app.list.search.state.matches.len(), 1);
+    assert_eq!(app.list.selection_index, 2);
+
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+    assert!(!app.list.search.state.input_active);
+    assert!(app.list.search.state.active);
+    assert_eq!(app.list.selection_index, 2);
+}
+
+/// Esc while typing dismisses the search and returns to where it started.
+#[test]
+fn search_escape_dismisses() {
+    let mut app = app_to_search();
+    type_search(&mut app, "feat");
+    assert_eq!(app.list.selection_index, 1);
+
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Esc), &mut app);
+    assert!(!app.list.search.state.active);
+    assert!(app.list.search.state.query.is_empty());
+    assert!(app.list.search.state.matches.is_empty());
+    assert_eq!(app.list.selection_index, 0);
+}
+
+/// Quit with a confirmed search clears it rather than leaving the application.
+#[test]
+fn quit_clears_search_before_quitting() {
+    use git_tailor::app::{AppAction, KeyCommand};
+    let mut app = app_to_search();
+    type_search(&mut app, "feat");
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+
+    let action = views::commit_list::handle_key(KeyCommand::Quit, &mut app);
+    assert!(matches!(action, AppAction::Handled));
+    assert!(!app.list.search.state.active);
+
+    let action = views::commit_list::handle_key(KeyCommand::Quit, &mut app);
+    assert!(matches!(action, AppAction::Quit));
+}
+
+/// Snapshot: the search bar sits above the footer while typing.
+#[test]
+fn test_commit_list_search_bar() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    type_search(&mut app, "i");
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// Snapshot: an invalid pattern says so in the bar.
+#[test]
+fn test_commit_list_search_bar_invalid_pattern() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    type_search(&mut app, "(");
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// Rows where `parser` turns up in the summary, in a changed line, or nowhere,
+/// searched for it with the first row selected.
+fn app_searched_for_parser() -> AppState {
+    use git_tailor::{CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
+
+    let commits = vec![
+        common::create_test_commit("abc123def456", "Initial commit"),
+        common::create_test_commit("def456ghi789", "Add the parser"),
+        common::create_test_commit("ghi789jkl012", "Refactor the lexer"),
+        common::create_test_commit("jkl012mno345", "Fix a typo"),
+    ];
+    let lexer_diff = CommitDiff {
+        commit: commits[2].clone(),
+        files: vec![FileDiff {
+            old_path: Some("lexer.rs".into()),
+            new_path: Some("lexer.rs".into()),
+            status: DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![DiffLine {
+                    kind: DiffLineKind::Addition,
+                    content: "// feeds the parser\n".to_string(),
+                }],
+            }],
+        }],
+    };
+    let mut app = AppState::new();
+    app.list.set_rows(commits, vec![lexer_diff]);
+    app.list.selection_index = 0;
+    app.list.start_search();
+    type_search(&mut app, "parser");
+    app
+}
+
+/// Where `text` starts in `buf`.
+fn find_text(buf: &ratatui::buffer::Buffer, text: &str) -> (u16, u16) {
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        let row: String = (area.left()..area.right())
+            .map(|x| buf[(x, y)].symbol())
+            .collect();
+        if let Some(x) = row.find(text) {
+            return (x as u16, y);
+        }
+    }
+    panic!("{text:?} not on screen");
+}
+
+/// Snapshot: every matching row's SHA is marked, the current match more
+/// strongly, and a match in the summary is highlighted there too.
+#[test]
+fn test_commit_list_search_marks_matching_rows() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+
+    insta::assert_debug_snapshot!(harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    }));
+}
+
+/// The match marks stay on in squash select, beside the source's own style.
+#[test]
+fn search_marks_survive_squash_select() {
+    use git_tailor::app::{AppMode, SquashMode};
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+    app.list.selection_index = 3;
+    app.mode = AppMode::SquashSelect {
+        source_index: 3,
+        squash_mode: SquashMode::Squash,
+    };
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    assert_eq!(buf[find_text(&buf, "def456g")].bg, Color::LightCyan);
+    assert_eq!(buf[find_text(&buf, "ghi789j")].bg, Color::Yellow);
+    assert_ne!(buf[find_text(&buf, "Fix a typo")].bg, Color::Yellow);
+}
+
+#[test]
+fn search_marks_follow_the_palette() {
+    use git_tailor::views::palette::{Colors, Scheme};
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_searched_for_parser();
+    app.colors = Colors::Fixed(Scheme::CAMPBELL);
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+
+    assert_eq!(
+        buf[find_text(&buf, "ghi789j")].bg,
+        Color::Rgb(0xc1, 0x9c, 0x00)
+    );
+}
+
+/// `n`/`N` step between the matching commits, wrapping.
+#[test]
+fn search_next_and_prev_step_between_matches() {
+    use git_tailor::app::KeyCommand;
+    let mut app = app_to_search();
+    type_search(&mut app, "i");
+    views::commit_list::handle_search_event(search_key(crossterm::event::KeyCode::Enter), &mut app);
+    assert_eq!(app.list.selection_index, 0);
+
+    assert_eq!(app.list.search.state.matches.len(), 2);
+
+    views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+    views::commit_list::handle_key(KeyCommand::SearchNext, &mut app);
+    assert_eq!(app.list.selection_index, 0);
+    views::commit_list::handle_key(KeyCommand::SearchPrev, &mut app);
+    assert_eq!(app.list.selection_index, 2);
+}
+
+/// Tab steps to the next scope and searches again: the paths scope finds the
+/// commit by the file it changed, not by its message.
+#[test]
+fn search_tab_cycles_the_scope() {
+    use crossterm::event::KeyCode;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut app = app_searched_for_parser();
+    type_search(&mut app, "x");
+    for _ in 0..3 {
+        views::commit_list::handle_search_event(search_key(KeyCode::Tab), &mut app);
+    }
+    assert_eq!(app.list.search.scope, SearchScope::Paths);
+    app.list.search.state.query.clear();
+    type_search(&mut app, "lexer.rs");
+    assert_eq!(app.list.search.state.matches.len(), 1);
+    assert_eq!(app.list.selection_index, 2);
+
+    views::commit_list::handle_search_event(search_key(KeyCode::BackTab), &mut app);
+    assert_eq!(app.list.search.scope, SearchScope::Diff);
+    assert!(app.list.search.state.matches.is_empty());
+}
+
+/// Snapshot: the bar names the scope, and an invalid glob says so.
+#[test]
+fn test_commit_list_search_bar_paths_invalid_glob() {
+    use crossterm::event::KeyCode;
+    let mut harness = TuiTestHarness::typical();
+    let mut app = app_to_search();
+    views::commit_list::handle_search_event(search_key(KeyCode::BackTab), &mut app);
+    type_search(&mut app, "src/[");
+
+    let buf = harness.render(|frame| views::commit_list::render(&mut app, frame));
+    let (_, y) = find_text(&buf, "[paths] /src/[");
+    assert!(find_text(&buf, "[invalid pattern]").1 == y);
+}
+
+/// Smart case: a lowercase query ignores case, an uppercase letter makes it
+/// count, and `--search-case sensitive` always counts it.
+#[test]
+fn search_case_follows_the_setting() {
+    use git_tailor::domain::search::SearchCase;
+    let matches = |case, query: &str| {
+        let mut app = app_to_search();
+        app.set_search_case(case);
+        type_search(&mut app, query);
+        app.list.search.state.matches.len()
+    };
+    assert_eq!(matches(SearchCase::Smart, "fix"), 1);
+    assert_eq!(matches(SearchCase::Smart, "FIX"), 0);
+    assert_eq!(matches(SearchCase::Sensitive, "fix"), 0);
+    assert_eq!(matches(SearchCase::Insensitive, "FIX"), 1);
+}

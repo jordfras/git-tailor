@@ -32,7 +32,7 @@ use clap::{CommandFactory, Parser};
 use git_tailor::repo::{Git2Repo, GitRepo, RepoWrite};
 use git_tailor::{
     CommitDiff, CommitInfo,
-    app::{self, AppAction, AppMode, AppState},
+    app::{self, AppMode, AppState},
     views,
 };
 
@@ -142,6 +142,7 @@ fn main() -> Result<()> {
     app.list.reverse = cli.reverse;
     app.list.scroll_margin = cli.scroll_margin;
     app.theme = cli.matrix_theme.unwrap_or_default();
+    app.set_search_case(cli.search_case);
     app.colors = colors;
     app.reference_oid = reference_oid.clone();
     app.include_reference_oid = include_reference_oid;
@@ -192,22 +193,29 @@ fn main() -> Result<()> {
             app.update_notice = Some(format!("Version {version} available"));
         }
 
-        // When the search-input bar is active in CommitDetail, forward raw
-        // key events to the search handler instead of routing through parse_key.
-        if matches!(app.mode, AppMode::CommitDetail) && app.search.input_active {
-            if app.mode.parse_key(event.clone()) == app::KeyCommand::ForceQuit {
-                break;
+        // While a search bar takes input, forward raw key events to it instead
+        // of routing them through parse_key.
+        let typing_search: Option<fn(crossterm::event::Event, &mut AppState)> = match app.mode {
+            AppMode::CommitDetail if app.detail.search.input_active => {
+                Some(views::commit_detail::handle_search_event)
             }
+            AppMode::CommitList if app.list.search.state.input_active => {
+                Some(views::commit_list::handle_search_event)
+            }
+            _ => None,
+        };
+        // Ctrl-C and Ctrl-Z still quit and suspend while typing, through the
+        // handling below.
+        if let Some(handle_search_event) = typing_search
+            && !matches!(
+                app.mode.parse_key(event.clone()),
+                app::KeyCommand::ForceQuit | app::KeyCommand::Suspend
+            )
+        {
             if dismiss_status {
                 app.clear_status_message();
             }
-            let result = views::commit_detail::handle_search_event(event, &mut app);
-            if matches!(result, AppAction::Quit) {
-                app.should_quit = true;
-            }
-            if app.should_quit {
-                break;
-            }
+            handle_search_event(event, &mut app);
             continue;
         }
 

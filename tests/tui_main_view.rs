@@ -307,3 +307,20 @@ fn a_wrapped_status_message_spans_both_panels() {
     assert_ne!(cell_at(&buf, sep_col, 18), "│", "the footer has two rows");
     insta::assert_debug_snapshot!(buf);
 }
+
+/// Snapshot: in the split view the list's search bar sits left of the
+/// separator.
+#[test]
+fn test_list_search_bar_left_of_separator() {
+    let repo = make_repo_with_empty_diff();
+    let mut harness = TuiTestHarness::wide();
+    let mut app = app_with_commits();
+    app.list.start_search();
+    app.list.search.state.query = "feature".to_string();
+    app.list.search.state.input_active = false;
+    app.list.rerun_search();
+
+    views::commit_detail::load_diff(&repo, &mut app);
+    let buf = harness.render(|frame| views::main_view::render(&mut app, frame));
+    insta::assert_debug_snapshot!(buf);
+}

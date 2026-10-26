@@ -22,7 +22,7 @@ pub mod scroll;
 pub mod search;
 pub mod state;
 
-pub use commit_list::{CommitListState, ScrollMargin, ViewportSnapshot};
+pub use commit_list::{CommitListState, ListSearch, ScrollMargin, ViewportSnapshot};
 pub use detail::{DetailContextLines, DetailState};
 pub use keymap::{KeyCommand, is_force_quit, read_event};
 pub use operation::Operation;

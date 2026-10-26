@@ -8,8 +8,30 @@ The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Press `/` in the commit list to search commit messages and added or removed
+  lines with a regex. Typing selects the first match at or below where the
+  search started, every matching commit's SHA is marked, and a match in the
+  title is highlighted. Enter keeps the selection, `n`/`N` step to the next
+  or previous matching commit, and Esc dismisses the search and returns to
+  where it started. Tab and Shift-Tab while typing switch between searching
+  messages and changed lines, messages only, changed lines only, or changed
+  paths by glob. Opening a commit during a search starts its detail search on
+  the same pattern at the first match, or for a path glob at the first
+  matching file, and a search made in the detail view carries back to the
+  list when it is closed
+- In squash and fixup target selection, `n` selects the commit the changes
+  fold into without conflict, the one drawn green
+- In the commit detail view, Ctrl-n and Ctrl-p open the next and previous
+  commit matching the search, at its first or last match
+
 ### Changed
 
+- Searches ignore case unless the pattern has an uppercase letter of its own
+  (`\S` and the like do not count), in the detail view as well as the commit
+  list. `-S sensitive` or `-S insensitive` (`--search-case`, or
+  `GT_SEARCH_CASE`) changes that
 - Uncommitted changes are now stashed around an operation by default, and put
   back afterwards, instead of the operation refusing to run. The new `--no-stash`
   flag, or `GT_NO_STASH=true`, turns that off — and with it, squashing the Staged
@@ -51,6 +73,12 @@ The format is based on
 
 ### Fixed
 
+- A search in the commit detail view matches an added or removed line without
+  its `+` or `-`, so `^fn` finds a line that starts with `fn`
+- Ctrl and Alt key combinations pressed while typing a search are no longer
+  added to it as letters
+- Ctrl-C while typing a search puts auto-stashed changes back before quitting,
+  as it does everywhere else, and Ctrl-Z suspends
 - `gt --clean-journal` no longer destroys the uncommitted work of an interrupted
   squash of the Staged or Unstaged row when the journal it is discarding cannot
   be read. It could not tell which working tree the journal named, and removed

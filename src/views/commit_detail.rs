@@ -26,6 +26,7 @@ use std::path::Path;
 const HEADER_STYLE: Style = Style::new().fg(Color::White).bg(Color::Green);
 
 use crate::VirtualOid;
+use crate::app::search::SearchDirection;
 use crate::app::{AppAction, AppState, KeyCommand};
 use crate::repo::RepoRead;
 use crate::views::palette::Colors;
@@ -111,7 +112,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         KeyCommand::Search => {
-            app.search.activate();
+            app.detail.search.activate();
             AppAction::Handled
         }
         KeyCommand::SearchNext => {
@@ -122,6 +123,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             search::prev_match(app);
             AppAction::Handled
         }
+        KeyCommand::NextMatchingCommit => open_matching_commit(app, SearchDirection::Next),
+        KeyCommand::PrevMatchingCommit => open_matching_commit(app, SearchDirection::Prev),
         KeyCommand::IncreaseContext => {
             app.detail.increase_context_lines();
             AppAction::LoadDetailDiff
@@ -132,8 +135,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
         KeyCommand::Quit => {
-            if app.search.active {
-                app.search.clear();
+            if app.detail.search.active {
+                app.detail.search.clear();
             } else {
                 app.toggle_detail_view();
             }
@@ -148,6 +151,14 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         _ => AppAction::Handled,
+    }
+}
+
+fn open_matching_commit(app: &mut AppState, dir: SearchDirection) -> AppAction {
+    if app.open_matching_commit(dir) {
+        AppAction::LoadDetailDiff
+    } else {
+        AppAction::Handled
     }
 }
 
@@ -183,6 +194,17 @@ pub fn load_diff(repo: &impl RepoRead, app: &mut AppState) {
     };
 }
 
+/// Scroll to the header of the first file the list's path search matches.
+fn scroll_to_first_matching_file(app: &mut AppState) {
+    let (Some(query), Some(diff)) = (app.list.search.compiled(), &app.detail.diff) else {
+        return;
+    };
+    let first_file = query.first_matching_path(&diff.files);
+    if let Some(&line) = first_file.and_then(|change| app.detail.file_start_lines.get(change.0)) {
+        app.detail.v.scroll_to(line);
+    }
+}
+
 /// Render the commit detail view.
 ///
 /// Displays commit metadata and diff in the right panel.
@@ -200,7 +222,7 @@ pub fn render_without_footer(frame: &mut Frame, app: &mut AppState, area: Rect) 
 fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_height: u16) {
     // Split area into header, content, optional search bar, and footer.
     // When search is active the search bar occupies one row above the footer.
-    let search_bar_height: u16 = if app.search.active { 1 } else { 0 };
+    let search_bar_height: u16 = if app.detail.search.active { 1 } else { 0 };
     let [header_area, content_area, search_bar_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
@@ -233,13 +255,15 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
 
         let mut content = build_metadata_lines(&selected, app.colors);
         let mut file_start_lines = Vec::new();
+        let mut prefixed_lines = Vec::new();
         if let Some(diff) = &app.detail.diff
             && !diff.files.is_empty()
         {
             content.extend(build_file_list_lines(&diff.files, app.colors));
-            let (diff_lines, file_offsets) = build_diff_lines(&diff.files, app.colors);
+            let (diff_lines, file_offsets, prefixed) = build_diff_lines(&diff.files, app.colors);
             let diff_start = content.len();
             file_start_lines = file_offsets.iter().map(|&o| diff_start + o).collect();
+            prefixed_lines = prefixed.iter().map(|&o| diff_start + o).collect();
             content.extend(diff_lines);
         }
         app.detail.file_start_lines = file_start_lines;
@@ -258,7 +282,11 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
             .h
             .set_bounds(layout.max_h_scroll, layout.text_area_width);
 
-        (content, search_info) = search::apply(app, content);
+        if std::mem::take(&mut app.detail.scroll_to_matching_path) {
+            scroll_to_first_matching_file(app);
+        }
+
+        (content, search_info) = search::apply(app, content, &prefixed_lines);
 
         let scroll_offset = app.detail.v.offset;
         let h_scroll = app.detail.h.offset;
@@ -287,8 +315,15 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
     }
 
     // Render search bar (row above footer, only when search is active)
-    if app.search.active {
-        search::render_bar(frame, app, search_info, search_bar_area);
+    if app.detail.search.active {
+        super::search_bar::render(
+            frame,
+            &app.detail.search,
+            None,
+            search_info,
+            app.colors,
+            search_bar_area,
+        );
     }
 
     super::commit_list::render_footer(frame, app, footer_area);
@@ -404,9 +439,12 @@ pub(super) fn hunkless_marker(file: &crate::FileDiff) -> &'static str {
 }
 
 /// Build the "Diff:" section with file headers, hunk headers, and +/- lines.
-/// Returns the lines and a vec of indices (within the returned vec) where each
-/// file's `--- ` header starts.
-fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'static>>, Vec<usize>) {
+/// Returns the lines and two vecs of indices within them: where each file's
+/// `--- ` header starts, and the lines drawn with a `+`, `-` or ` ` prefix.
+fn build_diff_lines(
+    files: &[crate::FileDiff],
+    colors: Colors,
+) -> (Vec<Line<'static>>, Vec<usize>, Vec<usize>) {
     let white = colors.resolve(Color::White);
     let mut lines = vec![
         Line::from(""),
@@ -418,6 +456,7 @@ fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'sta
     ];
 
     let mut file_header_indices: Vec<usize> = Vec::new();
+    let mut prefixed_lines = Vec::new();
 
     for file in files {
         let old_path = diff_path_with_prefix(file.old_path.as_deref(), "a");
@@ -461,17 +500,18 @@ fn build_diff_lines(files: &[crate::FileDiff], colors: Colors) -> (Vec<Line<'sta
                     DiffLineKind::Context => (" ", Style::default().fg(white)),
                 };
                 let content_str = diff_line.content.trim_end_matches(['\n', '\r']);
-                lines.push(Line::from(Span::styled(
-                    format!("{}{}", prefix, content_str),
-                    style,
-                )));
+                prefixed_lines.push(lines.len());
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled(content_str.to_string(), style),
+                ]));
             }
         }
 
         lines.push(Line::from(""));
     }
 
-    (lines, file_header_indices)
+    (lines, file_header_indices, prefixed_lines)
 }
 
 /// Geometry produced by [`compute_scroll_layout`].

@@ -12,81 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Regex search within the commit detail view — query entry, match navigation,
-// highlighting, and the search bar.
+// Regex search within the commit detail view: matching the content,
+// highlighting matches, and scrolling to them.
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-};
-use regex::RegexBuilder;
+use crossterm::event::Event;
+use ratatui::text::{Line, Span};
 
-use crate::app::{AppAction, AppState};
+use crate::app::AppState;
+use crate::app::search::{QueryEdit, SearchDirection};
+use crate::domain::search::search_regex;
 use crate::views::palette::Colors;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SearchDirection {
-    Next,
-    Prev,
-}
-
-/// Transient info about the search bar, computed during render.
-pub(super) enum SearchBarInfo {
-    NoMatches,
-    InvalidPattern,
-    Matches { current: usize, total: usize },
-}
+use crate::views::search_bar::SearchBarInfo;
+use crate::views::search_match::{highlight_matches, match_style};
 
 /// Handle raw keyboard events while the search input bar is active.
 ///
 /// Called from main.rs before `parse_key` so that character keys are
 /// captured as search-query input rather than dispatched as commands.
-pub fn handle_search_event(event: Event, app: &mut AppState) -> AppAction {
-    if let Event::Key(KeyEvent {
-        code,
-        kind,
-        modifiers,
-        ..
-    }) = event
-        && kind == event::KeyEventKind::Press
-    {
-        if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
-            return AppAction::Quit;
-        }
-        match code {
-            KeyCode::Esc => {
-                app.search.clear();
-            }
-            KeyCode::Enter => {
-                app.search.input_active = false;
-                // Jump to the first match at or after the current scroll
-                // position, wrapping to match 0 when all matches lie above —
-                // the same behavior as `less`.
-                if !app.search.matches.is_empty() {
-                    let next_idx = app
-                        .search
-                        .matches
-                        .iter()
-                        .position(|&line| line >= app.detail.v.offset)
-                        .unwrap_or(0);
-                    app.search.match_index = Some(next_idx);
-                    scroll_to_current_match(app);
-                }
-            }
-            KeyCode::Backspace => {
-                app.search.query.pop();
-            }
-            KeyCode::Char(c) => {
-                app.search.query.push(c);
-            }
-            _ => {}
-        }
+pub fn handle_search_event(event: Event, app: &mut AppState) {
+    if app.detail.search.edit(&event) != QueryEdit::Confirmed {
+        return;
     }
-    AppAction::Handled
+    // Jump to the first match at or after the current scroll position,
+    // wrapping to match 0 when all matches lie above — the same behavior as
+    // `less`.
+    let search = &mut app.detail.search;
+    if !search.matches.is_empty() {
+        let next_idx = search
+            .matches
+            .iter()
+            .position(|&line| line >= app.detail.v.offset)
+            .unwrap_or(0);
+        search.match_index = Some(next_idx);
+        scroll_to_current_match(app);
+    }
 }
 
 /// Advance to the next search match, wrapping around.
@@ -99,25 +58,9 @@ pub(super) fn prev_match(app: &mut AppState) {
     advance_search_match(app, SearchDirection::Prev);
 }
 
-/// Advance to the next or previous search match, wrapping around.
 fn advance_search_match(app: &mut AppState, dir: SearchDirection) {
-    if !app.search.active || app.search.matches.is_empty() {
-        return;
-    }
-    let len = app.search.matches.len();
-    app.search.match_index = Some(next_match_index(app.search.match_index, len, dir));
-    scroll_to_current_match(app);
-}
-
-/// Return the next match index given the current index, list length, and direction.
-/// Wraps around at both ends.
-fn next_match_index(current: Option<usize>, len: usize, dir: SearchDirection) -> usize {
-    match (current, dir) {
-        (Some(idx), SearchDirection::Next) => (idx + 1) % len,
-        (Some(0), SearchDirection::Prev) => len - 1,
-        (Some(idx), SearchDirection::Prev) => idx - 1,
-        (None, SearchDirection::Next) => 0,
-        (None, SearchDirection::Prev) => len - 1,
+    if let Some(&target_line) = app.detail.search.advance(dir) {
+        center_on_line(app, target_line);
     }
 }
 
@@ -136,8 +79,8 @@ fn center_on_line(app: &mut AppState, target_line: usize) {
 
 /// Scroll the detail view so the current search match line is visible.
 fn scroll_to_current_match(app: &mut AppState) {
-    if let Some(match_idx) = app.search.match_index
-        && let Some(&target_line) = app.search.matches.get(match_idx)
+    if let Some(match_idx) = app.detail.search.match_index
+        && let Some(&target_line) = app.detail.search.matches.get(match_idx)
     {
         center_on_line(app, target_line);
     }
@@ -145,125 +88,112 @@ fn scroll_to_current_match(app: &mut AppState) {
 
 /// Compute matches, auto-scroll to a newly selected one, and highlight the
 /// content lines. Returns the (possibly highlighted) content plus the info the
-/// search bar should display.
+/// search bar should display. `prefixed_lines`, in ascending order, are the
+/// diff lines whose first span is their `+`, `-` or ` ` prefix.
 pub(super) fn apply(
     app: &mut AppState,
     mut content: Vec<Line<'static>>,
+    prefixed_lines: &[usize],
 ) -> (Vec<Line<'static>>, Option<SearchBarInfo>) {
     let mut search_info = None;
-    if app.search.active && !app.search.query.is_empty() {
-        match RegexBuilder::new(&app.search.query).build() {
+    let start_at_last = std::mem::take(&mut app.detail.start_at_last_match);
+    if app.detail.search.active && !app.detail.search.query.is_empty() {
+        match search_regex(&app.detail.search.query, app.detail.search_case) {
             Ok(regex) => {
-                let (info, prev_match_index) = compute_search_matches(app, &content, &regex);
+                let (info, prev_match_index) =
+                    compute_search_matches(app, &content, prefixed_lines, &regex, start_at_last);
                 search_info = info;
-                if !app.search.matches.is_empty() {
-                    if !app.search.input_active {
+                if !app.detail.search.matches.is_empty() {
+                    if !app.detail.search.input_active {
                         auto_scroll_to_new_match(app, prev_match_index);
                     }
-                    content = apply_search_highlighting(content, app, &regex, app.colors);
+                    content =
+                        apply_search_highlighting(content, app, prefixed_lines, &regex, app.colors);
                 }
             }
             Err(_) => {
-                app.search.matches.clear();
-                app.search.match_index = None;
+                app.detail.search.matches.clear();
+                app.detail.search.match_index = None;
                 search_info = Some(SearchBarInfo::InvalidPattern);
             }
         }
-    } else if !app.search.active {
-        app.search.matches.clear();
-        app.search.match_index = None;
+    } else if !app.detail.search.active {
+        app.detail.search.matches.clear();
+        app.detail.search.match_index = None;
     }
     (content, search_info)
 }
 
-/// Highlight regex matches within a single styled Span, returning one or more
-/// replacement Spans.
-fn highlight_span_matches(
-    span: &Span<'_>,
-    regex: &regex::Regex,
-    highlight_style: Style,
-) -> Vec<Span<'static>> {
-    let text = span.content.as_ref();
-    let style = span.style;
-    let mut result = Vec::new();
-    let mut last_end = 0;
-
-    for m in regex.find_iter(text) {
-        if m.start() > last_end {
-            result.push(Span::styled(text[last_end..m.start()].to_string(), style));
-        }
-        result.push(Span::styled(
-            text[m.start()..m.end()].to_string(),
-            highlight_style,
-        ));
-        last_end = m.end();
-    }
-    if last_end < text.len() {
-        result.push(Span::styled(text[last_end..].to_string(), style));
-    }
-    if result.is_empty() {
-        result.push(Span::styled(text.to_string(), style));
-    }
-    result
-}
-
-/// Apply search-match highlighting to an entire Line.
+/// Apply search-match highlighting to an entire Line, leaving a diff line's
+/// prefix span alone as matching does.
 fn highlight_line_matches(
     line: Line<'_>,
+    is_prefixed: bool,
     regex: &regex::Regex,
     is_current_match: bool,
     colors: Colors,
 ) -> Line<'static> {
-    let highlight_style = if is_current_match {
-        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::LightCyan))
-    } else {
-        colors.resolve_style(Style::default().fg(Color::Black).bg(Color::Yellow))
-    };
-    let new_spans: Vec<Span<'static>> = line
+    let highlight_style = match_style(is_current_match, colors);
+    let (prefix, rest) = line
         .spans
+        .split_at(usize::from(is_prefixed).min(line.spans.len()));
+    let spans = prefix
         .iter()
-        .flat_map(|span| highlight_span_matches(span, regex, highlight_style))
-        .collect();
-    Line::from(new_spans)
+        .map(|span| Span::styled(span.content.to_string(), span.style))
+        .chain(
+            rest.iter()
+                .flat_map(|span| highlight_matches(span, regex, highlight_style)),
+        );
+    Line::from(spans.collect::<Vec<_>>())
 }
 
-/// Return the plain-text content of a Line (all spans concatenated).
-fn line_text(line: &Line<'_>) -> String {
-    line.spans.iter().map(|s| s.content.as_ref()).collect()
+/// The text a search matches `line` against: all of it, without the prefix
+/// span of a diff line, as the commit list matches changed lines.
+fn line_text(line: &Line<'_>, is_prefixed: bool) -> String {
+    let skip = usize::from(is_prefixed);
+    line.spans
+        .iter()
+        .skip(skip)
+        .map(|s| s.content.as_ref())
+        .collect()
 }
 
-/// Find all content lines matching `regex`, update `app.search.matches` and
-/// `app.search.match_index`, and return the corresponding `SearchBarInfo` plus
+/// Find all content lines matching `regex`, update `app.detail.search.matches` and
+/// `app.detail.search.match_index`, and return the corresponding `SearchBarInfo` plus
 /// the previous match index (so callers can detect whether it changed).
 fn compute_search_matches(
     app: &mut AppState,
     content: &[Line<'_>],
+    prefixed_lines: &[usize],
     regex: &regex::Regex,
+    start_at_last: bool,
 ) -> (Option<SearchBarInfo>, Option<usize>) {
-    let prev_match_index = app.search.match_index;
+    let prev_match_index = app.detail.search.match_index;
 
-    app.search.matches = content
+    app.detail.search.matches = content
         .iter()
         .enumerate()
-        .filter(|(_, line)| regex.is_match(&line_text(line)))
+        .filter(|&(i, line)| {
+            regex.is_match(&line_text(line, prefixed_lines.binary_search(&i).is_ok()))
+        })
         .map(|(i, _)| i)
         .collect();
 
-    if app.search.matches.is_empty() {
-        app.search.match_index = None;
+    if app.detail.search.matches.is_empty() {
+        app.detail.search.match_index = None;
         (Some(SearchBarInfo::NoMatches), prev_match_index)
     } else {
-        match app.search.match_index {
-            None => app.search.match_index = Some(0),
-            Some(idx) if idx >= app.search.matches.len() => {
-                app.search.match_index = Some(app.search.matches.len() - 1);
-            }
+        let last = app.detail.search.matches.len() - 1;
+        match app.detail.search.match_index {
+            _ if start_at_last => app.detail.search.match_index = Some(last),
+            None => app.detail.search.match_index = Some(0),
+            Some(idx) if idx > last => app.detail.search.match_index = Some(last),
             _ => {}
         }
         (
             Some(SearchBarInfo::Matches {
-                current: app.search.match_index.unwrap(),
-                total: app.search.matches.len(),
+                current: app.detail.search.match_index.unwrap(),
+                total: app.detail.search.matches.len(),
             }),
             prev_match_index,
         )
@@ -274,10 +204,10 @@ fn compute_search_matches(
 /// match index actually changed (first match found or index clamped). This
 /// avoids overriding manual arrow/PageUp/PageDown scrolling on every render.
 fn auto_scroll_to_new_match(app: &mut AppState, prev_match_index: Option<usize>) {
-    if app.search.match_index != prev_match_index
-        && let Some(mi) = app.search.match_index
+    if app.detail.search.match_index != prev_match_index
+        && let Some(mi) = app.detail.search.match_index
     {
-        center_on_line(app, app.search.matches[mi]);
+        center_on_line(app, app.detail.search.matches[mi]);
     }
 }
 
@@ -285,92 +215,22 @@ fn auto_scroll_to_new_match(app: &mut AppState, prev_match_index: Option<usize>)
 fn apply_search_highlighting(
     content: Vec<Line<'_>>,
     app: &AppState,
+    prefixed_lines: &[usize],
     regex: &regex::Regex,
     colors: Colors,
 ) -> Vec<Line<'static>> {
-    let current_match_line = app.search.match_index.map(|i| app.search.matches[i]);
+    let current_match_line = app
+        .detail
+        .search
+        .match_index
+        .map(|i| app.detail.search.matches[i]);
     content
         .into_iter()
         .enumerate()
         .map(|(i, line)| {
             let is_current = current_match_line == Some(i);
-            highlight_line_matches(line, regex, is_current, colors)
+            let is_prefixed = prefixed_lines.binary_search(&i).is_ok();
+            highlight_line_matches(line, is_prefixed, regex, is_current, colors)
         })
         .collect()
-}
-
-/// Render the search bar widget into the given area.
-pub(super) fn render_bar(
-    frame: &mut Frame,
-    app: &AppState,
-    search_info: Option<SearchBarInfo>,
-    area: Rect,
-) {
-    let colors = app.colors;
-    let dark_gray = colors.resolve(Color::DarkGray);
-    let red = colors.resolve(Color::Red);
-    let mut bar_spans = vec![
-        Span::styled("/", Style::default().fg(dark_gray)),
-        Span::styled(
-            app.search.query.clone(),
-            Style::default().fg(colors.resolve(Color::White)),
-        ),
-    ];
-    if app.search.input_active {
-        bar_spans.push(Span::styled("█", Style::default().fg(dark_gray)));
-    }
-    match search_info {
-        Some(SearchBarInfo::NoMatches) => {
-            bar_spans.push(Span::styled("  [no matches]", Style::default().fg(red)));
-        }
-        Some(SearchBarInfo::InvalidPattern) => {
-            bar_spans.push(Span::styled(
-                "  [invalid pattern]",
-                Style::default().fg(red),
-            ));
-        }
-        Some(SearchBarInfo::Matches { current, total }) => {
-            bar_spans.push(Span::styled(
-                format!("  [{}/{}]", current + 1, total),
-                Style::default().fg(dark_gray),
-            ));
-        }
-        None => {}
-    }
-    frame.render_widget(Paragraph::new(Line::from(bar_spans)), area);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn next_from_none_forward() {
-        assert_eq!(next_match_index(None, 5, SearchDirection::Next), 0);
-    }
-
-    #[test]
-    fn next_from_none_backward() {
-        assert_eq!(next_match_index(None, 5, SearchDirection::Prev), 4);
-    }
-
-    #[test]
-    fn next_wraps_forward() {
-        assert_eq!(next_match_index(Some(4), 5, SearchDirection::Next), 0);
-    }
-
-    #[test]
-    fn next_wraps_backward() {
-        assert_eq!(next_match_index(Some(0), 5, SearchDirection::Prev), 4);
-    }
-
-    #[test]
-    fn next_advances_forward() {
-        assert_eq!(next_match_index(Some(2), 5, SearchDirection::Next), 3);
-    }
-
-    #[test]
-    fn next_advances_backward() {
-        assert_eq!(next_match_index(Some(3), 5, SearchDirection::Prev), 2);
-    }
 }

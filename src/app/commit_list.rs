@@ -14,9 +14,18 @@
 
 // The commit list: its rows, which one is selected, and where it is scrolled.
 
+mod search;
+
+use std::collections::HashMap;
+
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
-use crate::{CommitInfo, Oid, VirtualOid};
+use crate::app::search::{SearchDirection, SearchState};
+use crate::domain::search::{CommitQuery, SearchScope};
+use crate::fragmap::CommitPos;
+use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
+
+pub use search::ListSearch;
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -56,6 +65,10 @@ impl ScrollMargin {
 pub struct CommitListState {
     /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
     pub commits: Vec<CommitInfo>,
+    /// Each row's changes, as read for the hunk group matrix. Keyed by oid
+    /// rather than kept in row order so that rows written without it can only
+    /// lack a diff, never be handed another row's.
+    diffs: HashMap<VirtualOid, Vec<FileDiff>>,
     /// The branch tip `commits` were listed from. Every rewrite is handed it,
     /// so one chosen from this list is refused once the branch has moved.
     pub tip: Oid,
@@ -72,6 +85,8 @@ pub struct CommitListState {
     pub scroll: ScrollState,
     /// Rows kept between the cursor and the top or bottom of the list.
     pub scroll_margin: ScrollMargin,
+    /// The `/` search over the rows.
+    pub search: ListSearch,
     /// Selection the viewport was last settled against, so `follow_selection`
     /// can tell the cursor having moved from the viewport having been scrolled
     /// under a standing cursor. Bookkeeping, so unlike its neighbors it is
@@ -100,6 +115,123 @@ impl CommitListState {
             selection_index,
             ..Default::default()
         }
+    }
+
+    /// Replace the rows and their diffs together, so neither outlives a load
+    /// of the other. An active search is matched against the new rows; which
+    /// match is current waits for [`Self::point_search_at_selection`], once the
+    /// selection is settled.
+    pub fn set_rows(&mut self, commits: Vec<CommitInfo>, diffs: Vec<CommitDiff>) {
+        self.commits = commits;
+        self.diffs = diffs
+            .into_iter()
+            .map(|diff| (diff.commit.oid, diff.files))
+            .collect();
+        if self.search.state.active {
+            self.match_rows();
+        }
+    }
+
+    /// The changes of the row `oid`, `None` when none were loaded for it.
+    pub fn diff_files(&self, oid: &VirtualOid) -> Option<&[FileDiff]> {
+        self.diffs.get(oid).map(Vec::as_slice)
+    }
+
+    /// Open the search bar, searching from the selected row.
+    pub fn start_search(&mut self) {
+        self.search.activate(CommitPos(self.selection_index));
+    }
+
+    /// Search for the query typed so far and select the current match, or
+    /// the row the search started from while nothing matches.
+    pub fn search_as_typed(&mut self) {
+        let origin = self.search.origin;
+        self.match_rows();
+        let found = self.match_from(origin, SearchDirection::Next, true);
+        self.search.state.match_index = found;
+        self.selection_index = found.map_or(origin, |i| self.search.state.matches[i]).0;
+        self.clamp_selection();
+    }
+
+    /// Search for `query` as if it had been typed and entered, leaving the
+    /// selection where it is. A path glob scope becomes message + diff, since
+    /// `query` is a regex.
+    pub fn adopt_search(&mut self, query: String) {
+        if self.search.scope == SearchScope::Paths {
+            self.search.scope = SearchScope::MessageAndDiff;
+        }
+        self.start_search();
+        self.search.state = SearchState::confirmed(query);
+        self.rerun_search();
+    }
+
+    /// Dismiss the search being typed and select the row it started from.
+    pub fn cancel_search(&mut self) {
+        self.selection_index = self.search.origin.0;
+        self.clamp_selection();
+        self.search.clear();
+    }
+
+    /// Select the next or previous match on screen from the selection,
+    /// wrapping.
+    pub fn step_search(&mut self, dir: SearchDirection) {
+        if !self.search.state.active {
+            return;
+        }
+        let selection = CommitPos(self.selection_index);
+        if let Some(i) = self.match_from(selection, dir, false) {
+            self.search.state.match_index = Some(i);
+            self.selection_index = self.search.state.matches[i].0;
+        }
+    }
+
+    /// Match the search query against the rows again, after they changed,
+    /// leaving the selection where it is.
+    pub fn rerun_search(&mut self) {
+        self.match_rows();
+        self.point_search_at_selection();
+    }
+
+    /// Make the current match the first at or past the selection.
+    pub fn point_search_at_selection(&mut self) {
+        let selection = CommitPos(self.selection_index);
+        self.search.state.match_index = self.match_from(selection, SearchDirection::Next, true);
+    }
+
+    fn match_rows(&mut self) {
+        self.search.compile();
+        self.search.state.matches = match self.search.compiled() {
+            Some(query) => self.matching_rows(query),
+            None => Vec::new(),
+        };
+    }
+
+    /// The index of the first match past `from` going `dir` on screen,
+    /// wrapping around, counting `from` itself when `inclusive`.
+    fn match_from(&self, from: CommitPos, dir: SearchDirection, inclusive: bool) -> Option<usize> {
+        let matches = &self.search.state.matches;
+        // Drawn newest first, "next" is toward the oldest row.
+        let toward_newer = (dir == SearchDirection::Next) != self.reverse;
+        let is_past = |&pos: &CommitPos| {
+            (inclusive && pos == from) || if toward_newer { pos > from } else { pos < from }
+        };
+        if toward_newer {
+            let first = (!matches.is_empty()).then_some(0);
+            matches.iter().position(is_past).or(first)
+        } else {
+            let last = matches.len().checked_sub(1);
+            matches.iter().rposition(is_past).or(last)
+        }
+    }
+
+    /// The rows `query` matches, in row order.
+    pub fn matching_rows(&self, query: &CommitQuery) -> Vec<CommitPos> {
+        self.commits
+            .iter()
+            .enumerate()
+            .filter(|(_, commit)| query.matches(commit, self.diff_files(&commit.oid)))
+            .map(|(row, _)| CommitPos(row))
+            .collect()
     }
 
     /// The selected row, if the index is in range.
@@ -311,6 +443,258 @@ mod tests {
             selection_index: selection,
             ..Default::default()
         }
+    }
+
+    fn diff_touching(commit: &CommitInfo, path: &str) -> CommitDiff {
+        CommitDiff {
+            commit: commit.clone(),
+            files: vec![FileDiff {
+                old_path: Some(path.into()),
+                new_path: Some(path.into()),
+                status: crate::DeltaStatus::Modified,
+                is_binary: false,
+                hunks: vec![],
+            }],
+        }
+    }
+
+    fn paths_of(list: &CommitListState, oid: &VirtualOid) -> Option<Vec<String>> {
+        list.diff_files(oid).map(|files| {
+            files
+                .iter()
+                .map(|f| f.new_path.as_ref().unwrap().display().to_string())
+                .collect()
+        })
+    }
+
+    #[test]
+    fn set_rows_keeps_each_rows_diff() {
+        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
+        let staged = CommitInfo {
+            oid: VirtualOid::Staged,
+            ..create_test_commit(&format!("{:040x}", 2), "staged")
+        };
+        let mut list = CommitListState::default();
+        list.set_rows(
+            vec![commit.clone(), staged.clone()],
+            vec![
+                diff_touching(&commit, "a.txt"),
+                diff_touching(&staged, "b.txt"),
+            ],
+        );
+
+        assert_eq!(paths_of(&list, &commit.oid), Some(vec!["a.txt".into()]));
+        assert_eq!(
+            paths_of(&list, &VirtualOid::Staged),
+            Some(vec!["b.txt".into()])
+        );
+    }
+
+    #[test]
+    fn diff_files_is_none_for_a_row_without_a_diff() {
+        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
+        let mut list = CommitListState::default();
+        list.set_rows(vec![commit.clone()], vec![]);
+
+        assert_eq!(paths_of(&list, &commit.oid), None);
+    }
+
+    #[test]
+    fn set_rows_drops_the_previous_loads_diffs() {
+        let old = create_test_commit(&format!("{:040x}", 1), "old");
+        let new = create_test_commit(&format!("{:040x}", 2), "new");
+        let mut list = CommitListState::default();
+        list.set_rows(vec![old.clone()], vec![diff_touching(&old, "a.txt")]);
+        list.set_rows(vec![new.clone()], vec![diff_touching(&new, "b.txt")]);
+
+        assert_eq!(paths_of(&list, &old.oid), None);
+        assert_eq!(paths_of(&list, &new.oid), Some(vec!["b.txt".into()]));
+    }
+
+    #[test]
+    fn search_reports_matching_rows_by_position() {
+        use crate::domain::search::SearchScope;
+        let commits: Vec<CommitInfo> = (0..3)
+            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
+            .collect();
+        let mut list = CommitListState::default();
+        list.set_rows(
+            commits.clone(),
+            vec![
+                diff_touching(&commits[0], "a.txt"),
+                diff_touching(&commits[1], "b.txt"),
+            ],
+        );
+
+        let rows = |scope, pattern| -> Vec<CommitPos> {
+            let query =
+                CommitQuery::new(scope, pattern, crate::domain::search::SearchCase::Sensitive)
+                    .unwrap();
+            list.matching_rows(&query)
+        };
+        assert_eq!(rows(SearchScope::Paths, "b.txt"), vec![CommitPos(1)]);
+        // The last row has no diff, so only its message can match.
+        assert_eq!(
+            rows(SearchScope::Message, "c[02]"),
+            vec![CommitPos(0), CommitPos(2)]
+        );
+    }
+
+    /// Rows `c0`..`c5`, `selection` selected, searching for `query`.
+    fn searched(selection: usize, reverse: bool, query: &str) -> CommitListState {
+        let mut list = list_of(6, selection);
+        list.reverse = reverse;
+        list.start_search();
+        list.search.state.query = query.to_string();
+        list.search_as_typed();
+        list
+    }
+
+    fn current_match(list: &CommitListState) -> Option<CommitPos> {
+        let state = &list.search.state;
+        state.match_index.map(|i| state.matches[i])
+    }
+
+    #[test]
+    fn search_starts_from_the_first_match_at_or_below_the_selection() {
+        let list = searched(2, false, "c[135]");
+        assert_eq!(
+            list.search.state.matches,
+            vec![CommitPos(1), CommitPos(3), CommitPos(5)]
+        );
+        assert_eq!(current_match(&list), Some(CommitPos(3)));
+        assert_eq!(
+            current_match(&searched(3, false, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(5, false, "c[01]")),
+            Some(CommitPos(0))
+        );
+    }
+
+    #[test]
+    fn search_drawn_newest_first_looks_toward_older_rows() {
+        assert_eq!(
+            current_match(&searched(4, true, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(0, true, "c[45]")),
+            Some(CommitPos(5))
+        );
+    }
+
+    #[test]
+    fn search_with_no_query_or_an_invalid_one_matches_nothing() {
+        let empty = searched(0, false, "");
+        assert!(empty.search.state.matches.is_empty());
+        assert!(!empty.search.pattern_is_invalid());
+
+        let invalid = searched(0, false, "c(");
+        assert!(invalid.search.state.matches.is_empty());
+        assert!(invalid.search.pattern_is_invalid());
+    }
+
+    #[test]
+    fn typing_selects_the_current_match() {
+        assert_eq!(searched(2, false, "c[135]").selection_index, 3);
+    }
+
+    #[test]
+    fn typing_searches_from_where_the_search_started() {
+        let mut list = searched(2, false, "c");
+        assert_eq!(list.selection_index, 2);
+        list.search.state.query = "c[135]".to_string();
+        list.search_as_typed();
+        assert_eq!(list.selection_index, 3);
+    }
+
+    #[test]
+    fn typing_returns_to_the_origin_while_nothing_matches() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.query = "nothing".to_string();
+        list.search_as_typed();
+        assert_eq!(list.selection_index, 2);
+    }
+
+    #[test]
+    fn canceling_a_search_returns_to_the_origin() {
+        let mut list = searched(2, false, "c[135]");
+        list.cancel_search();
+        assert_eq!(list.selection_index, 2);
+        assert!(!list.search.state.active);
+    }
+
+    #[test]
+    fn rerunning_a_search_leaves_the_selection_alone() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.input_active = false;
+        list.selection_index = 4;
+        list.rerun_search();
+        assert_eq!(list.selection_index, 4);
+        assert_eq!(current_match(&list), Some(CommitPos(5)));
+    }
+
+    fn stepped(mut list: CommitListState, dir: SearchDirection) -> usize {
+        list.search.state.input_active = false;
+        list.step_search(dir);
+        list.selection_index
+    }
+
+    #[test]
+    fn stepping_moves_to_the_next_or_previous_match_wrapping() {
+        let list = || searched(3, false, "c[135]");
+        assert_eq!(stepped(list(), SearchDirection::Next), 5);
+        assert_eq!(stepped(list(), SearchDirection::Prev), 1);
+        assert_eq!(
+            stepped(searched(5, false, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(1, false, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_starts_from_the_selection_not_the_last_match() {
+        let mut list = searched(1, false, "c[135]");
+        list.selection_index = 4;
+        assert_eq!(stepped(list, SearchDirection::Next), 5);
+    }
+
+    #[test]
+    fn stepping_drawn_newest_first_goes_toward_older_rows() {
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_without_a_search_does_nothing() {
+        let mut list = list_of(6, 2);
+        list.step_search(SearchDirection::Next);
+        assert_eq!(list.selection_index, 2);
+    }
+
+    #[test]
+    fn set_rows_reruns_an_active_search() {
+        let mut list = searched(0, false, "new");
+        assert!(list.search.state.matches.is_empty());
+        list.set_rows(
+            vec![
+                create_test_commit(&format!("{:040x}", 7), "old"),
+                create_test_commit(&format!("{:040x}", 8), "new"),
+            ],
+            vec![],
+        );
+        assert_eq!(list.search.state.matches, vec![CommitPos(1)]);
     }
 
     #[test]

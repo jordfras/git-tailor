@@ -1,6 +1,6 @@
 ---
 source: tests/tui_squash_select.rs
-expression: buffer
+expression: "harness.render(|frame| views::commit_list::render(&mut app, frame))"
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 10 },
@@ -14,7 +14,7 @@ Buffer {
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " Squash cccc5555 "Fix config typo" into… · Enter confirm · Esc cancel           ",
+        " Squash cccc5555 "Fix config typo" into… · n target · Enter confirm · Esc cancel",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -53,8 +53,10 @@ Buffer {
         x: 8, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
         x: 16, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
         x: 43, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 48, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 59, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 62, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 44, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 54, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 59, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 70, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 73, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
     ]
 }

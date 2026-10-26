@@ -37,6 +37,11 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
+    if matches!(action, KeyCommand::SearchNext | KeyCommand::SearchPrev) {
+        select_squash_target(app, source_index);
+        return AppAction::Handled;
+    }
+
     let len = app.list.commits.len();
     let page_size = app.list.scroll.visible_height;
     let reverse = app.list.reverse;
@@ -77,6 +82,22 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             AppAction::Handled
         }
         ListNav::Unhandled => AppAction::Handled,
+    }
+}
+
+/// Select the commit the source folds into without conflict. There is at most
+/// one: folding past a nearer commit touching the same lines would conflict.
+fn select_squash_target(app: &mut AppState, source_index: usize) {
+    let Some(fragmap) = &app.fragmap else {
+        app.set_error_message("No hunk group matrix to find a squash target in");
+        return;
+    };
+    let target = fragmap
+        .squash_target(source_index)
+        .filter(|&target| !app.list.commits[target].oid.is_synthetic());
+    match target {
+        Some(target) => app.list.selection_index = target,
+        None => app.set_error_message("No earlier commit takes these changes without conflict"),
     }
 }
 

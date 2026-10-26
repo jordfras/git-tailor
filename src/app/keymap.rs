@@ -65,6 +65,8 @@ pub enum KeyCommand {
     Search,
     SearchNext,
     SearchPrev,
+    NextMatchingCommit,
+    PrevMatchingCommit,
     IncreaseContext,
     DecreaseContext,
     Quit,
@@ -163,6 +165,8 @@ impl AppMode {
                     KeyCode::Char('u') => return KeyCommand::HalfPageUp,
                     // Ctrl-R: redo (vim convention).
                     KeyCode::Char('r') => return KeyCommand::Redo,
+                    KeyCode::Char('n') => return KeyCommand::NextMatchingCommit,
+                    KeyCode::Char('p') => return KeyCommand::PrevMatchingCommit,
                     // Ctrl-PageDown / Ctrl-PageUp: half-page scroll.
                     KeyCode::PageDown => return KeyCommand::HalfPageDown,
                     KeyCode::PageUp => return KeyCommand::HalfPageUp, // Ctrl-a / Ctrl-e: scroll to left/right edge (emacs convention).
