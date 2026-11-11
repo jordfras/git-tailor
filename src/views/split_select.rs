@@ -50,7 +50,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         }
         ListNav::Confirmed => {
             let strategy = SplitStrategy::ALL[strategy_index];
-            let commit_oid = app.list.commits[app.list.selection_index]
+            let commit_oid = app.list.rows()[app.list.selection_index]
+                .commit
                 .oid
                 .expect_real_oid();
             // "Split out file(s)" and "split out hunk(s)" each need a second

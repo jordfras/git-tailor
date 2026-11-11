@@ -100,7 +100,7 @@ fn test_squash_into_self_blocked() {
 #[test]
 fn test_squash_into_staged_blocked() {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
         CommitInfo {
             oid: VirtualOid::Staged,
@@ -108,7 +108,7 @@ fn test_squash_into_staged_blocked() {
             summary_key: "staged".into(),
             ..common::create_test_commit("staged", "staged")
         },
-    ];
+    ]));
     app.list.selection_index = 1;
     app.mode = AppMode::SquashSelect {
         source_index: 0,
@@ -133,7 +133,7 @@ fn test_squash_esc_cancels() {
 /// working-tree rows, as the loader builds it.
 fn app_with_worktree_rows() -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
         CommitInfo {
             oid: VirtualOid::Staged,
@@ -147,7 +147,7 @@ fn app_with_worktree_rows() -> AppState {
             summary_key: "unstaged".into(),
             ..common::create_test_commit("unstaged", "unstaged")
         },
-    ];
+    ]));
     app.mode = AppMode::CommitList;
     app
 }
@@ -232,12 +232,12 @@ fn test_worktree_row_cannot_target_the_other_row() {
 #[test]
 fn test_worktree_row_blocked_without_any_commit() {
     let mut app = AppState::new();
-    app.list.commits = vec![CommitInfo {
+    app.list.set_rows(common::rows(vec![CommitInfo {
         oid: VirtualOid::Unstaged,
         summary: "unstaged".to_string(),
         summary_key: "unstaged".into(),
         ..common::create_test_commit("unstaged", "unstaged")
-    }];
+    }]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
@@ -251,7 +251,11 @@ fn test_worktree_row_blocked_without_any_commit() {
 #[test]
 fn test_squash_blocked_on_single_commit() {
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "aaa111bbb222",
+            "Only commit",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
@@ -264,7 +268,11 @@ fn test_squash_blocked_on_single_commit() {
 #[test]
 fn test_fixup_blocked_on_single_commit() {
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "aaa111bbb222",
+            "Only commit",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 
@@ -339,11 +347,11 @@ fn test_squash_candidate_coloring_with_fragmap() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
-    ];
+    ]));
     app.list.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,
@@ -378,11 +386,11 @@ fn test_squash_candidate_coloring_conflicting() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add parser"),
         common::create_test_commit("bbbb33334444", "Refactor parser"),
         common::create_test_commit("cccc55556666", "Fix parser bug"),
-    ];
+    ]));
     app.list.selection_index = 0; // navigated to commit 0 as target
     app.mode = AppMode::SquashSelect {
         source_index: 2,

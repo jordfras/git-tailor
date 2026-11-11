@@ -314,16 +314,16 @@ fn load_app(git_repo: &Git2Repo, base: &str) -> Result<AppState> {
         bail!("no commits between {base} and HEAD — is the fixture built?");
     }
 
-    let diffs = commits
+    let rows = commits
         .iter()
         .filter_map(|c| c.oid.as_oid())
         .map(|oid| git_repo.commit_diff_for_fragmap(oid))
         .collect::<Result<Vec<_>>>()?;
 
-    let fragmap = fragmap::build_fragmap(&diffs, true, &mut |_| true)
+    let fragmap = fragmap::build_fragmap(&rows, true, &mut |_| true)
         .context("fragmap computation returned None")?;
 
-    let mut app = AppState::with_commits(commits);
+    let mut app = AppState::with_rows(rows);
     // Render with the default theme so the screenshots match what users see.
     app.theme = Theme::default();
     app.fragmap = Some(fragmap);
@@ -336,8 +336,7 @@ fn load_app(git_repo: &Git2Repo, base: &str) -> Result<AppState> {
 fn select(app: &mut AppState, prefix: &str) {
     if let Some(idx) = app
         .list
-        .commits
-        .iter()
+        .commits()
         .position(|c| c.summary.starts_with(prefix))
     {
         app.list.selection_index = idx;
@@ -347,7 +346,7 @@ fn select(app: &mut AppState, prefix: &str) {
 /// Read the selected commit's diff into the detail pane, as opening the detail
 /// view does.
 fn load_detail(git_repo: &Git2Repo, app: &mut AppState) -> Result<()> {
-    let Some(commit) = app.list.commits.get(app.list.selection_index) else {
+    let Some(commit) = app.list.selected() else {
         return Ok(());
     };
     let Some(oid) = commit.oid.as_oid() else {
@@ -369,8 +368,7 @@ fn load_detail(git_repo: &Git2Repo, app: &mut AppState) -> Result<()> {
 fn fit_title_column(app: &mut AppState, area: Rect) {
     let widest = app
         .list
-        .commits
-        .iter()
+        .commits()
         .map(|c| c.summary.chars().count())
         .max()
         .unwrap_or(0) as u16;

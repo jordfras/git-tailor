@@ -28,10 +28,10 @@ use git_tailor::{
 
 fn make_app_in_carry_conflict(source: WorktreeSource) -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
-    ];
+    ]));
     app.list.selection_index = 0;
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Fixup".to_string(),

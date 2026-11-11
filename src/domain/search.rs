@@ -25,7 +25,7 @@ use regex::{Regex, RegexBuilder};
 pub use case::SearchCase;
 
 use crate::fragmap::ChangePos;
-use crate::{CommitInfo, DiffLineKind, FileDiff};
+use crate::{CommitDiff, DiffLineKind, FileDiff};
 
 /// What part of a commit a search looks at. Tab cycles through the scopes in
 /// declaration order.
@@ -105,10 +105,8 @@ impl CommitQuery {
         }
     }
 
-    /// Whether `commit` matches. `files` is its diff; without one only the
-    /// message can match.
-    pub fn matches(&self, commit: &CommitInfo, files: Option<&[FileDiff]>) -> bool {
-        let files = files.unwrap_or_default();
+    pub fn matches(&self, row: &CommitDiff) -> bool {
+        let CommitDiff { commit, files } = row;
         match &self.matcher {
             Matcher::Text(regex) => {
                 // A staged or unstaged row's message is a placeholder of ours.
@@ -196,7 +194,7 @@ fn path_glob(pattern: &str, ignore_case: bool) -> Result<GlobSet, InvalidPattern
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DeltaStatus, DiffLine, Hunk, Oid, VirtualOid};
+    use crate::{CommitInfo, DeltaStatus, DiffLine, Hunk, Oid, VirtualOid};
 
     fn commit(message: &str) -> CommitInfo {
         CommitInfo {
@@ -251,7 +249,10 @@ mod tests {
     }
 
     fn matches(scope: SearchScope, pattern: &str, c: &CommitInfo, files: &[FileDiff]) -> bool {
-        query(scope, pattern).matches(c, Some(files))
+        query(scope, pattern).matches(&CommitDiff {
+            commit: c.clone(),
+            files: files.to_vec(),
+        })
     }
 
     fn path_matches(pattern: &str, path: &str) -> bool {
@@ -378,14 +379,6 @@ mod tests {
         assert!(has_regex(SearchScope::Message));
         assert!(!has_regex(SearchScope::Diff));
         assert!(!has_regex(SearchScope::Paths));
-    }
-
-    #[test]
-    fn a_commit_without_a_diff_matches_on_its_message() {
-        let query =
-            CommitQuery::new(SearchScope::MessageAndDiff, "word", SearchCase::Sensitive).unwrap();
-        assert!(query.matches(&commit("a word"), None));
-        assert!(!query.matches(&commit("other"), None));
     }
 
     #[test]

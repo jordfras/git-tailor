@@ -40,7 +40,11 @@ fn test_commit_detail_short_lines_no_hscroll() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Short commit",
+        )]));
     app.list.selection_index = 0;
 
     views::commit_detail::load_diff(&repo, &mut app);
@@ -59,7 +63,11 @@ fn test_commit_detail_long_lines_hscroll_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            &long_message,
+        )]));
     app.list.selection_index = 0;
 
     views::commit_detail::load_diff(&repo, &mut app);
@@ -79,7 +87,11 @@ fn test_commit_detail_hscroll_offset_clips_content() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", &long_message)];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            &long_message,
+        )]));
     app.list.selection_index = 0;
     app.detail.h.offset = 10;
 
@@ -99,7 +111,11 @@ fn test_detail_scroll_offset_clamped_to_content_bottom() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Short commit",
+        )]));
     app.list.selection_index = 0;
     app.detail.v.offset = 9999; // far beyond the (tiny) content
 
@@ -153,10 +169,11 @@ fn test_commit_detail_crlf_lines_no_carriage_return() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit(
-        "crlf001",
-        "File with CRLF line endings",
-    )];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "crlf001",
+            "File with CRLF line endings",
+        )]));
     app.list.selection_index = 0;
 
     views::commit_detail::load_diff(&repo, &mut app);
@@ -257,7 +274,11 @@ fn test_commit_detail_search_bar_visible() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123",
+            "Add feature",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
@@ -308,7 +329,11 @@ fn test_commit_detail_search_highlight_matches() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123", "Add feature")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123",
+            "Add feature",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
@@ -509,7 +534,11 @@ fn test_search_case_sensitive() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123", "Add FOO feature")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123",
+            "Add FOO feature",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
 
@@ -620,7 +649,11 @@ fn test_search_does_not_jump_when_the_match_is_already_visible() {
     let repo = StubRepoBuilder::new().with_commit_diff(diff).build();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123", "Long diff")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123",
+            "Long diff",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitDetail;
     app.detail.search.activate();
@@ -681,7 +714,11 @@ fn test_commit_detail_redraw_does_not_requery_the_repository() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Short commit",
+        )]));
     app.list.selection_index = 0;
 
     views::commit_detail::load_diff(&repo, &mut app);
@@ -720,7 +757,7 @@ fn render_detail_rows(files: Vec<FileDiff>) -> Vec<String> {
         .build();
 
     let mut app = AppState::new();
-    app.list.commits = vec![commit];
+    app.list.set_rows(common::rows(vec![commit]));
     app.list.selection_index = 0;
     views::commit_detail::load_diff(&repo, &mut app);
 
@@ -827,7 +864,11 @@ fn a_wrapped_status_message_shortens_the_detail_view() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Short commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Short commit",
+        )]));
     app.status
         .set_error("Drop failed: this message is long enough to wrap onto a second line");
 
@@ -879,9 +920,8 @@ fn list_searched(
         three_file_diff("aaa111aaa111"),
         three_file_diff("bbb222bbb222"),
     ];
-    let commits = diffs.iter().map(|d| d.commit.clone()).collect();
     let mut app = AppState::new();
-    app.list.set_rows(commits, diffs);
+    app.list.set_rows(diffs);
     app.list.selection_index = 0;
     app.list.search.scope = scope;
     app.list.start_search();
@@ -1144,7 +1184,9 @@ fn ctrl_n_without_another_match_stays_and_says_so() {
     let mut harness = TuiTestHarness::typical();
     for query in ["", "Three files"] {
         let (mut app, repo) = list_searched(SearchScope::Message, query);
-        app.list.commits[1].message = "Something else".to_string();
+        let mut rows = app.list.rows().to_vec();
+        rows[1].commit.message = "Something else".to_string();
+        app.list.set_rows(rows);
         app.list.rerun_search();
         if query.is_empty() {
             app.list.search.clear();

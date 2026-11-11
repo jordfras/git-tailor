@@ -34,11 +34,11 @@ fn make_repo_with_empty_diff() -> common::StubRepo {
 fn app_with_commits() -> AppState {
     let mut app = AppState::new();
     let oids = ["abc123def456", "def456ghi789", "ghi789jkl012"];
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit(oids[0], "Initial commit"),
         common::create_test_commit(oids[1], "Add feature X"),
         common::create_test_commit(oids[2], "Fix bug in parser"),
-    ];
+    ]));
     app.list.selection_index = 0;
     // One visible cluster so compute_fragmap_sep_x takes the fragmap path
     // and the separator aligns with the fragmap │ column.
@@ -221,7 +221,9 @@ fn test_separator_title_truncation_boundary() {
     let mut harness = TuiTestHarness::wide();
     let mut app = app_with_commits();
     // Use a commit whose summary is clearly longer than the squeezed column.
-    app.list.commits[0].summary = "A commit with a very long title that will be cut".to_string();
+    let mut rows = app.list.rows().to_vec();
+    rows[0].commit.summary = "A commit with a very long title that will be cut".to_string();
+    app.list.set_rows(rows);
     app.separator_offset = -32; // squeezes left panel to ~40 cols, title to ~14
 
     views::commit_detail::load_diff(&repo, &mut app);

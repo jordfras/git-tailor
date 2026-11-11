@@ -168,7 +168,7 @@ fn open_matching_commit(app: &mut AppState, dir: SearchDirection) -> AppAction {
 /// walk and blob decompression, so paying it per frame rather than per opened
 /// view made scrolling and resizing lag on slower filesystems.
 pub fn load_diff(repo: &impl RepoRead, app: &mut AppState) {
-    let Some(selected) = app.list.commits.get(app.list.selection_index) else {
+    let Some(selected) = app.list.selected() else {
         app.detail.diff = None;
         return;
     };
@@ -246,12 +246,12 @@ fn render_with_footer(frame: &mut Frame, app: &mut AppState, area: Rect, footer_
 
     // Render content
     let mut search_info = None;
-    if app.list.commits.is_empty() {
+    if app.list.rows().is_empty() {
         let placeholder = Paragraph::new("No commits")
             .style(Style::default().fg(app.colors.resolve(Color::DarkGray)));
         frame.render_widget(placeholder, content_area);
     } else {
-        let selected = app.list.commits[app.list.selection_index].clone();
+        let selected = app.list.rows()[app.list.selection_index].commit.clone();
 
         let mut content = build_metadata_lines(&selected, app.colors);
         let mut file_start_lines = Vec::new();

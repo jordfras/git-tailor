@@ -106,8 +106,7 @@ pub fn render_conflict(app: &mut AppState, frame: &mut Frame) {
     // see which commit is conflicting without having to remember the OID.
     let commit_summary = app
         .list
-        .commits
-        .iter()
+        .commits()
         .find(|c| c.oid.as_oid() == Some(&state.conflicting_commit_oid))
         .map(|c| c.summary.as_str())
         .unwrap_or("");

@@ -61,10 +61,10 @@ fn make_app_in_autofixup_confirm(
     message_overrides: MessageOverrides,
 ) -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Add parser"),
         common::create_test_commit("def456ghi789", "fixup! Add parser"),
-    ];
+    ]));
     app.list.selection_index = 0;
     app.mode = AppMode::AutofixupConfirm(PendingAutofixup {
         pairs,

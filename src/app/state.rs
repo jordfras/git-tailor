@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CommitInfo, Oid, VirtualOid,
+    CommitDiff, CommitInfo, Oid, VirtualOid,
     app::SquashMode,
     fragmap::FragMap,
     repo::{ConflictState, StashConflictState},
@@ -122,11 +122,11 @@ impl AppState {
         Self::default()
     }
 
-    /// Create a new AppState with the given commits, selecting the last one (HEAD).
-    pub fn with_commits(commits: Vec<CommitInfo>) -> Self {
-        let selection_index = commits.len().saturating_sub(1);
+    /// Create a new AppState with the given rows, selecting the last one (HEAD).
+    pub fn with_rows(rows: Vec<CommitDiff>) -> Self {
+        let selection_index = rows.len().saturating_sub(1);
         Self {
-            list: CommitListState::with_selection(commits, selection_index),
+            list: CommitListState::with_selection(rows, selection_index),
             ..Self::default()
         }
     }
@@ -396,7 +396,7 @@ impl AppState {
         }
 
         let source = self.list.selection_index;
-        let max = self.list.commits.len();
+        let max = self.list.rows().len();
         // Pick the first valid (non-no-op) position. No-ops are source and
         // source + 1, so try source - 1 first, then scan forward.
         let insert_before = if source > 0 {

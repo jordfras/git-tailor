@@ -16,16 +16,20 @@
 
 mod search;
 
-use std::collections::HashMap;
-
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
 use crate::app::search::{SearchDirection, SearchState};
 use crate::domain::search::{CommitQuery, SearchScope};
 use crate::fragmap::CommitPos;
-use crate::{CommitDiff, CommitInfo, FileDiff, Oid, VirtualOid};
+use crate::{CommitDiff, CommitInfo, Oid, VirtualOid};
 
 pub use search::ListSearch;
+
+/// The rows' commits. A concrete type rather than `impl Iterator`, which the
+/// borrow checker assumes may run code on drop, keeping the list borrowed to
+/// the end of a `match` on it.
+pub type Commits<'a> =
+    std::iter::Map<std::slice::Iter<'a, CommitDiff>, fn(&CommitDiff) -> &CommitInfo>;
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -63,16 +67,14 @@ impl ScrollMargin {
 /// reconciles the two from render, where the height is known.
 #[derive(Debug, Default)]
 pub struct CommitListState {
-    /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
-    pub commits: Vec<CommitInfo>,
-    /// Each row's changes, as read for the hunk group matrix. Keyed by oid
-    /// rather than kept in row order so that rows written without it can only
-    /// lack a diff, never be handed another row's.
-    diffs: HashMap<VirtualOid, Vec<FileDiff>>,
-    /// The branch tip `commits` were listed from. Every rewrite is handed it,
+    /// Rows, oldest first, with the synthetic staged/unstaged rows appended,
+    /// each with its changes as read for the hunk group matrix. Private so
+    /// that an active search is rerun whenever they change.
+    rows: Vec<CommitDiff>,
+    /// The branch tip `rows` were listed from. Every rewrite is handed it,
     /// so one chosen from this list is refused once the branch has moved.
     pub tip: Oid,
-    /// The branch `commits` were listed from, by full name. Another branch on
+    /// The branch `rows` were listed from, by full name. Another branch on
     /// the same commit has the same tip, so the tip alone cannot tell them
     /// apart.
     pub branch: String,
@@ -106,35 +108,33 @@ pub struct ViewportSnapshot {
 }
 
 impl CommitListState {
-    /// A list of `commits` with `selection_index` selected, everything else
-    /// left at its default. A constructor rather than struct-update syntax
-    /// because the viewport bookkeeping above is private.
-    pub fn with_selection(commits: Vec<CommitInfo>, selection_index: usize) -> Self {
+    /// A list of `rows` with `selection_index` selected, everything else left
+    /// at its default. A constructor rather than struct-update syntax because
+    /// the rows and the viewport bookkeeping are private.
+    pub fn with_selection(rows: Vec<CommitDiff>, selection_index: usize) -> Self {
         Self {
-            commits,
+            rows,
             selection_index,
             ..Default::default()
         }
     }
 
-    /// Replace the rows and their diffs together, so neither outlives a load
-    /// of the other. An active search is matched against the new rows; which
-    /// match is current waits for [`Self::point_search_at_selection`], once the
-    /// selection is settled.
-    pub fn set_rows(&mut self, commits: Vec<CommitInfo>, diffs: Vec<CommitDiff>) {
-        self.commits = commits;
-        self.diffs = diffs
-            .into_iter()
-            .map(|diff| (diff.commit.oid, diff.files))
-            .collect();
+    pub fn rows(&self) -> &[CommitDiff] {
+        &self.rows
+    }
+
+    pub fn commits(&self) -> Commits<'_> {
+        self.rows.iter().map(|row| &row.commit)
+    }
+
+    /// Replace the rows. An active search is matched against the new ones;
+    /// which match is current waits for [`Self::point_search_at_selection`],
+    /// once the selection is settled.
+    pub fn set_rows(&mut self, rows: Vec<CommitDiff>) {
+        self.rows = rows;
         if self.search.state.active {
             self.match_rows();
         }
-    }
-
-    /// The changes of the row `oid`, `None` when none were loaded for it.
-    pub fn diff_files(&self, oid: &VirtualOid) -> Option<&[FileDiff]> {
-        self.diffs.get(oid).map(Vec::as_slice)
     }
 
     /// Open the search bar, searching from the selected row.
@@ -226,17 +226,17 @@ impl CommitListState {
 
     /// The rows `query` matches, in row order.
     pub fn matching_rows(&self, query: &CommitQuery) -> Vec<CommitPos> {
-        self.commits
+        self.rows
             .iter()
             .enumerate()
-            .filter(|(_, commit)| query.matches(commit, self.diff_files(&commit.oid)))
-            .map(|(row, _)| CommitPos(row))
+            .filter(|(_, row)| query.matches(row))
+            .map(|(pos, _)| CommitPos(pos))
             .collect()
     }
 
     /// The selected row, if the index is in range.
     pub fn selected(&self) -> Option<&CommitInfo> {
-        self.commits.get(self.selection_index)
+        self.rows.get(self.selection_index).map(|row| &row.commit)
     }
 
     /// The `VirtualOid` of the selected row, if any.
@@ -248,8 +248,7 @@ impl CommitListState {
     /// Commits are stored oldest-first with the synthetic working-tree rows
     /// appended, so the oldest is simply the first real commit.
     pub fn selected_is_oldest_commit(&self) -> bool {
-        self.commits
-            .iter()
+        self.commits()
             .position(|c| !c.oid.is_synthetic())
             .is_some_and(|first_real| first_real == self.selection_index)
     }
@@ -257,18 +256,13 @@ impl CommitListState {
     /// Number of real (non-synthetic) commits. Operations like squash and move
     /// need at least two.
     pub fn real_commit_count(&self) -> usize {
-        self.commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count()
+        self.commits().filter(|c| !c.oid.is_synthetic()).count()
     }
 
     /// Pull the selection back into range. `MoveSelect` navigation can leave it
     /// as a scroll anchor pointing past the last commit.
     pub fn clamp_selection(&mut self) {
-        self.selection_index = self
-            .selection_index
-            .min(self.commits.len().saturating_sub(1));
+        self.selection_index = self.selection_index.min(self.rows.len().saturating_sub(1));
     }
 
     /// Move selection up (decrement index) with lower bound check.
@@ -282,7 +276,7 @@ impl CommitListState {
     /// Move selection down (increment index) with upper bound check.
     /// Does nothing if already at bottom or commits list is empty.
     pub fn move_down(&mut self) {
-        if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
+        if !self.rows.is_empty() && self.selection_index < self.rows.len() - 1 {
             self.selection_index += 1;
         }
     }
@@ -312,11 +306,11 @@ impl CommitListState {
     }
 
     fn move_selection_forward(&mut self, step: usize) {
-        if self.commits.is_empty() {
+        if self.rows.is_empty() {
             return;
         }
         let new_index = self.selection_index.saturating_add(step);
-        self.selection_index = new_index.min(self.commits.len() - 1);
+        self.selection_index = new_index.min(self.rows.len() - 1);
     }
 
     /// Jump to the first commit in the list.
@@ -326,13 +320,13 @@ impl CommitListState {
 
     /// Jump to the last commit in the list.
     pub fn jump_to_last(&mut self) {
-        self.selection_index = self.commits.len().saturating_sub(1);
+        self.selection_index = self.rows.len().saturating_sub(1);
     }
 
     /// The selected row's index in display space, which is mirrored when the
     /// list is drawn newest-first.
     pub fn visual_selection(&self) -> usize {
-        let total = self.commits.len();
+        let total = self.rows.len();
         let index = self.selection_index.min(total.saturating_sub(1));
         if self.reverse {
             total.saturating_sub(1) - index
@@ -351,9 +345,9 @@ impl CommitListState {
     /// `compute_fragmap_sep_x` measures a hypothetical one and restores the
     /// viewport for that reason.
     pub fn follow_selection(&mut self, available_height: usize) {
-        let max_scroll = self.commits.len().saturating_sub(available_height);
+        let max_scroll = self.rows.len().saturating_sub(available_height);
         self.scroll.set_bounds(max_scroll, available_height);
-        if self.commits.is_empty() {
+        if self.rows.is_empty() {
             return;
         }
         // The margin says where the cursor should sit *as it moves*. When the
@@ -415,7 +409,7 @@ impl CommitListState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Oid;
+    use crate::FileDiff;
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
@@ -434,104 +428,51 @@ mod tests {
         }
     }
 
+    /// A row for a commit that touches no files.
+    fn row(oid: &str, summary: &str) -> CommitDiff {
+        CommitDiff {
+            commit: create_test_commit(oid, summary),
+            files: vec![],
+        }
+    }
+
+    fn touching(mut row: CommitDiff, path: &str) -> CommitDiff {
+        row.files.push(FileDiff {
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![],
+        });
+        row
+    }
+
     /// A list of `n` commits with the given selection.
     fn list_of(n: usize, selection: usize) -> CommitListState {
-        CommitListState {
-            commits: (0..n)
-                .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
+        CommitListState::with_selection(
+            (0..n)
+                .map(|i| row(&format!("{i:040x}"), &format!("c{i}")))
                 .collect(),
-            selection_index: selection,
-            ..Default::default()
-        }
-    }
-
-    fn diff_touching(commit: &CommitInfo, path: &str) -> CommitDiff {
-        CommitDiff {
-            commit: commit.clone(),
-            files: vec![FileDiff {
-                old_path: Some(path.into()),
-                new_path: Some(path.into()),
-                status: crate::DeltaStatus::Modified,
-                is_binary: false,
-                hunks: vec![],
-            }],
-        }
-    }
-
-    fn paths_of(list: &CommitListState, oid: &VirtualOid) -> Option<Vec<String>> {
-        list.diff_files(oid).map(|files| {
-            files
-                .iter()
-                .map(|f| f.new_path.as_ref().unwrap().display().to_string())
-                .collect()
-        })
-    }
-
-    #[test]
-    fn set_rows_keeps_each_rows_diff() {
-        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
-        let staged = CommitInfo {
-            oid: VirtualOid::Staged,
-            ..create_test_commit(&format!("{:040x}", 2), "staged")
-        };
-        let mut list = CommitListState::default();
-        list.set_rows(
-            vec![commit.clone(), staged.clone()],
-            vec![
-                diff_touching(&commit, "a.txt"),
-                diff_touching(&staged, "b.txt"),
-            ],
-        );
-
-        assert_eq!(paths_of(&list, &commit.oid), Some(vec!["a.txt".into()]));
-        assert_eq!(
-            paths_of(&list, &VirtualOid::Staged),
-            Some(vec!["b.txt".into()])
-        );
-    }
-
-    #[test]
-    fn diff_files_is_none_for_a_row_without_a_diff() {
-        let commit = create_test_commit(&format!("{:040x}", 1), "c1");
-        let mut list = CommitListState::default();
-        list.set_rows(vec![commit.clone()], vec![]);
-
-        assert_eq!(paths_of(&list, &commit.oid), None);
-    }
-
-    #[test]
-    fn set_rows_drops_the_previous_loads_diffs() {
-        let old = create_test_commit(&format!("{:040x}", 1), "old");
-        let new = create_test_commit(&format!("{:040x}", 2), "new");
-        let mut list = CommitListState::default();
-        list.set_rows(vec![old.clone()], vec![diff_touching(&old, "a.txt")]);
-        list.set_rows(vec![new.clone()], vec![diff_touching(&new, "b.txt")]);
-
-        assert_eq!(paths_of(&list, &old.oid), None);
-        assert_eq!(paths_of(&list, &new.oid), Some(vec!["b.txt".into()]));
+            selection,
+        )
     }
 
     #[test]
     fn search_reports_matching_rows_by_position() {
         use crate::domain::search::{SearchCase, SearchScope};
-        let commits: Vec<CommitInfo> = (0..3)
-            .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
-            .collect();
         let mut list = CommitListState::default();
-        list.set_rows(
-            commits.clone(),
-            vec![
-                diff_touching(&commits[0], "a.txt"),
-                diff_touching(&commits[1], "b.txt"),
-            ],
-        );
+        list.set_rows(vec![
+            touching(row(&format!("{:040x}", 0), "c0"), "a.txt"),
+            touching(row(&format!("{:040x}", 1), "c1"), "b.txt"),
+            row(&format!("{:040x}", 2), "c2"),
+        ]);
 
         let rows = |scope, pattern| -> Vec<CommitPos> {
             let query = CommitQuery::new(scope, pattern, SearchCase::Sensitive).unwrap();
             list.matching_rows(&query)
         };
         assert_eq!(rows(SearchScope::Paths, "b.txt"), vec![CommitPos(1)]);
-        // The last row has no diff, so only its message can match.
+        // The last row touches no files, so only its message can match.
         assert_eq!(
             rows(SearchScope::Message, "c[02]"),
             vec![CommitPos(0), CommitPos(2)]
@@ -685,13 +626,10 @@ mod tests {
     fn set_rows_reruns_an_active_search() {
         let mut list = searched(0, false, "new");
         assert!(list.search.state.matches.is_empty());
-        list.set_rows(
-            vec![
-                create_test_commit(&format!("{:040x}", 7), "old"),
-                create_test_commit(&format!("{:040x}", 8), "new"),
-            ],
-            vec![],
-        );
+        list.set_rows(vec![
+            row(&format!("{:040x}", 7), "old"),
+            row(&format!("{:040x}", 8), "new"),
+        ]);
         assert_eq!(list.search.state.matches, vec![CommitPos(1)]);
     }
 
@@ -771,18 +709,18 @@ mod tests {
         step: fn(&mut CommitListState),
     ) -> usize {
         let settled = offset(app, height);
-        for taken in 0..app.commits.len() {
+        for taken in 0..app.rows().len() {
             step(app);
             if offset(app, height) != settled {
                 return taken;
             }
         }
-        app.commits.len()
+        app.rows().len()
     }
 
     /// The selected row's display index must lie within the visible window.
     fn selection_visible(app: &CommitListState, offset: usize, height: usize) -> bool {
-        let total = app.commits.len();
+        let total = app.rows().len();
         let visual = if app.reverse {
             total - 1 - app.selection_index
         } else {

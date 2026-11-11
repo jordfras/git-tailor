@@ -42,7 +42,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         return AppAction::Handled;
     }
 
-    let len = app.list.commits.len();
+    let len = app.list.rows().len();
     let page_size = app.list.scroll.visible_height;
     let reverse = app.list.reverse;
     let mut cursor = app.list.selection_index;
@@ -63,7 +63,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             };
             let target_oid = target.oid.expect_real_oid();
 
-            let source = &app.list.commits[source_index];
+            let source = &app.list.rows()[source_index].commit;
             let result = AppAction::PrepareSquash {
                 source: squash_source(source),
                 target_oid,
@@ -94,7 +94,7 @@ fn select_squash_target(app: &mut AppState, source_index: usize) {
     };
     let target = fragmap
         .squash_target(source_index)
-        .filter(|&target| !app.list.commits[target].oid.is_synthetic());
+        .filter(|&target| !app.list.rows()[target].commit.oid.is_synthetic());
     match target {
         Some(target) => app.list.selection_index = target,
         None => app.set_error_message("No earlier commit takes these changes without conflict"),

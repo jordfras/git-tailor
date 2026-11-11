@@ -36,11 +36,11 @@ fn test_commit_list_with_commits() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Initial commit"),
         common::create_test_commit("def456ghi789", "Add feature X"),
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -53,11 +53,11 @@ fn test_commit_list_with_selection() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Initial commit"),
         common::create_test_commit("def456ghi789", "Add feature X"),
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
-    ];
+    ]));
     app.list.selection_index = 1;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -73,7 +73,11 @@ fn campbell_palette_resolves_header_to_rgb() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
     app.list.selection_index = 0;
 
     // With --palette terminal the header keeps the ANSI slots (White on Green).
@@ -102,13 +106,13 @@ fn test_commit_list_long_summary() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit(
             "abc123def456",
             "This is a very long commit summary that exceeds normal length",
         ),
         common::create_test_commit("def456ghi789", "Short"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -122,11 +126,13 @@ fn test_commit_list_scrolled_to_top() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = (0..10)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..10)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -140,11 +146,13 @@ fn test_commit_list_scrolled_to_bottom() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = (0..10)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..10)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.selection_index = 9;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -161,11 +169,13 @@ fn test_commit_list_scrolls_early_within_the_margin() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = (0..20)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..20)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.scroll_margin = ScrollMargin::Fixed(2);
     app.list.selection_index = 7;
 
@@ -187,11 +197,11 @@ fn test_commit_list_reversed_with_commits() {
     let mut harness = TuiTestHarness::typical();
 
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Initial commit"),
         common::create_test_commit("def456ghi789", "Add feature X"),
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
-    ];
+    ]));
     app.list.selection_index = 2; // HEAD
     app.list.reverse = true;
 
@@ -206,11 +216,13 @@ fn test_commit_list_reversed_scrolled() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = (0..10)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..10)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.selection_index = 9; // HEAD
     app.list.reverse = true;
 
@@ -224,7 +236,11 @@ fn test_status_bar_short_error() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
     app.list.selection_index = 0;
     app.status.message = Some("Cannot split staged/unstaged changes".to_string());
     app.status.is_error = true;
@@ -240,10 +256,11 @@ fn test_footer_hint_fits() {
     let mut harness = TuiTestHarness::new(65, 5);
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit(
-        "abc123def456abc123def456abc123def456abc1",
-        "A commit",
-    )];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456abc123def456abc123def456abc1",
+            "A commit",
+        )]));
     app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -257,10 +274,11 @@ fn test_footer_hint_too_narrow() {
     let mut harness = TuiTestHarness::new(64, 5);
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit(
-        "abc123def456abc123def456abc123def456abc1",
-        "A commit",
-    )];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456abc123def456abc123def456abc1",
+            "A commit",
+        )]));
     app.list.selection_index = 0;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -274,10 +292,11 @@ fn test_footer_update_notice() {
     let mut harness = TuiTestHarness::new(80, 5);
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit(
-        "abc123def456abc123def456abc123def456abc1",
-        "A commit",
-    )];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456abc123def456abc123def456abc1",
+            "A commit",
+        )]));
     app.list.selection_index = 0;
     app.update_notice = Some("Version 9.9.9 available".to_string());
 
@@ -293,7 +312,11 @@ fn a_status_message_too_long_for_its_rows_ends_in_an_ellipsis() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
     app.status.set_error("Something went wrong. ".repeat(20));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -308,11 +331,13 @@ fn the_selection_stays_visible_above_a_wrapped_status_message() {
     let mut harness = TuiTestHarness::narrow();
 
     let mut app = AppState::new();
-    app.list.commits = (0..10)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..10)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.selection_index = 9;
     app.status
         .set_error("Drop failed: this message is long enough to wrap onto a second line");
@@ -329,7 +354,11 @@ fn a_cut_off_status_message_ending_in_a_wide_character_keeps_it_whole() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
     app.status.set_error("漢".repeat(200));
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
@@ -342,7 +371,11 @@ fn test_status_bar_long_error() {
     let mut harness = TuiTestHarness::short();
 
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Initial commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
     app.list.selection_index = 0;
     app.status.message = Some(
         "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs"
@@ -396,10 +429,10 @@ fn stage_unstage_keys_are_distinct_from_ctrl_variants() {
 #[test]
 fn stage_all_is_gated_to_the_unstaged_row() {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "real commit"),
         synthetic_row(VirtualOid::Unstaged, "(unstaged changes)"),
-    ];
+    ]));
 
     app.list.selection_index = 1;
     assert!(matches!(
@@ -419,7 +452,11 @@ fn stage_all_is_gated_to_the_unstaged_row() {
 #[test]
 fn edit_on_a_real_commit_produces_execute_edit() {
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "real commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "real commit",
+        )]));
     app.list.selection_index = 0;
 
     match views::commit_list::handle_key(KeyCommand::Edit, &mut app) {
@@ -437,7 +474,10 @@ fn edit_on_a_real_commit_produces_execute_edit() {
 #[test]
 fn edit_is_refused_on_a_synthetic_row() {
     let mut app = AppState::new();
-    app.list.commits = vec![synthetic_row(VirtualOid::Staged, "(staged changes)")];
+    app.list.set_rows(common::rows(vec![synthetic_row(
+        VirtualOid::Staged,
+        "(staged changes)",
+    )]));
     app.list.selection_index = 0;
 
     assert!(matches!(
@@ -450,10 +490,10 @@ fn edit_is_refused_on_a_synthetic_row() {
 #[test]
 fn unstage_all_is_gated_to_the_staged_row() {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         synthetic_row(VirtualOid::Staged, "(staged changes)"),
         common::create_test_commit("abc123def456", "real commit"),
-    ];
+    ]));
 
     app.list.selection_index = 0;
     assert!(matches!(
@@ -487,10 +527,10 @@ fn commit_key_is_distinct_from_ctrl_force_quit() {
 #[test]
 fn commit_staged_is_gated_to_the_staged_row() {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         synthetic_row(VirtualOid::Staged, "(staged changes)"),
         common::create_test_commit("abc123def456", "real commit"),
-    ];
+    ]));
 
     app.list.selection_index = 0;
     assert!(matches!(
@@ -512,11 +552,13 @@ fn test_commit_list_ctrl_scroll_keeps_selection_visible() {
     // A list taller than the window, selection in the middle.
     let mut harness = TuiTestHarness::narrow();
     let mut app = AppState::new();
-    app.list.commits = (0..12)
-        .map(|i| {
-            common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
-        })
-        .collect();
+    app.list.set_rows(common::rows(
+        (0..12)
+            .map(|i| {
+                common::create_test_commit(&format!("{:012x}", i), &format!("Commit number {}", i))
+            })
+            .collect(),
+    ));
     app.list.selection_index = 6;
 
     // The first render establishes the visible height the scroll clamps against.
@@ -644,11 +686,12 @@ fn test_measuring_the_fragmap_separator_leaves_the_viewport_alone() {
 
     let mut app = AppState::new();
     let oids: Vec<String> = (0..40).map(|i| format!("{:012x}", i)).collect();
-    app.list.commits = oids
-        .iter()
-        .enumerate()
-        .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit number {i}")))
-        .collect();
+    app.list.set_rows(common::rows(
+        oids.iter()
+            .enumerate()
+            .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit number {i}")))
+            .collect(),
+    ));
     // Enough clusters that the fragmap needs a horizontal scrollbar.
     let refs: Vec<&str> = oids.iter().map(String::as_str).collect();
     let clusters: Vec<SpanCluster> = (0..60)
@@ -686,11 +729,11 @@ fn type_search(app: &mut AppState, query: &str) {
 
 fn app_to_search() -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Initial commit"),
         common::create_test_commit("def456ghi789", "Add feature X"),
         common::create_test_commit("ghi789jkl012", "Fix bug in parser"),
-    ];
+    ]));
     app.list.selection_index = 0;
     app.list.start_search();
     app
@@ -768,35 +811,32 @@ fn test_commit_list_search_bar_invalid_pattern() {
 /// Rows where `parser` turns up in the summary, in a changed line, or nowhere,
 /// searched for it with the first row selected.
 fn app_searched_for_parser() -> AppState {
-    use git_tailor::{CommitDiff, DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
+    use git_tailor::{DeltaStatus, DiffLine, DiffLineKind, FileDiff, Hunk};
 
-    let commits = vec![
+    let mut rows = common::rows(vec![
         common::create_test_commit("abc123def456", "Initial commit"),
         common::create_test_commit("def456ghi789", "Add the parser"),
         common::create_test_commit("ghi789jkl012", "Refactor the lexer"),
         common::create_test_commit("jkl012mno345", "Fix a typo"),
-    ];
-    let lexer_diff = CommitDiff {
-        commit: commits[2].clone(),
-        files: vec![FileDiff {
-            old_path: Some("lexer.rs".into()),
-            new_path: Some("lexer.rs".into()),
-            status: DeltaStatus::Modified,
-            is_binary: false,
-            hunks: vec![Hunk {
-                old_start: 1,
-                old_lines: 0,
-                new_start: 1,
-                new_lines: 1,
-                lines: vec![DiffLine {
-                    kind: DiffLineKind::Addition,
-                    content: "// feeds the parser\n".to_string(),
-                }],
+    ]);
+    rows[2].files = vec![FileDiff {
+        old_path: Some("lexer.rs".into()),
+        new_path: Some("lexer.rs".into()),
+        status: DeltaStatus::Modified,
+        is_binary: false,
+        hunks: vec![Hunk {
+            old_start: 1,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![DiffLine {
+                kind: DiffLineKind::Addition,
+                content: "// feeds the parser\n".to_string(),
             }],
         }],
-    };
+    }];
     let mut app = AppState::new();
-    app.list.set_rows(commits, vec![lexer_diff]);
+    app.list.set_rows(rows);
     app.list.selection_index = 0;
     app.list.start_search();
     type_search(&mut app, "parser");

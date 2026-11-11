@@ -107,7 +107,7 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
 /// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`;
 /// on a cancel or an error the loading dialog is left for the caller to replace.
 ///
-/// When `app.list.commits` is non-empty (reload case), the dialog is shown as an
+/// When `app.list` has rows (reload case), the dialog is shown as an
 /// overlay on top of the existing commit list. When empty (initial load), the
 /// dialog is shown full-screen.
 ///
@@ -158,22 +158,20 @@ pub fn load_with_progress(
         .into_iter()
         .flatten(),
     );
-    let commits = diffs.iter().map(|d| d.commit.clone()).collect();
-
     let matrix = match build_hunk_group_matrix(terminal_guard, app, &diffs, full)? {
         HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
         HunkGroupMatrixBuild::Skipped => None,
         HunkGroupMatrixBuild::Interrupted => return Ok(false),
     };
 
-    app.list.set_rows(commits, diffs);
+    app.list.set_rows(diffs);
     app.list.tip = from_oid.clone();
     app.list.branch = git_repo.head_branch().unwrap_or_default();
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
     app.detail.v.offset = 0;
     app.list.reset_viewport();
-    app.list.selection_index = select_initial_index(&app.list.commits);
+    app.list.selection_index = select_initial_index(app.list.rows());
     app.mode = AppMode::CommitList;
 
     Ok(true)
@@ -191,14 +189,10 @@ pub fn reload(
 ) {
     let before = app.mode.clone();
     let shown = match before {
-        AppMode::CommitDetail => app
-            .list
-            .commits
-            .get(app.list.selection_index)
-            .map(|c| Shown {
-                oid: c.oid.clone(),
-                offset: app.detail.v.offset,
-            }),
+        AppMode::CommitDetail => app.list.selected().map(|c| Shown {
+            oid: c.oid.clone(),
+            offset: app.detail.v.offset,
+        }),
         _ => None,
     };
     let loaded = git_repo.head_oid().and_then(|head_oid| {
@@ -244,7 +238,7 @@ fn settle_reload(
         // after refreshing the detail view.
         Ok(true) => {
             match shown {
-                Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
+                Some(shown) => match app.list.commits().position(|c| c.oid == shown.oid) {
                     Some(index) => {
                         app.list.selection_index = index;
                         app.detail.v.offset = shown.offset;
@@ -260,7 +254,7 @@ fn settle_reload(
                 None => {
                     if let Some(index) = select {
                         app.list.selection_index =
-                            index.min(app.list.commits.len().saturating_sub(1));
+                            index.min(app.list.rows().len().saturating_sub(1));
                     }
                 }
             }
@@ -385,20 +379,27 @@ fn build_hunk_group_matrix(
 
 /// Choose the initial selection index for a commit list:
 /// unstaged row if present, else staged row if present, else the last commit.
-fn select_initial_index(commits: &[CommitInfo]) -> usize {
-    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Unstaged) {
+fn select_initial_index(rows: &[CommitDiff]) -> usize {
+    if let Some(i) = rows
+        .iter()
+        .rposition(|r| r.commit.oid == VirtualOid::Unstaged)
+    {
         return i;
     }
-    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Staged) {
+    if let Some(i) = rows
+        .iter()
+        .rposition(|r| r.commit.oid == VirtualOid::Staged)
+    {
         return i;
     }
-    commits.len().saturating_sub(1)
+    rows.len().saturating_sub(1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mock_repo::MockRepo;
+    use git_tailor::app::CommitListState;
 
     /// What [`load_with_progress`] leaves behind when it fails partway.
     fn loading() -> AppMode {
@@ -450,14 +451,33 @@ mod tests {
 
     /// What [`load_with_progress`] leaves after loading `commits`: the list,
     /// with the cursor at the natural position.
-    fn loaded_list(commits: &[&str]) -> AppState {
-        let mut app = AppState {
+    fn loaded_list(oids: &[&str]) -> AppState {
+        loaded_list_of(oids.iter().map(|oid| commit(oid)).collect())
+    }
+
+    fn loaded_list_of(commits: Vec<CommitInfo>) -> AppState {
+        let selection_index = commits.len() - 1;
+        let rows = commits
+            .into_iter()
+            .map(|commit| CommitDiff {
+                commit,
+                files: vec![],
+            })
+            .collect();
+        AppState {
             mode: AppMode::CommitList,
+            list: CommitListState::with_selection(rows, selection_index),
             ..AppState::default()
-        };
-        app.list.commits = commits.iter().map(|oid| commit(oid)).collect();
-        app.list.selection_index = commits.len() - 1;
-        app
+        }
+    }
+
+    fn matching(oids: &[&str]) -> Vec<CommitInfo> {
+        oids.iter()
+            .map(|oid| CommitInfo {
+                message: "match".to_string(),
+                ..commit(oid)
+            })
+            .collect()
     }
 
     fn shown(oid: &str, offset: usize) -> Option<Shown> {
@@ -471,10 +491,7 @@ mod tests {
     /// row the cursor was on while the list was replaced.
     #[test]
     fn a_reload_points_an_active_search_at_the_row_it_lands_on() {
-        let mut app = loaded_list(&["a", "b", "c"]);
-        for c in &mut app.list.commits {
-            c.message = "match".to_string();
-        }
+        let mut app = loaded_list_of(matching(&["a", "b", "c"]));
         app.list.adopt_search("match".to_string());
         assert_eq!(app.list.search.state.match_index, Some(2));
 
@@ -493,10 +510,7 @@ mod tests {
     /// A canceled reload leaves the rows, and so the current match, as they were.
     #[test]
     fn a_canceled_reload_keeps_the_current_match() {
-        let mut app = loaded_list(&["a", "b", "c"]);
-        for c in &mut app.list.commits {
-            c.message = "match".to_string();
-        }
+        let mut app = loaded_list_of(matching(&["a", "b", "c"]));
         app.list.adopt_search("match".to_string());
         app.list.search.state.match_index = Some(0);
 

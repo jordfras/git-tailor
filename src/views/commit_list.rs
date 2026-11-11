@@ -352,7 +352,7 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 
     if let Some(sb_area) = scrollbar_area {
-        render_vertical_scrollbar(frame, sb_area, &layout, app.list.commits.len());
+        render_vertical_scrollbar(frame, sb_area, &layout, app.list.rows().len());
     }
 
     render_footer(frame, app, layout.footer_area);
@@ -480,7 +480,7 @@ fn measure_geometry(
     );
 
     let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
+    let has_v_scrollbar = !app.list.rows().is_empty() && app.list.rows().len() > available_height;
     let effective_width = if has_v_scrollbar {
         table_area.width.saturating_sub(1)
     } else {
@@ -624,7 +624,7 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
 fn fragmap_index(app: &AppState, visual_idx: usize) -> usize {
     if app.list.reverse {
         app.list
-            .commits
+            .rows()
             .len()
             .saturating_sub(1)
             .saturating_sub(visual_idx)
@@ -696,9 +696,9 @@ fn row_text_style(
 /// Build all visible table rows.
 fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let display_commits: Vec<&crate::CommitInfo> = if app.list.reverse {
-        app.list.commits.iter().rev().collect()
+        app.list.commits().rev().collect()
     } else {
-        app.list.commits.iter().collect()
+        app.list.commits().collect()
     };
 
     let visible_commits = if display_commits.is_empty() {
@@ -816,7 +816,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     if let Some((source_index, insert_before)) = move_info {
         let last_visible_idx = layout.scroll_offset + visible_commits.len();
         if insert_before >= last_visible_idx
-            && insert_before == app.list.commits.len()
+            && insert_before == app.list.rows().len()
             && insert_before != source_index
             && insert_before != source_index + 1
         {
@@ -833,7 +833,7 @@ fn build_move_separator_row<'a>(
     layout: &LayoutInfo,
     source_index: usize,
 ) -> Row<'a> {
-    let source = app.list.commits.get(source_index);
+    let source = app.list.rows().get(source_index).map(|row| &row.commit);
     let short_oid = source.map(|c| c.oid.short()).unwrap_or("?");
 
     let style = app
@@ -936,16 +936,16 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
             footer_style.add_modifier(Modifier::DIM),
         ),
     };
-    let left = if app.list.commits.is_empty() {
+    let left = if app.list.rows().is_empty() {
         String::from("No commits")
     } else {
-        let commit = &app.list.commits[app.list.selection_index];
-        let position = app.list.commits.len() - app.list.selection_index;
+        let commit = &app.list.rows()[app.list.selection_index].commit;
+        let position = app.list.rows().len() - app.list.selection_index;
         format!(
             " {} {}/{}",
             commit.oid.long(),
             position,
-            app.list.commits.len()
+            app.list.rows().len()
         )
     };
     let width = area.width as usize;
@@ -1041,9 +1041,8 @@ fn render_action_footer(
     after_summary: &str,
     hints: &[(&str, &str)],
 ) {
-    let source = match app.list.commits.get(source_index) {
-        Some(c) => c,
-        None => return,
+    let Some(source) = app.list.rows().get(source_index).map(|row| &row.commit) else {
+        return;
     };
 
     let footer_style = app.colors.resolve_style(ACTION_FOOTER_STYLE);

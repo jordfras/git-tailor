@@ -162,7 +162,7 @@ fn main() -> Result<()> {
     }
 
     // Working-tree rows alone are nothing to rewrite.
-    if app.list.commits.iter().all(|c| c.oid.as_oid().is_none()) {
+    if app.list.commits().all(|c| c.oid.as_oid().is_none()) {
         terminal_guard.shutdown()?;
         eprintln!("No commits to display.");
         return Ok(());

@@ -71,13 +71,13 @@ fn test_operation_picker_oldest_commit_omits_move() {
 #[test]
 fn test_operation_picker_unstaged_row() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.list
-        .commits
-        .push(synthetic_row(VirtualOid::Staged, "staged"));
-    app.list
-        .commits
-        .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.list.selection_index = app.list.commits.len() - 1; // the Unstaged row
+    let mut rows = app.list.rows().to_vec();
+    rows.extend(common::rows(vec![
+        synthetic_row(VirtualOid::Staged, "staged"),
+        synthetic_row(VirtualOid::Unstaged, "unstaged"),
+    ]));
+    app.list.set_rows(rows);
+    app.list.selection_index = app.list.rows().len() - 1; // the Unstaged row
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -85,13 +85,13 @@ fn test_operation_picker_unstaged_row() {
 #[test]
 fn test_operation_picker_staged_row() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.list
-        .commits
-        .push(synthetic_row(VirtualOid::Staged, "staged"));
-    app.list
-        .commits
-        .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.list.selection_index = app.list.commits.len() - 2; // the Staged row
+    let mut rows = app.list.rows().to_vec();
+    rows.extend(common::rows(vec![
+        synthetic_row(VirtualOid::Staged, "staged"),
+        synthetic_row(VirtualOid::Unstaged, "unstaged"),
+    ]));
+    app.list.set_rows(rows);
+    app.list.selection_index = app.list.rows().len() - 2; // the Staged row
     app.enter_operation_select();
     insta::assert_debug_snapshot!(render_picker(&mut app));
 }
@@ -144,10 +144,13 @@ fn shortcut_for_a_follow_up_dialog_transitions_to_it() {
 #[test]
 fn shortcut_for_an_unavailable_operation_is_ignored() {
     let mut app = common::app_state_from_commit_summaries(&["Add feature X"]);
-    app.list
-        .commits
-        .push(synthetic_row(VirtualOid::Unstaged, "unstaged"));
-    app.list.selection_index = app.list.commits.len() - 1; // the Unstaged row
+    let mut rows = app.list.rows().to_vec();
+    rows.extend(common::rows(vec![synthetic_row(
+        VirtualOid::Unstaged,
+        "unstaged",
+    )]));
+    app.list.set_rows(rows);
+    app.list.selection_index = app.list.rows().len() - 1; // the Unstaged row
     app.enter_operation_select();
 
     // Split is not offered for the Unstaged row: the key is ignored and the
