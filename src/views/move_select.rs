@@ -32,7 +32,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         _ => return AppAction::Handled,
     };
 
-    let max_insert = app.list.commits.len();
+    let max_insert = app.list.rows().len();
     let page_size = crate::app::scroll::page_size(app.list.scroll.visible_height);
 
     // Resolve the display order once; below, `up` means "toward older commits".
@@ -61,7 +61,7 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                 return AppAction::Handled;
             }
 
-            let source = &app.list.commits[source_index];
+            let source = &app.list.rows()[source_index].commit;
             if source.oid.is_synthetic() {
                 app.set_error_message("Cannot move staged/unstaged changes");
                 return AppAction::Handled;
@@ -80,8 +80,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
                     Some(app.reference_oid.clone())
                 }
             } else {
-                let idx = (insert_before - 1).min(app.list.commits.len().saturating_sub(1));
-                app.list.commits[idx].oid.as_oid().cloned()
+                let idx = (insert_before - 1).min(app.list.rows().len().saturating_sub(1));
+                app.list.rows()[idx].commit.oid.as_oid().cloned()
             };
 
             // Navigation left `selection_index` as a scroll anchor that can point

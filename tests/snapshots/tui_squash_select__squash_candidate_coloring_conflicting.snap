@@ -14,7 +14,7 @@ Buffer {
         "                                                                       │        ",
         "                                                                       │        ",
         "                                                                       │        ",
-        " Squash cccc5555 "Fix parser bug" into… · Enter confirm · Esc cancel            ",
+        " Squash cccc5555 "Fix parser bug" into… · n target · Enter confirm · Esc cancel ",
     ],
     styles: [
         x: 0, y: 0, fg: White, bg: Green, underline: Reset, modifier: NONE,
@@ -55,8 +55,10 @@ Buffer {
         x: 8, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
         x: 16, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
         x: 42, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 47, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 58, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
-        x: 61, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 43, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 53, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 58, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 69, y: 9, fg: Gray, bg: Cyan, underline: Reset, modifier: NONE,
+        x: 72, y: 9, fg: White, bg: Cyan, underline: Reset, modifier: NONE,
     ]
 }

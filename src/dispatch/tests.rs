@@ -1113,6 +1113,17 @@ mod autofixup_selection {
         }
     }
 
+    fn list_with(commits: Vec<CommitInfo>, selection_index: usize) -> CommitListState {
+        let rows = commits
+            .into_iter()
+            .map(|commit| CommitDiff {
+                commit,
+                files: vec![],
+            })
+            .collect();
+        CommitListState::with_selection(rows, selection_index)
+    }
+
     // Layout: A, T(target), F1(fixup->T), C(survivor), F2(fixup->T)
     // Batch removes F1 and F2, folding both into T.
     fn commits() -> Vec<CommitInfo> {
@@ -1186,7 +1197,7 @@ mod autofixup_selection {
     #[test]
     fn the_dialog_lists_a_fixup_left_in_place_because_its_target_is_ambiguous() {
         let mut app = AppState {
-            list: CommitListState::with_selection(
+            list: list_with(
                 vec![
                     named("1", "Tweak"),
                     named("2", "Tweak"),
@@ -1225,7 +1236,7 @@ mod autofixup_selection {
     #[test]
     fn when_every_fixup_is_ambiguous_the_status_names_them() {
         let mut app = AppState {
-            list: CommitListState::with_selection(
+            list: list_with(
                 vec![
                     named("1", "Tweak"),
                     named("2", "Tweak"),
@@ -1250,7 +1261,7 @@ mod autofixup_selection {
     fn execute_autofixup_reloads_selecting_the_computed_index() {
         let mut repo = MockRepo::default();
         let mut app = AppState {
-            list: CommitListState::with_selection(commits(), 4), // F2, folded into T (index 1).
+            list: list_with(commits(), 4), // F2, folded into T (index 1).
             ..Default::default()
         };
         let mut pending = PendingAutofixupSelection::default();
@@ -1277,7 +1288,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let mut app = AppState {
-            list: CommitListState::with_selection(commits(), 4),
+            list: list_with(commits(), 4),
             ..Default::default()
         };
         let mut pending = PendingAutofixupSelection::default();
@@ -1309,7 +1320,7 @@ mod autofixup_selection {
             ..Default::default()
         };
         let mut app = AppState {
-            list: CommitListState::with_selection(commits(), 4), // F2, folded into T (index 1).
+            list: list_with(commits(), 4), // F2, folded into T (index 1).
             ..Default::default()
         };
         let mut pending = PendingAutofixupSelection::default();

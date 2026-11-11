@@ -14,10 +14,15 @@
 
 // Commit list view rendering
 
+mod search;
+
+pub use search::handle_search_event;
+
 use super::hunk_groups;
 use crate::VirtualOid;
+use crate::app::search::SearchDirection;
 use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
-use crate::fragmap::TouchKind;
+use crate::fragmap::{CommitPos, TouchKind};
 use crate::views::palette::Colors;
 use ratatui::{
     Frame,
@@ -135,7 +140,26 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
             }
         }
         KeyCommand::Refresh => AppAction::ReloadCommits,
-        KeyCommand::Quit => AppAction::Quit,
+        KeyCommand::Quit => {
+            if app.list.search.state.active {
+                app.list.search.clear();
+                AppAction::Handled
+            } else {
+                AppAction::Quit
+            }
+        }
+        KeyCommand::Search => {
+            app.list.start_search();
+            AppAction::Handled
+        }
+        KeyCommand::SearchNext => {
+            app.list.step_search(SearchDirection::Next);
+            AppAction::Handled
+        }
+        KeyCommand::SearchPrev => {
+            app.list.step_search(SearchDirection::Prev);
+            AppAction::Handled
+        }
         KeyCommand::Move => {
             app.enter_move_select();
             AppAction::Handled
@@ -176,9 +200,8 @@ pub fn handle_key(action: KeyCommand, app: &mut AppState) -> AppAction {
         | KeyCommand::None
         | KeyCommand::ForceQuit
         | KeyCommand::Suspend
-        | KeyCommand::Search
-        | KeyCommand::SearchNext
-        | KeyCommand::SearchPrev
+        | KeyCommand::NextMatchingCommit
+        | KeyCommand::PrevMatchingCommit
         | KeyCommand::IncreaseContext
         | KeyCommand::DecreaseContext => AppAction::Handled,
         KeyCommand::SeparatorLeft => {
@@ -222,6 +245,7 @@ struct LayoutInfo {
     table_area: Rect,
     footer_area: Rect,
     h_scrollbar_area: Option<Rect>,
+    search_bar_area: Option<Rect>,
     available_height: usize,
     /// Rows the commit list itself may draw: `available_height`, less the row a
     /// move separator takes.
@@ -328,10 +352,14 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 
     if let Some(sb_area) = scrollbar_area {
-        render_vertical_scrollbar(frame, sb_area, &layout, app.list.commits.len());
+        render_vertical_scrollbar(frame, sb_area, &layout, app.list.rows().len());
     }
 
     render_footer(frame, app, layout.footer_area);
+
+    if let Some(search_bar_area) = layout.search_bar_area {
+        search::render_bar(frame, app, search_bar_area);
+    }
 
     if let Some(hs_area) = layout.h_scrollbar_area {
         hunk_groups::render_horizontal_scrollbar(
@@ -346,25 +374,27 @@ fn render_in_area_with_layout(app: &mut AppState, frame: &mut Frame, layout: Lay
     }
 }
 
-/// Split the frame into vertical areas: table, optional h-scrollbar, and footer.
+/// Split the frame into vertical areas: table, optional h-scrollbar, optional
+/// search bar, and footer.
 fn split_vertical_areas(
     frame_area: Rect,
     needs_h_scrollbar: bool,
+    needs_search_bar: bool,
     footer_height: u16,
-) -> (Rect, Option<Rect>, Rect) {
-    if needs_h_scrollbar {
-        let [t, hs, f] = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(footer_height),
-        ])
-        .areas(frame_area);
-        (t, Some(hs), f)
-    } else {
-        let [t, f] = Layout::vertical([Constraint::Min(0), Constraint::Length(footer_height)])
-            .areas(frame_area);
-        (t, None, f)
-    }
+) -> (Rect, Option<Rect>, Option<Rect>, Rect) {
+    let [table, h_scrollbar, search_bar, footer] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(u16::from(needs_h_scrollbar)),
+        Constraint::Length(u16::from(needs_search_bar)),
+        Constraint::Length(footer_height),
+    ])
+    .areas(frame_area);
+    (
+        table,
+        needs_h_scrollbar.then_some(h_scrollbar),
+        needs_search_bar.then_some(search_bar),
+        footer,
+    )
 }
 
 /// The widths of the title and fragmap columns, for one measurement of the
@@ -428,6 +458,7 @@ impl ColumnWidths {
 struct Geometry {
     table_area: Rect,
     h_scrollbar_area: Option<Rect>,
+    search_bar_area: Option<Rect>,
     footer_area: Rect,
     available_height: usize,
     has_v_scrollbar: bool,
@@ -441,11 +472,15 @@ fn measure_geometry(
     with_h_scrollbar: bool,
     footer_height: u16,
 ) -> Geometry {
-    let (table_area, h_scrollbar_area, footer_area) =
-        split_vertical_areas(frame_area, with_h_scrollbar, footer_height);
+    let (table_area, h_scrollbar_area, search_bar_area, footer_area) = split_vertical_areas(
+        frame_area,
+        with_h_scrollbar,
+        app.list.search.state.active,
+        footer_height,
+    );
 
     let available_height = table_area.height.saturating_sub(1) as usize;
-    let has_v_scrollbar = !app.list.commits.is_empty() && app.list.commits.len() > available_height;
+    let has_v_scrollbar = !app.list.rows().is_empty() && app.list.rows().len() > available_height;
     let effective_width = if has_v_scrollbar {
         table_area.width.saturating_sub(1)
     } else {
@@ -455,6 +490,7 @@ fn measure_geometry(
     Geometry {
         table_area,
         h_scrollbar_area,
+        search_bar_area,
         footer_area,
         available_height,
         has_v_scrollbar,
@@ -540,6 +576,7 @@ fn compute_layout(app: &mut AppState, frame_area: Rect, footer_height: u16) -> L
         table_area: geometry.table_area,
         footer_area: geometry.footer_area,
         h_scrollbar_area: geometry.h_scrollbar_area,
+        search_bar_area: geometry.search_bar_area,
         available_height: geometry.available_height,
         commit_rows,
         has_v_scrollbar: geometry.has_v_scrollbar,
@@ -587,7 +624,7 @@ fn build_constraints(layout: &LayoutInfo) -> Vec<Constraint> {
 fn fragmap_index(app: &AppState, visual_idx: usize) -> usize {
     if app.list.reverse {
         app.list
-            .commits
+            .rows()
             .len()
             .saturating_sub(1)
             .saturating_sub(visual_idx)
@@ -659,9 +696,9 @@ fn row_text_style(
 /// Build all visible table rows.
 fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     let display_commits: Vec<&crate::CommitInfo> = if app.list.reverse {
-        app.list.commits.iter().rev().collect()
+        app.list.commits().rev().collect()
     } else {
-        app.list.commits.iter().collect()
+        app.list.commits().collect()
     };
 
     let visible_commits = if display_commits.is_empty() {
@@ -744,9 +781,18 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
         };
         let text_cell_style = app.colors.resolve_style(text_cell_style);
 
+        let row_match = search::row_match_style(app, CommitPos(commit_idx_in_fragmap));
         let mut cells = vec![
-            Cell::from(Span::styled(short_sha, text_cell_style)),
-            Cell::from(Span::styled(commit.summary.clone(), text_cell_style)),
+            Cell::from(Span::styled(
+                short_sha,
+                row_match.unwrap_or(text_cell_style),
+            )),
+            Cell::from(search::summary_line(
+                app,
+                commit,
+                text_cell_style,
+                row_match,
+            )),
         ];
 
         if let Some(ref fragmap) = app.fragmap
@@ -770,7 +816,7 @@ fn build_rows<'a>(app: &AppState, layout: &LayoutInfo) -> Vec<Row<'a>> {
     if let Some((source_index, insert_before)) = move_info {
         let last_visible_idx = layout.scroll_offset + visible_commits.len();
         if insert_before >= last_visible_idx
-            && insert_before == app.list.commits.len()
+            && insert_before == app.list.rows().len()
             && insert_before != source_index
             && insert_before != source_index + 1
         {
@@ -787,7 +833,7 @@ fn build_move_separator_row<'a>(
     layout: &LayoutInfo,
     source_index: usize,
 ) -> Row<'a> {
-    let source = app.list.commits.get(source_index);
+    let source = app.list.rows().get(source_index).map(|row| &row.commit);
     let short_oid = source.map(|c| c.oid.short()).unwrap_or("?");
 
     let style = app
@@ -890,16 +936,16 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
             footer_style.add_modifier(Modifier::DIM),
         ),
     };
-    let left = if app.list.commits.is_empty() {
+    let left = if app.list.rows().is_empty() {
         String::from("No commits")
     } else {
-        let commit = &app.list.commits[app.list.selection_index];
-        let position = app.list.commits.len() - app.list.selection_index;
+        let commit = &app.list.rows()[app.list.selection_index].commit;
+        let position = app.list.rows().len() - app.list.selection_index;
         format!(
             " {} {}/{}",
             commit.oid.long(),
             position,
-            app.list.commits.len()
+            app.list.rows().len()
         )
     };
     let width = area.width as usize;
@@ -962,7 +1008,11 @@ fn render_squash_footer(
         squash_mode.label(),
         source_index,
         " into\u{2026}",
-        &[("Enter", " confirm \u{b7} "), ("Esc", " cancel")],
+        &[
+            ("n", " target \u{b7} "),
+            ("Enter", " confirm \u{b7} "),
+            ("Esc", " cancel"),
+        ],
     );
 }
 
@@ -991,9 +1041,8 @@ fn render_action_footer(
     after_summary: &str,
     hints: &[(&str, &str)],
 ) {
-    let source = match app.list.commits.get(source_index) {
-        Some(c) => c,
-        None => return,
+    let Some(source) = app.list.rows().get(source_index).map(|row| &row.commit) else {
+        return;
     };
 
     let footer_style = app.colors.resolve_style(ACTION_FOOTER_STYLE);

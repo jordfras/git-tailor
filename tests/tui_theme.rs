@@ -66,11 +66,11 @@ fn make_fragmap() -> git_tailor::fragmap::FragMap {
 
 fn make_app(theme: Theme, focus: usize) -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaa1", "Add config and parser"),
         common::create_test_commit("bbb2", "Refactor parser"),
         common::create_test_commit("ccc3", "Fix config, parser, unique"),
-    ];
+    ]));
     app.list.selection_index = focus;
     app.fragmap = Some(make_fragmap());
     app.theme = theme;
@@ -204,12 +204,12 @@ fn make_two_conflict_fragmap() -> git_tailor::fragmap::FragMap {
 fn test_theme_highlight_conflict_square_brighter_on_selected_row() {
     let mut harness = TuiTestHarness::short();
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaa1", "Add config and parser"),
         common::create_test_commit("bbb2", "Refactor parser"),
         common::create_test_commit("ccc3", "Fix config and parser"),
         common::create_test_commit("ddd4", "Tidy up all three"),
-    ];
+    ]));
     app.list.selection_index = 2;
     app.fragmap = Some(make_two_conflict_fragmap());
     app.theme = Theme::Highlight;

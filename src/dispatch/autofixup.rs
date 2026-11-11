@@ -35,10 +35,11 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
+    let commits: Vec<CommitInfo> = app.list.commits().cloned().collect();
     let git_tailor::autofixup::AutofixupPlan {
         pairs,
         ambiguous: left_in_place,
-    } = git_tailor::autofixup::plan_autofixup(&app.list.commits);
+    } = git_tailor::autofixup::plan_autofixup(&commits);
     if pairs.is_empty() {
         if left_in_place.is_empty() {
             app.set_success_message("Nothing to autofixup");
@@ -169,8 +170,8 @@ pub(crate) fn handle_execute_autofixup(
     pairs: Vec<git_tailor::autofixup::AutofixupPair>,
     message_overrides: git_tailor::autofixup::MessageOverrides,
 ) -> Result<LoopAction> {
-    let target_index =
-        autofixup_target_selection_index(&app.list.commits, app.list.selection_index, &pairs);
+    let commits: Vec<CommitInfo> = app.list.commits().cloned().collect();
+    let target_index = autofixup_target_selection_index(&commits, app.list.selection_index, &pairs);
     start_operation_or_bail!(git_repo, app);
     match git_repo.autofixup(&head_oid, &reference_oid, &pairs, &message_overrides) {
         Ok(RebaseOutcome::Complete) => Ok(settle_autostash(

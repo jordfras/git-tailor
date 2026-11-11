@@ -14,6 +14,7 @@
 
 pub mod commit;
 pub mod diff;
+pub mod search;
 pub mod swap;
 
 use bstr::{BStr, BString};

@@ -21,6 +21,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
 use git_tailor::app::ScrollMargin;
+use git_tailor::domain::search::SearchCase;
 use git_tailor::views::palette::{Colors, Scheme};
 use git_tailor::views::theme::Theme;
 
@@ -133,6 +134,19 @@ pub struct Cli {
         value_parser = parse_palette
     )]
     pub palette: PaletteArg,
+
+    /// How searching treats letter case.
+    ///
+    /// `smart` (default) ignores case unless the pattern has an uppercase
+    /// letter of its own; `\S`, `\W` and the like do not count.
+    #[arg(
+        short = 'S',
+        long = "search-case",
+        value_enum,
+        env = "GT_SEARCH_CASE",
+        default_value = "smart"
+    )]
+    pub search_case: SearchCase,
 
     /// Rows kept visible beyond the cursor as the commit list scrolls.
     ///
@@ -304,6 +318,21 @@ mod tests {
                 help.contains("Staged") && help.contains("Unstaged"),
                 "{help}"
             );
+        }
+    }
+
+    #[test]
+    fn search_case_defaults_to_smart_and_takes_the_other_two() {
+        let cli = Cli::try_parse_from(["gt"]).expect("args parse");
+        assert_eq!(cli.search_case, SearchCase::Smart);
+        for (value, expected) in [
+            ("sensitive", SearchCase::Sensitive),
+            ("insensitive", SearchCase::Insensitive),
+        ] {
+            for flag in ["--search-case", "-S"] {
+                let cli = Cli::try_parse_from(["gt", flag, value]).expect("args parse");
+                assert_eq!(cli.search_case, expected);
+            }
         }
     }
 

@@ -29,6 +29,8 @@ pub mod move_select;
 pub mod operation_select;
 pub mod palette;
 pub mod recover;
+pub mod search_bar;
+pub mod search_match;
 pub mod split_files_select;
 pub mod split_hunks_select;
 pub mod split_select;

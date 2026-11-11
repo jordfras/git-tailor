@@ -90,7 +90,9 @@ fn opening_the_detail_view_and_changing_context_reload_the_diff() {
     let repo = test.git_repo();
 
     let mut app = AppState::new();
-    app.list.commits = vec![repo.commit_diff(&head, 3).unwrap().commit];
+    app.list.set_rows(common::rows(vec![
+        repo.commit_diff(&head, 3).unwrap().commit,
+    ]));
     app.list.selection_index = 0;
 
     let action = views::commit_list::handle_key(KeyCommand::ToggleDetail, &mut app);

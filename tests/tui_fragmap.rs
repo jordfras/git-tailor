@@ -39,11 +39,11 @@ fn test_fragmap_squashable_pair() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     // Cluster 0: commits 0 and 2 both touch it, commit 1 does not → squashable
@@ -73,11 +73,11 @@ fn test_fragmap_conflicting_pair() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add parser"),
         common::create_test_commit("bbbb33334444", "Refactor parser"),
         common::create_test_commit("cccc55556666", "Fix parser bug"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     // All three commits touch cluster 0 → commits 1 and 2 conflict with commit 0
@@ -109,12 +109,12 @@ fn test_fragmap_mixed_columns() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add feature A"),
         common::create_test_commit("bbbb33334444", "Touch both files"),
         common::create_test_commit("cccc55556666", "Fix feature A"),
         common::create_test_commit("dddd77778888", "Polish feature A"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     // Cluster 0: commits 0, 1, 2, 3 all touch → conflicting chain
@@ -161,11 +161,11 @@ fn test_fragmap_reversed() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add config file"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
-    ];
+    ]));
     app.list.selection_index = 2;
     app.list.reverse = true;
 
@@ -196,10 +196,10 @@ fn test_fragmap_full_duplicate_columns_visible() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     // Two clusters both touched only by commit 0 — identical activation pattern.
@@ -228,10 +228,10 @@ fn test_fragmap_adjacent_squashable() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Add handler"),
         common::create_test_commit("bbbb33334444", "Fix handler"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     app.fragmap = Some(create_fragmap(
@@ -284,7 +284,7 @@ fn test_fragmap_horizontal_scroll() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = commits;
+    app.list.set_rows(common::rows(commits));
     app.list.selection_index = 0;
     app.fragmap_scroll_offset = 4;
     app.fragmap = Some(create_fragmap(oids, clusters, matrix));
@@ -303,11 +303,11 @@ fn test_fragmap_not_fully_squashable() {
 
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Touch config"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Touch config and unique"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     app.fragmap = Some(create_fragmap(
@@ -339,11 +339,11 @@ fn test_fragmap_default_highlight_theme() {
 
     let mut app = AppState::new();
     // No `app.theme = ...`: exercise the default (Highlight).
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaaa11112222", "Touch config"),
         common::create_test_commit("bbbb33334444", "Unrelated change"),
         common::create_test_commit("cccc55556666", "Fix config typo"),
-    ];
+    ]));
     app.list.selection_index = 0;
 
     // Cluster 0: commits 0 and 2 → squashable. Cluster 1: commit 1 only →
@@ -383,11 +383,12 @@ fn app_with_clusters(commits: usize, clusters: usize) -> AppState {
     let oids: Vec<String> = (0..commits).map(|i| format!("c{i:03}")).collect();
     let mut app = AppState::new();
     app.theme = Theme::Plain;
-    app.list.commits = oids
-        .iter()
-        .enumerate()
-        .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit {i}")))
-        .collect();
+    app.list.set_rows(common::rows(
+        oids.iter()
+            .enumerate()
+            .map(|(i, oid)| common::create_test_commit(oid, &format!("Commit {i}")))
+            .collect(),
+    ));
     app.list.selection_index = 0;
 
     let spans: Vec<SpanCluster> = (0..clusters)

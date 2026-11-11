@@ -28,10 +28,6 @@ use crate::cli::Cli;
 use crate::progress_screen::{ProgressScreen, ShowProgress, waiting_key};
 use crate::terminal_guard::TerminalGuard;
 
-/// Commits as loaded from git, before synthetic working-tree rows and virtual
-/// OIDs are added to produce the final `app.list.commits` list.
-type CommitsWithDiffs = Vec<(CommitInfo, Option<CommitDiff>)>;
-
 pub fn load_initial_commits(
     git_repo: &impl RepoRead,
     cli: &Cli,
@@ -111,7 +107,7 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
 /// hunk group matrix. Updates `app` in place and sets `app.mode = CommitList`;
 /// on a cancel or an error the loading dialog is left for the caller to replace.
 ///
-/// When `app.list.commits` is non-empty (reload case), the dialog is shown as an
+/// When `app.list` has rows (reload case), the dialog is shown as an
 /// overlay on top of the existing commit list. When empty (initial load), the
 /// dialog is shown full-screen.
 ///
@@ -148,44 +144,34 @@ pub fn load_with_progress(
         return Ok(false);
     };
 
-    let (commits, diff_opts): (Vec<CommitInfo>, Vec<Option<CommitDiff>>) = {
-        let mut ordered = raw;
-        ordered.reverse();
-        ordered
-            .into_iter()
-            .filter(|(c, _)| {
-                include_reference_oid || c.oid != VirtualOid::Real(reference_oid.clone())
-            })
-            .unzip()
-    };
+    let mut diffs = raw;
+    diffs.reverse();
+    diffs.retain(|d| {
+        include_reference_oid || d.commit.oid != VirtualOid::Real(reference_oid.clone())
+    });
 
-    let extra_diffs: Vec<CommitDiff> = [
-        git_repo.staged_diff_for_fragmap()?,
-        git_repo.unstaged_diff_for_fragmap()?,
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-
-    let matrix = match build_hunk_group_matrix(terminal_guard, app, diff_opts, &extra_diffs, full)?
-    {
+    diffs.extend(
+        [
+            git_repo.staged_diff_for_fragmap()?,
+            git_repo.unstaged_diff_for_fragmap()?,
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    let matrix = match build_hunk_group_matrix(terminal_guard, app, &diffs, full)? {
         HunkGroupMatrixBuild::Built(matrix) => Some(matrix),
         HunkGroupMatrixBuild::Skipped => None,
         HunkGroupMatrixBuild::Interrupted => return Ok(false),
     };
 
-    let mut all_commits = commits;
-    for d in &extra_diffs {
-        all_commits.push(d.commit.clone());
-    }
-    app.list.commits = all_commits;
+    app.list.set_rows(diffs);
     app.list.tip = from_oid.clone();
     app.list.branch = git_repo.head_branch().unwrap_or_default();
     app.fragmap = matrix;
     app.fragmap_scroll_offset = 0;
     app.detail.v.offset = 0;
     app.list.reset_viewport();
-    app.list.selection_index = select_initial_index(&app.list.commits);
+    app.list.selection_index = select_initial_index(app.list.rows());
     app.mode = AppMode::CommitList;
 
     Ok(true)
@@ -203,14 +189,10 @@ pub fn reload(
 ) {
     let before = app.mode.clone();
     let shown = match before {
-        AppMode::CommitDetail => app
-            .list
-            .commits
-            .get(app.list.selection_index)
-            .map(|c| Shown {
-                oid: c.oid.clone(),
-                offset: app.detail.v.offset,
-            }),
+        AppMode::CommitDetail => app.list.selected().map(|c| Shown {
+            oid: c.oid.clone(),
+            offset: app.detail.v.offset,
+        }),
         _ => None,
     };
     let loaded = git_repo.head_oid().and_then(|head_oid| {
@@ -254,26 +236,32 @@ fn settle_reload(
         }
         // A load lands on the list, which is right after an operation but not
         // after refreshing the detail view.
-        Ok(true) => match shown {
-            Some(shown) => match app.list.commits.iter().position(|c| c.oid == shown.oid) {
-                Some(index) => {
-                    app.list.selection_index = index;
-                    app.detail.v.offset = shown.offset;
-                    app.mode = before;
-                }
+        Ok(true) => {
+            match shown {
+                Some(shown) => match app.list.commits().position(|c| c.oid == shown.oid) {
+                    Some(index) => {
+                        app.list.selection_index = index;
+                        app.detail.v.offset = shown.offset;
+                        app.mode = before;
+                    }
+                    None => {
+                        app.detail.search.clear();
+                        app.set_error_message(
+                            "The commit the detail view showed is no longer on the branch",
+                        );
+                    }
+                },
                 None => {
-                    app.search.clear();
-                    app.set_error_message(
-                        "The commit the detail view showed is no longer on the branch",
-                    );
-                }
-            },
-            None => {
-                if let Some(index) = select {
-                    app.list.selection_index = index.min(app.list.commits.len().saturating_sub(1));
+                    if let Some(index) = select {
+                        app.list.selection_index =
+                            index.min(app.list.rows().len().saturating_sub(1));
+                    }
                 }
             }
-        },
+            if app.list.search.state.active {
+                app.list.point_search_at_selection();
+            }
+        }
         Ok(false) => {
             app.mode = before;
             app.set_error_message(
@@ -287,8 +275,8 @@ fn settle_reload(
 }
 
 /// Walk commits from `from_oid` back to `reference_oid`, collecting each
-/// commit paired with its fragmap diff. Renders a live counter dialog at
-/// ~60 fps and polls for Ctrl-C between frames.
+/// commit's fragmap diff. Renders a live counter dialog at ~60 fps and polls
+/// for Ctrl-C between frames.
 ///
 /// Returns `Ok(None)` if the user pressed Ctrl-C, `Ok(Some(raw))` on success.
 /// The returned vec is in reverse-chronological order (newest first).
@@ -299,9 +287,9 @@ fn walk_commits(
     from_oid: &Oid,
     reference_oid: &Oid,
     total: usize,
-) -> Result<Option<CommitsWithDiffs>> {
+) -> Result<Option<Vec<CommitDiff>>> {
     let walker = git_repo.commit_walker(from_oid, reference_oid)?;
-    let mut raw: Vec<(CommitInfo, Option<CommitDiff>)> = Vec::new();
+    let mut raw: Vec<CommitDiff> = Vec::new();
 
     let render_interval = std::time::Duration::from_millis(16);
     let mut last_render = std::time::Instant::now()
@@ -310,12 +298,12 @@ fn walk_commits(
 
     for commit_result in walker {
         let commit = commit_result.context("Failed to load commits")?;
-        let diff = commit
+        let oid = commit
             .oid
             .as_oid()
-            .map(|oid| git_repo.commit_diff_for_fragmap(oid))
-            .transpose()?;
-        raw.push((commit, diff));
+            .context("The commit walker yielded a staged or unstaged row")?;
+        let files = git_repo.commit_diff_for_fragmap(oid)?.files;
+        raw.push(CommitDiff { commit, files });
 
         let now = std::time::Instant::now();
         if now.duration_since(last_render) >= render_interval {
@@ -342,8 +330,8 @@ fn walk_commits(
 /// How building the hunk group matrix ended.
 enum HunkGroupMatrixBuild {
     Built(fragmap::FragMap),
-    /// A diff is missing, or `s`/`S` was pressed during file clustering: the
-    /// list goes on without a matrix.
+    /// `s`/`S` was pressed during file clustering: the list goes on without a
+    /// matrix.
     Skipped,
     /// Ctrl-C, which abandons the whole load, as it does in [`walk_commits`].
     Interrupted,
@@ -353,17 +341,11 @@ enum HunkGroupMatrixBuild {
 fn build_hunk_group_matrix(
     terminal_guard: &mut TerminalGuard,
     app: &mut AppState,
-    diff_opts: Vec<Option<CommitDiff>>,
-    extra_diffs: &[CommitDiff],
+    diffs: &[CommitDiff],
     full: bool,
 ) -> Result<HunkGroupMatrixBuild> {
-    let Some(mut diffs) = diff_opts.into_iter().collect::<Option<Vec<CommitDiff>>>() else {
-        return Ok(HunkGroupMatrixBuild::Skipped);
-    };
-    diffs.extend_from_slice(extra_diffs);
-
     let mut screen = ProgressScreen::new(terminal_guard, "Hunk Group Matrix");
-    let result = fragmap::build_fragmap(&diffs, !full, &mut |phase| match phase {
+    let result = fragmap::build_fragmap(diffs, !full, &mut |phase| match phase {
         FragMapProgress::ClusteringFile {
             files_done,
             files_total,
@@ -397,20 +379,27 @@ fn build_hunk_group_matrix(
 
 /// Choose the initial selection index for a commit list:
 /// unstaged row if present, else staged row if present, else the last commit.
-fn select_initial_index(commits: &[CommitInfo]) -> usize {
-    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Unstaged) {
+fn select_initial_index(rows: &[CommitDiff]) -> usize {
+    if let Some(i) = rows
+        .iter()
+        .rposition(|r| r.commit.oid == VirtualOid::Unstaged)
+    {
         return i;
     }
-    if let Some(i) = commits.iter().rposition(|c| c.oid == VirtualOid::Staged) {
+    if let Some(i) = rows
+        .iter()
+        .rposition(|r| r.commit.oid == VirtualOid::Staged)
+    {
         return i;
     }
-    commits.len().saturating_sub(1)
+    rows.len().saturating_sub(1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mock_repo::MockRepo;
+    use git_tailor::app::CommitListState;
 
     /// What [`load_with_progress`] leaves behind when it fails partway.
     fn loading() -> AppMode {
@@ -462,14 +451,33 @@ mod tests {
 
     /// What [`load_with_progress`] leaves after loading `commits`: the list,
     /// with the cursor at the natural position.
-    fn loaded_list(commits: &[&str]) -> AppState {
-        let mut app = AppState {
+    fn loaded_list(oids: &[&str]) -> AppState {
+        loaded_list_of(oids.iter().map(|oid| commit(oid)).collect())
+    }
+
+    fn loaded_list_of(commits: Vec<CommitInfo>) -> AppState {
+        let selection_index = commits.len() - 1;
+        let rows = commits
+            .into_iter()
+            .map(|commit| CommitDiff {
+                commit,
+                files: vec![],
+            })
+            .collect();
+        AppState {
             mode: AppMode::CommitList,
+            list: CommitListState::with_selection(rows, selection_index),
             ..AppState::default()
-        };
-        app.list.commits = commits.iter().map(|oid| commit(oid)).collect();
-        app.list.selection_index = commits.len() - 1;
-        app
+        }
+    }
+
+    fn matching(oids: &[&str]) -> Vec<CommitInfo> {
+        oids.iter()
+            .map(|oid| CommitInfo {
+                message: "match".to_string(),
+                ..commit(oid)
+            })
+            .collect()
     }
 
     fn shown(oid: &str, offset: usize) -> Option<Shown> {
@@ -477,6 +485,45 @@ mod tests {
             oid: commit(oid).oid,
             offset,
         })
+    }
+
+    /// The current match is the one at the row the reload lands on, not the
+    /// row the cursor was on while the list was replaced.
+    #[test]
+    fn a_reload_points_an_active_search_at_the_row_it_lands_on() {
+        let mut app = loaded_list_of(matching(&["a", "b", "c"]));
+        app.list.adopt_search("match".to_string());
+        assert_eq!(app.list.search.state.match_index, Some(2));
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Ok(true),
+            Some(0),
+        );
+
+        assert_eq!(app.list.search.state.match_index, Some(0));
+    }
+
+    /// A canceled reload leaves the rows, and so the current match, as they were.
+    #[test]
+    fn a_canceled_reload_keeps_the_current_match() {
+        let mut app = loaded_list_of(matching(&["a", "b", "c"]));
+        app.list.adopt_search("match".to_string());
+        app.list.search.state.match_index = Some(0);
+
+        settle_reload(
+            &MockRepo::default(),
+            &mut app,
+            AppMode::CommitList,
+            None,
+            Ok(false),
+            None,
+        );
+
+        assert_eq!(app.list.search.state.match_index, Some(0));
     }
 
     /// A commit made in the meantime moves the row the detail view was on, so
@@ -537,9 +584,9 @@ mod tests {
     #[test]
     fn refreshing_a_commit_no_longer_listed_ends_the_search() {
         let mut app = loaded_list(&["a", "c"]);
-        app.search.query = "foo".to_string();
-        app.search.active = true;
-        app.search.matches = vec![3, 7];
+        app.detail.search.query = "foo".to_string();
+        app.detail.search.active = true;
+        app.detail.search.matches = vec![3, 7];
 
         settle_reload(
             &MockRepo::default(),
@@ -550,9 +597,9 @@ mod tests {
             None,
         );
 
-        assert!(!app.search.active);
-        assert!(app.search.query.is_empty());
-        assert!(app.search.matches.is_empty());
+        assert!(!app.detail.search.active);
+        assert!(app.detail.search.query.is_empty());
+        assert!(app.detail.search.matches.is_empty());
     }
 
     /// The branch may already have moved, so the list on screen may name commits

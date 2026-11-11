@@ -110,6 +110,14 @@ into one section, less separates them again. If an operation hits a merge
 conflict, git-tailor opens a resolution dialog where you can fix it up in your
 editor or merge tool and then continue or abort.
 
+Press `/` in the commit list to search commit messages and changed lines with a
+regex; Tab switches to messages only, changed lines only, or changed paths by
+glob, and `n`/`N` step between the matching commits. Opening a commit carries
+the search into the detail view, and back; there, `Ctrl-n` and `Ctrl-p` open
+the next and previous matching commit. Searches ignore case unless the
+pattern has an uppercase letter of its own; pass `-S sensitive` or
+`-S insensitive` (`--search-case`, or set `GT_SEARCH_CASE`) to change that.
+
 When the working tree has uncommitted changes, a history-rewriting operation
 stashes them first, runs, and reapplies them afterwards, preserving your exact
 staged/unstaged split. Squashing the staged or unstaged row sets the other row

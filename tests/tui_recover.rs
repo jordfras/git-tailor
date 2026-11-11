@@ -27,10 +27,10 @@ use git_tailor::{
 
 fn make_app_in_recover(operation_label: &str, conflicting_files: Vec<&str>) -> AppState {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("abc123def456", "Refactor parser module"),
         common::create_test_commit("def456ghi789", "Add feature X"),
-    ];
+    ]));
     app.list.selection_index = 0;
     app.mode = AppMode::RecoverConfirm(Box::new(ConflictState {
         operation_label: operation_label.to_string(),

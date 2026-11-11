@@ -463,7 +463,7 @@ pub fn app_state_from_commit_summaries(summaries: &[&str]) -> AppState {
         })
         .collect();
     let mut app = AppState::new();
-    app.list.commits = commits;
+    app.list.set_rows(rows(commits));
     app
 }
 
@@ -549,4 +549,15 @@ pub fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         committer_email: Some("committer@example.com".to_string()),
         commit_date: Some(time::OffsetDateTime::from_unix_timestamp(1705318200).unwrap()),
     }
+}
+
+/// Rows for the commit list, each commit touching no files.
+pub fn rows(commits: Vec<CommitInfo>) -> Vec<CommitDiff> {
+    commits
+        .into_iter()
+        .map(|commit| CommitDiff {
+            commit,
+            files: vec![],
+        })
+        .collect()
 }

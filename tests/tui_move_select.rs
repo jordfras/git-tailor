@@ -286,10 +286,10 @@ fn test_move_down_to_end_then_confirm_keeps_selection_in_bounds() {
 
     // The stale anchor must not leak out as the selection.
     assert!(
-        app.list.selection_index < app.list.commits.len(),
+        app.list.selection_index < app.list.rows().len(),
         "selection_index {} out of bounds for {} commits",
         app.list.selection_index,
-        app.list.commits.len()
+        app.list.rows().len()
     );
 
     // Rendering the commit list (as the conflict dialog does in the background
@@ -309,10 +309,10 @@ fn test_move_down_then_cancel_keeps_selection_in_bounds() {
     assert!(matches!(result, AppAction::Handled));
     assert_eq!(app.mode, AppMode::CommitList);
     assert!(
-        app.list.selection_index < app.list.commits.len(),
+        app.list.selection_index < app.list.rows().len(),
         "selection_index {} out of bounds for {} commits",
         app.list.selection_index,
-        app.list.commits.len()
+        app.list.rows().len()
     );
 
     let _ = harness.render(|frame| views::commit_list::render(&mut app, frame));
@@ -321,7 +321,7 @@ fn test_move_down_then_cancel_keeps_selection_in_bounds() {
 #[test]
 fn test_enter_move_select_blocks_on_synthetic() {
     let mut app = AppState::new();
-    app.list.commits = vec![
+    app.list.set_rows(common::rows(vec![
         common::create_test_commit("aaa111bbb222", "Real commit"),
         CommitInfo {
             oid: VirtualOid::Staged,
@@ -329,7 +329,7 @@ fn test_enter_move_select_blocks_on_synthetic() {
             summary_key: "staged".into(),
             ..common::create_test_commit("staged", "staged")
         },
-    ];
+    ]));
     app.list.selection_index = 1;
     app.mode = AppMode::CommitList;
 
@@ -378,7 +378,11 @@ fn test_enter_move_select_oldest_commit_starts_at_valid_position() {
 #[test]
 fn test_enter_move_select_single_commit_blocked() {
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("aaa111bbb222", "Only commit")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "aaa111bbb222",
+            "Only commit",
+        )]));
     app.list.selection_index = 0;
     app.mode = AppMode::CommitList;
 

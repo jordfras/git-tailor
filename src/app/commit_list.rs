@@ -14,9 +14,22 @@
 
 // The commit list: its rows, which one is selected, and where it is scrolled.
 
+mod search;
+
 use crate::app::ScrollState;
 use crate::app::scroll::{half_page_size, page_size};
-use crate::{CommitInfo, Oid, VirtualOid};
+use crate::app::search::{SearchDirection, SearchState};
+use crate::domain::search::{CommitQuery, SearchScope};
+use crate::fragmap::CommitPos;
+use crate::{CommitDiff, CommitInfo, Oid, VirtualOid};
+
+pub use search::ListSearch;
+
+/// The rows' commits. A concrete type rather than `impl Iterator`, which the
+/// borrow checker assumes may run code on drop, keeping the list borrowed to
+/// the end of a `match` on it.
+pub type Commits<'a> =
+    std::iter::Map<std::slice::Iter<'a, CommitDiff>, fn(&CommitDiff) -> &CommitInfo>;
 
 /// How many rows to keep between the cursor and the edge of the commit list,
 /// so there is context visible in the direction of travel.
@@ -54,12 +67,14 @@ impl ScrollMargin {
 /// reconciles the two from render, where the height is known.
 #[derive(Debug, Default)]
 pub struct CommitListState {
-    /// Rows, oldest first, with the synthetic staged/unstaged rows appended.
-    pub commits: Vec<CommitInfo>,
-    /// The branch tip `commits` were listed from. Every rewrite is handed it,
+    /// Rows, oldest first, with the synthetic staged/unstaged rows appended,
+    /// each with its changes as read for the hunk group matrix. Private so
+    /// that an active search is rerun whenever they change.
+    rows: Vec<CommitDiff>,
+    /// The branch tip `rows` were listed from. Every rewrite is handed it,
     /// so one chosen from this list is refused once the branch has moved.
     pub tip: Oid,
-    /// The branch `commits` were listed from, by full name. Another branch on
+    /// The branch `rows` were listed from, by full name. Another branch on
     /// the same commit has the same tip, so the tip alone cannot tell them
     /// apart.
     pub branch: String,
@@ -72,6 +87,8 @@ pub struct CommitListState {
     pub scroll: ScrollState,
     /// Rows kept between the cursor and the top or bottom of the list.
     pub scroll_margin: ScrollMargin,
+    /// The `/` search over the rows.
+    pub search: ListSearch,
     /// Selection the viewport was last settled against, so `follow_selection`
     /// can tell the cursor having moved from the viewport having been scrolled
     /// under a standing cursor. Bookkeeping, so unlike its neighbors it is
@@ -91,20 +108,135 @@ pub struct ViewportSnapshot {
 }
 
 impl CommitListState {
-    /// A list of `commits` with `selection_index` selected, everything else
-    /// left at its default. A constructor rather than struct-update syntax
-    /// because the viewport bookkeeping above is private.
-    pub fn with_selection(commits: Vec<CommitInfo>, selection_index: usize) -> Self {
+    /// A list of `rows` with `selection_index` selected, everything else left
+    /// at its default. A constructor rather than struct-update syntax because
+    /// the rows and the viewport bookkeeping are private.
+    pub fn with_selection(rows: Vec<CommitDiff>, selection_index: usize) -> Self {
         Self {
-            commits,
+            rows,
             selection_index,
             ..Default::default()
         }
     }
 
+    pub fn rows(&self) -> &[CommitDiff] {
+        &self.rows
+    }
+
+    pub fn commits(&self) -> Commits<'_> {
+        self.rows.iter().map(|row| &row.commit)
+    }
+
+    /// Replace the rows. An active search is matched against the new ones;
+    /// which match is current waits for [`Self::point_search_at_selection`],
+    /// once the selection is settled.
+    pub fn set_rows(&mut self, rows: Vec<CommitDiff>) {
+        self.rows = rows;
+        if self.search.state.active {
+            self.match_rows();
+        }
+    }
+
+    /// Open the search bar, searching from the selected row.
+    pub fn start_search(&mut self) {
+        self.search.activate(CommitPos(self.selection_index));
+    }
+
+    /// Search for the query typed so far and select the current match, or
+    /// the row the search started from while nothing matches.
+    pub fn search_as_typed(&mut self) {
+        let origin = self.search.origin;
+        self.match_rows();
+        let found = self.match_from(origin, SearchDirection::Next, true);
+        self.search.state.match_index = found;
+        self.selection_index = found.map_or(origin, |i| self.search.state.matches[i]).0;
+        self.clamp_selection();
+    }
+
+    /// Search for `query` as if it had been typed and entered, leaving the
+    /// selection where it is. A path glob scope becomes message + diff, since
+    /// `query` is a regex.
+    pub fn adopt_search(&mut self, query: String) {
+        if self.search.scope == SearchScope::Paths {
+            self.search.scope = SearchScope::MessageAndDiff;
+        }
+        self.start_search();
+        self.search.state = SearchState::confirmed(query);
+        self.rerun_search();
+    }
+
+    /// Dismiss the search being typed and select the row it started from.
+    pub fn cancel_search(&mut self) {
+        self.selection_index = self.search.origin.0;
+        self.clamp_selection();
+        self.search.clear();
+    }
+
+    /// Select the next or previous match on screen from the selection,
+    /// wrapping.
+    pub fn step_search(&mut self, dir: SearchDirection) {
+        if !self.search.state.active {
+            return;
+        }
+        let selection = CommitPos(self.selection_index);
+        if let Some(i) = self.match_from(selection, dir, false) {
+            self.search.state.match_index = Some(i);
+            self.selection_index = self.search.state.matches[i].0;
+        }
+    }
+
+    /// Match the search query against the rows again, after they changed,
+    /// leaving the selection where it is.
+    pub fn rerun_search(&mut self) {
+        self.match_rows();
+        self.point_search_at_selection();
+    }
+
+    /// Make the current match the first at or past the selection.
+    pub fn point_search_at_selection(&mut self) {
+        let selection = CommitPos(self.selection_index);
+        self.search.state.match_index = self.match_from(selection, SearchDirection::Next, true);
+    }
+
+    fn match_rows(&mut self) {
+        self.search.compile();
+        self.search.state.matches = match self.search.compiled() {
+            Some(query) => self.matching_rows(query),
+            None => Vec::new(),
+        };
+    }
+
+    /// The index of the first match past `from` going `dir` on screen,
+    /// wrapping around, counting `from` itself when `inclusive`.
+    fn match_from(&self, from: CommitPos, dir: SearchDirection, inclusive: bool) -> Option<usize> {
+        let matches = &self.search.state.matches;
+        // Drawn newest first, "next" is toward the oldest row.
+        let toward_newer = (dir == SearchDirection::Next) != self.reverse;
+        let is_past = |&pos: &CommitPos| {
+            (inclusive && pos == from) || if toward_newer { pos > from } else { pos < from }
+        };
+        if toward_newer {
+            let first = (!matches.is_empty()).then_some(0);
+            matches.iter().position(is_past).or(first)
+        } else {
+            let last = matches.len().checked_sub(1);
+            matches.iter().rposition(is_past).or(last)
+        }
+    }
+
+    /// The rows `query` matches, in row order.
+    pub fn matching_rows(&self, query: &CommitQuery) -> Vec<CommitPos> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| query.matches(row))
+            .map(|(pos, _)| CommitPos(pos))
+            .collect()
+    }
+
     /// The selected row, if the index is in range.
     pub fn selected(&self) -> Option<&CommitInfo> {
-        self.commits.get(self.selection_index)
+        self.rows.get(self.selection_index).map(|row| &row.commit)
     }
 
     /// The `VirtualOid` of the selected row, if any.
@@ -116,8 +248,7 @@ impl CommitListState {
     /// Commits are stored oldest-first with the synthetic working-tree rows
     /// appended, so the oldest is simply the first real commit.
     pub fn selected_is_oldest_commit(&self) -> bool {
-        self.commits
-            .iter()
+        self.commits()
             .position(|c| !c.oid.is_synthetic())
             .is_some_and(|first_real| first_real == self.selection_index)
     }
@@ -125,18 +256,13 @@ impl CommitListState {
     /// Number of real (non-synthetic) commits. Operations like squash and move
     /// need at least two.
     pub fn real_commit_count(&self) -> usize {
-        self.commits
-            .iter()
-            .filter(|c| !c.oid.is_synthetic())
-            .count()
+        self.commits().filter(|c| !c.oid.is_synthetic()).count()
     }
 
     /// Pull the selection back into range. `MoveSelect` navigation can leave it
     /// as a scroll anchor pointing past the last commit.
     pub fn clamp_selection(&mut self) {
-        self.selection_index = self
-            .selection_index
-            .min(self.commits.len().saturating_sub(1));
+        self.selection_index = self.selection_index.min(self.rows.len().saturating_sub(1));
     }
 
     /// Move selection up (decrement index) with lower bound check.
@@ -150,7 +276,7 @@ impl CommitListState {
     /// Move selection down (increment index) with upper bound check.
     /// Does nothing if already at bottom or commits list is empty.
     pub fn move_down(&mut self) {
-        if !self.commits.is_empty() && self.selection_index < self.commits.len() - 1 {
+        if !self.rows.is_empty() && self.selection_index < self.rows.len() - 1 {
             self.selection_index += 1;
         }
     }
@@ -180,11 +306,11 @@ impl CommitListState {
     }
 
     fn move_selection_forward(&mut self, step: usize) {
-        if self.commits.is_empty() {
+        if self.rows.is_empty() {
             return;
         }
         let new_index = self.selection_index.saturating_add(step);
-        self.selection_index = new_index.min(self.commits.len() - 1);
+        self.selection_index = new_index.min(self.rows.len() - 1);
     }
 
     /// Jump to the first commit in the list.
@@ -194,13 +320,13 @@ impl CommitListState {
 
     /// Jump to the last commit in the list.
     pub fn jump_to_last(&mut self) {
-        self.selection_index = self.commits.len().saturating_sub(1);
+        self.selection_index = self.rows.len().saturating_sub(1);
     }
 
     /// The selected row's index in display space, which is mirrored when the
     /// list is drawn newest-first.
     pub fn visual_selection(&self) -> usize {
-        let total = self.commits.len();
+        let total = self.rows.len();
         let index = self.selection_index.min(total.saturating_sub(1));
         if self.reverse {
             total.saturating_sub(1) - index
@@ -219,9 +345,9 @@ impl CommitListState {
     /// `compute_fragmap_sep_x` measures a hypothetical one and restores the
     /// viewport for that reason.
     pub fn follow_selection(&mut self, available_height: usize) {
-        let max_scroll = self.commits.len().saturating_sub(available_height);
+        let max_scroll = self.rows.len().saturating_sub(available_height);
         self.scroll.set_bounds(max_scroll, available_height);
-        if self.commits.is_empty() {
+        if self.rows.is_empty() {
             return;
         }
         // The margin says where the cursor should sit *as it moves*. When the
@@ -283,7 +409,7 @@ impl CommitListState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Oid;
+    use crate::FileDiff;
 
     fn create_test_commit(oid: &str, summary: &str) -> CommitInfo {
         CommitInfo {
@@ -302,15 +428,209 @@ mod tests {
         }
     }
 
+    /// A row for a commit that touches no files.
+    fn row(oid: &str, summary: &str) -> CommitDiff {
+        CommitDiff {
+            commit: create_test_commit(oid, summary),
+            files: vec![],
+        }
+    }
+
+    fn touching(mut row: CommitDiff, path: &str) -> CommitDiff {
+        row.files.push(FileDiff {
+            old_path: Some(path.into()),
+            new_path: Some(path.into()),
+            status: crate::DeltaStatus::Modified,
+            is_binary: false,
+            hunks: vec![],
+        });
+        row
+    }
+
     /// A list of `n` commits with the given selection.
     fn list_of(n: usize, selection: usize) -> CommitListState {
-        CommitListState {
-            commits: (0..n)
-                .map(|i| create_test_commit(&format!("{i:040x}"), &format!("c{i}")))
+        CommitListState::with_selection(
+            (0..n)
+                .map(|i| row(&format!("{i:040x}"), &format!("c{i}")))
                 .collect(),
-            selection_index: selection,
-            ..Default::default()
-        }
+            selection,
+        )
+    }
+
+    #[test]
+    fn search_reports_matching_rows_by_position() {
+        use crate::domain::search::{SearchCase, SearchScope};
+        let mut list = CommitListState::default();
+        list.set_rows(vec![
+            touching(row(&format!("{:040x}", 0), "c0"), "a.txt"),
+            touching(row(&format!("{:040x}", 1), "c1"), "b.txt"),
+            row(&format!("{:040x}", 2), "c2"),
+        ]);
+
+        let rows = |scope, pattern| -> Vec<CommitPos> {
+            let query = CommitQuery::new(scope, pattern, SearchCase::Sensitive).unwrap();
+            list.matching_rows(&query)
+        };
+        assert_eq!(rows(SearchScope::Paths, "b.txt"), vec![CommitPos(1)]);
+        // The last row touches no files, so only its message can match.
+        assert_eq!(
+            rows(SearchScope::Message, "c[02]"),
+            vec![CommitPos(0), CommitPos(2)]
+        );
+    }
+
+    /// Rows `c0`..`c5`, `selection` selected, searching for `query`.
+    fn searched(selection: usize, reverse: bool, query: &str) -> CommitListState {
+        let mut list = list_of(6, selection);
+        list.reverse = reverse;
+        list.start_search();
+        list.search.state.query = query.to_string();
+        list.search_as_typed();
+        list
+    }
+
+    fn current_match(list: &CommitListState) -> Option<CommitPos> {
+        let state = &list.search.state;
+        state.match_index.map(|i| state.matches[i])
+    }
+
+    #[test]
+    fn search_starts_from_the_first_match_at_or_below_the_selection() {
+        let list = searched(2, false, "c[135]");
+        assert_eq!(
+            list.search.state.matches,
+            vec![CommitPos(1), CommitPos(3), CommitPos(5)]
+        );
+        assert_eq!(current_match(&list), Some(CommitPos(3)));
+        assert_eq!(
+            current_match(&searched(3, false, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(5, false, "c[01]")),
+            Some(CommitPos(0))
+        );
+    }
+
+    #[test]
+    fn search_drawn_newest_first_looks_toward_older_rows() {
+        assert_eq!(
+            current_match(&searched(4, true, "c[135]")),
+            Some(CommitPos(3))
+        );
+        assert_eq!(
+            current_match(&searched(0, true, "c[45]")),
+            Some(CommitPos(5))
+        );
+    }
+
+    #[test]
+    fn search_with_no_query_or_an_invalid_one_matches_nothing() {
+        let empty = searched(0, false, "");
+        assert!(empty.search.state.matches.is_empty());
+        assert!(!empty.search.pattern_is_invalid());
+
+        let invalid = searched(0, false, "c(");
+        assert!(invalid.search.state.matches.is_empty());
+        assert!(invalid.search.pattern_is_invalid());
+    }
+
+    #[test]
+    fn typing_selects_the_current_match() {
+        assert_eq!(searched(2, false, "c[135]").selection_index, 3);
+    }
+
+    #[test]
+    fn typing_searches_from_where_the_search_started() {
+        let mut list = searched(2, false, "c");
+        assert_eq!(list.selection_index, 2);
+        list.search.state.query = "c[135]".to_string();
+        list.search_as_typed();
+        assert_eq!(list.selection_index, 3);
+    }
+
+    #[test]
+    fn typing_returns_to_the_origin_while_nothing_matches() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.query = "nothing".to_string();
+        list.search_as_typed();
+        assert_eq!(list.selection_index, 2);
+    }
+
+    #[test]
+    fn canceling_a_search_returns_to_the_origin() {
+        let mut list = searched(2, false, "c[135]");
+        list.cancel_search();
+        assert_eq!(list.selection_index, 2);
+        assert!(!list.search.state.active);
+    }
+
+    #[test]
+    fn rerunning_a_search_leaves_the_selection_alone() {
+        let mut list = searched(2, false, "c[135]");
+        list.search.state.input_active = false;
+        list.selection_index = 4;
+        list.rerun_search();
+        assert_eq!(list.selection_index, 4);
+        assert_eq!(current_match(&list), Some(CommitPos(5)));
+    }
+
+    fn stepped(mut list: CommitListState, dir: SearchDirection) -> usize {
+        list.search.state.input_active = false;
+        list.step_search(dir);
+        list.selection_index
+    }
+
+    #[test]
+    fn stepping_moves_to_the_next_or_previous_match_wrapping() {
+        let list = || searched(3, false, "c[135]");
+        assert_eq!(stepped(list(), SearchDirection::Next), 5);
+        assert_eq!(stepped(list(), SearchDirection::Prev), 1);
+        assert_eq!(
+            stepped(searched(5, false, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(1, false, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_starts_from_the_selection_not_the_last_match() {
+        let mut list = searched(1, false, "c[135]");
+        list.selection_index = 4;
+        assert_eq!(stepped(list, SearchDirection::Next), 5);
+    }
+
+    #[test]
+    fn stepping_drawn_newest_first_goes_toward_older_rows() {
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Next),
+            1
+        );
+        assert_eq!(
+            stepped(searched(3, true, "c[135]"), SearchDirection::Prev),
+            5
+        );
+    }
+
+    #[test]
+    fn stepping_without_a_search_does_nothing() {
+        let mut list = list_of(6, 2);
+        list.step_search(SearchDirection::Next);
+        assert_eq!(list.selection_index, 2);
+    }
+
+    #[test]
+    fn set_rows_reruns_an_active_search() {
+        let mut list = searched(0, false, "new");
+        assert!(list.search.state.matches.is_empty());
+        list.set_rows(vec![
+            row(&format!("{:040x}", 7), "old"),
+            row(&format!("{:040x}", 8), "new"),
+        ]);
+        assert_eq!(list.search.state.matches, vec![CommitPos(1)]);
     }
 
     #[test]
@@ -389,18 +709,18 @@ mod tests {
         step: fn(&mut CommitListState),
     ) -> usize {
         let settled = offset(app, height);
-        for taken in 0..app.commits.len() {
+        for taken in 0..app.rows().len() {
             step(app);
             if offset(app, height) != settled {
                 return taken;
             }
         }
-        app.commits.len()
+        app.rows().len()
     }
 
     /// The selected row's display index must lie within the visible window.
     fn selection_visible(app: &CommitListState, offset: usize, height: usize) -> bool {
-        let total = app.commits.len();
+        let total = app.rows().len();
         let visual = if app.reverse {
             total - 1 - app.selection_index
         } else {

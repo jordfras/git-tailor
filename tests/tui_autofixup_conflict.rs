@@ -31,7 +31,11 @@ use git_tailor::{
 fn an_autofixup_squash_conflict_names_the_batch_and_the_squash() {
     let mut harness = TuiTestHarness::typical();
     let mut app = AppState::new();
-    app.list.commits = vec![common::create_test_commit("abc123def456", "Add T2")];
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Add T2",
+        )]));
     app.mode = AppMode::RebaseConflict(Box::new(ConflictState {
         operation_label: "Autofixup".to_string(),
         conflicting_commit_oid: Oid::from("abc123def456"),
