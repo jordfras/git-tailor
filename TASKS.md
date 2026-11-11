@@ -16,6 +16,28 @@ Guidelines:
   nothing highlighted. Highlight from match positions in the joined line text
   (less a diff line's prefix span), mapped back onto the spans, so matching and
   highlighting cannot disagree. Already true on main.
+- [ ] T282 P2 bug - The detail view shows a moved file as a deletion and an
+  addition (reported by a user). `commit_diff` and `staged_diff` in
+  `repo/git2_impl/reads.rs` never call `find_renames`, and libgit2 does not
+  pair renames by itself the way git's `diff.renames` does; only the
+  `_for_fragmap` diffs pair them. The view already draws `R` for a rename, so
+  pairing them should be enough. `dispatch/split.rs` reads `commit_diff` too:
+  decide whether a split should also see the rename as one change rather than
+  two, and test a moved file with and without edits in the detail view and in
+  the split.
+- [ ] T283 P2 bug - A rewritten commit keeps its original committer and commit
+  date. `git rebase` keeps the author and author date but makes whoever runs it
+  the committer, dated now; every rewrite here passes the original commit's
+  `committer()` instead (`cherry_pick.rs`, `move_op.rs`, `squash_op.rs`,
+  `split_op.rs`, `reword_op.rs`, `conflict.rs`). Use the repository's
+  signature, as committing staged changes and lifting already do, and fail
+  with a clear message when no identity is configured. Check whether git2
+  exposes libgit2's `git_signature_default_from_env`, so
+  `GIT_COMMITTER_NAME`/`_EMAIL`/`_DATE` are honored as git honors them.
+  Copying the committer is also what makes replaying a commit onto its own
+  parent reproduce the same OID; once the date is "now" that stops being true,
+  so find any replay of commits git would leave alone (the unchanged prefix of
+  a reorder, say) and keep those commits as they are, as git does.
 
 ## Architecture & Robustness
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
