@@ -132,9 +132,10 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
     }
 }
 
-/// Apply the selected deltas of `full_diff`, or parts of them, to
-/// `parent_tree`, returning the new tree OID. A delta absent from `selected`
-/// keeps its content from `parent_tree`.
+/// Apply the selected deltas of `full_diff`, or parts of them, onto `onto`,
+/// returning the new tree OID. A selected delta's hunks apply to its content in
+/// `parent_tree`, the diff's old side, whatever `onto` holds for it; a delta
+/// absent from `selected` keeps what `onto` has.
 ///
 /// Deltas written whole shed their old sides before anything lands, as in
 /// `apply_whole_deltas_to_tree`; the rest apply in diff order. Blobs are
@@ -142,12 +143,13 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
 /// hunks it skips against the already-changed output, and fails.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
+    onto: &git2::Tree,
     parent_tree: &git2::Tree,
     full_diff: &git2::Diff,
     selected: &BTreeMap<usize, DeltaSelection>,
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
-    idx.read_tree(parent_tree)?;
+    idx.read_tree(onto)?;
 
     let delta = |delta_idx: usize| {
         full_diff
@@ -250,16 +252,17 @@ fn is_gitlink(delta: &git2::DiffDelta<'_>) -> bool {
         || delta.new_file().mode() == git2::FileMode::Commit
 }
 
-/// Take away the path a delta removes: a deletion's, or a rename's old one.
+/// Take away the path a delta removes, a deletion's or a rename's old one,
+/// unless an earlier piece already has.
 fn remove_old_side(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
     if matches!(delta.status(), git2::Delta::Deleted | git2::Delta::Renamed) {
-        idx.remove(
-            delta
-                .old_file()
-                .path()
-                .context("delta has no old-side path")?,
-            0,
-        )?;
+        let old = delta
+            .old_file()
+            .path()
+            .context("delta has no old-side path")?;
+        if idx.get_path(old, 0).is_some() {
+            idx.remove(old, 0)?;
+        }
     }
     Ok(())
 }

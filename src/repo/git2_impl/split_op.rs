@@ -111,18 +111,21 @@ pub(super) fn split_commit_per_hunk(
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
-    // Every piece is built from the parent tree, so the diff is computed and
-    // its renames paired once, and a later piece cannot see them differently.
+    // Every piece applies the one diff, so its renames are paired once and a
+    // later piece cannot see them differently.
     let mut current_base = initial_split_base(&target.commit)?;
-    for target_k in 0..piece_count {
+    let mut current_tree_oid = target.parent_tree.id();
+    for (target_k, step) in steps.iter().enumerate() {
         let next_tree_oid = if target_k == piece_count - 1 {
             target.commit_tree.id()
         } else {
+            let current_tree = repo.inner.find_tree(current_tree_oid)?;
             hunks::apply_selected_hunks_to_tree(
                 &repo.inner,
+                &current_tree,
                 &target.parent_tree,
                 &full_diff,
-                &selection_through(&steps[..=target_k]),
+                &step.selection(),
             )
             .with_context(|| format!("building piece {}", target_k + 1))?
         };
@@ -135,6 +138,7 @@ pub(super) fn split_commit_per_hunk(
             target_k + 1,
             piece_count,
         )?);
+        current_tree_oid = next_tree_oid;
     }
 
     // `target`'s handles and the diff borrow the repository, and all of them
@@ -191,6 +195,7 @@ pub(super) fn split_commit_per_hunk_group(
             let selected = plan.selection_through(gk);
             hunks::apply_selected_hunks_to_tree(
                 &repo.inner,
+                &target.parent_tree,
                 &target.parent_tree,
                 &full_diff,
                 &selected,
@@ -572,7 +577,7 @@ fn rest_tree(
             Some((delta_idx, selection))
         })
         .collect();
-    hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)
+    hunks::apply_selected_hunks_to_tree(repo, parent_tree, parent_tree, diff, &rest)
 }
 
 /// The deltas of `diff` that `file_paths` pick, each with the rest of its swap.
@@ -785,33 +790,29 @@ enum PerHunkStep {
     Whole(Vec<usize>),
 }
 
-/// What the tree holding every one of `steps` applies to the parent tree.
-fn selection_through(steps: &[PerHunkStep]) -> BTreeMap<usize, hunks::DeltaSelection> {
-    let mut selected = BTreeMap::new();
-    for step in steps {
-        match step {
+impl PerHunkStep {
+    /// What this step writes over the piece before it: the changes it touches,
+    /// each with all of it the steps so far take. A change's hunks are stepped
+    /// in order, so that is every hunk up to this one.
+    fn selection(&self) -> BTreeMap<usize, hunks::DeltaSelection> {
+        match self {
             PerHunkStep::Hunk {
                 delta_idx,
                 hunk_idx,
-            } => {
-                let selection = selected
-                    .entry(*delta_idx)
-                    .or_insert_with(|| hunks::DeltaSelection::Hunks(Vec::new()));
-                let hunks::DeltaSelection::Hunks(chosen) = selection else {
-                    unreachable!("a change with hunks is never written whole");
-                };
-                chosen.push(hunks::HunkSelection::Whole {
-                    hunk_idx: *hunk_idx,
-                });
-            }
-            PerHunkStep::Whole(members) => {
-                for &member in members {
-                    selected.insert(member, hunks::DeltaSelection::Whole);
-                }
-            }
+            } => BTreeMap::from([(
+                *delta_idx,
+                hunks::DeltaSelection::Hunks(
+                    (0..=*hunk_idx)
+                        .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
+                        .collect(),
+                ),
+            )]),
+            PerHunkStep::Whole(members) => members
+                .iter()
+                .map(|&member| (member, hunks::DeltaSelection::Whole))
+                .collect(),
         }
     }
-    selected
 }
 
 /// With too little to split, a swap can only be the whole commit: say that
