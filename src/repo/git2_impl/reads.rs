@@ -191,9 +191,9 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
     extract_commit_diff(&diff, &commit)
 }
 
-/// The diff from `old` to `new` that a commit is shown and split by, renames
-/// paired. The split picks changes by their position in the diff the detail
-/// view shows, so both have to come from here.
+/// A commit's diff from `old` to `new`, renames paired. The detail view, the
+/// fragmap and the split all read a commit through here: the split picks
+/// changes by the positions the other two give them.
 pub(super) fn diff_trees<'r>(
     repo: &'r Git2Repo,
     old: Option<&git2::Tree<'_>>,
@@ -207,10 +207,9 @@ pub(super) fn diff_trees<'r>(
 
 /// Pair up renamed files in `diff`, and nothing more, whatever git's
 /// `diff.renames` says: with `copies` a new file is described against the one
-/// it resembles rather than whole, and neither the fragmap nor the split may
-/// change with a personal setting. The staged row pairs them too, so nothing
-/// changes on committing it; the unstaged row leaves untracked files out, so it
-/// has no addition to pair.
+/// it resembles rather than whole, and what git-tailor shows and splits must
+/// not change with a personal setting. The unstaged row leaves untracked files
+/// out, so it has no addition to pair.
 fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
     let mut opts = git2::DiffFindOptions::new();
     opts.renames(true);
@@ -265,25 +264,30 @@ fn build_synthetic_diff(
 /// Staged changes (index vs HEAD) with `context_lines` of context, for the
 /// detail view.
 pub(super) fn staged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Option<CommitDiff>> {
-    let head = head_tree(repo)?;
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context_lines);
-    let mut diff = repo
-        .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
-    find_renames(&mut diff)?;
+    let diff = diff_head_to_index(repo, &mut opts)?;
     build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
 }
 
 /// Staged changes with 0-context tight spans, for the fragmap matrix.
 pub(super) fn staged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let diff = diff_head_to_index(repo, &mut fragmap_diff_opts())?;
+    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+}
+
+/// The staged changes, renames paired as `diff_trees` pairs them, so the row
+/// reads as the commit made from it will.
+fn diff_head_to_index<'r>(
+    repo: &'r Git2Repo,
+    opts: &mut git2::DiffOptions,
+) -> Result<git2::Diff<'r>> {
     let head = head_tree(repo)?;
-    let mut opts = fragmap_diff_opts();
     let mut diff = repo
         .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
+        .diff_tree_to_index(head.as_ref(), None, Some(opts))?;
     find_renames(&mut diff)?;
-    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+    Ok(diff)
 }
 
 /// Unstaged changes (workdir vs index) with `context_lines` of context, for the
