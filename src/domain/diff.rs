@@ -108,6 +108,22 @@ pub struct FileDiff {
     pub hunks: Vec<Hunk>,
 }
 
+impl FileDiff {
+    /// The file's name as drawn: `old → new` for a rename or copy, so a moved
+    /// file reads the same wherever it is listed.
+    pub fn display_path(&self) -> String {
+        match (&self.old_path, &self.new_path) {
+            (Some(old), Some(new))
+                if matches!(self.status, DeltaStatus::Renamed | DeltaStatus::Copied) =>
+            {
+                format!("{} → {}", old.display(), new.display())
+            }
+            (_, Some(path)) | (Some(path), None) => path.display().to_string(),
+            (None, None) => String::from("<unknown>"),
+        }
+    }
+}
+
 /// All diff information for a single commit.
 ///
 /// Combines the commit metadata with the complete list of file changes,

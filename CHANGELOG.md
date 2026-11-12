@@ -282,7 +282,7 @@ The format is based on
 - The commit detail view shows a moved file as a rename, as `git show` does,
   rather than as a deletion and an addition. Splitting keeps a move together
   too: no piece is left without the file, and "Split out file(s)" and "Split
-  out hunk(s)" take exactly what the picker shows
+  out hunk(s)" list it under both names and take exactly what they show
 
 ### Removed
 

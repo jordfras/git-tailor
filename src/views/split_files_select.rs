@@ -209,7 +209,7 @@ pub fn render(app: &mut AppState, frame: &mut Frame) {
             let path_budget = budget.saturating_sub(prefix.chars().count());
             format!(
                 "{prefix}{}",
-                two_pane_picker::elide_path(&file_path(file).display().to_string(), path_budget)
+                two_pane_picker::elide_path(&file.display_path(), path_budget)
             )
         })
         .collect();
@@ -241,7 +241,7 @@ fn build_file_preview(app: &AppState, file: Option<&FileDiff>) -> Vec<Line<'stat
         return lines;
     };
     lines.push(Line::from(Span::styled(
-        format!("{}:", file_path(file).display()),
+        format!("{}:", file.display_path()),
         Style::default().fg(app.colors.resolve(Color::Yellow)),
     )));
     lines.push(Line::from(""));
