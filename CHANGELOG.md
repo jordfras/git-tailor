@@ -25,6 +25,16 @@ The format is based on
   fold into without conflict, the one drawn green
 - In the commit detail view, Ctrl-n and Ctrl-p open the next and previous
   commit matching the search, at its first or last match
+- `--list-rescued` shows the working trees git-tailor kept when it had to
+  discard the record naming them, each with how many files it holds and the
+  `git checkout <tree> -- :/` that restores it. Until now nothing in git-tailor
+  could show you one
+- `--drop-rescued` removes them, listing them first. This is the only copy, so
+  it is a separate command from both `--clean-journal` and `--list-rescued`
+- `--scroll-margin` keeps rows visible past the cursor in the commit list, so
+  there is always context in the direction you are moving. `auto` (the
+  default) scales with the window height, a number sets it exactly, and `0`
+  scrolls only once the cursor is at the edge, as before
 
 ### Changed
 
@@ -57,19 +67,6 @@ The format is based on
   uncommitted work git-tailor kept when it had to discard the record naming it,
   they belong to the whole repository rather than to one working tree, and this
   is the only copy. It now says how many it kept
-
-### Added
-
-- `--list-rescued` shows the working trees git-tailor kept when it had to
-  discard the record naming them, each with how many files it holds and the
-  `git checkout <tree> -- :/` that restores it. Until now nothing in git-tailor
-  could show you one
-- `--drop-rescued` removes them, listing them first. This is the only copy, so
-  it is a separate command from both `--clean-journal` and `--list-rescued`
-- `--scroll-margin` keeps rows visible past the cursor in the commit list, so
-  there is always context in the direction you are moving. `auto` (the
-  default) scales with the window height, a number sets it exactly, and `0`
-  scrolls only once the cursor is at the edge, as before
 
 ### Fixed
 
