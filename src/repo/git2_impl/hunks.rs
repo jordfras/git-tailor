@@ -137,7 +137,9 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
 /// keeps its content from `parent_tree`.
 ///
 /// Deltas written whole shed their old sides before anything lands, as in
-/// `apply_whole_deltas_to_tree`; the rest apply in diff order.
+/// `apply_whole_deltas_to_tree`; the rest apply in diff order. Blobs are
+/// spliced by hand because `Diff::apply_to_tree` with a hunk filter checks the
+/// hunks it skips against the already-changed output, and fails.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
     parent_tree: &git2::Tree,

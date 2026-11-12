@@ -124,7 +124,7 @@ pub(super) fn split_commit_per_hunk(
                 &full_diff,
                 &selection_through(&steps[..=target_k]),
             )
-            .with_context(|| format!("applying hunk {}", target_k + 1))?
+            .with_context(|| format!("building piece {}", target_k + 1))?
         };
 
         current_base = Some(commit_split_piece(
@@ -797,11 +797,12 @@ fn selection_through(steps: &[PerHunkStep]) -> BTreeMap<usize, hunks::DeltaSelec
                 let selection = selected
                     .entry(*delta_idx)
                     .or_insert_with(|| hunks::DeltaSelection::Hunks(Vec::new()));
-                if let hunks::DeltaSelection::Hunks(chosen) = selection {
-                    chosen.push(hunks::HunkSelection::Whole {
-                        hunk_idx: *hunk_idx,
-                    });
-                }
+                let hunks::DeltaSelection::Hunks(chosen) = selection else {
+                    unreachable!("a change with hunks is never written whole");
+                };
+                chosen.push(hunks::HunkSelection::Whole {
+                    hunk_idx: *hunk_idx,
+                });
             }
             PerHunkStep::Whole(members) => {
                 for &member in members {

@@ -288,11 +288,6 @@ fn split_multi_path_last_piece_has_original_tree() {
 
 /// Splitting a commit that deletes a file must produce a piece that *deletes*
 /// it, not one that empties it.
-///
-/// `apply_first_hunk_to_tree` matched `Added` and then a catch-all that reads
-/// the base blob and applies the hunk. For a deletion that leaves no content,
-/// so it wrote a zero-byte blob at the path instead of removing the entry — a
-/// plausible-looking commit rather than an error.
 #[test]
 fn splitting_a_deletion_removes_the_file_rather_than_emptying_it() {
     let test = common::TestRepo::new();
