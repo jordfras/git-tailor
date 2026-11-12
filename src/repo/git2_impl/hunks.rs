@@ -151,19 +151,21 @@ pub(super) fn apply_first_hunk_to_tree(
     }
     let mut patch =
         git2::Patch::from_diff(diff, delta_idx)?.context("delta has no patch to apply")?;
+    let old_path = delta.old_file().path();
     let file_path = delta
         .new_file()
         .path()
-        .or_else(|| delta.old_file().path())
+        .or(old_path)
         .context("delta has no file path")?
         .to_owned();
 
     let old_content = match delta.status() {
         git2::Delta::Added => Vec::new(),
         _ => {
+            let lookup_path = old_path.context("delta has no old-side path")?;
             let entry = base_tree
-                .get_path(&file_path)
-                .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
+                .get_path(lookup_path)
+                .with_context(|| format!("'{}' not in base tree", lookup_path.display()))?;
             repo.find_blob(entry.id())?.content().to_owned()
         }
     };
@@ -181,6 +183,7 @@ pub(super) fn apply_first_hunk_to_tree(
     if delta.status() == git2::Delta::Deleted {
         idx.remove_path(&file_path)?;
     } else {
+        remove_old_side(&mut idx, &delta)?;
         let new_blob_oid = repo.blob(&new_content)?;
         add_entry(&mut idx, &file_path, new_blob_oid, mode)?;
     }

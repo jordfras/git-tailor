@@ -184,7 +184,7 @@ pub(super) fn split_commit_per_hunk_group(
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
 
-    let full_diff = hunk_group_diff(repo, &target)?;
+    let full_diff = target.diff(repo, &mut zero_context_diff_opts())?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
@@ -262,7 +262,7 @@ pub(super) fn count_split_per_hunk_group(
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
     let target = load_split_commit(repo, commit_oid)?;
-    let diff = hunk_group_diff(repo, &target)?;
+    let diff = target.diff(repo, &mut zero_context_diff_opts())?;
     Ok(HunkGroupPlan::new(&assignment, &diff)?.piece_count())
 }
 
@@ -367,16 +367,6 @@ impl HunkGroupPlan {
         }
         selected
     }
-}
-
-/// The 0-context diff a per-hunk-group split works from, whose hunk indices
-/// line up with the fragmap's assignment. That assignment detects renames, so
-/// this has to as well: otherwise a renamed file shows up as an unrelated
-/// delete+add pair, and its hunk indices (and even its path) no longer match.
-fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<git2::Diff<'r>> {
-    let mut diff = target.diff(repo, &mut zero_context_diff_opts())?;
-    reads::find_renames(&mut diff)?;
-    Ok(diff)
 }
 
 /// Peel a set of selected files out of `commit_oid` into a follow-up commit,
@@ -731,12 +721,9 @@ fn collect_commit_paths(diff: &git2::Diff<'_>) -> HashSet<PathBuf> {
             d.new_file().mode() != git2::FileMode::Commit
                 && d.old_file().mode() != git2::FileMode::Commit
         })
-        .filter_map(|d| {
-            d.new_file()
-                .path()
-                .or_else(|| d.old_file().path())
-                .map(Path::to_path_buf)
-        })
+        .flat_map(|d| [d.old_file().path(), d.new_file().path()])
+        .flatten()
+        .map(Path::to_path_buf)
         .collect()
 }
 

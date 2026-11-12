@@ -279,6 +279,10 @@ The format is based on
 - Ctrl-C works while the hunk group matrix is being built and while a split
   works out its pieces. It used to be ignored there: now it quits at startup,
   cancels a reload, and cancels a split as `Esc` does
+- The commit detail view shows a moved file as a rename, as `git show` does,
+  rather than as a deletion and an addition. Splitting keeps a move together
+  too: no piece is left without the file, and "Split out file(s)" and "Split
+  out hunk(s)" take exactly what the picker shows
 
 ### Removed
 
