@@ -107,6 +107,27 @@ fn test_split_files_select_second_highlighted_first_selected() {
     }));
 }
 
+/// A moved file is listed under both names, as the detail view lists it.
+#[test]
+fn test_split_files_select_names_a_rename_by_both_paths() {
+    let mut harness = TuiTestHarness::typical();
+    let mut app = make_app_in_files_select(0, &[]);
+    if let AppMode::SplitFilesSelect { files, .. } = &mut app.mode {
+        files[2] = FileDiff {
+            old_path: Some("o.txt".into()),
+            new_path: Some("n.txt".into()),
+            status: DeltaStatus::Renamed,
+            is_binary: false,
+            hunks: vec![],
+        };
+    }
+
+    let buffer = harness.render(|frame| views::split_files_select::render(&mut app, frame));
+
+    let screen: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    assert!(screen.contains("R o.txt → n.txt"), "{screen}");
+}
+
 /// MoveDown steps the cursor to the next file.
 #[test]
 fn test_move_down_steps_cursor() {
