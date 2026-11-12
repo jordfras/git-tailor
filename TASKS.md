@@ -16,7 +16,7 @@ Guidelines:
   nothing highlighted. Highlight from match positions in the joined line text
   (less a diff line's prefix span), mapped back onto the spans, so matching and
   highlighting cannot disagree. Already true on main.
-- [ ] T282 P2 bug - The detail view shows a moved file as a deletion and an
+- [x] T282 P2 bug - The detail view shows a moved file as a deletion and an
   addition (reported by a user). `commit_diff` and `staged_diff` in
   `repo/git2_impl/reads.rs` never call `find_renames`, and libgit2 does not
   pair renames by itself the way git's `diff.renames` does; only the
