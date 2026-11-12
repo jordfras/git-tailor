@@ -112,7 +112,9 @@ pub(super) fn split_commit_per_hunk(
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
     // Every piece applies the one diff, so its renames are paired once and a
-    // later piece cannot see them differently.
+    // later piece cannot see them differently. Building on the piece before
+    // works because steps write disjoint paths: changes that collide are a
+    // swap, and a swap is one step.
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
     for (target_k, step) in steps.iter().enumerate() {
@@ -791,9 +793,9 @@ enum PerHunkStep {
 }
 
 impl PerHunkStep {
-    /// What this step writes over the piece before it: the changes it touches,
-    /// each with all of it the steps so far take. A change's hunks are stepped
-    /// in order, so that is every hunk up to this one.
+    /// What this step writes over the piece before it. Hunks apply to the
+    /// parent's content, so a hunk step reapplies every earlier hunk of its
+    /// change too; the steps take a change's hunks in order.
     fn selection(&self) -> BTreeMap<usize, hunks::DeltaSelection> {
         match self {
             PerHunkStep::Hunk {

@@ -252,17 +252,16 @@ fn is_gitlink(delta: &git2::DiffDelta<'_>) -> bool {
         || delta.new_file().mode() == git2::FileMode::Commit
 }
 
-/// Take away the path a delta removes, a deletion's or a rename's old one,
-/// unless an earlier piece already has.
+/// Take away the path a delta removes: a deletion's, or a rename's old one.
 fn remove_old_side(idx: &mut git2::Index, delta: &git2::DiffDelta<'_>) -> Result<()> {
     if matches!(delta.status(), git2::Delta::Deleted | git2::Delta::Renamed) {
-        let old = delta
-            .old_file()
-            .path()
-            .context("delta has no old-side path")?;
-        if idx.get_path(old, 0).is_some() {
-            idx.remove(old, 0)?;
-        }
+        idx.remove(
+            delta
+                .old_file()
+                .path()
+                .context("delta has no old-side path")?,
+            0,
+        )?;
     }
     Ok(())
 }
@@ -333,9 +332,14 @@ fn apply_hunks_to_index(
         // All lines removed → delete the file from the intermediate tree.
         idx.remove(&file_path, 0)?;
     } else {
-        // The index was seeded from the parent tree, so a rename's old path
-        // is still in it.
-        remove_old_side(idx, &delta)?;
+        // A rename's old path is gone already when an earlier piece applied
+        // some of its hunks.
+        if delta.status() == git2::Delta::Renamed
+            && let Some(old) = old_path
+            && idx.get_path(old, 0).is_some()
+        {
+            idx.remove(old, 0)?;
+        }
         let new_blob_oid = repo.blob(&new_content)?;
         add_entry(idx, &file_path, new_blob_oid, mode)?;
     }
