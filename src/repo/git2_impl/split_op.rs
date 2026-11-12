@@ -36,9 +36,7 @@ pub(super) fn split_commit_per_file(
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
-    let full_diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let full_diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     let swaps = swap_groups(&full_diff);
     let units = swaps.units();
     let file_count = units.len();
@@ -101,12 +99,7 @@ pub(super) fn split_commit_per_hunk(
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
-    let mut diff_opts = zero_context_diff_opts();
-    let full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let full_diff = target.diff(repo, &mut zero_context_diff_opts())?;
 
     let changes = SplitChanges::of(&full_diff)?;
     let hunk_steps = changes.hunk_steps();
@@ -139,11 +132,11 @@ pub(super) fn split_commit_per_hunk(
             hunks::apply_whole_deltas_to_tree(&repo.inner, &current_tree, &delta)?
         } else {
             let current_tree = repo.inner.find_tree(current_tree_oid)?;
-            let mut diff_opts = zero_context_diff_opts();
-            let incremental_diff = repo.inner.diff_tree_to_tree(
+            let incremental_diff = reads::diff_trees(
+                repo,
                 Some(&current_tree),
-                Some(&target.commit_tree),
-                Some(&mut diff_opts),
+                &target.commit_tree,
+                &mut zero_context_diff_opts(),
             )?;
             apply_next_hunk_step(&repo.inner, &current_tree, &incremental_diff)
                 .with_context(|| format!("applying hunk {}", target_k + 1))?
@@ -248,20 +241,13 @@ pub(super) fn split_commit_per_hunk_group(
 
 pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
-    let diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     Ok(swap_groups(&diff).units().len())
 }
 
 pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
-    let mut diff_opts = zero_context_diff_opts();
-    let diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let diff = target.diff(repo, &mut zero_context_diff_opts())?;
     let changes = SplitChanges::of(&diff)?;
     Ok(changes.hunk_steps() + changes.hunkless().len())
 }
@@ -388,12 +374,7 @@ impl HunkGroupPlan {
 /// this has to as well: otherwise a renamed file shows up as an unrelated
 /// delete+add pair, and its hunk indices (and even its path) no longer match.
 fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<git2::Diff<'r>> {
-    let mut diff_opts = zero_context_diff_opts();
-    let mut diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let mut diff = target.diff(repo, &mut zero_context_diff_opts())?;
     reads::find_renames(&mut diff)?;
     Ok(diff)
 }
@@ -413,9 +394,7 @@ pub(super) fn split_commit_out_files(
 
     let target = load_split_commit(repo, commit_oid)?;
 
-    let full_diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let full_diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     let file_count = full_diff.deltas().len();
 
     let chosen = chosen_file_deltas(&full_diff, file_paths)?;
@@ -497,11 +476,7 @@ pub(super) fn split_commit_out_hunks(
     // into one, shifting indices relative to a differently-configured diff.
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.context_lines(context_lines);
-    let full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let full_diff = target.diff(repo, &mut diff_opts)?;
 
     let changes = SplitChanges::of(&full_diff)?;
     let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
@@ -706,6 +681,13 @@ struct SplitTarget<'r> {
     commit: git2::Commit<'r>,
     parent_tree: git2::Tree<'r>,
     commit_tree: git2::Tree<'r>,
+}
+
+impl<'r> SplitTarget<'r> {
+    /// The commit's diff, numbered as the split pickers number it.
+    fn diff(&self, repo: &'r Git2Repo, opts: &mut git2::DiffOptions) -> Result<git2::Diff<'r>> {
+        reads::diff_trees(repo, Some(&self.parent_tree), &self.commit_tree, opts)
+    }
 }
 
 /// Parse `commit_oid`, look up the commit, validate it's not a merge, and

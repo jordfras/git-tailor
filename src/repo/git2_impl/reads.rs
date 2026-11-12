@@ -177,9 +177,7 @@ pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Res
 
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context_lines);
-    let diff =
-        repo.inner
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+    let diff = diff_trees(repo, parent_tree.as_ref(), &new_tree, &mut opts)?;
 
     extract_commit_diff(&diff, &commit)
 }
@@ -188,13 +186,23 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
     let (commit, new_tree, parent_tree) = commit_trees(repo, oid)?;
 
     let mut opts = fragmap_diff_opts();
-    let mut diff =
-        repo.inner
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+    let mut diff = diff_trees(repo, parent_tree.as_ref(), &new_tree, &mut opts)?;
 
     find_renames(&mut diff)?;
 
     extract_commit_diff(&diff, &commit)
+}
+
+/// The diff from `old` to `new` that a commit is shown and split by. The split
+/// picks changes by their position in the diff the detail view shows, so both
+/// have to come from here.
+pub(super) fn diff_trees<'r>(
+    repo: &'r Git2Repo,
+    old: Option<&git2::Tree<'_>>,
+    new: &git2::Tree<'_>,
+    opts: &mut git2::DiffOptions,
+) -> Result<git2::Diff<'r>> {
+    Ok(repo.inner.diff_tree_to_tree(old, Some(new), Some(opts))?)
 }
 
 /// Pair up renamed files in `diff`, and nothing more, whatever git's
