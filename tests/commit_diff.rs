@@ -478,3 +478,70 @@ fn staged_diff_for_fragmap_detects_a_staged_rename() {
         Some(Path::new("b.txt"))
     );
 }
+
+fn twenty_lines() -> String {
+    (1..=20).map(|n| format!("line {n}\n")).collect()
+}
+
+/// A moved file is one rename, as `git show` draws it, not a deletion of every
+/// line and an addition of them all again.
+#[test]
+fn commit_diff_shows_a_moved_file_as_a_rename() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", &twenty_lines(), "add a");
+    let moved = test.rename_file("a.txt", "z.txt", None, "move a");
+
+    let diff = test.git_repo().commit_diff(&Oid::from(moved), 3).unwrap();
+
+    assert_eq!(diff.files.len(), 1, "{:?}", diff.files);
+    let file = &diff.files[0];
+    assert_eq!(file.status, git_tailor::DeltaStatus::Renamed);
+    assert_eq!(file.old_path.as_deref(), Some(Path::new("a.txt")));
+    assert_eq!(file.new_path.as_deref(), Some(Path::new("z.txt")));
+    assert!(file.hunks.is_empty(), "{:?}", file.hunks);
+}
+
+#[test]
+fn commit_diff_shows_only_the_edits_of_a_moved_and_edited_file() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", &twenty_lines(), "add a");
+    let edited = twenty_lines().replace("line 10\n", "line ten\n");
+    let moved = test.rename_file("a.txt", "z.txt", Some(&edited), "move and edit a");
+
+    let diff = test.git_repo().commit_diff(&Oid::from(moved), 3).unwrap();
+
+    assert_eq!(diff.files.len(), 1, "{:?}", diff.files);
+    assert_eq!(diff.files[0].status, git_tailor::DeltaStatus::Renamed);
+    let changed: Vec<&str> = diff.files[0]
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .filter(|line| line.kind != DiffLineKind::Context)
+        .map(|line| line.content.as_str())
+        .collect();
+    assert_eq!(changed, ["line 10\n", "line ten\n"]);
+}
+
+#[test]
+fn staged_diff_shows_a_staged_move_as_a_rename() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", &twenty_lines(), "add a");
+    std::fs::rename(
+        test.repo.workdir().unwrap().join("a.txt"),
+        test.repo.workdir().unwrap().join("z.txt"),
+    )
+    .unwrap();
+    let mut index = test.repo.index().unwrap();
+    index.remove_path(Path::new("a.txt")).unwrap();
+    index.add_path(Path::new("z.txt")).unwrap();
+    index.write().unwrap();
+
+    let staged = test
+        .git_repo()
+        .staged_diff(3)
+        .unwrap()
+        .expect("staged changes present");
+
+    assert_eq!(staged.files.len(), 1, "{:?}", staged.files);
+    assert_eq!(staged.files[0].status, git_tailor::DeltaStatus::Renamed);
+}
