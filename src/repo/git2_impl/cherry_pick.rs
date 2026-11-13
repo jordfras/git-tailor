@@ -33,6 +33,12 @@ impl Git2Repo {
     fn cherry_pick_one(&self, onto: &git2::Commit, desc: &git2::Commit) -> Result<PickStep> {
         let repo = &self.inner;
 
+        // Already where it would land, so kept as it is, as git keeps it:
+        // rebuilding it would only change its committer date.
+        if desc.parent_ids().next() == Some(onto.id()) {
+            return Ok(PickStep::Picked(desc.id()));
+        }
+
         // Root commits have no parent, so cherrypick_commit cannot compute
         // a diff base. Use merge_trees with the empty tree as the common
         // ancestor — this is the correct three-way merge equivalent of

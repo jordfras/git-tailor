@@ -161,3 +161,23 @@ fn move_commit_preserves_file_contents() {
 
     assert_history!(&test, base, &["A", "C", "B"]);
 }
+
+/// A commit replayed onto the parent it already has is left as it is, as
+/// `git rebase` leaves it, rather than rebuilt with a new committer date.
+#[test]
+fn moving_a_commit_onto_its_own_parent_keeps_every_commit() {
+    let test = common::TestRepo::new();
+
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let a = test.commit_file("x.txt", "x\n", "A");
+    let b = test.commit_file("y.txt", "y\n", "B");
+    let c = test.commit_file("z.txt", "z\n", "C");
+
+    let mut git_repo = test.git_repo();
+    let result = git_repo
+        .move_commit(&Oid::from(b), Some(&Oid::from(a)), &Oid::from(c))
+        .unwrap();
+
+    assert_rebase_complete!(result);
+    assert_eq!(test.repo.head().unwrap().target().unwrap(), c);
+}
