@@ -759,9 +759,10 @@ impl SplitChanges {
             .collect()
     }
 
-    /// What each piece of a per-hunk split adds to the one before, in diff
-    /// order: a hunk outside a swap, or a whole swap where its first change
-    /// comes. The hunkless changes follow, one piece each.
+    /// The pieces of a per-hunk split, in diff order. Each hunk is a piece of
+    /// its own, except that colliding changes (see `SwapGroups`) share one
+    /// piece, placed where the first of them is. Changes without hunks come
+    /// last, one piece each.
     fn per_hunk_steps(&self) -> Vec<PerHunkStep> {
         let mut steps = Vec::new();
         for (delta_idx, &num_hunks) in self.hunk_counts.iter().enumerate() {
@@ -787,8 +788,14 @@ impl SplitChanges {
     }
 }
 
+/// One piece of a per-hunk split, as what it changes on top of the piece
+/// before.
 enum PerHunkStep {
+    /// One hunk of one change.
     Hunk { delta_idx: usize, hunk_idx: usize },
+    /// Whole changes: a group of colliding changes, which no piece can split
+    /// apart, or one change without hunks (a binary file, an empty file, a
+    /// mode change).
     Whole(Vec<usize>),
 }
 
