@@ -201,16 +201,17 @@ pub(super) fn diff_trees<'r>(
     opts: &mut git2::DiffOptions,
 ) -> Result<git2::Diff<'r>> {
     let mut diff = repo.inner.diff_tree_to_tree(old, Some(new), Some(opts))?;
-    find_renames(&mut diff)?;
+    pair_deletions_with_additions(&mut diff)?;
     Ok(diff)
 }
 
-/// Pair up renamed files in `diff`, and nothing more, whatever git's
-/// `diff.renames` says: with `copies` a new file is described against the one
-/// it resembles rather than whole, and what git-tailor shows and splits must
-/// not change with a personal setting. The unstaged row leaves untracked files
-/// out, so it has no addition to pair.
-fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
+/// Join each deleted file in `diff` with the added file it resembles into one
+/// rename. Nothing else is detected, whatever git's `diff.renames` says: with
+/// `copies` a new file would be shown as a copy of the file it resembles
+/// rather than whole, and what git-tailor shows and splits must not depend on
+/// a personal setting. The unstaged row leaves untracked files out, so it has
+/// no addition to pair.
+fn pair_deletions_with_additions(diff: &mut git2::Diff<'_>) -> Result<()> {
     let mut opts = git2::DiffFindOptions::new();
     opts.renames(true);
     diff.find_similar(Some(&mut opts))?;
@@ -286,7 +287,7 @@ fn diff_head_to_index<'r>(
     let mut diff = repo
         .inner
         .diff_tree_to_index(head.as_ref(), None, Some(opts))?;
-    find_renames(&mut diff)?;
+    pair_deletions_with_additions(&mut diff)?;
     Ok(diff)
 }
 
