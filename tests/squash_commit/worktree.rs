@@ -459,9 +459,13 @@ fn a_row_can_delete_add_and_rename_files() {
     assert!(git_repo.staged_diff(3).unwrap().is_none());
 
     assert!(matches!(git_repo.undo().unwrap(), UndoOutcome::Done { .. }));
+    let staged = git_repo.staged_diff(3).unwrap();
+    assert_eq!(row_paths(staged.clone()), ["added.txt", "new.txt"]);
+    let renamed = &staged.unwrap().files[1];
+    assert_eq!(renamed.status, git_tailor::DeltaStatus::Renamed);
     assert_eq!(
-        row_paths(git_repo.staged_diff(3).unwrap()),
-        ["added.txt", "new.txt", "old.txt"]
+        renamed.old_path.as_deref(),
+        Some(std::path::Path::new("old.txt"))
     );
 }
 

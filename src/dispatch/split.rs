@@ -19,7 +19,7 @@ use git_tailor::app::{AppState, HunkPickerEntry, LoadingEscape, SplitStrategy};
 use git_tailor::fragmap::{FragMapProgress, Interrupted};
 use git_tailor::repo::{DEFAULT_CONTEXT_LINES, GitRepo};
 use git_tailor::{Oid, SwapGroups};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
 use crate::progress_screen::ShowProgress;
@@ -121,13 +121,7 @@ pub(crate) fn handle_prepare_split_out_hunks(
                 .flat_map(|(delta_idx, file)| {
                     // The picker shows this and routes by delta index, so
                     // the decode is at the render boundary where it belongs.
-                    let file_path = file
-                        .new_path
-                        .as_deref()
-                        .or(file.old_path.as_deref())
-                        .unwrap_or(Path::new(""))
-                        .display()
-                        .to_string();
+                    let file_path = file.display_path();
                     file.hunks
                         .iter()
                         .enumerate()

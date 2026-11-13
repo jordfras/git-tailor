@@ -375,6 +375,27 @@ fn prepare_split_out_hunks_flattens_diff_into_picker_entries() {
     }
 }
 
+/// A hunk of a moved file is listed under both names, as the detail view
+/// lists the file.
+#[test]
+fn prepare_split_out_hunks_names_a_rename_by_both_paths() {
+    let mut diff = three_hunk_commit_diff();
+    diff.files[1].old_path = Some("old.txt".into());
+    diff.files[1].status = DeltaStatus::Renamed;
+    let mut repo = MockRepo {
+        commit_diff: Some(diff),
+        ..MockRepo::default()
+    };
+    let mut app = AppState::default();
+
+    handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
+
+    let AppMode::SplitHunksSelect { hunks, .. } = &app.mode else {
+        panic!("expected SplitHunksSelect mode, got {:?}", app.mode);
+    };
+    assert_eq!(hunks[2].file_path, "old.txt → b.txt");
+}
+
 /// A single hunk with nothing beside it refuses to open the picker: picking
 /// it would leave nothing in the original commit.
 #[test]

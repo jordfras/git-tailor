@@ -132,75 +132,24 @@ fn applied_mode(delta: &git2::DiffDelta<'_>) -> u32 {
     }
 }
 
-/// Apply the first hunk of delta `delta_idx` in `diff` to `base_tree` and
-/// return the resulting tree OID.
-///
-/// The diff must have been computed from `base_tree`, so the hunk's old-side
-/// content matches exactly.  This avoids `apply_to_tree` with `hunk_callback`
-/// filtering, which fails because libgit2 validates rejected hunks against the
-/// already-modified output buffer (whose line positions have shifted).
-pub(super) fn apply_first_hunk_to_tree(
-    repo: &git2::Repository,
-    base_tree: &git2::Tree,
-    diff: &git2::Diff,
-    delta_idx: usize,
-) -> Result<git2::Oid> {
-    let delta = diff.get_delta(delta_idx).context("delta index in range")?;
-    if is_gitlink(&delta) {
-        return apply_whole_deltas_to_tree(repo, base_tree, &[delta]);
-    }
-    let mut patch =
-        git2::Patch::from_diff(diff, delta_idx)?.context("delta has no patch to apply")?;
-    let file_path = delta
-        .new_file()
-        .path()
-        .or_else(|| delta.old_file().path())
-        .context("delta has no file path")?
-        .to_owned();
-
-    let old_content = match delta.status() {
-        git2::Delta::Added => Vec::new(),
-        _ => {
-            let entry = base_tree
-                .get_path(&file_path)
-                .with_context(|| format!("'{}' not in base tree", file_path.display()))?;
-            repo.find_blob(entry.id())?.content().to_owned()
-        }
-    };
-    let mode = applied_mode(&delta);
-
-    let new_content = apply_hunk_to_content(&old_content, &mut patch, 0)
-        .with_context(|| format!("applying hunk to '{}'", file_path.display()))?;
-
-    let mut idx = git2::Index::new()?;
-    idx.read_tree(base_tree)?;
-
-    // A deletion's hunk removes every line, so the path has to go with it:
-    // writing the empty result back as a blob truncates the file instead of
-    // deleting it.
-    if delta.status() == git2::Delta::Deleted {
-        idx.remove_path(&file_path)?;
-    } else {
-        let new_blob_oid = repo.blob(&new_content)?;
-        add_entry(&mut idx, &file_path, new_blob_oid, mode)?;
-    }
-    idx.write_tree_to(repo).map_err(Into::into)
-}
-
-/// Apply the selected deltas of `full_diff`, or parts of them, to
-/// `parent_tree`, returning the new tree OID. A delta absent from `selected`
-/// keeps its content from `parent_tree`.
+/// Apply the selected deltas of `full_diff`, or parts of them, onto `onto`,
+/// returning the new tree OID. A selected delta's hunks apply to its content in
+/// `parent_tree`, the diff's old side, whatever `onto` holds for it; a delta
+/// absent from `selected` keeps what `onto` has.
 ///
 /// Deltas written whole shed their old sides before anything lands, as in
-/// `apply_whole_deltas_to_tree`; the rest apply in diff order.
+/// `apply_whole_deltas_to_tree`; the rest apply in diff order. Blobs are
+/// spliced by hand because `Diff::apply_to_tree` with a hunk filter checks the
+/// hunks it skips against the already-changed output, and fails.
 pub(super) fn apply_selected_hunks_to_tree(
     repo: &git2::Repository,
+    onto: &git2::Tree,
     parent_tree: &git2::Tree,
     full_diff: &git2::Diff,
     selected: &BTreeMap<usize, DeltaSelection>,
 ) -> Result<git2::Oid> {
     let mut idx = git2::Index::new()?;
-    idx.read_tree(parent_tree)?;
+    idx.read_tree(onto)?;
 
     let delta = |delta_idx: usize| {
         full_diff
@@ -383,12 +332,11 @@ fn apply_hunks_to_index(
         // All lines removed → delete the file from the intermediate tree.
         idx.remove(&file_path, 0)?;
     } else {
-        // A rename seeded the index (via `idx.read_tree(parent_tree)`)
-        // with a stale entry under the old path; drop it before adding
-        // the content under its new path, or both would remain.
+        // A rename's old path is gone already when an earlier piece applied
+        // some of its hunks.
         if delta.status() == git2::Delta::Renamed
             && let Some(old) = old_path
-            && old != file_path.as_path()
+            && idx.get_path(old, 0).is_some()
         {
             idx.remove(old, 0)?;
         }
@@ -396,54 +344,6 @@ fn apply_hunks_to_index(
         add_entry(idx, &file_path, new_blob_oid, mode)?;
     }
     Ok(())
-}
-
-/// Apply hunk `hunk_idx` from `patch` to `content`, returning the new bytes.
-///
-/// Replacement splices in context + added lines, dropping deleted lines.
-fn apply_hunk_to_content(
-    content: &[u8],
-    patch: &mut git2::Patch,
-    hunk_idx: usize,
-) -> Result<Vec<u8>> {
-    let (hunk_header, _) = patch.hunk(hunk_idx)?;
-    let old_start = hunk_header.old_start() as usize; // 1-based
-    let old_count = hunk_header.old_lines() as usize;
-
-    let lines = split_lines_keep_eol(content);
-
-    let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
-    let mut replacement: Vec<Vec<u8>> = Vec::new();
-    for line_idx in 0..num_lines {
-        let line = patch.line_in_hunk(hunk_idx, line_idx)?;
-        match line.origin() {
-            ' ' | '+' => replacement.push(line.content().to_owned()),
-            _ => {}
-        }
-    }
-
-    // old_start is 1-based.  For a substitution or deletion (old_count > 0) it
-    // is the first line to remove, so the 0-based index is old_start-1.
-    // For a pure insertion (old_count == 0) git convention says "insert after
-    // line old_start", so the splice point is old_start (0-based).
-    let start = if old_count == 0 {
-        old_start.min(lines.len())
-    } else {
-        old_start.saturating_sub(1).min(lines.len())
-    };
-    let end = (start + old_count).min(lines.len());
-
-    let mut result: Vec<u8> = Vec::new();
-    for l in &lines[..start] {
-        result.extend_from_slice(l);
-    }
-    for r in &replacement {
-        result.extend_from_slice(r);
-    }
-    for l in &lines[end..] {
-        result.extend_from_slice(l);
-    }
-    Ok(result)
 }
 
 /// Split raw bytes into lines keeping each `\n` terminator attached.

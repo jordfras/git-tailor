@@ -177,9 +177,7 @@ pub(super) fn commit_diff(repo: &Git2Repo, oid: &Oid, context_lines: u32) -> Res
 
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context_lines);
-    let diff =
-        repo.inner
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+    let diff = diff_trees(repo, parent_tree.as_ref(), &new_tree, &mut opts)?;
 
     extract_commit_diff(&diff, &commit)
 }
@@ -188,22 +186,32 @@ pub(super) fn commit_diff_for_fragmap(repo: &Git2Repo, oid: &Oid) -> Result<Comm
     let (commit, new_tree, parent_tree) = commit_trees(repo, oid)?;
 
     let mut opts = fragmap_diff_opts();
-    let mut diff =
-        repo.inner
-            .diff_tree_to_tree(parent_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
-
-    find_renames(&mut diff)?;
+    let diff = diff_trees(repo, parent_tree.as_ref(), &new_tree, &mut opts)?;
 
     extract_commit_diff(&diff, &commit)
 }
 
-/// Pair up renamed files in `diff`, and nothing more, whatever git's
-/// `diff.renames` says: with `copies` a new file is described against the one
-/// it resembles rather than whole, and the fragmap, and the split that numbers
-/// hunks as it does, must not change with a personal setting. The staged row
-/// pairs them too, so the matrix does not change on committing it; the
-/// unstaged row leaves untracked files out, so it has no addition to pair.
-pub(super) fn find_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
+/// A commit's diff from `old` to `new`, renames paired. The detail view, the
+/// fragmap and the split all read a commit through here: the split picks
+/// changes by the positions the other two give them.
+pub(super) fn diff_trees<'r>(
+    repo: &'r Git2Repo,
+    old: Option<&git2::Tree<'_>>,
+    new: &git2::Tree<'_>,
+    opts: &mut git2::DiffOptions,
+) -> Result<git2::Diff<'r>> {
+    let mut diff = repo.inner.diff_tree_to_tree(old, Some(new), Some(opts))?;
+    pair_deletions_with_additions(&mut diff)?;
+    Ok(diff)
+}
+
+/// Join each deleted file in `diff` with the added file it resembles into one
+/// rename. Nothing else is detected, whatever git's `diff.renames` says: with
+/// `copies` a new file would be shown as a copy of the file it resembles
+/// rather than whole, and what git-tailor shows and splits must not depend on
+/// a personal setting. The unstaged row leaves untracked files out, so it has
+/// no addition to pair.
+fn pair_deletions_with_additions(diff: &mut git2::Diff<'_>) -> Result<()> {
     let mut opts = git2::DiffFindOptions::new();
     opts.renames(true);
     diff.find_similar(Some(&mut opts))?;
@@ -257,24 +265,30 @@ fn build_synthetic_diff(
 /// Staged changes (index vs HEAD) with `context_lines` of context, for the
 /// detail view.
 pub(super) fn staged_diff(repo: &Git2Repo, context_lines: u32) -> Result<Option<CommitDiff>> {
-    let head = head_tree(repo)?;
     let mut opts = git2::DiffOptions::new();
     opts.context_lines(context_lines);
-    let diff = repo
-        .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
+    let diff = diff_head_to_index(repo, &mut opts)?;
     build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
 }
 
 /// Staged changes with 0-context tight spans, for the fragmap matrix.
 pub(super) fn staged_diff_for_fragmap(repo: &Git2Repo) -> Result<Option<CommitDiff>> {
+    let diff = diff_head_to_index(repo, &mut fragmap_diff_opts())?;
+    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+}
+
+/// The staged changes, renames paired as `diff_trees` pairs them, so the row
+/// reads as the commit made from it will.
+fn diff_head_to_index<'r>(
+    repo: &'r Git2Repo,
+    opts: &mut git2::DiffOptions,
+) -> Result<git2::Diff<'r>> {
     let head = head_tree(repo)?;
-    let mut opts = fragmap_diff_opts();
     let mut diff = repo
         .inner
-        .diff_tree_to_index(head.as_ref(), None, Some(&mut opts))?;
-    find_renames(&mut diff)?;
-    build_synthetic_diff(&diff, VirtualOid::Staged, "(staged changes)")
+        .diff_tree_to_index(head.as_ref(), None, Some(opts))?;
+    pair_deletions_with_additions(&mut diff)?;
+    Ok(diff)
 }
 
 /// Unstaged changes (workdir vs index) with `context_lines` of context, for the

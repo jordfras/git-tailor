@@ -1036,10 +1036,13 @@ impl Git2Repo {
         .flatten()
         .collect();
         for synthetic_diff in &synthetic_diffs {
-            for file in &synthetic_diff.files {
-                let Some(path) = file.new_path.as_deref().or(file.old_path.as_deref()) else {
-                    continue;
-                };
+            // A rename takes its file away from the old path as well.
+            let paths = synthetic_diff
+                .files
+                .iter()
+                .flat_map(|file| [file.old_path.as_deref(), file.new_path.as_deref()])
+                .flatten();
+            for path in paths {
                 if commit_paths.contains(path) && !overlapping.contains(&path) {
                     overlapping.push(path);
                 }

@@ -36,9 +36,7 @@ pub(super) fn split_commit_per_file(
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
-    let full_diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let full_diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     let swaps = swap_groups(&full_diff);
     let units = swaps.units();
     let file_count = units.len();
@@ -101,17 +99,11 @@ pub(super) fn split_commit_per_hunk(
 ) -> Result<()> {
     let target = load_split_commit(repo, commit_oid)?;
 
-    let mut diff_opts = zero_context_diff_opts();
-    let full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let full_diff = target.diff(repo, &mut zero_context_diff_opts())?;
 
     let changes = SplitChanges::of(&full_diff)?;
-    let hunk_steps = changes.hunk_steps();
-    let hunkless = changes.hunkless();
-    let piece_count = hunk_steps + hunkless.len();
+    let steps = changes.per_hunk_steps();
+    let piece_count = steps.len();
     if piece_count < 2 {
         refuse_lone_swap(&changes.swaps, "hunks")?;
         anyhow::bail!("Commit has fewer than 2 hunks — nothing to split per hunk");
@@ -119,34 +111,25 @@ pub(super) fn split_commit_per_hunk(
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
-    // Build one commit per hunk using incremental blob manipulation.  At each
-    // step, recompute diff(current_tree → commit_tree) with 0 context and
-    // apply exactly its first hunk directly to the blob — bypassing
-    // apply_to_tree to avoid libgit2 validating rejected hunks against the
-    // modified output buffer (which shifts line positions and causes "hunk
-    // did not apply"). Changes with no hunk follow, one piece each.
+    // Every piece applies the one diff, so its renames are paired once and a
+    // later piece cannot see them differently. Building on the piece before
+    // works because steps write disjoint paths: changes that collide are a
+    // swap, and a swap is one step.
     let mut current_base = initial_split_base(&target.commit)?;
     let mut current_tree_oid = target.parent_tree.id();
-    for target_k in 0..piece_count {
+    for (target_k, step) in steps.iter().enumerate() {
         let next_tree_oid = if target_k == piece_count - 1 {
             target.commit_tree.id()
-        } else if let Some(&delta_idx) = target_k
-            .checked_sub(hunk_steps)
-            .and_then(|i| hunkless.get(i))
-        {
-            let current_tree = repo.inner.find_tree(current_tree_oid)?;
-            let delta = deltas_at(&full_diff, &[delta_idx])?;
-            hunks::apply_whole_deltas_to_tree(&repo.inner, &current_tree, &delta)?
         } else {
             let current_tree = repo.inner.find_tree(current_tree_oid)?;
-            let mut diff_opts = zero_context_diff_opts();
-            let incremental_diff = repo.inner.diff_tree_to_tree(
-                Some(&current_tree),
-                Some(&target.commit_tree),
-                Some(&mut diff_opts),
-            )?;
-            apply_next_hunk_step(&repo.inner, &current_tree, &incremental_diff)
-                .with_context(|| format!("applying hunk {}", target_k + 1))?
+            hunks::apply_selected_hunks_to_tree(
+                &repo.inner,
+                &current_tree,
+                &target.parent_tree,
+                &full_diff,
+                &step.selection(),
+            )
+            .with_context(|| format!("building piece {}", target_k + 1))?
         };
 
         current_base = Some(commit_split_piece(
@@ -191,7 +174,7 @@ pub(super) fn split_commit_per_hunk_group(
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
 
-    let full_diff = hunk_group_diff(repo, &target)?;
+    let full_diff = target.diff(repo, &mut zero_context_diff_opts())?;
 
     repo.check_dirty_overlap(&collect_commit_paths(&full_diff))?;
 
@@ -214,6 +197,7 @@ pub(super) fn split_commit_per_hunk_group(
             let selected = plan.selection_through(gk);
             hunks::apply_selected_hunks_to_tree(
                 &repo.inner,
+                &target.parent_tree,
                 &target.parent_tree,
                 &full_diff,
                 &selected,
@@ -248,22 +232,14 @@ pub(super) fn split_commit_per_hunk_group(
 
 pub(super) fn count_split_per_file(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
-    let diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     Ok(swap_groups(&diff).units().len())
 }
 
 pub(super) fn count_split_per_hunk(repo: &Git2Repo, commit_oid: &Oid) -> Result<usize> {
     let target = load_split_commit(repo, commit_oid)?;
-    let mut diff_opts = zero_context_diff_opts();
-    let diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
-    let changes = SplitChanges::of(&diff)?;
-    Ok(changes.hunk_steps() + changes.hunkless().len())
+    let diff = target.diff(repo, &mut zero_context_diff_opts())?;
+    Ok(SplitChanges::of(&diff)?.per_hunk_steps().len())
 }
 
 pub(super) fn count_split_per_hunk_group(
@@ -276,7 +252,7 @@ pub(super) fn count_split_per_hunk_group(
     let assignment =
         compute_hunk_group_assignment(repo, commit_oid, head_oid, reference_oid, progress)?;
     let target = load_split_commit(repo, commit_oid)?;
-    let diff = hunk_group_diff(repo, &target)?;
+    let diff = target.diff(repo, &mut zero_context_diff_opts())?;
     Ok(HunkGroupPlan::new(&assignment, &diff)?.piece_count())
 }
 
@@ -383,21 +359,6 @@ impl HunkGroupPlan {
     }
 }
 
-/// The 0-context diff a per-hunk-group split works from, whose hunk indices
-/// line up with the fragmap's assignment. That assignment detects renames, so
-/// this has to as well: otherwise a renamed file shows up as an unrelated
-/// delete+add pair, and its hunk indices (and even its path) no longer match.
-fn hunk_group_diff<'r>(repo: &'r Git2Repo, target: &SplitTarget<'r>) -> Result<git2::Diff<'r>> {
-    let mut diff_opts = zero_context_diff_opts();
-    let mut diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
-    reads::find_renames(&mut diff)?;
-    Ok(diff)
-}
-
 /// Peel a set of selected files out of `commit_oid` into a follow-up commit,
 /// keeping everything else in the first (original-message) commit. A picked
 /// file takes along the rest of its swap.
@@ -413,9 +374,7 @@ pub(super) fn split_commit_out_files(
 
     let target = load_split_commit(repo, commit_oid)?;
 
-    let full_diff =
-        repo.inner
-            .diff_tree_to_tree(Some(&target.parent_tree), Some(&target.commit_tree), None)?;
+    let full_diff = target.diff(repo, &mut git2::DiffOptions::new())?;
     let file_count = full_diff.deltas().len();
 
     let chosen = chosen_file_deltas(&full_diff, file_paths)?;
@@ -497,11 +456,7 @@ pub(super) fn split_commit_out_hunks(
     // into one, shifting indices relative to a differently-configured diff.
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.context_lines(context_lines);
-    let full_diff = repo.inner.diff_tree_to_tree(
-        Some(&target.parent_tree),
-        Some(&target.commit_tree),
-        Some(&mut diff_opts),
-    )?;
+    let full_diff = target.diff(repo, &mut diff_opts)?;
 
     let changes = SplitChanges::of(&full_diff)?;
     let selected: HashSet<(usize, usize)> = hunks.iter().copied().collect();
@@ -624,7 +579,7 @@ fn rest_tree(
             Some((delta_idx, selection))
         })
         .collect();
-    hunks::apply_selected_hunks_to_tree(repo, parent_tree, diff, &rest)
+    hunks::apply_selected_hunks_to_tree(repo, parent_tree, parent_tree, diff, &rest)
 }
 
 /// The deltas of `diff` that `file_paths` pick, each with the rest of its swap.
@@ -708,6 +663,13 @@ struct SplitTarget<'r> {
     commit_tree: git2::Tree<'r>,
 }
 
+impl<'r> SplitTarget<'r> {
+    /// The commit's diff, numbered as the split pickers number it.
+    fn diff(&self, repo: &'r Git2Repo, opts: &mut git2::DiffOptions) -> Result<git2::Diff<'r>> {
+        reads::diff_trees(repo, Some(&self.parent_tree), &self.commit_tree, opts)
+    }
+}
+
 /// Parse `commit_oid`, look up the commit, validate it's not a merge, and
 /// load the parent and commit trees.
 fn load_split_commit<'r>(repo: &'r Git2Repo, commit_oid: &Oid) -> Result<SplitTarget<'r>> {
@@ -749,12 +711,9 @@ fn collect_commit_paths(diff: &git2::Diff<'_>) -> HashSet<PathBuf> {
             d.new_file().mode() != git2::FileMode::Commit
                 && d.old_file().mode() != git2::FileMode::Commit
         })
-        .filter_map(|d| {
-            d.new_file()
-                .path()
-                .or_else(|| d.old_file().path())
-                .map(Path::to_path_buf)
-        })
+        .flat_map(|d| [d.old_file().path(), d.new_file().path()])
+        .flatten()
+        .map(Path::to_path_buf)
         .collect()
 }
 
@@ -800,17 +759,68 @@ impl SplitChanges {
             .collect()
     }
 
-    /// The pieces a per-hunk split makes before the hunkless changes: one per
-    /// hunk outside a swap, and one per swap.
-    fn hunk_steps(&self) -> usize {
-        let loose_hunks: usize = self
-            .hunk_counts
-            .iter()
-            .enumerate()
-            .filter(|&(delta_idx, _)| self.swaps.group_of(delta_idx).is_none())
-            .map(|(_, &num_hunks)| num_hunks)
-            .sum();
-        loose_hunks + self.swaps.groups().len()
+    /// The pieces of a per-hunk split, in diff order. Each hunk is a piece of
+    /// its own, except that colliding changes (see `SwapGroups`) share one
+    /// piece, placed where the first of them is. Changes without hunks come
+    /// last, one piece each.
+    fn per_hunk_steps(&self) -> Vec<PerHunkStep> {
+        let mut steps = Vec::new();
+        for (delta_idx, &num_hunks) in self.hunk_counts.iter().enumerate() {
+            match self.swaps.group_of(delta_idx) {
+                Some(swap) => {
+                    let members = &self.swaps.groups()[swap];
+                    if members.first() == Some(&delta_idx) {
+                        steps.push(PerHunkStep::Whole(members.clone()));
+                    }
+                }
+                None => steps.extend((0..num_hunks).map(|hunk_idx| PerHunkStep::Hunk {
+                    delta_idx,
+                    hunk_idx,
+                })),
+            }
+        }
+        steps.extend(
+            self.hunkless()
+                .into_iter()
+                .map(|delta_idx| PerHunkStep::Whole(vec![delta_idx])),
+        );
+        steps
+    }
+}
+
+/// One piece of a per-hunk split, as what it changes on top of the piece
+/// before.
+enum PerHunkStep {
+    /// One hunk of one change.
+    Hunk { delta_idx: usize, hunk_idx: usize },
+    /// Whole changes: a group of colliding changes, which no piece can split
+    /// apart, or one change without hunks (a binary file, an empty file, a
+    /// mode change).
+    Whole(Vec<usize>),
+}
+
+impl PerHunkStep {
+    /// What this step writes over the piece before it. Hunks apply to the
+    /// parent's content, so a hunk step reapplies every earlier hunk of its
+    /// change too; the steps take a change's hunks in order.
+    fn selection(&self) -> BTreeMap<usize, hunks::DeltaSelection> {
+        match self {
+            PerHunkStep::Hunk {
+                delta_idx,
+                hunk_idx,
+            } => BTreeMap::from([(
+                *delta_idx,
+                hunks::DeltaSelection::Hunks(
+                    (0..=*hunk_idx)
+                        .map(|hunk_idx| hunks::HunkSelection::Whole { hunk_idx })
+                        .collect(),
+                ),
+            )]),
+            PerHunkStep::Whole(members) => members
+                .iter()
+                .map(|&member| (member, hunks::DeltaSelection::Whole))
+                .collect(),
+        }
     }
 }
 
@@ -841,28 +851,6 @@ fn deltas_at<'d>(
         .iter()
         .map(|&delta_idx| diff.get_delta(delta_idx).context("delta index in range"))
         .collect()
-}
-
-/// Apply the next per-hunk step of `diff` to `tree`: the first hunk of the
-/// first change outside a swap, or a whole swap, whichever comes first. With
-/// neither left, `tree` stays as it is.
-fn apply_next_hunk_step(
-    repo: &git2::Repository,
-    tree: &git2::Tree<'_>,
-    diff: &git2::Diff<'_>,
-) -> Result<git2::Oid> {
-    let swaps = swap_groups(diff);
-    for delta_idx in 0..diff.deltas().len() {
-        if let Some(swap) = swaps.group_of(delta_idx) {
-            let deltas = deltas_at(diff, &swaps.groups()[swap])?;
-            return hunks::apply_whole_deltas_to_tree(repo, tree, &deltas);
-        }
-        let has_hunks = git2::Patch::from_diff(diff, delta_idx)?.is_some_and(|p| p.num_hunks() > 0);
-        if has_hunks {
-            return hunks::apply_first_hunk_to_tree(repo, tree, diff, delta_idx);
-        }
-    }
-    Ok(tree.id())
 }
 
 /// The selection of hunk `hunk_idx` for the intermediate tree containing all

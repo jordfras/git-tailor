@@ -595,19 +595,7 @@ fn get_file_status_and_path(file: &crate::FileDiff) -> (FileStatus, String) {
         _ => FileStatus::Modified,
     };
 
-    let path = match (&file.old_path, &file.new_path) {
-        (_, Some(new))
-            if file.status != DeltaStatus::Renamed && file.status != DeltaStatus::Copied =>
-        {
-            new.display().to_string()
-        }
-        (Some(old), Some(new)) => format!("{} → {}", old.display(), new.display()),
-        (Some(old), None) => old.display().to_string(),
-        (None, Some(new)) => new.display().to_string(),
-        (None, None) => String::from("<unknown>"),
-    };
-
-    (status, path)
+    (status, file.display_path())
 }
 
 /// Format file status as a single character indicator.
