@@ -98,3 +98,27 @@ fn committing_staged_changes_takes_the_author_from_the_environment() {
     assert_eq!(author.when(), git2::Time::new(1_136_181_845, -3 * 60));
     assert_eq!(commit.committer().name().unwrap(), "Test User");
 }
+
+/// A rewrite keeps every author it replays, so like `git rebase` it needs a
+/// committer identity and nothing else: an author one that cannot be
+/// resolved is none of its business.
+#[test]
+fn a_rewrite_needs_no_author_identity() {
+    let mut env = EnvTurn::take();
+    let test = common::TestRepo::new();
+    let _base = test.commit_file("a.txt", "base\n", "base");
+    let tip = test.commit_file("x.txt", "x\n", "old message");
+    test.set_config("user.name", "");
+
+    env.set(&[
+        ("GIT_COMMITTER_NAME", "Env Committer"),
+        ("GIT_COMMITTER_EMAIL", "committer@env.example"),
+    ]);
+    test.git_repo()
+        .reword_commit(&Oid::from(tip), "new message".into(), &Oid::from(tip))
+        .unwrap();
+
+    let commit = head_commit(&test);
+    assert_eq!(commit.committer().name().unwrap(), "Env Committer");
+    assert_eq!(commit.author().name().unwrap(), "Test User");
+}
