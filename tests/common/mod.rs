@@ -15,6 +15,8 @@
 #[allow(unused_imports)]
 pub mod assert;
 
+pub mod env;
+
 #[allow(unused_imports)]
 pub mod fake;
 
@@ -119,10 +121,17 @@ impl TestRepo {
     /// uses the fixed "Test User / test@example.com" identity and works on
     /// both an initial (parentless) commit and subsequent commits.
     pub fn commit(&self, message: &str) -> git2::Oid {
+        self.commit_signed(
+            message,
+            &Signature::now("Test User", "test@example.com").unwrap(),
+        )
+    }
+
+    /// Commit whatever is staged with `sig` as both author and committer.
+    pub fn commit_signed(&self, message: &str, sig: &Signature<'_>) -> git2::Oid {
         let mut index = self.repo.index().unwrap();
         let tree_oid = index.write_tree().unwrap();
         let tree = self.repo.find_tree(tree_oid).unwrap();
-        let sig = Signature::now("Test User", "test@example.com").unwrap();
         let parent_commit = if let Ok(head) = self.repo.head() {
             Some(self.repo.find_commit(head.target().unwrap()).unwrap())
         } else {
@@ -130,7 +139,7 @@ impl TestRepo {
         };
         let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
         self.repo
-            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .commit(Some("HEAD"), sig, sig, message, &tree, &parents)
             .unwrap()
     }
 
