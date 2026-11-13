@@ -245,3 +245,17 @@ fn finishing_an_edit_without_a_committer_identity_rewinds_it() {
         git_tailor::repo::JournalStatus::None
     ));
 }
+
+/// What every handler that may commit asks before its editor or dialog opens.
+#[test]
+fn a_repository_without_a_committer_identity_is_uncommittable() {
+    let _env = EnvTurn::take();
+    let test = common::TestRepo::new();
+    let git_repo = test.git_repo();
+    assert!(git_repo.refuse_if_uncommittable().is_ok());
+
+    test.set_config("user.name", "");
+
+    let err = test.git_repo().refuse_if_uncommittable().unwrap_err();
+    assert!(format!("{err:#}").contains("user.name"), "{err:#}");
+}

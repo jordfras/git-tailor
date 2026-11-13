@@ -40,7 +40,6 @@ pub(super) fn reword_commit(
         let tree = commit.tree()?;
         repo.commit_preserving_message(
             &commit.author(),
-            &commit.committer(),
             new_message,
             // The original's `encoding` describes bytes that are no longer
             // there once the message is valid UTF-8, which is git's default and

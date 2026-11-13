@@ -800,6 +800,18 @@ pub trait RepoWrite {
     /// no undo entry.
     fn refuse_if_journal_unusable(&self) -> Result<()>;
 
+    /// Refuse when there is no identity to commit as.
+    fn refuse_if_uncommittable(&self) -> Result<()>;
+
+    /// Taken before an operation's editor or picker, so a refusal never costs a
+    /// typed message or a selection; a one-key dialog may come first. Operations
+    /// that write no commit (undo, redo, abort, continuing a carry conflict) take
+    /// [`Self::refuse_if_journal_unusable`] alone.
+    fn refuse_if_cannot_commit(&self) -> Result<()> {
+        self.refuse_if_journal_unusable()?;
+        self.refuse_if_uncommittable()
+    }
+
     /// Read the crash-safety journal to detect an operation interrupted by a
     /// previous run (process killed or crashed mid-conflict).
     ///

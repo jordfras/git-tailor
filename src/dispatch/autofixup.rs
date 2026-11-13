@@ -24,7 +24,7 @@ use git_tailor::{CommitInfo, Oid};
 use crate::dispatch::{
     LoopAction, PendingAutofixupSelection, edit_message_suspended, settle_autostash,
 };
-use crate::start_operation_or_bail;
+use crate::{refuse_uncommittable_or_bail, start_operation_or_bail};
 
 /// Compute the autofixup plan from the already-loaded commit list (no git
 /// call needed) and show the confirmation dialog, or report nothing to do.
@@ -35,6 +35,8 @@ pub(crate) fn handle_prepare_autofixup_confirm(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
+    // Before the dialog, which covers every message edited in it.
+    refuse_uncommittable_or_bail!(git_repo, app);
     let commits: Vec<CommitInfo> = app.list.commits().cloned().collect();
     let git_tailor::autofixup::AutofixupPlan {
         pairs,

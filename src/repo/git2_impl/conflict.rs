@@ -79,7 +79,6 @@ pub(super) fn rebase_continue(repo: &mut Git2Repo, state: &ConflictState) -> Res
         };
         repo.commit_preserving_message(
             &conflicting_commit.author(),
-            &conflicting_commit.committer(),
             conflicting_commit.message_bytes().as_bstr(),
             conflicting_commit.message_encoding().ok().flatten(),
             &new_tree,

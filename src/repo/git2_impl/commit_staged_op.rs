@@ -63,7 +63,7 @@ pub(super) fn commit_staged(repo: &mut Git2Repo, message: &BStr) -> Result<Optio
             .inner
             .find_commit(parent_oid)
             .context("failed to read HEAD commit")?;
-        repo.commit_preserving_message(&sig, &sig, message, None, &tree, &[&parent])
+        repo.commit_preserving_message(&sig, message, None, &tree, &[&parent])
             .context("failed to create commit")?
     };
     repo.advance_branch_ref(new_oid, "git-tailor: commit staged changes")?;

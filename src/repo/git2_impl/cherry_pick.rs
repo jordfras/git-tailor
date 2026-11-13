@@ -59,7 +59,6 @@ impl Git2Repo {
         // one we cannot read is still not empty.
         let picked = self.commit_preserving_message(
             &desc.author(),
-            &desc.committer(),
             desc.message_bytes().as_bstr(),
             desc.message_encoding().ok().flatten(),
             &new_tree,
@@ -321,7 +320,7 @@ pub(super) fn replace_root_and_replay(
             repo.inner.commit(
                 None,
                 &first_commit.author(),
-                &first_commit.committer(),
+                &repo.committer()?,
                 "",
                 &empty_tree,
                 &[],
@@ -354,7 +353,6 @@ pub(super) fn replace_root_and_replay(
         let first_commit = repo.inner.find_commit(first_commit_oid)?;
         repo.commit_preserving_message(
             &first_commit.author(),
-            &first_commit.committer(),
             first_commit.message_bytes().as_bstr(),
             first_commit.message_encoding().ok().flatten(),
             &new_tree,

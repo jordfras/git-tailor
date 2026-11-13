@@ -28,6 +28,7 @@ use super::split::SPLIT_CONFIRM_THRESHOLD;
 use super::*;
 
 mod refused_when_the_list_is_stale;
+mod refused_without_an_identity;
 
 #[test]
 fn execute_drop_complete_sets_success_message() {

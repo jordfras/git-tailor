@@ -66,6 +66,34 @@ pub(crate) fn handle_rebase_abort(
     }
 }
 
+/// Returns `state` if the conflict may be continued. Otherwise reopens the
+/// conflict dialog with the reason, since the conflict is still journaled,
+/// and returns `None`.
+pub(crate) fn refuse_resume(
+    git_repo: &impl GitRepo,
+    app: &mut AppState,
+    state: ConflictState,
+) -> Option<ConflictState> {
+    // A carry conflict's history is already written; continuing it only
+    // settles the working tree.
+    let refusal = if state.is_carry_conflict() {
+        git_repo.refuse_if_journal_unusable()
+    } else {
+        git_repo.refuse_if_cannot_commit()
+    };
+    match refusal {
+        Ok(()) => Some(state),
+        Err(e) => {
+            app.reenter_rebase_conflict_after_failure(
+                state,
+                resume_failure(format!("Cannot continue: {e:#}"), &e),
+                None,
+            );
+            None
+        }
+    }
+}
+
 pub(crate) fn handle_rebase_continue(
     git_repo: &mut impl GitRepo,
     app: &mut AppState,
@@ -74,7 +102,9 @@ pub(crate) fn handle_rebase_continue(
     terminal_guard: &mut crate::terminal_guard::TerminalGuard,
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
-    refuse_unrecordable_or_bail!(git_repo, app);
+    let Some(state) = refuse_resume(git_repo, app, state) else {
+        return Ok(LoopAction::Continue);
+    };
     let is_autofixup = state.autofixup_context.is_some();
     let _ = git_repo.auto_stage_resolved_conflicts(&state.conflicting_files);
     if let Resume::Squash(ref ctx) = state.resume {

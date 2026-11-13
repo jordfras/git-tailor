@@ -69,7 +69,6 @@ pub(super) fn squash_commits(
                 let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
                 repo.commit_preserving_message(
                     &target_commit.author(),
-                    &target_commit.committer(),
                     message,
                     super::reword_op::encoding_for(&target_commit, message),
                     &combined_tree,
@@ -114,7 +113,6 @@ pub(super) fn squash_commits(
         let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
         repo.commit_preserving_message(
             &target_commit.author(),
-            &target_commit.committer(),
             message,
             super::reword_op::encoding_for(&target_commit, message),
             &combined_tree,
@@ -215,7 +213,6 @@ pub(super) fn squash_finalize(
         let parents: Vec<&git2::Commit<'_>> = base_commit.iter().collect();
         repo.commit_preserving_message(
             &target_commit.author(),
-            &target_commit.committer(),
             message,
             super::reword_op::encoding_for(&target_commit, message),
             &combined_tree,

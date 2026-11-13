@@ -36,6 +36,16 @@ use ratatui::{Frame, Terminal, backend::TestBackend, buffer::Buffer};
 use std::fs;
 use tempfile::TempDir;
 
+/// Every fixture's own config, so no test depends on the machine's global one.
+pub const FIXTURE_CONFIG: &[(&str, &str)] = &[
+    ("user.name", "Test User"),
+    ("user.email", "test@example.com"),
+    // Git for Windows sets `core.autocrlf=true` globally at install time,
+    // and a repo's config inherits it. Fixtures assert on exact bytes, so
+    // let nothing rewrite their line endings underneath them.
+    ("core.autocrlf", "false"),
+];
+
 /// Shared git repository fixture for integration tests.
 ///
 /// Keeps a `git2::Repository` for low-level setup (creating commits, branches,
@@ -60,12 +70,9 @@ impl TestRepo {
         let repo = Repository::init_opts(temp_dir.path(), &opts).unwrap();
 
         let mut config = repo.config().unwrap();
-        config.set_str("user.name", "Test User").unwrap();
-        config.set_str("user.email", "test@example.com").unwrap();
-        // Git for Windows sets `core.autocrlf=true` globally at install time,
-        // and a repo's config inherits it. Fixtures assert on exact bytes, so
-        // let nothing rewrite their line endings underneath them.
-        config.set_bool("core.autocrlf", false).unwrap();
+        for (key, value) in FIXTURE_CONFIG {
+            config.set_str(key, value).unwrap();
+        }
 
         Self {
             _temp_dir: temp_dir,

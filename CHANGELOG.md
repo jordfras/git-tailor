@@ -283,6 +283,9 @@ The format is based on
   rather than as a deletion and an addition. Splitting keeps a move together
   too: no piece is left without the file, and "Split out file(s)" and "Split
   out hunk(s)" list it under both names and take exactly what they show
+- A rewritten commit is now committed by you, dated now, as `git rebase` does,
+  instead of keeping its original committer and date. `GIT_COMMITTER_*` is
+  honored
 
 ### Removed
 

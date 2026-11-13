@@ -26,7 +26,7 @@ use crate::dispatch::{
     LoopAction, edit_message_suspended, handle_rebase_outcome, is_blank_message,
     settle_autostash_after_failure,
 };
-use crate::refuse_unrecordable_or_bail;
+use crate::refuse_uncommittable_or_bail;
 use crate::start_operation_or_bail;
 
 pub(crate) fn handle_execute_drop(
@@ -78,7 +78,7 @@ pub(crate) fn handle_prepare_reword(
     };
     // Before the editor: a message typed into one and then thrown away is worth
     // more than the keystroke that opened it.
-    refuse_unrecordable_or_bail!(git_repo, app);
+    refuse_uncommittable_or_bail!(git_repo, app);
     // Read from the repository, never from the list's rendering of the
     // message: that rendering is lossy, and seeding the editor with it would
     // write its replacement characters back as the message.
@@ -374,7 +374,7 @@ pub(super) fn prepare_source(
     let Some(tip) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(None);
     };
-    if let Err(e) = git_repo.refuse_if_journal_unusable() {
+    if let Err(e) = git_repo.refuse_if_cannot_commit() {
         app.set_error_message(format!("{e:#}"));
         return Ok(None);
     }
