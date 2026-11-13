@@ -1437,14 +1437,22 @@ impl Git2Repo {
         }
     }
 
+    // Not only a missing name: an unparseable `GIT_*_DATE` fails here too.
+    const NO_IDENTITY: &str = "failed to build commit signature (check user.name / user.email \
+                               and any GIT_AUTHOR_* / GIT_COMMITTER_* variables)";
+
     /// Whoever commits now: the configured user, dated now in the local time
     /// zone, with `GIT_COMMITTER_NAME`, `_EMAIL` and `_DATE` overriding them as
     /// they do for git. A rewritten commit gets this, as `git rebase` gives it,
     /// and keeps only its author.
     pub(super) fn committer(&self) -> Result<git2::Signature<'static>> {
-        self.inner
-            .committer_from_env()
-            .context("failed to build commit signature (set user.name / user.email)")
+        self.inner.committer_from_env().context(Self::NO_IDENTITY)
+    }
+
+    /// The author of a commit made from scratch, as [`Self::committer`] is its
+    /// committer, with `GIT_AUTHOR_*` in place of `GIT_COMMITTER_*`.
+    pub(super) fn author(&self) -> Result<git2::Signature<'static>> {
+        self.inner.author_from_env().context(Self::NO_IDENTITY)
     }
 
     /// Create a commit whose message is written **byte for byte**.

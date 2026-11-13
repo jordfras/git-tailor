@@ -55,15 +55,12 @@ pub(super) fn commit_staged(repo: &mut Git2Repo, message: &BStr) -> Result<Optio
             .inner
             .find_tree(tree_oid)
             .context("failed to find staged tree")?;
-        let sig = repo
-            .inner
-            .signature()
-            .context("failed to build commit signature (set user.name / user.email)")?;
+        let author = repo.author()?;
         let parent = repo
             .inner
             .find_commit(parent_oid)
             .context("failed to read HEAD commit")?;
-        repo.commit_preserving_message(&sig, message, None, &tree, &[&parent])
+        repo.commit_preserving_message(&author, message, None, &tree, &[&parent])
             .context("failed to create commit")?
     };
     repo.advance_branch_ref(new_oid, "git-tailor: commit staged changes")?;

@@ -285,7 +285,8 @@ The format is based on
   out hunk(s)" list it under both names and take exactly what they show
 - A rewritten commit is now committed by you, dated now, as `git rebase` does,
   instead of keeping its original committer and date. `GIT_COMMITTER_*` is
-  honored
+  honored, and so is `GIT_AUTHOR_*` when committing staged changes. Without an
+  identity to commit as, a rewrite is now refused before it starts
 
 ### Removed
 
