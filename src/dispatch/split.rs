@@ -193,7 +193,7 @@ pub(crate) fn execute_split(
     head_oid: &Oid,
     screen: &mut impl ShowProgress,
 ) -> LoopAction {
-    if let Err(e) = git_repo.refuse_if_cannot_commit() {
+    if let Err(e) = git_repo.refuse_if_cannot_commit(git_tailor::repo::Authorship::Kept) {
         app.set_error_message(format!("{e:#}"));
         return LoopAction::Proceed;
     }

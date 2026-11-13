@@ -22,6 +22,7 @@ mod common;
 
 use common::env::EnvTurn;
 use common::prelude::*;
+use git_tailor::repo::Authorship;
 use git2::{Signature, Time};
 
 /// Offset -07:00 and a date in 2001, so a copied committer is told apart from
@@ -252,10 +253,13 @@ fn a_repository_without_a_committer_identity_is_uncommittable() {
     let _env = EnvTurn::take();
     let test = common::TestRepo::new();
     let git_repo = test.git_repo();
-    assert!(git_repo.refuse_if_uncommittable().is_ok());
+    assert!(git_repo.refuse_if_uncommittable(Authorship::Kept).is_ok());
 
     test.set_config("user.name", "");
 
-    let err = test.git_repo().refuse_if_uncommittable().unwrap_err();
+    let err = test
+        .git_repo()
+        .refuse_if_uncommittable(Authorship::Kept)
+        .unwrap_err();
     assert!(format!("{err:#}").contains("user.name"), "{err:#}");
 }

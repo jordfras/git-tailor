@@ -753,6 +753,7 @@ dependencies = [
  "image",
  "insta",
  "libc",
+ "libgit2-sys",
  "ratatui",
  "regex",
  "regex-syntax",

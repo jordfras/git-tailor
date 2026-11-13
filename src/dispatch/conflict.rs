@@ -79,7 +79,7 @@ pub(crate) fn refuse_resume(
     let refusal = if state.is_carry_conflict() {
         git_repo.refuse_if_journal_unusable()
     } else {
-        git_repo.refuse_if_cannot_commit()
+        git_repo.refuse_if_cannot_commit(git_tailor::repo::Authorship::Kept)
     };
     match refusal {
         Ok(()) => Some(state),

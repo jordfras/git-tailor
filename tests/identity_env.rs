@@ -21,7 +21,7 @@ mod common;
 
 use common::env::EnvTurn;
 use common::prelude::*;
-use git_tailor::repo::CommitOutcome;
+use git_tailor::repo::{Authorship, CommitOutcome};
 
 fn head_commit(test: &common::TestRepo) -> git2::Commit<'_> {
     test.repo.head().unwrap().peel_to_commit().unwrap()
@@ -121,4 +121,22 @@ fn a_rewrite_needs_no_author_identity() {
     let commit = head_commit(&test);
     assert_eq!(commit.committer().name().unwrap(), "Env Committer");
     assert_eq!(commit.author().name().unwrap(), "Test User");
+}
+
+/// Checked before the commit-staged editor opens, so it must cover the author
+/// too: a message typed and then refused is lost.
+#[test]
+fn a_new_commit_needs_an_author_identity_where_a_rewrite_does_not() {
+    let mut env = EnvTurn::take();
+    let test = common::TestRepo::new();
+    test.set_config("user.name", "");
+
+    env.set(&[
+        ("GIT_COMMITTER_NAME", "Env Committer"),
+        ("GIT_COMMITTER_EMAIL", "committer@env.example"),
+    ]);
+    let git_repo = test.git_repo();
+
+    assert!(git_repo.refuse_if_uncommittable(Authorship::Kept).is_ok());
+    assert!(git_repo.refuse_if_uncommittable(Authorship::New).is_err());
 }

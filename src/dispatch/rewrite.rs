@@ -374,7 +374,7 @@ pub(super) fn prepare_source(
     let Some(tip) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(None);
     };
-    if let Err(e) = git_repo.refuse_if_cannot_commit() {
+    if let Err(e) = git_repo.refuse_if_cannot_commit(git_tailor::repo::Authorship::Kept) {
         app.set_error_message(format!("{e:#}"));
         return Ok(None);
     }

@@ -60,7 +60,7 @@ pub(crate) fn handle_commit_staged(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     // Before the editor, as for a reword.
-    refuse_uncommittable_or_bail!(git_repo, app);
+    refuse_uncommittable_or_bail!(git_repo, app, git_tailor::repo::Authorship::New);
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "".into());
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),

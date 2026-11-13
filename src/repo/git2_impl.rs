@@ -702,8 +702,11 @@ impl RepoWrite for Git2Repo {
         journal::refuse_if_unusable(self)
     }
 
-    fn refuse_if_uncommittable(&self) -> Result<()> {
+    fn refuse_if_uncommittable(&self, authorship: super::Authorship) -> Result<()> {
         self.committer()?;
+        if authorship == super::Authorship::New {
+            self.author()?;
+        }
         Ok(())
     }
 
@@ -969,6 +972,13 @@ pub(super) fn remove_written_path(workdir: &Path, path: &Path) -> Result<bool> {
     Ok(false)
 }
 
+/// Which identity [`Git2Repo::identity_from_env`] resolves.
+#[derive(Clone, Copy)]
+enum Side {
+    Author,
+    Committer,
+}
+
 impl Git2Repo {
     /// Refuse if the working tree or index has any staged or unstaged changes,
     /// ignoring submodule pointer updates (consistent with `git rebase`).
@@ -1219,7 +1229,7 @@ impl Git2Repo {
     /// would otherwise surface only once the user had resolved it.
     fn refuse_if_cannot_start(&self, head_oid: &Oid) -> Result<()> {
         self.refuse_if_branch_moved(head_oid)?;
-        self.refuse_if_uncommittable()
+        self.refuse_if_uncommittable(super::Authorship::Kept)
     }
 
     /// Refuse when the branch no longer holds what the caller was told it did.
@@ -1446,13 +1456,40 @@ impl Git2Repo {
     /// they do for git. A rewritten commit gets this, as `git rebase` gives it,
     /// and keeps only its author.
     pub(super) fn committer(&self) -> Result<git2::Signature<'static>> {
-        self.inner.committer_from_env().context(Self::NO_IDENTITY)
+        self.identity_from_env(Side::Committer)
     }
 
     /// The author of a commit made from scratch, as [`Self::committer`] is its
     /// committer, with `GIT_AUTHOR_*` in place of `GIT_COMMITTER_*`.
     pub(super) fn author(&self) -> Result<git2::Signature<'static>> {
-        self.inner.author_from_env().context(Self::NO_IDENTITY)
+        self.identity_from_env(Side::Author)
+    }
+
+    /// libgit2's `git_signature_default_from_env`, asked for `side` alone.
+    ///
+    /// Not git2's `committer_from_env` or `author_from_env`: each asks libgit2
+    /// for both sides and keeps one, so the other leaks on every call and, when
+    /// it cannot be resolved, fails a call that never needed it. A rewrite
+    /// needs a committer only, as `git rebase` does.
+    fn identity_from_env(&self, side: Side) -> Result<git2::Signature<'static>> {
+        use git2::Binding;
+
+        let mut signature = std::ptr::null_mut();
+        let (author_out, committer_out) = match side {
+            Side::Author => (&raw mut signature, std::ptr::null_mut()),
+            Side::Committer => (std::ptr::null_mut(), &raw mut signature),
+        };
+        // SAFETY: the repository pointer is live for the call, and libgit2
+        // leaves a NULL out-parameter alone.
+        let code = unsafe {
+            libgit2_sys::git_signature_default_from_env(author_out, committer_out, self.inner.raw())
+        };
+        if code < 0 {
+            return Err(git2::Error::last_error(code)).context(Self::NO_IDENTITY);
+        }
+        // SAFETY: on success libgit2 hands over a signature the caller owns,
+        // which `from_raw` frees on drop.
+        Ok(unsafe { git2::Signature::from_raw(signature) })
     }
 
     /// Create a commit whose message is written **byte for byte**.

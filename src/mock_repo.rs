@@ -391,7 +391,7 @@ impl RepoWrite for MockRepo {
             Err(anyhow::anyhow!("abort failed"))
         }
     }
-    fn refuse_if_uncommittable(&self) -> anyhow::Result<()> {
+    fn refuse_if_uncommittable(&self, _: git_tailor::repo::Authorship) -> anyhow::Result<()> {
         if self.no_identity {
             anyhow::bail!("failed to build commit signature (set user.name / user.email)");
         }

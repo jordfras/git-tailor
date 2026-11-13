@@ -95,6 +95,16 @@ pub enum UndoOutcome {
     Done { label: String },
 }
 
+/// Whose identity a commit about to be written needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Authorship {
+    /// Each commit keeps its author, as a rewrite does: only the committer is
+    /// the user's.
+    Kept,
+    /// A commit made from scratch, the user's as author and committer both.
+    New,
+}
+
 /// Result of a stage-all / unstage-all operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageOutcome {
@@ -800,16 +810,16 @@ pub trait RepoWrite {
     /// no undo entry.
     fn refuse_if_journal_unusable(&self) -> Result<()>;
 
-    /// Refuse when there is no identity to commit as.
-    fn refuse_if_uncommittable(&self) -> Result<()>;
+    /// Refuse when there is no identity to write a commit of `authorship` as.
+    fn refuse_if_uncommittable(&self, authorship: Authorship) -> Result<()>;
 
     /// Taken before an operation's editor or picker, so a refusal never costs a
     /// typed message or a selection; a one-key dialog may come first. Operations
     /// that write no commit (undo, redo, abort, continuing a carry conflict) take
     /// [`Self::refuse_if_journal_unusable`] alone.
-    fn refuse_if_cannot_commit(&self) -> Result<()> {
+    fn refuse_if_cannot_commit(&self, authorship: Authorship) -> Result<()> {
         self.refuse_if_journal_unusable()?;
-        self.refuse_if_uncommittable()
+        self.refuse_if_uncommittable(authorship)
     }
 
     /// Read the crash-safety journal to detect an operation interrupted by a
