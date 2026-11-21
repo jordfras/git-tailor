@@ -561,7 +561,8 @@ pub trait RepoRead {
     /// never set).
     fn default_branch(&self) -> Result<Option<String>>;
 
-    /// Whether the reference `full_name`, such as `refs/heads/main`, exists.
+    /// Whether the reference `full_name`, such as `refs/heads/main`, exists and,
+    /// when symbolic, still points at one that does.
     fn has_reference(&self, full_name: &str) -> Result<bool>;
 
     /// Yield commits incrementally from `from_oid` to `to_oid`, newest first.

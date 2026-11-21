@@ -350,7 +350,12 @@ pub(super) fn default_branch(repo: &Git2Repo) -> Result<Option<String>> {
 }
 
 pub(super) fn has_reference(repo: &Git2Repo, full_name: &str) -> Result<bool> {
-    match repo.inner.find_reference(full_name) {
+    // A symbolic ref whose target is gone is found but names nothing.
+    match repo
+        .inner
+        .find_reference(full_name)
+        .and_then(|reference| reference.resolve())
+    {
         Ok(_) => Ok(true),
         Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(false),
         Err(err) => Err(err.into()),

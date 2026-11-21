@@ -217,3 +217,21 @@ fn has_reference_does_not_take_a_tag_for_a_branch() {
     let git_repo = test.git_repo();
     assert!(!git_repo.has_reference("refs/heads/master").unwrap());
 }
+
+/// A symbolic ref left pointing at a branch that was pruned names nothing.
+#[test]
+fn has_reference_does_not_count_a_symbolic_ref_whose_target_is_gone() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    test.repo
+        .reference_symbolic(
+            "refs/remotes/origin/main",
+            "refs/remotes/origin/gone",
+            true,
+            "test setup",
+        )
+        .unwrap();
+
+    let git_repo = test.git_repo();
+    assert!(!git_repo.has_reference("refs/remotes/origin/main").unwrap());
+}

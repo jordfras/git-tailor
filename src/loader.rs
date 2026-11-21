@@ -146,8 +146,10 @@ impl Base {
         }
     }
 
-    fn fallen_back_to(reference: &str, name: &str) -> Self {
-        let set_head = if name.starts_with("origin/") {
+    /// `why` says what was wrong with `origin/HEAD`, whose remote setting it
+    /// right is what stops the guessing, so the note says how when there is one.
+    fn fallen_back_to(reference: &str, name: &str, why: &OriginHead) -> Self {
+        let set_head = if name.starts_with("origin/") || matches!(why, OriginHead::Gone(_)) {
             " `git remote set-head origin --auto` sets origin/HEAD."
         } else {
             ""
@@ -156,9 +158,25 @@ impl Base {
             name: name.to_string(),
             reference: reference.to_string(),
             fallback_note: Some(format!(
-                "origin/HEAD is not set, so the base is {name}. Pass a base to choose \
-                 another.{set_head}"
+                "{why}, so the base is {name}. Pass a base to choose another.{set_head}"
             )),
+        }
+    }
+}
+
+/// Why `origin/HEAD` could not name the base.
+enum OriginHead {
+    /// Missing, or set to a commit rather than a branch.
+    NotSet,
+    /// It names this remote branch, which no longer exists.
+    Gone(String),
+}
+
+impl std::fmt::Display for OriginHead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotSet => write!(f, "origin/HEAD is not set to a branch"),
+            Self::Gone(name) => write!(f, "origin/HEAD points to {name}, which no longer exists"),
         }
     }
 }
@@ -177,20 +195,26 @@ fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<Base> {
     if let Some(base) = &cli.base {
         return Ok(Base::given(base.clone()));
     }
-    if let Some(base) = git_repo
+    let why = match git_repo
         .default_branch()
         .context("failed to resolve default branch from origin/HEAD")?
     {
-        return Ok(Base::origin_head(base));
-    }
+        // A remote that renamed its default branch leaves origin/HEAD naming the
+        // old one once a fetch prunes it.
+        Some(base) if !git_repo.has_reference(&format!("refs/remotes/{base}"))? => {
+            OriginHead::Gone(base)
+        }
+        Some(base) => return Ok(Base::origin_head(base)),
+        None => OriginHead::NotSet,
+    };
     for (full_name, base) in FALLBACK_BASES {
         if git_repo.has_reference(full_name)? {
-            return Ok(Base::fallen_back_to(full_name, base));
+            return Ok(Base::fallen_back_to(full_name, base, &why));
         }
     }
     anyhow::bail!(
-        "origin/HEAD is not set, and none of origin/main, origin/master, main or master \
-         exists. Pass the base to list commits from, as in `gt <branch>`."
+        "{why}, and none of origin/main, origin/master, main or master exists. Pass the \
+         base to list commits from, as in `gt <branch>`."
     )
 }
 
@@ -517,7 +541,7 @@ mod tests {
     fn a_base_given_on_the_command_line_wins() {
         let repo = MockRepo {
             origin_head: Some("origin/main".to_string()),
-            ..with_references(&["refs/heads/main"])
+            ..with_references(&["refs/remotes/origin/main"])
         };
         assert_eq!(base_of(&repo, &["v1.0"]).unwrap(), "v1.0");
     }
@@ -526,7 +550,7 @@ mod tests {
     fn origin_head_is_the_base_when_set() {
         let repo = MockRepo {
             origin_head: Some("origin/trunk".to_string()),
-            ..with_references(&["refs/remotes/origin/main"])
+            ..with_references(&["refs/remotes/origin/main", "refs/remotes/origin/trunk"])
         };
         assert_eq!(base_of(&repo, &[]).unwrap(), "origin/trunk");
     }
@@ -549,7 +573,7 @@ mod tests {
     fn a_base_given_or_named_by_origin_head_goes_unremarked() {
         let repo = MockRepo {
             origin_head: Some("origin/main".to_string()),
-            ..MockRepo::default()
+            ..with_references(&["refs/remotes/origin/main"])
         };
         assert_eq!(note_of(&repo, &[]), None);
         assert_eq!(note_of(&with_references(&[]), &["v1.0"]), None);
@@ -617,6 +641,36 @@ mod tests {
             .expect("the feature commits");
 
         assert_eq!(bounds.reference_oid, Oid::from(branch_tip));
+    }
+
+    /// What a remote renaming its default branch leaves behind after a pruning
+    /// fetch: origin/HEAD still naming the old one.
+    #[test]
+    fn an_origin_head_naming_a_branch_that_is_gone_falls_back() {
+        let repo = MockRepo {
+            origin_head: Some("origin/master".to_string()),
+            ..with_references(&["refs/remotes/origin/main"])
+        };
+        let base = resolve(&repo, &[]).unwrap();
+        assert_eq!(base.name, "origin/main");
+        let note = base.fallback_note.unwrap();
+        assert!(
+            note.contains("origin/HEAD points to origin/master, which no longer exists"),
+            "{note}"
+        );
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
+    }
+
+    /// Setting origin/HEAD again is the fix even when the fallback is local.
+    #[test]
+    fn a_gone_origin_head_says_how_to_set_it_whatever_the_fallback() {
+        let repo = MockRepo {
+            origin_head: Some("origin/master".to_string()),
+            ..with_references(&["refs/heads/main"])
+        };
+        let note = note_of(&repo, &[]).unwrap();
+        assert!(note.contains("the base is main"), "{note}");
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
     }
 
     #[test]
