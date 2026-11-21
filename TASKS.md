@@ -10,6 +10,8 @@ Guidelines:
 - Completed tasks are archived in TASKS-COMPLETED.md.
 
 ## UNCATEGORIZED
+
+## Interactivity — Commit Detail View
 - [ ] T281 P3 fix - The detail search matches a line on its whole text but
   highlights each span on its own, so a match that crosses spans, such as
   `^Commit: aaa111` or `M  src/`, counts and is stepped to by `n` with
@@ -25,19 +27,6 @@ Guidelines:
   decide whether a split should also see the rename as one change rather than
   two, and test a moved file with and without edits in the detail view and in
   the split.
-- [x] T283 P2 bug - A rewritten commit keeps its original committer and commit
-  date. `git rebase` keeps the author and author date but makes whoever runs it
-  the committer, dated now; every rewrite here passes the original commit's
-  `committer()` instead (`cherry_pick.rs`, `move_op.rs`, `squash_op.rs`,
-  `split_op.rs`, `reword_op.rs`, `conflict.rs`). Use the repository's
-  signature, as committing staged changes and lifting already do, and fail
-  with a clear message when no identity is configured. Check whether git2
-  exposes libgit2's `git_signature_default_from_env`, so
-  `GIT_COMMITTER_NAME`/`_EMAIL`/`_DATE` are honored as git honors them.
-  Copying the committer is also what makes replaying a commit onto its own
-  parent reproduce the same OID; once the date is "now" that stops being true,
-  so find any replay of commits git would leave alone (the unchanged prefix of
-  a reorder, say) and keep those commits as they are, as git does.
 
 ## Architecture & Robustness
 - [ ] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
@@ -156,6 +145,19 @@ Guidelines:
   function returning the fragmap for HEAD, rendered as a matrix beside the
   commit list in a minimal webview. Outcome is either follow-up tasks for the
   extension or `[-]` WON'T DO with the evidence.
+- [x] T283 P2 bug - A rewritten commit keeps its original committer and commit
+  date. `git rebase` keeps the author and author date but makes whoever runs it
+  the committer, dated now; every rewrite here passes the original commit's
+  `committer()` instead (`cherry_pick.rs`, `move_op.rs`, `squash_op.rs`,
+  `split_op.rs`, `reword_op.rs`, `conflict.rs`). Use the repository's
+  signature, as committing staged changes and lifting already do, and fail
+  with a clear message when no identity is configured. Check whether git2
+  exposes libgit2's `git_signature_default_from_env`, so
+  `GIT_COMMITTER_NAME`/`_EMAIL`/`_DATE` are honored as git honors them.
+  Copying the committer is also what makes replaying a commit onto its own
+  parent reproduce the same OID; once the date is "now" that stops being true,
+  so find any replay of commits git would leave alone (the unchanged prefix of
+  a reorder, say) and keep those commits as they are, as git does.
 
 ## Build & CI
 - [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
