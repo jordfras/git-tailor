@@ -20,10 +20,10 @@ use ratatui::text::{Line, Span};
 
 use crate::app::AppState;
 use crate::app::search::{QueryEdit, SearchDirection};
-use crate::domain::search::search_regex;
+use crate::domain::search::{finds_text, search_regex};
 use crate::views::palette::Colors;
 use crate::views::search_bar::SearchBarInfo;
-use crate::views::search_match::{highlight_matches, match_style};
+use crate::views::search_match::{highlight_spans, match_style};
 
 /// Handle raw keyboard events while the search input bar is active.
 ///
@@ -140,10 +140,7 @@ fn highlight_line_matches(
     let spans = prefix
         .iter()
         .map(|span| Span::styled(span.content.to_string(), span.style))
-        .chain(
-            rest.iter()
-                .flat_map(|span| highlight_matches(span, regex, highlight_style)),
-        );
+        .chain(highlight_spans(rest, regex, highlight_style));
     Line::from(spans.collect::<Vec<_>>())
 }
 
@@ -174,7 +171,10 @@ fn compute_search_matches(
         .iter()
         .enumerate()
         .filter(|&(i, line)| {
-            regex.is_match(&line_text(line, prefixed_lines.binary_search(&i).is_ok()))
+            finds_text(
+                regex,
+                &line_text(line, prefixed_lines.binary_search(&i).is_ok()),
+            )
         })
         .map(|(i, _)| i)
         .collect();

@@ -1314,6 +1314,62 @@ fn a_search_matches_across_a_label_and_its_value() {
     assert_eq!(app.detail.search.matches.len(), 1);
 }
 
+/// A pattern that matches only empty text, such as `^`, finds nothing it
+/// could highlight, so it counts no lines.
+#[test]
+fn a_match_of_no_text_counts_no_lines() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("^".to_string());
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert!(app.detail.search.matches.is_empty());
+}
+
+/// A match running from `Commit: ` into the hash after it, which are drawn
+/// in different colors, is highlighted in both, not just counted.
+#[test]
+fn a_match_across_differently_colored_text_is_highlighted() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("^Commit: aaa111".to_string());
+    let buffer = harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    let matched = "Commit: aaa111";
+    let area = buffer.area;
+    // Column 0 is the scrollbar.
+    let y = (0..area.height)
+        .find(|&y| {
+            let row: String = (1..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            row.starts_with(matched)
+        })
+        .expect("the commit line is drawn");
+    let backgrounds: Vec<_> = (1..=matched.len() as u16)
+        .map(|x| buffer[(x, y)].bg)
+        .collect();
+    assert!(
+        backgrounds.iter().all(|&bg| bg == Color::LightCyan),
+        "{backgrounds:?}"
+    );
+}
+
 /// Highlighting follows matching: a diff line's prefix is never highlighted,
 /// even by a pattern that matches the prefix alone.
 #[test]

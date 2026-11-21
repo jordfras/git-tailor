@@ -287,6 +287,13 @@ The format is based on
   instead of keeping its original committer and date. `GIT_COMMITTER_*` is
   honored, and so is `GIT_AUTHOR_*` when committing staged changes. Without an
   identity to commit as, a rewrite is now refused before it starts
+- The commit detail search highlights a match that runs across differently
+  colored parts of a line, such as `Commit: ` and the start of the hash, or a
+  file's status letter and its path. Such a match used to be counted, and
+  stepped to with `n`, with nothing highlighted
+- A commit detail search for a pattern that matches no text, such as `^` or
+  `x*`, finds nothing, instead of counting every line as a match with nothing
+  highlighted
 
 ### Removed
 
