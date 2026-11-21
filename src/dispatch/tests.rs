@@ -42,7 +42,7 @@ fn execute_drop_complete_sets_success_message() {
     );
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status.message.as_deref(), Some("Commit dropped"));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 /// An operation that cannot record itself must not start. The refusal is taken
@@ -65,7 +65,7 @@ fn an_operation_is_refused_before_anything_when_the_journal_cannot_record_it() {
     );
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(
         repo.autostash_save_calls.get(),
         0,
@@ -120,7 +120,7 @@ fn execute_drop_error_sets_error_message() {
         Oid::from("a".repeat(40)),
         Oid::from("b".repeat(40)),
     );
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(
         app.status
             .message
@@ -139,7 +139,7 @@ fn execute_move_complete_sets_success_message() {
     let result = handle_execute_move(&mut repo, &mut app, Oid::from("a".repeat(40)), None);
     assert!(matches!(result, Ok(LoopAction::ReloadPreserving)));
     assert_eq!(app.status.message.as_deref(), Some("Commit moved"));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn rebase_abort_success_sets_success_message() {
         state,
     );
     assert!(matches!(result, Ok(LoopAction::Reload)));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
     assert!(
         app.status
             .message
@@ -225,7 +225,7 @@ fn prepare_split_count_error_sets_error_message() {
         &mut NoProgress,
     );
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 /// A progress screen that asks to stop at the first report, as Esc does.
@@ -264,7 +264,7 @@ fn prepare_split_per_hunk_group_canceled_leaves_the_list() {
     .unwrap();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
     assert_eq!(app.status.message.as_deref(), Some("Split canceled"));
 }
 
@@ -413,7 +413,7 @@ fn prepare_split_out_hunks_refuses_fewer_than_two_hunks() {
     let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -455,7 +455,7 @@ fn prepare_split_out_hunks_refuses_a_commit_with_no_hunks() {
 
     handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
 
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -493,7 +493,7 @@ fn prepare_split_out_hunks_refuses_a_commit_that_only_replaces_a_directory_with_
 
     handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3).unwrap();
 
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     let message = app.status.message.as_deref().unwrap_or_default();
     assert!(message.contains("move as one"), "{message}");
     assert_eq!(app.mode, AppMode::CommitList);
@@ -509,7 +509,7 @@ fn prepare_split_out_hunks_error_sets_error_message() {
     let result = handle_prepare_split_out_hunks(&mut repo, &mut app, Oid::from("a".repeat(40)), 3);
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -606,7 +606,7 @@ fn prepare_split_out_files_refuses_fewer_than_two_files() {
     let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -621,7 +621,7 @@ fn prepare_split_out_files_refuses_a_commit_that_only_replaces_a_directory_with_
 
     handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40))).unwrap();
 
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     let message = app.status.message.as_deref().unwrap_or_default();
     assert!(message.contains("move as one"), "{message}");
     assert_eq!(app.mode, AppMode::CommitList);
@@ -637,7 +637,7 @@ fn prepare_split_out_files_error_sets_error_message() {
     let result = handle_prepare_split_out_files(&mut repo, &mut app, Oid::from("a".repeat(40)));
 
     assert!(matches!(result, Ok(LoopAction::Proceed)));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(app.mode, AppMode::CommitList);
 }
 
@@ -653,7 +653,7 @@ fn stage_all_changed_reloads_and_reports_success() {
     );
     assert!(matches!(action, LoopAction::Reload));
     assert_eq!(app.status.message.as_deref(), Some("Staged all changes"));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 #[test]
@@ -671,7 +671,7 @@ fn stage_all_noop_reports_without_reload() {
     );
     assert!(matches!(action, LoopAction::Proceed));
     assert_eq!(app.status.message.as_deref(), Some("Nothing to stage"));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 #[test]
@@ -688,7 +688,7 @@ fn stage_all_error_sets_error_message() {
         "Nothing to unstage",
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -732,7 +732,7 @@ fn worktree_preserving_undo_skips_autostash() {
     assert!(matches!(result, Ok(LoopAction::Reload)));
     assert_eq!(repo.autostash_save_calls.get(), 0);
     assert_eq!(app.status.message.as_deref(), Some("Undid stage all"));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 #[test]
@@ -922,7 +922,7 @@ fn conflict_tool_finished_refreshes_rebase_dialog() {
             .unwrap_or("")
             .contains("Merge tool finished")
     );
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 #[test]
@@ -937,7 +937,7 @@ fn conflict_tool_no_merge_tool_sets_error() {
         Ok(ToolRun::NoMergeTool),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(
         app.status
             .message
@@ -1036,7 +1036,7 @@ fn conflict_tool_failure_reports_the_tool_name() {
         Err(anyhow::anyhow!("boom")),
     );
     assert!(matches!(action, LoopAction::Proceed));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     let msg = app.status.message.as_deref().unwrap_or("");
     assert!(msg.contains("Editor failed"), "unexpected message: {msg}");
     assert!(msg.contains("boom"), "unexpected message: {msg}");
@@ -1508,7 +1508,7 @@ fn an_empty_worktree_row_says_there_is_nothing_to_fold() {
 
         assert!(prepared.is_none());
         assert_eq!(app.status.message.as_deref(), Some(expected));
-        assert!(app.status.is_error);
+        assert!(app.status.is_error());
     }
 }
 
@@ -1668,7 +1668,7 @@ fn abandoning_a_commit_source_reports_an_autostash_it_cannot_restore() {
     );
 
     let message = app.status.message.as_deref().unwrap_or("").to_string();
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(message.contains("Squash failed: nope"), "{message}");
     assert!(message.contains("could not be restored"), "{message}");
     assert!(message.contains("git stash list"), "{message}");
@@ -1693,7 +1693,7 @@ fn abandoning_a_resume_reports_an_autostash_it_cannot_restore() {
     );
 
     let message = app.status.message.as_deref().unwrap_or("").to_string();
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(message.contains("empty commit message"), "{message}");
     assert!(message.contains("could not be restored"), "{message}");
     assert!(message.contains("git stash list"), "{message}");
@@ -1839,7 +1839,7 @@ fn execute_drop_error_reports_a_failed_autostash_restore() {
     );
 
     let message = app.status.message.as_deref().unwrap_or("").to_string();
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(message.contains("Drop failed"), "{message}");
     assert!(
         message.contains("could not be restored"),
@@ -1872,7 +1872,7 @@ fn execute_split_error_reports_a_failed_autostash_restore() {
     );
 
     let message = app.status.message.as_deref().unwrap_or("").to_string();
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(message.contains("Split failed"), "{message}");
     assert!(
         message.contains("could not be restored"),

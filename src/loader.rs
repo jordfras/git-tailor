@@ -715,7 +715,7 @@ mod tests {
         );
 
         assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
-        assert!(app.status.is_error);
+        assert!(app.status.is_error());
     }
 
     fn commit(oid: &str) -> CommitInfo {

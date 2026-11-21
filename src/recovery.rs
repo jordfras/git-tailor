@@ -592,7 +592,7 @@ mod tests {
 
         assert_eq!(repo.restore_lifted_calls.get(), 0);
         assert_eq!(repo.clear_journal_calls.get(), 1);
-        assert!(app.status.is_error);
+        assert!(app.status.is_error());
     }
 
     #[test]

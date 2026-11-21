@@ -92,7 +92,7 @@ fn test_squash_into_self_blocked() {
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
     assert!(app.status.message.is_some());
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     // Mode stays in SquashSelect
     assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
 }
@@ -117,7 +117,7 @@ fn test_squash_into_staged_blocked() {
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn test_squash_starts_from_a_worktree_row() {
             },
             "{row} row should be a valid squash source"
         );
-        assert!(!app.status.is_error, "{row}");
+        assert!(!app.status.is_error(), "{row}");
     }
 }
 
@@ -184,7 +184,7 @@ fn test_worktree_row_folds_into_a_lone_commit() {
     app.enter_fixup_select();
 
     assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
-    assert!(!app.status.is_error);
+    assert!(!app.status.is_error());
 }
 
 /// Confirming a row source names the row, not a commit OID.
@@ -224,7 +224,7 @@ fn test_worktree_row_cannot_target_the_other_row() {
 
     let result = views::squash_select::handle_key(KeyCommand::Confirm, &mut app);
     assert!(matches!(result, AppAction::Handled));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert!(matches!(app.mode, AppMode::SquashSelect { .. }));
 }
 
@@ -244,7 +244,7 @@ fn test_worktree_row_blocked_without_any_commit() {
     app.enter_fixup_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 /// A lone commit has nothing earlier to fold into.
@@ -262,7 +262,7 @@ fn test_squash_blocked_on_single_commit() {
     app.enter_squash_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -279,7 +279,7 @@ fn test_fixup_blocked_on_single_commit() {
     app.enter_fixup_select();
 
     assert_eq!(app.mode, AppMode::CommitList);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -576,7 +576,7 @@ fn test_next_without_a_squash_target_says_so() {
     let mut app = app_with_a_squash_target(1);
     views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
     assert_eq!(app.list.selection_index, 1);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -584,7 +584,7 @@ fn test_next_without_the_matrix_says_so() {
     let mut app = make_app_in_squash_select(2, 2);
     views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
     assert_eq!(app.list.selection_index, 2);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 /// The staged row is never a squash target, even when the unstaged changes
@@ -613,5 +613,5 @@ fn test_next_does_not_select_the_staged_row() {
 
     views::squash_select::handle_key(KeyCommand::SearchNext, &mut app);
     assert_eq!(app.list.selection_index, 2);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
