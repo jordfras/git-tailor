@@ -3,18 +3,23 @@
 The README demo GIF: one tape and the fixture it drives, rendered with
 `demo/build.sh gif` and published to `doc/demo.gif` with `demo/build.sh publish`.
 
-[`demo.tape`](demo.tape) is a single follow-along flow — view a stray fix, fold
-it in as a fixup, drop a debug commit, resolve the conflict that surfaces in the
-editor, land a clean history. It is one continuous story rather than a feature
-tour, because a loop that has to be understood in eight seconds cannot afford to
-change subject.
+[`demo.tape`](demo.tape) is a single follow-along flow — view an unstaged fix,
+fold it into the commit it belongs to, start a fold that conflicts and abort
+it, split that commit per hunk group and fold each piece into its own commit,
+drop a debug commit, then undo back to where it started. It is one
+continuous story rather than a feature tour, because a loop that has to be
+understood in eight seconds cannot afford to change subject. Operations come
+from the Space menu, so the GIF shows where they live, and none opens an
+editor: resolving a conflict is left to the tutorial videos, which have time to
+explain it.
 
 [`make-repo.sh`](make-repo.sh) builds the throwaway `calc` repo it runs on:
 `main` holds only a README (the fork point), and `feature/calc` stacks nine
 commits engineered to exercise every operation — a rich hunk group matrix, two
-clean fixup partners, a `DROPME` debug commit, a rebase conflict that surfaces
-only when `DROPME` is dropped, and a commit bundling two concerns. Identity and
-timestamps are fixed, so the log reads the same on every render.
+clean fixup partners, a fix the matrix marks as conflicting, a `DROPME`
+debug commit that drops cleanly, and a commit bundling two concerns — with an
+unstaged fix left in the working tree that only one commit owns. Identity and timestamps are fixed, so the log reads the same
+on every render.
 
 Keystroke counts in the tape were verified against the real binary before it was
 written. There is no way to assert them from the tape itself, so a change to
@@ -33,8 +38,8 @@ at the same time. Three things do the work, and they compound:
 - `gifsicle -O3 --lossy=30 --colors 128` after the render (see
   [`../render.sh`](../render.sh)).
 
-`gifsicle` alone takes off about a third — the last render went 1.56 MiB to
-1.02 MiB, which is roughly what `doc/demo.gif` weighs. Re-measure rather than
+`gifsicle` alone takes off about a third — the last render went 3.12 MiB to
+1.98 MiB, which is roughly what `doc/demo.gif` weighs. Re-measure rather than
 trusting that figure if the tape grows: it scales with how many frames the walk
 takes, not with anything about the settings.
 

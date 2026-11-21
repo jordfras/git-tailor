@@ -10,9 +10,11 @@
 #
 #   * a rich hunk-group matrix        — commits re-touch each other's regions
 #   * a clean fixup (yellow)          — #5 into #1, #6 into #2
-#   * a DROPME commit with junk       — #7 injects debug tracing
-#   * a rebase conflict (red)         — dropping #7 clashes with #8 (same lines)
-#   * a splittable commit             — #9 bundles two unrelated concerns
+#   * a DROPME commit with junk       — #7 injects debug tracing, and drops
+#                                       cleanly
+#   * a splittable commit             — #8 bundles two unrelated concerns
+#   * a conflicting fixup (red)       — #9 spans #3 and #4; split, it folds
+#   * an unstaged fix                 — belongs to #4 alone, to fold in
 #
 # Usage:
 #   demo/gif/make-repo.sh [OUTPUT_DIR]
@@ -541,9 +543,9 @@ commit "fix: parse parenthesised expressions"
 
 # ===========================================================================
 # 7. DROPME: hack in debug tracing
-#    Debug junk that should never be merged. It rewrites the Div arm of eval()
-#    — the SAME lines commit #8 rewrites — so dropping this commit forces a
-#    rebase conflict that the demo then resolves.
+#    Debug junk that should never be merged. It stays clear of the Div arm #8
+#    rewrites, so dropping it goes through without a conflict: the demo leaves
+#    conflicts to the tutorial videos.
 # ===========================================================================
 write src/eval.rs <<'RS'
 //! Evaluator: walks an expression tree and computes its value.
@@ -558,19 +560,16 @@ pub fn eval(expr: &Expr) -> f64 {
         Expr::Add(a, b) => eval(a) + eval(b),
         Expr::Sub(a, b) => eval(a) - eval(b),
         Expr::Mul(a, b) => eval(a) * eval(b),
-        Expr::Div(a, b) => {
-            eprintln!("DEBUG div: {a:?} / {b:?}");
-            eval(a) / eval(b)
-        }
+        Expr::Div(a, b) => eval(a) / eval(b),
     }
 }
 RS
 commit "DROPME: hack in debug tracing"
 
 # ===========================================================================
-# 8. fix: guard against division by zero
-#    A legitimate fix that rewrites the Div arm — clashing with the debug hack
-#    in #7. Because both edit the same lines, dropping #7 conflicts here.
+# 8. feat: unary negation, plus friendlier errors
+#    Bundles TWO unrelated concerns — a new Neg arm in eval() and a reworded
+#    REPL error message — across two files. A natural candidate for splitting.
 # ===========================================================================
 write src/eval.rs <<'RS'
 //! Evaluator: walks an expression tree and computes its value.
@@ -582,25 +581,70 @@ pub fn eval(expr: &Expr) -> f64 {
     eprintln!("DEBUG eval: {expr:?}");
     match expr {
         Expr::Number(n) => *n,
+        Expr::Neg(a) => -eval(a),
         Expr::Add(a, b) => eval(a) + eval(b),
         Expr::Sub(a, b) => eval(a) - eval(b),
         Expr::Mul(a, b) => eval(a) * eval(b),
-        Expr::Div(a, b) => {
-            let divisor = eval(b);
-            if divisor == 0.0 {
-                return f64::NAN;
-            }
-            eval(a) / divisor
-        }
+        Expr::Div(a, b) => eval(a) / eval(b),
     }
 }
 RS
-commit "fix: guard against division by zero"
+write src/main.rs <<'RS'
+//! A tiny command-line calculator REPL.
+
+mod eval;
+mod lexer;
+mod parser;
+
+use std::io::{self, Write};
+
+use crate::eval::eval;
+use crate::lexer::tokenize;
+use crate::parser::Parser;
+
+fn main() {
+    let stdin = io::stdin();
+    let mut line = String::new();
+
+    loop {
+        print!("calc> ");
+        io::stdout().flush().expect("failed to flush stdout");
+
+        line.clear();
+        let bytes = stdin.read_line(&mut line).expect("failed to read line");
+        if bytes == 0 {
+            break; // EOF
+        }
+
+        let source = line.trim();
+        if source.is_empty() {
+            continue;
+        }
+
+        match run(source) {
+            Ok(value) => println!("{value}"),
+            Err(err) => eprintln!("calc: cannot evaluate '{source}': {err}"),
+        }
+    }
+}
+
+/// Tokenize, parse and evaluate a single line of input.
+fn run(source: &str) -> Result<f64, String> {
+    let tokens = tokenize(source)?;
+    let mut parser = Parser::new(tokens);
+    let expr = parser.parse()?;
+    Ok(eval(&expr))
+}
+RS
+commit "feat: unary negation, plus friendlier errors"
 
 # ===========================================================================
-# 9. feat: unary negation, plus friendlier errors
-#    Bundles TWO unrelated concerns — a new Neg arm in eval() and a reworded
-#    REPL error message — across two files. A natural candidate for splitting.
+# 9. fix: guard against division by zero
+#    Rewrites the Div arm, which belongs to #3, and reports the result in the
+#    REPL loop of #4. Its two hunk groups belong to different commits, so the
+#    matrix marks it conflicting, and folding it whole into #3 does conflict.
+#    The demo aborts that fold, splits it per hunk group, and folds each piece
+#    into its own commit.
 # ===========================================================================
 write src/eval.rs <<'RS'
 //! Evaluator: walks an expression tree and computes its value.
@@ -659,6 +703,7 @@ fn main() {
         }
 
         match run(source) {
+            Ok(value) if value.is_nan() => eprintln!("calc: division by zero in '{source}'"),
             Ok(value) => println!("{value}"),
             Err(err) => eprintln!("calc: cannot evaluate '{source}': {err}"),
         }
@@ -673,7 +718,62 @@ fn run(source: &str) -> Result<f64, String> {
     Ok(eval(&expr))
 }
 RS
-commit "feat: unary negation, plus friendlier errors"
+commit "fix: guard against division by zero"
+
+# ===========================================================================
+# Unstaged: a fix for the REPL loop of #4, left in the working tree. On EOF the
+# loop exits mid-line, leaving the shell prompt after "calc> ". Only #4 owns
+# these lines, so the fold has one obvious target.
+# ===========================================================================
+write src/main.rs <<'RS'
+//! A tiny command-line calculator REPL.
+
+mod eval;
+mod lexer;
+mod parser;
+
+use std::io::{self, Write};
+
+use crate::eval::eval;
+use crate::lexer::tokenize;
+use crate::parser::Parser;
+
+fn main() {
+    let stdin = io::stdin();
+    let mut line = String::new();
+
+    loop {
+        print!("calc> ");
+        io::stdout().flush().expect("failed to flush stdout");
+
+        line.clear();
+        let bytes = stdin.read_line(&mut line).expect("failed to read line");
+        if bytes == 0 {
+            println!(); // EOF: end the "calc> " line
+            break;
+        }
+
+        let source = line.trim();
+        if source.is_empty() {
+            continue;
+        }
+
+        match run(source) {
+            Ok(value) if value.is_nan() => eprintln!("calc: division by zero in '{source}'"),
+            Ok(value) => println!("{value}"),
+            Err(err) => eprintln!("calc: cannot evaluate '{source}': {err}"),
+        }
+    }
+}
+
+/// Tokenize, parse and evaluate a single line of input.
+fn run(source: &str) -> Result<f64, String> {
+    let tokens = tokenize(source)?;
+    let mut parser = Parser::new(tokens);
+    let expr = parser.parse()?;
+    Ok(eval(&expr))
+}
+RS
 
 # ---------------------------------------------------------------------------
 # Summary
