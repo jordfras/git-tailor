@@ -923,8 +923,8 @@ fn compute_hunk_group_assignment(
 }
 
 /// Create one piece of a split: a commit with the given tree, parented on
-/// `current_base` (or as an orphan root when `None`), inheriting author and
-/// committer from `original` and using a numbered split message.
+/// `current_base` (or as an orphan root when `None`), inheriting the author
+/// from `original` and using a numbered split message.
 fn commit_split_piece(
     repo: &Git2Repo,
     original: &git2::Commit<'_>,
@@ -963,8 +963,7 @@ fn suffixed_encoding<'c>(
 }
 
 /// Create a commit with the given tree and message, parented on `current_base`
-/// (or as an orphan root when `None`), inheriting author and committer from
-/// `original`.
+/// (or as an orphan root when `None`), inheriting the author from `original`.
 fn commit_with_message(
     repo: &Git2Repo,
     original: &git2::Commit<'_>,
@@ -981,7 +980,6 @@ fn commit_with_message(
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
     repo.commit_preserving_message(
         &original.author(),
-        &original.committer(),
         message,
         encoding,
         &new_tree,

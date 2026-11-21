@@ -33,6 +33,12 @@ impl Git2Repo {
     fn cherry_pick_one(&self, onto: &git2::Commit, desc: &git2::Commit) -> Result<PickStep> {
         let repo = &self.inner;
 
+        // Already where it would land, so kept as it is, as git keeps it:
+        // rebuilding it would only change its committer date.
+        if desc.parent_ids().next() == Some(onto.id()) {
+            return Ok(PickStep::Picked(desc.id()));
+        }
+
         // Root commits have no parent, so cherrypick_commit cannot compute
         // a diff base. Use merge_trees with the empty tree as the common
         // ancestor — this is the correct three-way merge equivalent of
@@ -53,7 +59,6 @@ impl Git2Repo {
         // one we cannot read is still not empty.
         let picked = self.commit_preserving_message(
             &desc.author(),
-            &desc.committer(),
             desc.message_bytes().as_bstr(),
             desc.message_encoding().ok().flatten(),
             &new_tree,
@@ -315,7 +320,7 @@ pub(super) fn replace_root_and_replay(
             repo.inner.commit(
                 None,
                 &first_commit.author(),
-                &first_commit.committer(),
+                &repo.committer()?,
                 "",
                 &empty_tree,
                 &[],
@@ -348,7 +353,6 @@ pub(super) fn replace_root_and_replay(
         let first_commit = repo.inner.find_commit(first_commit_oid)?;
         repo.commit_preserving_message(
             &first_commit.author(),
-            &first_commit.committer(),
             first_commit.message_bytes().as_bstr(),
             first_commit.message_encoding().ok().flatten(),
             &new_tree,

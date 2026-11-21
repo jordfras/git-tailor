@@ -15,7 +15,7 @@
 // Side-effect handlers for the working-tree/index staging operations: stage all,
 // unstage all, and committing the staged changes.
 
-use crate::refuse_unrecordable_or_bail;
+use crate::{refuse_uncommittable_or_bail, refuse_unrecordable_or_bail};
 use anyhow::Result;
 use bstr::ByteSlice;
 use git_tailor::app::AppState;
@@ -60,7 +60,7 @@ pub(crate) fn handle_commit_staged(
     kb_enhanced: bool,
 ) -> Result<LoopAction> {
     // Before the editor, as for a reword.
-    refuse_unrecordable_or_bail!(git_repo, app);
+    refuse_uncommittable_or_bail!(git_repo, app, git_tailor::repo::Authorship::New);
     let editor_result = edit_message_suspended(git_repo, terminal_guard, kb_enhanced, "".into());
     match editor_result {
         Err(e) => app.set_error_message(format!("Editor error: {e:#}")),

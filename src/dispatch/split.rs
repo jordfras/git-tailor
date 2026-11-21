@@ -23,7 +23,7 @@ use std::path::PathBuf;
 
 use crate::dispatch::{LoopAction, settle_autostash, settle_autostash_after_failure};
 use crate::progress_screen::ShowProgress;
-use crate::start_operation_or_bail;
+use crate::{refuse_uncommittable_or_bail, start_operation_or_bail};
 
 /// Number of output commits above which a split requires explicit confirmation.
 pub(crate) const SPLIT_CONFIRM_THRESHOLD: usize = 5;
@@ -40,6 +40,8 @@ pub(crate) fn handle_prepare_split(
     let Some(head_oid) = crate::dispatch::listed_tip(git_repo, app) else {
         return Ok(LoopAction::Continue);
     };
+    // Before counting: a per-hunk-group count is a fragmap computation.
+    refuse_uncommittable_or_bail!(git_repo, app);
     let count_result = match strategy {
         SplitStrategy::PerFile => git_repo.count_split_per_file(&commit_oid),
         SplitStrategy::PerHunk => git_repo.count_split_per_hunk(&commit_oid),
@@ -86,6 +88,7 @@ pub(crate) fn handle_prepare_split_out_files(
     app: &mut AppState,
     commit_oid: Oid,
 ) -> Result<LoopAction> {
+    refuse_uncommittable_or_bail!(git_repo, app);
     match git_repo.commit_diff(&commit_oid, DEFAULT_CONTEXT_LINES) {
         Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(diff) if SwapGroups::of_files(&diff.files).units().len() < 2 => {
@@ -111,6 +114,7 @@ pub(crate) fn handle_prepare_split_out_hunks(
     commit_oid: Oid,
     context_lines: u32,
 ) -> Result<LoopAction> {
+    refuse_uncommittable_or_bail!(git_repo, app);
     match git_repo.commit_diff(&commit_oid, context_lines) {
         Err(e) => app.set_error_message(format!("{e:#}")),
         Ok(diff) => {
@@ -189,7 +193,7 @@ pub(crate) fn execute_split(
     head_oid: &Oid,
     screen: &mut impl ShowProgress,
 ) -> LoopAction {
-    if let Err(e) = git_repo.refuse_if_journal_unusable() {
+    if let Err(e) = git_repo.refuse_if_cannot_commit(git_tailor::repo::Authorship::Kept) {
         app.set_error_message(format!("{e:#}"));
         return LoopAction::Proceed;
     }

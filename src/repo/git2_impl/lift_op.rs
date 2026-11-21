@@ -118,10 +118,8 @@ pub(super) fn lift(
             .find_tree(temp_tree_oid)
             .context("failed to find the working-tree source tree")?;
         let head = repo.inner.find_commit(head_oid)?;
-        let sig = repo
-            .inner
-            .signature()
-            .context("failed to build commit signature (set user.name / user.email)")?;
+        // Its author is never kept: what folds it in keeps its target's.
+        let sig = repo.committer()?;
         repo.inner
             .commit(None, &sig, &sig, TEMP_MESSAGE, &temp_tree, &[&head])
             .context("failed to commit the working-tree changes")?

@@ -58,8 +58,12 @@ fn shallow_clone(depth: &str, name: &str) -> Option<Shallow> {
 
     let dir = std::env::temp_dir().join(format!("gt-shallow-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let out = std::process::Command::new("git")
-        .args(["clone", "--depth", depth, "--no-local"])
+    let mut clone = std::process::Command::new("git");
+    clone.args(["clone", "--depth", depth, "--no-local"]);
+    for (key, value) in common::FIXTURE_CONFIG {
+        clone.arg("-c").arg(format!("{key}={value}"));
+    }
+    let out = clone
         .arg(origin.repo.workdir().unwrap())
         .arg(&dir)
         .output()

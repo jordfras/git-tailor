@@ -165,7 +165,11 @@ pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditO
         original_branch_oid: &original,
         moved_commit_oid: None,
     };
-    match repo.cherry_pick_chain(branch_tip, &descendants, &ctx)? {
+    let replayed = match repo.cherry_pick_chain(branch_tip, &descendants, &ctx) {
+        Ok(replayed) => replayed,
+        Err(e) => return abort_edit_with(repo, &branch_refname, &original, &format!("{e:#}")),
+    };
+    match replayed {
         CherryPickResult::Complete(tip) => {
             // The working tree currently reflects the user's chain tip.
             repo.advance_and_checkout(tip, &Oid::from(branch_tip), "git-tailor: edit")?;
@@ -177,16 +181,27 @@ pub(super) fn finish_edit(repo: &mut Git2Repo, commit_oid: &Oid) -> Result<EditO
 }
 
 /// Restore the branch and give up on the edit, naming what was wrong with the
-/// state the user left behind.
+/// state the user left behind, and where the commits it drops off the branch
+/// can still be found.
 fn abort_edit_with(
     repo: &mut Git2Repo,
     branch_refname: &str,
     original: &Oid,
     reason: &str,
 ) -> Result<EditOutcome> {
+    // Read before the restore moves the branch; a branch deleted in the shell
+    // has nothing to name, and must not stop the restore.
+    let abandoned = repo.inner.refname_to_id(branch_refname).ok().map(Oid::from);
     restore_original(repo, branch_refname, original)?;
     journal::clear_in_progress(repo)?;
-    anyhow::bail!("Edit aborted: {reason}. Restored the branch to its previous state.")
+    let restored = format!("Edit aborted: {reason}. Restored the branch to its previous state");
+    match abandoned {
+        Some(tip) => anyhow::bail!(
+            "{restored}; the commits made during the edit end at {}.",
+            tip.short()
+        ),
+        None => anyhow::bail!("{restored}."),
+    }
 }
 
 /// Restore the branch to its original tip (abort / crash-recovery), using the

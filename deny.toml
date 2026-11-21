@@ -1,7 +1,4 @@
 [advisories]
-# Use git CLI for fetching the advisory DB (respects proxy / auth config).
-git-fetch-with-cli = true
-
 ignore = [
     # ttf-parser is unmaintained, not vulnerable: the author declared it done,
     # and the advisory offers no upgrade. It reaches this tree only through

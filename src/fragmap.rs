@@ -531,13 +531,15 @@ impl FragMap {
             return SquashRelation::NoRelation;
         }
 
-        for commit_idx in (earlier_commit_idx + 1)..later_commit_idx {
-            if self.matrix[commit_idx][cluster_idx] != TouchKind::None {
-                return SquashRelation::Conflicting;
-            }
+        let between = &self.matrix[earlier_commit_idx + 1..later_commit_idx];
+        if between
+            .iter()
+            .any(|row| row[cluster_idx] != TouchKind::None)
+        {
+            SquashRelation::Conflicting
+        } else {
+            SquashRelation::Squashable
         }
-
-        SquashRelation::Squashable
     }
 
     /// Determine whether a connector between `commit_idx` and its earliest

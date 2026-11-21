@@ -94,6 +94,8 @@ pub(crate) struct MockRepo {
     pub(crate) journal_corrupt: Option<String>,
     /// When set, the journal reads back as written by a newer format version.
     pub(crate) journal_newer_version: Option<u32>,
+    /// When set, there is no identity to commit as.
+    pub(crate) no_identity: bool,
     /// When set, the journal reads back as an operation, named this, that an
     /// older git-tailor left interrupted.
     pub(crate) journal_upgrade_interrupted: Option<String>,
@@ -208,6 +210,7 @@ impl Default for MockRepo {
             journal: None,
             journal_corrupt: None,
             journal_newer_version: None,
+            no_identity: false,
             journal_upgrade_interrupted: None,
             clear_journal_calls: std::cell::Cell::new(0),
             abort_edit_ok: true,
@@ -387,6 +390,12 @@ impl RepoWrite for MockRepo {
         } else {
             Err(anyhow::anyhow!("abort failed"))
         }
+    }
+    fn refuse_if_uncommittable(&self, _: git_tailor::repo::Authorship) -> anyhow::Result<()> {
+        if self.no_identity {
+            anyhow::bail!("failed to build commit signature (set user.name / user.email)");
+        }
+        Ok(())
     }
     fn refuse_if_journal_unusable(&self) -> anyhow::Result<()> {
         match (&self.journal_corrupt, self.journal_newer_version) {

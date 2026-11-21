@@ -151,12 +151,28 @@ macro_rules! refuse_unrecordable_or_bail {
     };
 }
 
-/// [`refuse_unrecordable_or_bail`], then set the working tree aside for the
+/// [`refuse_unrecordable_or_bail`] for the handlers of operations that may
+/// write a commit: see `RepoWrite::refuse_if_cannot_commit`. A rewrite unless
+/// an `Authorship` says otherwise.
+#[macro_export]
+macro_rules! refuse_uncommittable_or_bail {
+    ($git_repo:expr, $app:expr) => {
+        $crate::refuse_uncommittable_or_bail!($git_repo, $app, git_tailor::repo::Authorship::Kept);
+    };
+    ($git_repo:expr, $app:expr, $authorship:expr) => {
+        if let Err(e) = $git_repo.refuse_if_cannot_commit($authorship) {
+            $app.set_error_message(format!("{e:#}"));
+            return Ok(LoopAction::Proceed);
+        }
+    };
+}
+
+/// [`refuse_uncommittable_or_bail`], then set the working tree aside for the
 /// operation. For the handlers that stash unconditionally.
 #[macro_export]
 macro_rules! start_operation_or_bail {
     ($git_repo:expr, $app:expr) => {
-        $crate::refuse_unrecordable_or_bail!($git_repo, $app);
+        $crate::refuse_uncommittable_or_bail!($git_repo, $app);
         if let Err(e) = $git_repo.autostash_save() {
             $app.set_error_message(format!("Auto-stash failed: {e:#}"));
             return Ok(LoopAction::Proceed);

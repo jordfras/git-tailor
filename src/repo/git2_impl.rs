@@ -543,21 +543,21 @@ impl RepoRead for Git2Repo {
     }
 }
 
-// Every entry point below checks `refuse_if_branch_moved(head_oid)` as its
+// Every entry point below checks `refuse_if_cannot_start(head_oid)` as its
 // first statement, before calling into the op module that does the rewrite.
 // Keeping the check here rather than inside each op module means a new
 // operation is written right next to the ones it is modeled on, where the
 // check is the first line any of them would be copied from.
 impl RepoWrite for Git2Repo {
     fn split_commit_per_file(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_file(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
     }
 
     fn split_commit_per_hunk(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_hunk(self, commit_oid, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
@@ -570,7 +570,7 @@ impl RepoWrite for Git2Repo {
         reference_oid: &Oid,
         progress: &mut dyn FnMut(FragMapProgress) -> bool,
     ) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_per_hunk_group(
             self,
@@ -588,7 +588,7 @@ impl RepoWrite for Git2Repo {
         file_paths: &[PathBuf],
         head_oid: &Oid,
     ) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome = split_op::split_commit_out_files(self, commit_oid, file_paths, head_oid);
         self.record_unit_undo("Split", head_oid, outcome)
@@ -601,7 +601,7 @@ impl RepoWrite for Git2Repo {
         head_oid: &Oid,
         context_lines: u32,
     ) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         let outcome =
             split_op::split_commit_out_hunks(self, commit_oid, hunks, head_oid, context_lines);
@@ -614,21 +614,21 @@ impl RepoWrite for Git2Repo {
         new_message: &BStr,
         head_oid: &Oid,
     ) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rebuilding_in_place(commit_oid, head_oid)?;
         let outcome = reword_op::reword_commit(self, commit_oid, new_message, head_oid);
         self.record_unit_undo("Reword", head_oid, outcome)
     }
 
     fn drop_commit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<super::RebaseOutcome> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_dropping(commit_oid, head_oid)?;
         let outcome = drop_op::drop_commit(self, commit_oid, head_oid);
         self.journaled("Drop", head_oid, head_oid, outcome)
     }
 
     fn begin_edit(&mut self, commit_oid: &Oid, head_oid: &Oid) -> Result<()> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         self.refuse_rewriting_from(commit_oid, head_oid)?;
         edit_op::begin_edit(self, commit_oid, head_oid)
     }
@@ -700,6 +700,14 @@ impl RepoWrite for Git2Repo {
 
     fn refuse_if_journal_unusable(&self) -> Result<()> {
         journal::refuse_if_unusable(self)
+    }
+
+    fn refuse_if_uncommittable(&self, authorship: super::Authorship) -> Result<()> {
+        self.committer()?;
+        if authorship == super::Authorship::New {
+            self.author()?;
+        }
+        Ok(())
     }
 
     fn read_journal(&mut self) -> Result<super::JournalStatus> {
@@ -782,7 +790,7 @@ impl RepoWrite for Git2Repo {
         target_oid: &Oid,
         head_oid: &Oid,
     ) -> Result<Option<super::LiftedRow>> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         lift_op::lift(self, source, target_oid, head_oid)
     }
 
@@ -820,7 +828,7 @@ impl RepoWrite for Git2Repo {
         insert_after_oid: Option<&Oid>,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         let outcome = move_op::move_commit(self, commit_oid, insert_after_oid, head_oid);
         self.journaled("Move", head_oid, head_oid, outcome)
     }
@@ -832,7 +840,7 @@ impl RepoWrite for Git2Repo {
         message: &BStr,
         head_oid: &Oid,
     ) -> Result<super::RebaseOutcome> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         let outcome = squash_op::squash_commits(self, source_oid, target_oid, message, head_oid);
         self.journaled("Squash", head_oid, head_oid, outcome)
     }
@@ -856,7 +864,7 @@ impl RepoWrite for Git2Repo {
         squash_mode: SquashMode,
         head_oid: &Oid,
     ) -> Result<Option<super::ConflictState>> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         let result = squash_op::squash_try_combine(
             self,
             source_oid,
@@ -922,7 +930,7 @@ impl RepoWrite for Git2Repo {
         pairs: &[crate::autofixup::AutofixupPair],
         message_overrides: &crate::autofixup::MessageOverrides,
     ) -> Result<super::RebaseOutcome> {
-        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_cannot_start(head_oid)?;
         let outcome =
             autofixup_op::autofixup(self, head_oid, reference_oid, pairs, message_overrides);
         self.journaled(autofixup_op::LABEL, head_oid, head_oid, outcome)
@@ -962,6 +970,13 @@ pub(super) fn remove_written_path(workdir: &Path, path: &Path) -> Result<bool> {
         return Ok(true);
     }
     Ok(false)
+}
+
+/// Which identity [`Git2Repo::identity_from_env`] resolves.
+#[derive(Clone, Copy)]
+enum Side {
+    Author,
+    Committer,
 }
 
 impl Git2Repo {
@@ -1208,6 +1223,15 @@ impl Git2Repo {
         .into())
     }
 
+    /// Refuse a rewrite that could not finish: the branch has moved, or there
+    /// is no identity to commit it as. Checked up front because a conflict on
+    /// the first pick pauses before any commit is made, so the missing identity
+    /// would otherwise surface only once the user had resolved it.
+    fn refuse_if_cannot_start(&self, head_oid: &Oid) -> Result<()> {
+        self.refuse_if_branch_moved(head_oid)?;
+        self.refuse_if_uncommittable(super::Authorship::Kept)
+    }
+
     /// Refuse when the branch no longer holds what the caller was told it did.
     ///
     /// Every operation is chosen against a commit list read at some earlier
@@ -1423,6 +1447,51 @@ impl Git2Repo {
         }
     }
 
+    // Not only a missing name: an unparseable `GIT_*_DATE` fails here too.
+    const NO_IDENTITY: &str = "failed to build commit signature (check user.name / user.email \
+                               and any GIT_AUTHOR_* / GIT_COMMITTER_* variables)";
+
+    /// Whoever commits now: the configured user, dated now in the local time
+    /// zone, with `GIT_COMMITTER_NAME`, `_EMAIL` and `_DATE` overriding them as
+    /// they do for git. A rewritten commit gets this, as `git rebase` gives it,
+    /// and keeps only its author.
+    pub(super) fn committer(&self) -> Result<git2::Signature<'static>> {
+        self.identity_from_env(Side::Committer)
+    }
+
+    /// The author of a commit made from scratch, as [`Self::committer`] is its
+    /// committer, with `GIT_AUTHOR_*` in place of `GIT_COMMITTER_*`.
+    pub(super) fn author(&self) -> Result<git2::Signature<'static>> {
+        self.identity_from_env(Side::Author)
+    }
+
+    /// libgit2's `git_signature_default_from_env`, asked for `side` alone.
+    ///
+    /// Not git2's `committer_from_env` or `author_from_env`: each asks libgit2
+    /// for both sides and keeps one, so the other leaks on every call and, when
+    /// it cannot be resolved, fails a call that never needed it. A rewrite
+    /// needs a committer only, as `git rebase` does.
+    fn identity_from_env(&self, side: Side) -> Result<git2::Signature<'static>> {
+        use git2::Binding;
+
+        let mut signature = std::ptr::null_mut();
+        let (author_out, committer_out) = match side {
+            Side::Author => (&raw mut signature, std::ptr::null_mut()),
+            Side::Committer => (std::ptr::null_mut(), &raw mut signature),
+        };
+        // SAFETY: the repository pointer is live for the call, and libgit2
+        // leaves a NULL out-parameter alone.
+        let code = unsafe {
+            libgit2_sys::git_signature_default_from_env(author_out, committer_out, self.inner.raw())
+        };
+        if code < 0 {
+            return Err(git2::Error::last_error(code)).context(Self::NO_IDENTITY);
+        }
+        // SAFETY: on success libgit2 hands over a signature the caller owns,
+        // which `from_raw` frees on drop.
+        Ok(unsafe { git2::Signature::from_raw(signature) })
+    }
+
     /// Create a commit whose message is written **byte for byte**.
     ///
     /// git2 cannot: `Repository::commit` and `commit_create_buffer` both take
@@ -1440,10 +1509,11 @@ impl Git2Repo {
     /// Extra headers of the original, a `gpgsig` above all, are deliberately not
     /// carried over: the content is changing, so a signature over the old
     /// content would be a lie. `git rebase` drops them the same way.
+    ///
+    /// The committer is never taken from the original: see [`Self::committer`].
     pub(super) fn commit_preserving_message(
         &self,
         author: &git2::Signature<'_>,
-        committer: &git2::Signature<'_>,
         message: &BStr,
         encoding: Option<&str>,
         tree: &git2::Tree<'_>,
@@ -1451,7 +1521,7 @@ impl Git2Repo {
     ) -> Result<git2::Oid> {
         let buffer = self
             .inner
-            .commit_create_buffer(author, committer, "", tree, parents)
+            .commit_create_buffer(author, &self.committer()?, "", tree, parents)
             .context("failed to build the commit object")?;
 
         // The header block runs up to the first blank line.

@@ -133,7 +133,6 @@ fn plan_move_to_root(
 
     let new_root_oid = repo.commit_preserving_message(
         &commit.author(),
-        &commit.committer(),
         commit.message_bytes().as_bstr(),
         commit.message_encoding().ok().flatten(),
         &new_tree,

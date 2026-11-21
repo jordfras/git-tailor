@@ -25,7 +25,7 @@ Guidelines:
   decide whether a split should also see the rename as one change rather than
   two, and test a moved file with and without edits in the detail view and in
   the split.
-- [ ] T283 P2 bug - A rewritten commit keeps its original committer and commit
+- [x] T283 P2 bug - A rewritten commit keeps its original committer and commit
   date. `git rebase` keeps the author and author date but makes whoever runs it
   the committer, dated now; every rewrite here passes the original commit's
   `committer()` instead (`cherry_pick.rs`, `move_op.rs`, `squash_op.rs`,
