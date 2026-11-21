@@ -268,6 +268,27 @@ mod tests {
     }
 
     #[test]
+    fn a_match_of_no_text_is_no_match() {
+        let files = [file(
+            Some("a.txt"),
+            Some("a.txt"),
+            vec![hunk(vec![line(DiffLineKind::Addition, "abc")])],
+        )];
+        for pattern in ["^", "x*", r"\b"] {
+            assert!(
+                !matches(SearchScope::MessageAndDiff, pattern, &commit("m"), &files),
+                "{pattern}"
+            );
+        }
+        assert!(matches(
+            SearchScope::MessageAndDiff,
+            "c*",
+            &commit("m"),
+            &files
+        ));
+    }
+
+    #[test]
     fn a_staged_or_unstaged_row_matches_by_its_diff_only() {
         let files = [file(
             Some("a.txt"),

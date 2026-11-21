@@ -1314,6 +1314,26 @@ fn a_search_matches_across_a_label_and_its_value() {
     assert_eq!(app.detail.search.matches.len(), 1);
 }
 
+/// A pattern that matches only empty text, such as `^`, finds nothing it
+/// could highlight, so it counts no lines.
+#[test]
+fn a_match_of_no_text_counts_no_lines() {
+    use git_tailor::app::search::SearchState;
+    use git_tailor::domain::search::SearchScope;
+
+    let mut harness = TuiTestHarness::typical();
+    let (mut app, repo) = list_searched(SearchScope::Diff, "");
+    app.list.search.clear();
+    open_detail(&mut app, &repo, &mut harness);
+    app.detail.search = SearchState::confirmed("^".to_string());
+    harness.render(|frame| {
+        let area = frame.area();
+        views::commit_detail::render(frame, &mut app, area);
+    });
+
+    assert!(app.detail.search.matches.is_empty());
+}
+
 /// A match running from `Commit: ` into the hash after it, which are drawn
 /// in different colors, is highlighted in both, not just counted.
 #[test]
