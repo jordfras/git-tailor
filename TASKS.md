@@ -76,7 +76,7 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
-- [ ] T246 P3 feat - Decide whether git-tailor should say which base it picked.
+- [X] T246 P3 feat - Decide whether git-tailor should say which base it picked.
   The default range is HEAD back to the merge-base with the upstream default
   branch, auto-detected via `origin/HEAD` and falling back to `main` when that
   ref is not set. A missing or wrong `origin/HEAD` makes the visible range
