@@ -103,6 +103,9 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
 
     // Fast empty-branch check: if HEAD equals the merge-base, no branch commits exist.
     if head_oid == reference_oid {
+        if let Some(note) = fallback_note {
+            eprintln!("{note}");
+        }
         eprintln!(
             "No commits to display: HEAD is at the merge-base with '{}'",
             base

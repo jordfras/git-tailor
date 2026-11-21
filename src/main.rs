@@ -173,6 +173,9 @@ fn main() -> Result<()> {
     // Working-tree rows alone are nothing to rewrite.
     if app.list.commits().all(|c| c.oid.as_oid().is_none()) {
         terminal_guard.shutdown()?;
+        if let Some(note) = fallback_note {
+            eprintln!("{note}");
+        }
         eprintln!("No commits to display.");
         return Ok(());
     }
