@@ -37,6 +37,9 @@ pub enum StatusKind {
     Success,
     /// Shown with a red background.
     Error,
+    /// Something to know that is neither a result nor a failure, shown with a
+    /// blue background.
+    Notice,
 }
 
 /// Transient status message shown in the footer, cleared on the next keypress.
@@ -57,6 +60,12 @@ impl StatusState {
     pub fn set_error(&mut self, msg: impl Into<String>) {
         self.message = Some(msg.into());
         self.kind = StatusKind::Error;
+    }
+
+    /// Set a notice.
+    pub fn set_notice(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.kind = StatusKind::Notice;
     }
 
     pub fn is_error(&self) -> bool {

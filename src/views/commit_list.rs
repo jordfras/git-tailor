@@ -879,13 +879,12 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
     if let Some(msg) = &app.status.message {
-        let bg = match app.status.kind {
-            StatusKind::Success => Color::Green,
-            StatusKind::Error => Color::Red,
+        let (fg, bg) = match app.status.kind {
+            StatusKind::Success => (Color::White, Color::Green),
+            StatusKind::Error => (Color::White, Color::Red),
+            StatusKind::Notice => (Color::White, Color::Blue),
         };
-        let style = app
-            .colors
-            .resolve_style(Style::new().fg(Color::White).bg(bg));
+        let style = app.colors.resolve_style(Style::new().fg(fg).bg(bg));
         frame.render_widget(Paragraph::new("").style(style), area);
         let text_area = Rect {
             x: area.x + 1,

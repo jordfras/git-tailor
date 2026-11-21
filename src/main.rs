@@ -179,7 +179,7 @@ fn main() -> Result<()> {
 
     // Before recovery, whose message matters more and replaces it.
     if let Some(note) = fallback_note {
-        app.set_success_message(note);
+        app.status.set_notice(note);
     }
     check_journal_recovery(&mut git_repo, &mut app);
 

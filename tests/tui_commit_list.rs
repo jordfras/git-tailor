@@ -248,6 +248,31 @@ fn test_status_bar_short_error() {
         views::commit_list::render(&mut app, frame);
     }));
 }
+/// A notice is neither a success nor a failure, so it is drawn in neither of
+/// their colors.
+#[test]
+fn a_notice_is_drawn_white_on_blue() {
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::short();
+    let mut app = AppState::new();
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
+    app.status
+        .set_notice("origin/HEAD is not set to a branch, so the base is main.");
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    });
+
+    let footer = buffer.area.height - 1;
+    let cell = &buffer[(1, footer)];
+    assert_eq!((cell.fg, cell.bg), (Color::White, Color::Blue));
+}
+
 // Footer is exactly 65 columns wide: left=" abc123def456abc123def456abc123def456abc1 1/1" (45 chars)
 // + 2 padding + hint "Press 'h' for help" (18 chars) = 65. Hint should be visible.
 #[test]
