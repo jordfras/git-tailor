@@ -64,6 +64,10 @@ enum StartedFrom {
     UserChanges,
 }
 
+/// Whether [`Git2Repo::enable_flushing_writes_to_disk`] was called; process-wide,
+/// as libgit2's own setting is.
+static FLUSHING_WRITES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
@@ -96,6 +100,7 @@ impl Git2Repo {
             return Err(git2::Error::last_error(code))
                 .context("failed to make libgit2 flush its writes");
         }
+        FLUSHING_WRITES.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
@@ -1110,6 +1115,11 @@ impl Git2Repo {
             .name()
             .context("Ref has no name")?
             .to_string();
+        // libgit2 flushed the commits the ref names, but on Apple targets that
+        // stops at the drive's cache, which could store the ref first.
+        if FLUSHING_WRITES.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::durable_file::empty_drive_cache(repo.path())?;
+        }
         repo.reference(&branch_refname, new_tip, true, log_msg)?;
         Ok(())
     }
