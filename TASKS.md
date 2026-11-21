@@ -12,7 +12,7 @@ Guidelines:
 ## UNCATEGORIZED
 
 ## Interactivity — Commit Detail View
-- [ ] T281 P3 fix - The detail search matches a line on its whole text but
+- [X] T281 P3 fix - The detail search matches a line on its whole text but
   highlights each span on its own, so a match that crosses spans, such as
   `^Commit: aaa111` or `M  src/`, counts and is stepped to by `n` with
   nothing highlighted. Highlight from match positions in the joined line text
