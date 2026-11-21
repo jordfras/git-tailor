@@ -35,6 +35,9 @@ The format is based on
   there is always context in the direction you are moving. `auto` (the
   default) scales with the window height, a number sets it exactly, and `0`
   scrolls only once the cursor is at the edge, as before
+- `--no-fsync`, or `GT_NO_FSYNC=true`, skips flushing each commit and branch
+  move to disk as it is written, for large rewrites on a slow disk. The
+  operation journal is still flushed
 
 ### Changed
 
@@ -67,6 +70,11 @@ The format is based on
   uncommitted work git-tailor kept when it had to discard the record naming it,
   they belong to the whole repository rather than to one working tree, and this
   is the only copy. It now says how many it kept
+- Every commit, stash and branch move an operation writes is now flushed to
+  disk before anything points at it, as the operation journal already was, so
+  a power cut can no longer leave a branch, the undo history or a stash naming
+  something that never reached the disk. This costs a few milliseconds per
+  commit written; `--no-fsync` turns it off
 
 ### Fixed
 

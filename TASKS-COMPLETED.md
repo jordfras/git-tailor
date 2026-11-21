@@ -2443,3 +2443,20 @@ carry the search into the detail view.
   parent reproduce the same OID; once the date is "now" that stops being true,
   so find any replay of commits git would leave alone (the unchanged prefix of
   a reorder, say) and keep those commits as they are, as git does.
+- [X] T264 P2 fix - Decide whether libgit2 should flush what it writes. T242
+  made the journal durable, but the objects and ref moves of a rewrite are
+  still written without a flush, so a power cut can leave the journal naming a
+  tip the refs never reached, or a ref naming an object that never reached the
+  disk. The second is the one that loses work. libgit2 has
+  `GIT_OPT_ENABLE_FSYNC_GITDIR` for it, which git2 does not wrap: turning it on
+  means an unsafe call through `libgit2-sys`. It flushes every object, so
+  measure a large split before and after; libgit2 also honors
+  `core.fsyncObjectFiles` per repository, which may be enough to document.
+  Decided: flush. `main` turns the option on at startup, unless `--no-fsync`
+  is given; the journal is flushed either way. The config key was not enough:
+  off by default, replaced by `core.fsync` in git, and setting it for gt alone
+  needs a config file added to the handle. An 80-piece split replaying 20
+  commits went from 0.31 s to 1.15 s on ext4 under WSL; on NTFS with an
+  antivirus, about 4 ms more per commit. The same split on CI runners went
+  from 0.06 s to 0.15 s on Ubuntu, 0.5 s to 0.7–1.2 s on macOS, and 1.1 s to
+  3.6 s on Windows: about 25 ms per commit there, the case `--no-fsync` is for.

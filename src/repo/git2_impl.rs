@@ -64,6 +64,10 @@ enum StartedFrom {
     UserChanges,
 }
 
+/// Whether [`Git2Repo::enable_flushing_writes_to_disk`] was called; process-wide,
+/// as libgit2's own setting is.
+static FLUSHING_WRITES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Concrete git repository backed by `libgit2` via the `git2` crate.
 ///
 /// Construct with [`Git2Repo::open`]; then use through the [`GitRepo`] trait.
@@ -76,6 +80,30 @@ pub struct Git2Repo {
 }
 
 impl Git2Repo {
+    /// Make libgit2 flush every object and ref it writes to disk, so that
+    /// nothing the journal names can be lost to a power cut. It flushes
+    /// nothing by default.
+    ///
+    /// Applies to the whole process. A repository decides whether to flush its
+    /// refs when it first reads them, so call this before [`Self::open`].
+    pub fn enable_flushing_writes_to_disk() -> Result<()> {
+        libgit2_sys::init();
+        // SAFETY: the option takes one `int` and sets a flag, as git2's own safe
+        // `opts::enable_caching` does for its option.
+        let code = unsafe {
+            libgit2_sys::git_libgit2_opts(
+                libgit2_sys::GIT_OPT_ENABLE_FSYNC_GITDIR as std::ffi::c_int,
+                1 as std::ffi::c_int,
+            )
+        };
+        if code < 0 {
+            return Err(git2::Error::last_error(code))
+                .context("failed to make libgit2 flush its writes");
+        }
+        FLUSHING_WRITES.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Try to open a git repository by iteratively trying the given path and
     /// its parents until a repository root is found.
     pub fn open(mut path: std::path::PathBuf) -> Result<Self> {
@@ -1087,6 +1115,11 @@ impl Git2Repo {
             .name()
             .context("Ref has no name")?
             .to_string();
+        // libgit2 flushed the commits the ref names, but on Apple targets that
+        // stops at the drive's cache, which could store the ref first.
+        if FLUSHING_WRITES.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::durable_file::empty_drive_cache(repo.path())?;
+        }
         repo.reference(&branch_refname, new_tip, true, log_msg)?;
         Ok(())
     }

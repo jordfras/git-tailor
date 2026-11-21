@@ -100,6 +100,20 @@ pub fn sync_parent_dir(path: &Path) -> Result<()> {
     sync_dir(dir).with_context(|| format!("failed to flush {} to disk", dir.display()))
 }
 
+/// Empty the drive's own write cache, so that whatever was flushed before it
+/// reaches the disk before anything written after it.
+///
+/// Only Apple targets need it: their `fsync` stops at the drive's cache, which
+/// may store later writes before earlier ones. Elsewhere `fsync` already waits
+/// for the disk, and this does nothing. `dir` is any directory on the drive.
+pub fn empty_drive_cache(dir: &Path) -> Result<()> {
+    #[cfg(target_vendor = "apple")]
+    sync_dir(dir).with_context(|| format!("failed to flush {} to disk", dir.display()))?;
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = dir;
+    Ok(())
+}
+
 #[cfg(unix)]
 fn sync_dir(dir: &Path) -> io::Result<()> {
     match File::open(dir) {

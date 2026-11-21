@@ -85,6 +85,15 @@ pub struct Cli {
     #[arg(long, env = "GT_NO_STASH")]
     pub no_stash: bool,
 
+    /// Don't flush git objects and refs to disk as they are written.
+    ///
+    /// By default each commit and branch move is flushed before anything points
+    /// at it, so a power cut cannot leave a branch or stash naming something that
+    /// was never stored. That costs a few milliseconds per commit. The operation
+    /// journal is flushed either way.
+    #[arg(long, env = "GT_NO_FSYNC")]
+    pub no_fsync: bool,
+
     /// Show all hunk group columns without deduplication.
     ///
     /// By default the hunk group matrix merges columns whose set of touching
@@ -285,10 +294,12 @@ mod tests {
     use clap::{CommandFactory, FromArgMatches};
     use std::io::Write;
 
-    /// Parse `args` with `GT_NO_STASH` left out, so a developer who exported it
-    /// does not change what these tests see.
+    /// Parse `args` with `GT_NO_STASH` and `GT_NO_FSYNC` left out, so a
+    /// developer who exported them does not change what these tests see.
     fn parse(args: &[&str]) -> Cli {
-        let command = Cli::command().mut_arg("no_stash", |arg| arg.env(None));
+        let command = Cli::command()
+            .mut_arg("no_stash", |arg| arg.env(None))
+            .mut_arg("no_fsync", |arg| arg.env(None));
         Cli::from_arg_matches(&command.try_get_matches_from(args).unwrap()).unwrap()
     }
 
@@ -300,6 +311,16 @@ mod tests {
     #[test]
     fn no_stash_turns_it_on() {
         assert!(parse(&["gt", "--no-stash"]).no_stash);
+    }
+
+    #[test]
+    fn no_fsync_is_off_by_default() {
+        assert!(!parse(&["gt"]).no_fsync);
+    }
+
+    #[test]
+    fn no_fsync_turns_it_on() {
+        assert!(parse(&["gt", "--no-fsync"]).no_fsync);
     }
 
     /// The flag decides whether the Staged and Unstaged rows can be folded too,

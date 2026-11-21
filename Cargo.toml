@@ -22,9 +22,10 @@ path = "src/main.rs"
 
 [dependencies]
 git2 = { version = "0.21", default-features = false }
-# Direct only for `Git2Repo::identity_from_env`, whose doc says why. When
-# bumping git2, check whether that still holds, and drop this if not. Keep it
-# on the version git2 itself depends on.
+# Direct for what git2 does not wrap: `Git2Repo::identity_from_env`, whose doc
+# says why, and the option `Git2Repo::enable_flushing_writes_to_disk` sets.
+# When bumping git2, check whether that still holds, and drop this if not. Keep
+# it on the version git2 itself depends on.
 libgit2-sys = "0.18"
 anyhow = "1.0"
 # `unstable-rendered-line-info` exposes `Paragraph::line_count`, used by the
