@@ -72,6 +72,9 @@ the tape's own path — a tape at `<video>/scenes/<name>/scene.tape` films on
 `<video>/make-repo.sh` — so each video brings its own repository, and a fixture
 stays shaped for the story told on it.
 
+Each `make-repo.sh` points `origin/HEAD` at `main`, as in a clone, so a bare `gt`
+starts with `main` as its base and no note about it in the footer.
+
 What differs between videos goes in `<video>/video.conf`, sourced shell, every
 key optional and defaulting to what the promo uses:
 
