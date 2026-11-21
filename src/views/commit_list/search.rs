@@ -29,7 +29,7 @@ use crate::app::search::QueryEdit;
 use crate::domain::search::SearchScope;
 use crate::fragmap::CommitPos;
 use crate::views::search_bar::{self, SearchBarInfo};
-use crate::views::search_match::{highlight_matches, match_style};
+use crate::views::search_match::{highlight_spans, match_style};
 
 /// Handle raw keyboard events while the search bar takes input.
 ///
@@ -126,7 +126,7 @@ pub(super) fn summary_line(
         .and_then(|query| query.message_regex())
         .filter(|_| !commit.oid.is_synthetic());
     match (regex, row_match) {
-        (Some(regex), Some(highlight)) => Line::from(highlight_matches(&span, regex, highlight)),
+        (Some(regex), Some(highlight)) => Line::from(highlight_spans(&[span], regex, highlight)),
         _ => Line::from(span),
     }
 }

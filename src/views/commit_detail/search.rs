@@ -23,7 +23,7 @@ use crate::app::search::{QueryEdit, SearchDirection};
 use crate::domain::search::search_regex;
 use crate::views::palette::Colors;
 use crate::views::search_bar::SearchBarInfo;
-use crate::views::search_match::{highlight_matches, match_style};
+use crate::views::search_match::{highlight_spans, match_style};
 
 /// Handle raw keyboard events while the search input bar is active.
 ///
@@ -140,10 +140,7 @@ fn highlight_line_matches(
     let spans = prefix
         .iter()
         .map(|span| Span::styled(span.content.to_string(), span.style))
-        .chain(
-            rest.iter()
-                .flat_map(|span| highlight_matches(span, regex, highlight_style)),
-        );
+        .chain(highlight_spans(rest, regex, highlight_style));
     Line::from(spans.collect::<Vec<_>>())
 }
 
