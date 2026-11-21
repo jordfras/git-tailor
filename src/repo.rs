@@ -552,9 +552,9 @@ pub trait RepoRead {
     ///
     /// Looks up the symbolic target of `refs/remotes/origin/HEAD` (the pointer
     /// that `git remote set-head origin --auto` sets) and strips the
-    /// `refs/remotes/` prefix so the returned value can be passed directly to
-    /// `find_reference_point`.  For example when `origin/HEAD` points to
-    /// `refs/remotes/origin/main` this returns `Some("origin/main")`.
+    /// `refs/remotes/` prefix, giving the name a user knows it by: for example
+    /// `Some("origin/main")` for `refs/remotes/origin/main`. Look it up by the
+    /// full name, as by the short one git finds a tag of the same name first.
     ///
     /// Returns `Ok(None)` when the remote tracking ref is absent or has no symbolic
     /// target (e.g. the repo has no remote configured, or `origin/HEAD` was

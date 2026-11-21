@@ -44,12 +44,15 @@ pub fn load_initial_commits(
         return Ok(Some((all_commits, root_oid, true)));
     }
 
-    let base = resolve_base_branch(git_repo, cli)?;
-    if let Some(note) = &base.fallback_note {
+    let Base {
+        name: base,
+        reference,
+        fallback_note,
+    } = resolve_base_branch(git_repo, cli)?;
+    if let Some(note) = fallback_note {
         eprintln!("{note}");
     }
-    let base = base.name;
-    let reference_oid = git_repo.find_reference_point(&base)?;
+    let reference_oid = git_repo.find_reference_point(&reference)?;
     let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
     // Exclude the merge-base commit — it's shared with the target branch
     // and must not be modified (squashed, moved, or split).
@@ -93,9 +96,10 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
     }
     let Base {
         name: base,
+        reference,
         fallback_note,
     } = resolve_base_branch(git_repo, cli)?;
-    let reference_oid = git_repo.find_reference_point(&base)?;
+    let reference_oid = git_repo.find_reference_point(&reference)?;
 
     // Fast empty-branch check: if HEAD equals the merge-base, no branch commits exist.
     if head_oid == reference_oid {
@@ -117,19 +121,32 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
 
 /// The base to list commits from.
 struct Base {
+    /// As the user knows it, for messages.
     name: String,
+    /// What to look it up by: the full reference name of a branch gt chose, as
+    /// by its short one git would find a tag of the same name first.
+    reference: String,
     fallback_note: Option<String>,
 }
 
 impl Base {
-    fn named(name: String) -> Self {
+    fn given(name: String) -> Self {
         Self {
+            reference: name.clone(),
             name,
             fallback_note: None,
         }
     }
 
-    fn fallen_back_to(name: &str) -> Self {
+    fn origin_head(name: String) -> Self {
+        Self {
+            reference: format!("refs/remotes/{name}"),
+            name,
+            fallback_note: None,
+        }
+    }
+
+    fn fallen_back_to(reference: &str, name: &str) -> Self {
         let set_head = if name.starts_with("origin/") {
             " `git remote set-head origin --auto` sets origin/HEAD."
         } else {
@@ -137,6 +154,7 @@ impl Base {
         };
         Self {
             name: name.to_string(),
+            reference: reference.to_string(),
             fallback_note: Some(format!(
                 "origin/HEAD is not set, so the base is {name}. Pass a base to choose \
                  another.{set_head}"
@@ -157,17 +175,17 @@ const FALLBACK_BASES: [(&str, &str); 4] = [
 
 fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<Base> {
     if let Some(base) = &cli.base {
-        return Ok(Base::named(base.clone()));
+        return Ok(Base::given(base.clone()));
     }
     if let Some(base) = git_repo
         .default_branch()
         .context("failed to resolve default branch from origin/HEAD")?
     {
-        return Ok(Base::named(base));
+        return Ok(Base::origin_head(base));
     }
     for (full_name, base) in FALLBACK_BASES {
         if git_repo.has_reference(full_name)? {
-            return Ok(Base::fallen_back_to(base));
+            return Ok(Base::fallen_back_to(full_name, base));
         }
     }
     anyhow::bail!(

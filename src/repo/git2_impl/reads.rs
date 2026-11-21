@@ -346,8 +346,6 @@ pub(super) fn default_branch(repo: &Git2Repo) -> Result<Option<String>> {
         Err(err) => return Err(err.into()),
     };
     let target = reference.symbolic_target()?;
-    // Strip the "refs/remotes/" prefix so the caller can pass the result
-    // directly to find_reference_point (e.g. "origin/main").
     Ok(target.and_then(|value| value.strip_prefix("refs/remotes/").map(str::to_string)))
 }
 
