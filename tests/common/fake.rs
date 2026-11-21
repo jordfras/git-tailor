@@ -154,6 +154,9 @@ impl RepoRead for StubRepo {
     fn default_branch(&self) -> Result<Option<String>> {
         Ok(None)
     }
+    fn has_reference(&self, _full_name: &str) -> Result<bool> {
+        Ok(false)
+    }
     fn commit_walker<'a>(
         &'a self,
         _from_oid: &Oid,

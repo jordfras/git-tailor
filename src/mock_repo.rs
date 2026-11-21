@@ -73,6 +73,10 @@ pub(crate) struct MockRepo {
     pub(crate) commit_diff: Option<CommitDiff>,
     /// Files reported by `read_conflicting_files`, for the conflict-tool tests.
     pub(crate) conflicting_files: Vec<std::path::PathBuf>,
+    /// What `default_branch` answers: where `origin/HEAD` points.
+    pub(crate) origin_head: Option<String>,
+    /// The full reference names `has_reference` finds.
+    pub(crate) references: Vec<String>,
     /// What `lift_worktree_row` answers: `Ok(None)` for an empty row, an
     /// error, or a lifted row to build the fold on.
     pub(crate) lift: LiftOutcome,
@@ -201,6 +205,8 @@ impl Default for MockRepo {
             commit_messages: std::collections::HashMap::new(),
             commit_diff: None,
             conflicting_files: Vec::new(),
+            origin_head: None,
+            references: Vec::new(),
             lift: LiftOutcome::default(),
             restore_lifted_ok: true,
             restore_lifted_calls: std::cell::Cell::new(0),
@@ -291,7 +297,10 @@ impl RepoRead for MockRepo {
         self.conflicting_files.clone()
     }
     fn default_branch(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
+        Ok(self.origin_head.clone())
+    }
+    fn has_reference(&self, full_name: &str) -> anyhow::Result<bool> {
+        Ok(self.references.iter().any(|name| name == full_name))
     }
     fn root_commit_oid(&self) -> anyhow::Result<Oid> {
         unimplemented!()

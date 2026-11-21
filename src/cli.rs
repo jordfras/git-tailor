@@ -63,7 +63,8 @@ pub struct Cli {
     ///
     /// When omitted, the tool resolves `origin/HEAD` to find the repository's
     /// default upstream branch (e.g. `origin/main`).  If `origin/HEAD` is not
-    /// configured it falls back to `main`.
+    /// configured it falls back to the first of `origin/main`, `origin/master`,
+    /// `main` and `master` that exists.
     #[arg(add = ArgValueCandidates::new(crate::completions::base_ref_candidates))]
     pub base: Option<String>,
 

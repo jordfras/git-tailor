@@ -351,6 +351,14 @@ pub(super) fn default_branch(repo: &Git2Repo) -> Result<Option<String>> {
     Ok(target.and_then(|value| value.strip_prefix("refs/remotes/").map(str::to_string)))
 }
 
+pub(super) fn has_reference(repo: &Git2Repo, full_name: &str) -> Result<bool> {
+    match repo.inner.find_reference(full_name) {
+        Ok(_) => Ok(true),
+        Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(false),
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// List local and remote-tracking branch names plus tag names, for shell
 /// completion of the base argument. Names are returned as written by git
 /// (e.g. `main`, `origin/main`, `v1.0.0`).

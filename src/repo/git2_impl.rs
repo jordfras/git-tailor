@@ -536,6 +536,10 @@ impl RepoRead for Git2Repo {
         reads::default_branch(self)
     }
 
+    fn has_reference(&self, full_name: &str) -> Result<bool> {
+        reads::has_reference(self, full_name)
+    }
+
     fn commit_walker<'a>(
         &'a self,
         from_oid: &Oid,

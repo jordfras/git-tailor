@@ -91,16 +91,35 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
     Ok(Some((head_oid, reference_oid, false)))
 }
 
+/// Where the default branch is looked for when `origin/HEAD` is not set, in
+/// order: what a pull request targets first, then branches of a repository with
+/// no remote. As full reference names, so that a tag cannot stand in for one.
+const FALLBACK_BASES: [(&str, &str); 4] = [
+    ("refs/remotes/origin/main", "origin/main"),
+    ("refs/remotes/origin/master", "origin/master"),
+    ("refs/heads/main", "main"),
+    ("refs/heads/master", "master"),
+];
+
 fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
     if let Some(base) = &cli.base {
         return Ok(base.clone());
     }
-
-    match git_repo.default_branch() {
-        Ok(Some(base)) => Ok(base),
-        Ok(None) => Ok("main".to_string()),
-        Err(err) => Err(err.context("failed to resolve default branch from origin/HEAD")),
+    if let Some(base) = git_repo
+        .default_branch()
+        .context("failed to resolve default branch from origin/HEAD")?
+    {
+        return Ok(base);
     }
+    for (full_name, base) in FALLBACK_BASES {
+        if git_repo.has_reference(full_name)? {
+            return Ok(base.to_string());
+        }
+    }
+    anyhow::bail!(
+        "origin/HEAD is not set, and none of origin/main, origin/master, main or master \
+         exists. Pass the base to list commits from, as in `gt <branch>`."
+    )
 }
 
 /// Load commits and diffs with a live counter dialog, then optionally build the
@@ -400,6 +419,65 @@ mod tests {
     use super::*;
     use crate::mock_repo::MockRepo;
     use git_tailor::app::CommitListState;
+
+    fn base_of(repo: &MockRepo, args: &[&str]) -> Result<String> {
+        use clap::Parser;
+        let cli = Cli::parse_from(std::iter::once("gt").chain(args.iter().copied()));
+        resolve_base_branch(repo, &cli)
+    }
+
+    fn with_references(references: &[&str]) -> MockRepo {
+        MockRepo {
+            references: references.iter().map(ToString::to_string).collect(),
+            ..MockRepo::default()
+        }
+    }
+
+    #[test]
+    fn a_base_given_on_the_command_line_wins() {
+        let repo = MockRepo {
+            origin_head: Some("origin/main".to_string()),
+            ..with_references(&["refs/heads/main"])
+        };
+        assert_eq!(base_of(&repo, &["v1.0"]).unwrap(), "v1.0");
+    }
+
+    #[test]
+    fn origin_head_is_the_base_when_set() {
+        let repo = MockRepo {
+            origin_head: Some("origin/trunk".to_string()),
+            ..with_references(&["refs/remotes/origin/main"])
+        };
+        assert_eq!(base_of(&repo, &[]).unwrap(), "origin/trunk");
+    }
+
+    #[test]
+    fn without_origin_head_a_remote_branch_comes_before_a_local_one() {
+        let repo = with_references(&["refs/heads/main", "refs/remotes/origin/master"]);
+        assert_eq!(base_of(&repo, &[]).unwrap(), "origin/master");
+    }
+
+    #[test]
+    fn without_origin_head_main_comes_before_master() {
+        let both = with_references(&["refs/heads/master", "refs/heads/main"]);
+        assert_eq!(base_of(&both, &[]).unwrap(), "main");
+        let master = with_references(&["refs/heads/master"]);
+        assert_eq!(base_of(&master, &[]).unwrap(), "master");
+    }
+
+    #[test]
+    fn without_any_candidate_the_error_names_them_all() {
+        let error = base_of(&MockRepo::default(), &[]).unwrap_err().to_string();
+        for name in [
+            "origin/main",
+            "origin/master",
+            "main",
+            "master",
+            "gt <branch>",
+        ] {
+            assert!(error.contains(name), "{error}");
+        }
+    }
 
     /// What [`load_with_progress`] leaves behind when it fails partway.
     fn loading() -> AppMode {
