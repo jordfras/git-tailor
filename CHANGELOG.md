@@ -291,6 +291,9 @@ The format is based on
   colored parts of a line, such as `Commit: ` and the start of the hash, or a
   file's status letter and its path. Such a match used to be counted, and
   stepped to with `n`, with nothing highlighted
+- A commit detail search for a pattern that matches no text, such as `^` or
+  `x*`, finds nothing, instead of counting every line as a match with nothing
+  highlighted
 
 ### Removed
 
