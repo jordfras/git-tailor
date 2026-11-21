@@ -554,6 +554,53 @@ mod tests {
         assert!(note.contains("git remote set-head origin --auto"), "{note}");
     }
 
+    /// A repository at `HEAD` on `feature`, two commits past the branch
+    /// `master`, which is one past the root; a tag `master` on the root.
+    fn branch_and_tag_named_master() -> (tempfile::TempDir, git2::Oid) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let sig = git2::Signature::now("T", "t@e").unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let commit = |parent: Option<git2::Oid>, message: &str| {
+            let parents: Vec<_> = parent
+                .map(|p| repo.find_commit(p).unwrap())
+                .into_iter()
+                .collect();
+            let parents: Vec<_> = parents.iter().collect();
+            repo.commit(None, &sig, &sig, message, &tree, &parents)
+                .unwrap()
+        };
+        let root = commit(None, "root");
+        let branch_tip = commit(Some(root), "on master");
+        let feature = commit(Some(branch_tip), "feature 1");
+        let feature = commit(Some(feature), "feature 2");
+        repo.branch("master", &repo.find_commit(branch_tip).unwrap(), true)
+            .unwrap();
+        repo.tag_lightweight("master", &repo.find_object(root, None).unwrap(), true)
+            .unwrap();
+        repo.reference("refs/heads/feature", feature, true, "test")
+            .unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        (dir, branch_tip)
+    }
+
+    /// The fallback picks the branch by its full name, so it must look it up by
+    /// that name too: by its short one, git finds the tag first.
+    #[test]
+    fn a_fallback_branch_is_not_mistaken_for_a_tag_of_the_same_name() {
+        use clap::Parser;
+        let (dir, branch_tip) = branch_and_tag_named_master();
+        let git_repo = git_tailor::repo::Git2Repo::open(dir.path().to_path_buf()).unwrap();
+
+        let bounds = resolve_oid_bounds(&git_repo, &Cli::parse_from(["gt"]))
+            .unwrap()
+            .expect("the feature commits");
+
+        assert_eq!(bounds.reference_oid, Oid::from(branch_tip));
+    }
+
     #[test]
     fn without_any_candidate_the_error_names_them_all() {
         let error = base_of(&MockRepo::default(), &[]).unwrap_err().to_string();
