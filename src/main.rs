@@ -76,7 +76,9 @@ fn main() -> Result<()> {
         return update_check::run_once();
     }
 
-    Git2Repo::enable_flushing_writes_to_disk()?;
+    if !cli.no_fsync {
+        Git2Repo::enable_flushing_writes_to_disk()?;
+    }
     let mut git_repo = Git2Repo::open(std::env::current_dir()?)?;
     git_repo.set_autostash(!cli.no_stash);
 
