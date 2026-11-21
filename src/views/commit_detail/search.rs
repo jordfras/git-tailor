@@ -20,7 +20,7 @@ use ratatui::text::{Line, Span};
 
 use crate::app::AppState;
 use crate::app::search::{QueryEdit, SearchDirection};
-use crate::domain::search::search_regex;
+use crate::domain::search::{finds_text, search_regex};
 use crate::views::palette::Colors;
 use crate::views::search_bar::SearchBarInfo;
 use crate::views::search_match::{highlight_spans, match_style};
@@ -171,7 +171,10 @@ fn compute_search_matches(
         .iter()
         .enumerate()
         .filter(|&(i, line)| {
-            regex.is_match(&line_text(line, prefixed_lines.binary_search(&i).is_ok()))
+            finds_text(
+                regex,
+                &line_text(line, prefixed_lines.binary_search(&i).is_ok()),
+            )
         })
         .map(|(i, _)| i)
         .collect();

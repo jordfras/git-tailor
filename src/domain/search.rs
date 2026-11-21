@@ -112,7 +112,7 @@ impl CommitQuery {
                 // A staged or unstaged row's message is a placeholder of ours.
                 let message_matches = self.scope != SearchScope::Diff
                     && !commit.oid.is_synthetic()
-                    && commit.message.lines().any(|line| regex.is_match(line));
+                    && commit.message.lines().any(|line| finds_text(regex, line));
                 message_matches
                     || (self.scope != SearchScope::Message && diff_matches(files, regex))
             }
@@ -137,8 +137,14 @@ fn diff_matches(files: &[FileDiff], regex: &Regex) -> bool {
         .flat_map(|hunk| &hunk.lines)
         .any(|line| {
             line.kind != DiffLineKind::Context
-                && regex.is_match(line.content.trim_end_matches(['\n', '\r']))
+                && finds_text(regex, line.content.trim_end_matches(['\n', '\r']))
         })
+}
+
+/// Whether `regex` finds any text in `text`. An empty match, as `^` or `x*`
+/// make on every line, has nothing to highlight and does not count.
+pub fn finds_text(regex: &Regex, text: &str) -> bool {
+    regex.find_iter(text).any(|m| !m.is_empty())
 }
 
 fn first_matching_change(files: &[FileDiff], globs: &GlobSet) -> Option<ChangePos> {
