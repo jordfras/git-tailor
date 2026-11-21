@@ -45,6 +45,10 @@ pub fn load_initial_commits(
     }
 
     let base = resolve_base_branch(git_repo, cli)?;
+    if let Some(note) = &base.fallback_note {
+        eprintln!("{note}");
+    }
+    let base = base.name;
     let reference_oid = git_repo.find_reference_point(&base)?;
     let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
     // Exclude the merge-base commit — it's shared with the target branch
@@ -64,18 +68,33 @@ pub fn load_initial_commits(
     Ok(Some((commits, reference_oid, false)))
 }
 
-/// Resolve the OID bounds for the TUI loading path (fast: no commit listing).
-///
-/// Returns `(head_oid, reference_oid, include_reference_oid)`, or `Ok(None)`
-/// when there are definitely no commits to display.
-pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<(Oid, Oid, bool)>> {
+/// The range the TUI loads, from [`resolve_oid_bounds`].
+pub struct OidBounds {
+    pub head_oid: Oid,
+    pub reference_oid: Oid,
+    pub include_reference_oid: bool,
+    /// What to tell the user when the base is a fallback: which one, and why.
+    pub fallback_note: Option<String>,
+}
+
+/// Resolve the OID bounds for the TUI loading path (fast: no commit listing),
+/// or `Ok(None)` when there are definitely no commits to display.
+pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<OidBounds>> {
     let head_oid = git_repo.head_oid()?;
 
     if cli.all {
         let root_oid = git_repo.root_commit_oid()?;
-        return Ok(Some((head_oid, root_oid, true)));
+        return Ok(Some(OidBounds {
+            head_oid,
+            reference_oid: root_oid,
+            include_reference_oid: true,
+            fallback_note: None,
+        }));
     }
-    let base = resolve_base_branch(git_repo, cli)?;
+    let Base {
+        name: base,
+        fallback_note,
+    } = resolve_base_branch(git_repo, cli)?;
     let reference_oid = git_repo.find_reference_point(&base)?;
 
     // Fast empty-branch check: if HEAD equals the merge-base, no branch commits exist.
@@ -88,7 +107,42 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
         return Ok(None);
     }
 
-    Ok(Some((head_oid, reference_oid, false)))
+    Ok(Some(OidBounds {
+        head_oid,
+        reference_oid,
+        include_reference_oid: false,
+        fallback_note,
+    }))
+}
+
+/// The base to list commits from.
+struct Base {
+    name: String,
+    fallback_note: Option<String>,
+}
+
+impl Base {
+    fn named(name: String) -> Self {
+        Self {
+            name,
+            fallback_note: None,
+        }
+    }
+
+    fn fallen_back_to(name: &str) -> Self {
+        let set_head = if name.starts_with("origin/") {
+            " `git remote set-head origin --auto` sets origin/HEAD."
+        } else {
+            ""
+        };
+        Self {
+            name: name.to_string(),
+            fallback_note: Some(format!(
+                "origin/HEAD is not set, so the base is {name}. Pass a base to choose \
+                 another.{set_head}"
+            )),
+        }
+    }
 }
 
 /// Where the default branch is looked for when `origin/HEAD` is not set, in
@@ -101,19 +155,19 @@ const FALLBACK_BASES: [(&str, &str); 4] = [
     ("refs/heads/master", "master"),
 ];
 
-fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
+fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<Base> {
     if let Some(base) = &cli.base {
-        return Ok(base.clone());
+        return Ok(Base::named(base.clone()));
     }
     if let Some(base) = git_repo
         .default_branch()
         .context("failed to resolve default branch from origin/HEAD")?
     {
-        return Ok(base);
+        return Ok(Base::named(base));
     }
     for (full_name, base) in FALLBACK_BASES {
         if git_repo.has_reference(full_name)? {
-            return Ok(base.to_string());
+            return Ok(Base::fallen_back_to(base));
         }
     }
     anyhow::bail!(
@@ -420,10 +474,18 @@ mod tests {
     use crate::mock_repo::MockRepo;
     use git_tailor::app::CommitListState;
 
-    fn base_of(repo: &MockRepo, args: &[&str]) -> Result<String> {
+    fn resolve(repo: &MockRepo, args: &[&str]) -> Result<Base> {
         use clap::Parser;
         let cli = Cli::parse_from(std::iter::once("gt").chain(args.iter().copied()));
         resolve_base_branch(repo, &cli)
+    }
+
+    fn base_of(repo: &MockRepo, args: &[&str]) -> Result<String> {
+        resolve(repo, args).map(|base| base.name)
+    }
+
+    fn note_of(repo: &MockRepo, args: &[&str]) -> Option<String> {
+        resolve(repo, args).unwrap().fallback_note
     }
 
     fn with_references(references: &[&str]) -> MockRepo {
@@ -463,6 +525,33 @@ mod tests {
         assert_eq!(base_of(&both, &[]).unwrap(), "main");
         let master = with_references(&["refs/heads/master"]);
         assert_eq!(base_of(&master, &[]).unwrap(), "master");
+    }
+
+    #[test]
+    fn a_base_given_or_named_by_origin_head_goes_unremarked() {
+        let repo = MockRepo {
+            origin_head: Some("origin/main".to_string()),
+            ..MockRepo::default()
+        };
+        assert_eq!(note_of(&repo, &[]), None);
+        assert_eq!(note_of(&with_references(&[]), &["v1.0"]), None);
+    }
+
+    #[test]
+    fn a_fallback_says_which_base_it_picked() {
+        let note = note_of(&with_references(&["refs/heads/master"]), &[]).unwrap();
+        assert!(note.contains("origin/HEAD is not set"), "{note}");
+        assert!(note.contains("the base is master"), "{note}");
+        assert!(!note.contains("set-head"), "{note}");
+    }
+
+    /// With a remote branch picked, setting origin/HEAD is what stops it.
+    #[test]
+    fn a_fallback_to_a_remote_branch_says_how_to_set_origin_head() {
+        let repo = with_references(&["refs/remotes/origin/master"]);
+        let note = note_of(&repo, &[]).unwrap();
+        assert!(note.contains("the base is origin/master"), "{note}");
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
     }
 
     #[test]
