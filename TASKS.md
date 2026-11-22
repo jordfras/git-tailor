@@ -110,7 +110,7 @@ Guidelines:
   extension or `[-]` WON'T DO with the evidence.
 
 ## Build & CI
-- [ ] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
+- [X] T241 P3 feat - Publish a Homebrew formula from a custom tap, updated
   automatically on each `v*` tag, so `brew install` works for people without a
   Rust toolchain. Create `jordfras/homebrew-tap` (the `homebrew-` prefix is what
   makes the short form resolve), giving users
@@ -144,3 +144,7 @@ Guidelines:
   so it does not ship inside the published crate.
   The Linux half of the formula can be tested locally — Homebrew is already
   installed on the dev machine.
+  Done with a deploy key instead of a PAT: it does not expire and reaches only
+  the tap. And with `if OS.mac?` / `elsif Hardware::CPU.arm?` instead of
+  `on_macos`/`on_linux`, since `brew style` rejects `url` directly inside
+  `on_macos`.
