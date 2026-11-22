@@ -38,6 +38,9 @@ The format is based on
 - `--no-fsync`, or `GT_NO_FSYNC=true`, skips flushing each commit and branch
   move to disk as it is written, for large rewrites on a slow disk. The
   operation journal is still flushed
+- Install with Homebrew on macOS or Linux, no Rust toolchain needed:
+  `brew install jordfras/tap/git-tailor`. Each release updates the formula,
+  so `brew upgrade` picks it up
 
 ### Changed
 
