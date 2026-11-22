@@ -8,8 +8,10 @@ git-tailor. Available right now.
 Not in stores. In your terminal.
 
 [0.7]
-Don't have a Rust toolchain installed? Grab a pre-built binary for Linux, macOS
-or Windows from the releases page.
+Don't have a Rust toolchain installed? Get git-tailor from Homebrew.
+
+[0.3]
+Or grab a pre-built binary for Linux, macOS or Windows from the releases page.
 
 [0.8]
 {speed=1.15}

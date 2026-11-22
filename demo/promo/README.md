@@ -66,7 +66,7 @@ Three rules the scenes follow:
 | 05 | bonus | the hunk group matrix | git-tailor |
 | 06 | bonus | reorder (`m`) | git-tailor |
 | 07 | bonus | undo / redo (`u`, `Ctrl-r`) | git-tailor |
-| 08 | close | `cargo install`, and the releases page for people without Rust | plain git |
+| 08 | close | `cargo install`, then Homebrew and the releases page for people without Rust | plain git |
 
 Scenes 01 and 04 print subjects only (`--format='%s'`), so the two logs match
 character for character instead of differing by hash.

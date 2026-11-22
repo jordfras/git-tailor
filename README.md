@@ -46,6 +46,12 @@ Or download a pre-built `gt` binary for Linux (x86_64 or arm64), Windows
 Rust toolchain needed. The Linux build is statically linked and runs on any
 distribution (and WSL2).
 
+On macOS or Linux, Homebrew installs the same binary and keeps it up to date:
+
+```sh
+brew install jordfras/tap/git-tailor
+```
+
 
 ## Usage
 
