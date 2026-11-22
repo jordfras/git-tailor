@@ -44,8 +44,15 @@ pub fn load_initial_commits(
         return Ok(Some((all_commits, root_oid, true)));
     }
 
-    let base = resolve_base_branch(git_repo, cli)?;
-    let reference_oid = git_repo.find_reference_point(&base)?;
+    let Base {
+        name: base,
+        reference,
+        fallback_note,
+    } = resolve_base_branch(git_repo, cli)?;
+    if let Some(note) = fallback_note {
+        eprintln!("{note}");
+    }
+    let reference_oid = git_repo.find_reference_point(&reference)?;
     let raw = git_repo.list_commits(&head_oid, &reference_oid)?;
     // Exclude the merge-base commit — it's shared with the target branch
     // and must not be modified (squashed, moved, or split).
@@ -64,22 +71,41 @@ pub fn load_initial_commits(
     Ok(Some((commits, reference_oid, false)))
 }
 
-/// Resolve the OID bounds for the TUI loading path (fast: no commit listing).
-///
-/// Returns `(head_oid, reference_oid, include_reference_oid)`, or `Ok(None)`
-/// when there are definitely no commits to display.
-pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<(Oid, Oid, bool)>> {
+/// The range the TUI loads, from [`resolve_oid_bounds`].
+pub struct OidBounds {
+    pub head_oid: Oid,
+    pub reference_oid: Oid,
+    pub include_reference_oid: bool,
+    /// What to tell the user when the base is a fallback: which one, and why.
+    pub fallback_note: Option<String>,
+}
+
+/// Resolve the OID bounds for the TUI loading path (fast: no commit listing),
+/// or `Ok(None)` when there are definitely no commits to display.
+pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<OidBounds>> {
     let head_oid = git_repo.head_oid()?;
 
     if cli.all {
         let root_oid = git_repo.root_commit_oid()?;
-        return Ok(Some((head_oid, root_oid, true)));
+        return Ok(Some(OidBounds {
+            head_oid,
+            reference_oid: root_oid,
+            include_reference_oid: true,
+            fallback_note: None,
+        }));
     }
-    let base = resolve_base_branch(git_repo, cli)?;
-    let reference_oid = git_repo.find_reference_point(&base)?;
+    let Base {
+        name: base,
+        reference,
+        fallback_note,
+    } = resolve_base_branch(git_repo, cli)?;
+    let reference_oid = git_repo.find_reference_point(&reference)?;
 
     // Fast empty-branch check: if HEAD equals the merge-base, no branch commits exist.
     if head_oid == reference_oid {
+        if let Some(note) = fallback_note {
+            eprintln!("{note}");
+        }
         eprintln!(
             "No commits to display: HEAD is at the merge-base with '{}'",
             base
@@ -88,19 +114,111 @@ pub fn resolve_oid_bounds(git_repo: &impl RepoRead, cli: &Cli) -> Result<Option<
         return Ok(None);
     }
 
-    Ok(Some((head_oid, reference_oid, false)))
+    Ok(Some(OidBounds {
+        head_oid,
+        reference_oid,
+        include_reference_oid: false,
+        fallback_note,
+    }))
 }
 
-fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<String> {
-    if let Some(base) = &cli.base {
-        return Ok(base.clone());
+/// The base to list commits from.
+struct Base {
+    /// As the user knows it, for messages.
+    name: String,
+    /// What to look it up by: the full reference name of a branch gt chose, as
+    /// by its short one git would find a tag of the same name first.
+    reference: String,
+    fallback_note: Option<String>,
+}
+
+impl Base {
+    fn given(name: String) -> Self {
+        Self {
+            reference: name.clone(),
+            name,
+            fallback_note: None,
+        }
     }
 
-    match git_repo.default_branch() {
-        Ok(Some(base)) => Ok(base),
-        Ok(None) => Ok("main".to_string()),
-        Err(err) => Err(err.context("failed to resolve default branch from origin/HEAD")),
+    fn origin_head(name: String) -> Self {
+        Self {
+            reference: format!("refs/remotes/{name}"),
+            name,
+            fallback_note: None,
+        }
     }
+
+    /// `why` says what was wrong with `origin/HEAD`, whose remote setting it
+    /// right is what stops the guessing, so the note says how when there is one.
+    fn fallen_back_to(reference: &str, name: &str, why: &OriginHead) -> Self {
+        let set_head = if name.starts_with("origin/") || matches!(why, OriginHead::Gone(_)) {
+            " `git remote set-head origin --auto` sets origin/HEAD."
+        } else {
+            ""
+        };
+        Self {
+            name: name.to_string(),
+            reference: reference.to_string(),
+            fallback_note: Some(format!(
+                "{why}, so the base is {name}. Pass a base to choose another.{set_head}"
+            )),
+        }
+    }
+}
+
+/// Why `origin/HEAD` could not name the base.
+enum OriginHead {
+    /// Missing, or set to a commit rather than a branch.
+    NotSet,
+    /// It names this remote branch, which no longer exists.
+    Gone(String),
+}
+
+impl std::fmt::Display for OriginHead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotSet => write!(f, "origin/HEAD is not set to a branch"),
+            Self::Gone(name) => write!(f, "origin/HEAD points to {name}, which no longer exists"),
+        }
+    }
+}
+
+/// Where the default branch is looked for when `origin/HEAD` is not set, in
+/// order: what a pull request targets first, then branches of a repository with
+/// no remote. As full reference names, so that a tag cannot stand in for one.
+const FALLBACK_BASES: [(&str, &str); 4] = [
+    ("refs/remotes/origin/main", "origin/main"),
+    ("refs/remotes/origin/master", "origin/master"),
+    ("refs/heads/main", "main"),
+    ("refs/heads/master", "master"),
+];
+
+fn resolve_base_branch(git_repo: &impl RepoRead, cli: &Cli) -> Result<Base> {
+    if let Some(base) = &cli.base {
+        return Ok(Base::given(base.clone()));
+    }
+    let why = match git_repo
+        .default_branch()
+        .context("failed to resolve default branch from origin/HEAD")?
+    {
+        // A remote that renamed its default branch leaves origin/HEAD naming the
+        // old one once a fetch prunes it.
+        Some(base) if !git_repo.has_reference(&format!("refs/remotes/{base}"))? => {
+            OriginHead::Gone(base)
+        }
+        Some(base) => return Ok(Base::origin_head(base)),
+        None => OriginHead::NotSet,
+    };
+    for (full_name, base) in FALLBACK_BASES {
+        if git_repo.has_reference(full_name)? {
+            return Ok(Base::fallen_back_to(full_name, base, &why));
+        }
+    }
+    anyhow::bail!(
+        "{why}, and none of origin/main, origin/master, main or master exists. Pass the \
+         base to list commits from, as in `gt <branch>`."
+    )
 }
 
 /// Load commits and diffs with a live counter dialog, then optionally build the
@@ -401,6 +519,177 @@ mod tests {
     use crate::mock_repo::MockRepo;
     use git_tailor::app::CommitListState;
 
+    fn resolve(repo: &MockRepo, args: &[&str]) -> Result<Base> {
+        use clap::Parser;
+        let cli = Cli::parse_from(std::iter::once("gt").chain(args.iter().copied()));
+        resolve_base_branch(repo, &cli)
+    }
+
+    fn base_of(repo: &MockRepo, args: &[&str]) -> Result<String> {
+        resolve(repo, args).map(|base| base.name)
+    }
+
+    fn note_of(repo: &MockRepo, args: &[&str]) -> Option<String> {
+        resolve(repo, args).unwrap().fallback_note
+    }
+
+    fn with_references(references: &[&str]) -> MockRepo {
+        MockRepo {
+            references: references.iter().map(ToString::to_string).collect(),
+            ..MockRepo::default()
+        }
+    }
+
+    #[test]
+    fn a_base_given_on_the_command_line_wins() {
+        let repo = MockRepo {
+            origin_head: Some("origin/main".to_string()),
+            ..with_references(&["refs/remotes/origin/main"])
+        };
+        assert_eq!(base_of(&repo, &["v1.0"]).unwrap(), "v1.0");
+    }
+
+    #[test]
+    fn origin_head_is_the_base_when_set() {
+        let repo = MockRepo {
+            origin_head: Some("origin/trunk".to_string()),
+            ..with_references(&["refs/remotes/origin/main", "refs/remotes/origin/trunk"])
+        };
+        assert_eq!(base_of(&repo, &[]).unwrap(), "origin/trunk");
+    }
+
+    #[test]
+    fn without_origin_head_a_remote_branch_comes_before_a_local_one() {
+        let repo = with_references(&["refs/heads/main", "refs/remotes/origin/master"]);
+        assert_eq!(base_of(&repo, &[]).unwrap(), "origin/master");
+    }
+
+    #[test]
+    fn without_origin_head_main_comes_before_master() {
+        let both = with_references(&["refs/heads/master", "refs/heads/main"]);
+        assert_eq!(base_of(&both, &[]).unwrap(), "main");
+        let master = with_references(&["refs/heads/master"]);
+        assert_eq!(base_of(&master, &[]).unwrap(), "master");
+    }
+
+    #[test]
+    fn a_base_given_or_named_by_origin_head_goes_unremarked() {
+        let repo = MockRepo {
+            origin_head: Some("origin/main".to_string()),
+            ..with_references(&["refs/remotes/origin/main"])
+        };
+        assert_eq!(note_of(&repo, &[]), None);
+        assert_eq!(note_of(&with_references(&[]), &["v1.0"]), None);
+    }
+
+    #[test]
+    fn a_fallback_says_which_base_it_picked() {
+        let note = note_of(&with_references(&["refs/heads/master"]), &[]).unwrap();
+        assert!(note.contains("origin/HEAD is not set"), "{note}");
+        assert!(note.contains("the base is master"), "{note}");
+        assert!(!note.contains("set-head"), "{note}");
+    }
+
+    /// With a remote branch picked, setting origin/HEAD is what stops it.
+    #[test]
+    fn a_fallback_to_a_remote_branch_says_how_to_set_origin_head() {
+        let repo = with_references(&["refs/remotes/origin/master"]);
+        let note = note_of(&repo, &[]).unwrap();
+        assert!(note.contains("the base is origin/master"), "{note}");
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
+    }
+
+    /// A repository at `HEAD` on `feature`, two commits past the branch
+    /// `master`, which is one past the root; a tag `master` on the root.
+    fn branch_and_tag_named_master() -> (tempfile::TempDir, git2::Oid) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let sig = git2::Signature::now("T", "t@e").unwrap();
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let commit = |parent: Option<git2::Oid>, message: &str| {
+            let parents: Vec<_> = parent
+                .map(|p| repo.find_commit(p).unwrap())
+                .into_iter()
+                .collect();
+            let parents: Vec<_> = parents.iter().collect();
+            repo.commit(None, &sig, &sig, message, &tree, &parents)
+                .unwrap()
+        };
+        let root = commit(None, "root");
+        let branch_tip = commit(Some(root), "on master");
+        let feature = commit(Some(branch_tip), "feature 1");
+        let feature = commit(Some(feature), "feature 2");
+        repo.branch("master", &repo.find_commit(branch_tip).unwrap(), true)
+            .unwrap();
+        repo.tag_lightweight("master", &repo.find_object(root, None).unwrap(), true)
+            .unwrap();
+        repo.reference("refs/heads/feature", feature, true, "test")
+            .unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        (dir, branch_tip)
+    }
+
+    /// The fallback picks the branch by its full name, so it must look it up by
+    /// that name too: by its short one, git finds the tag first.
+    #[test]
+    fn a_fallback_branch_is_not_mistaken_for_a_tag_of_the_same_name() {
+        use clap::Parser;
+        let (dir, branch_tip) = branch_and_tag_named_master();
+        let git_repo = git_tailor::repo::Git2Repo::open(dir.path().to_path_buf()).unwrap();
+
+        let bounds = resolve_oid_bounds(&git_repo, &Cli::parse_from(["gt"]))
+            .unwrap()
+            .expect("the feature commits");
+
+        assert_eq!(bounds.reference_oid, Oid::from(branch_tip));
+    }
+
+    /// What a remote renaming its default branch leaves behind after a pruning
+    /// fetch: origin/HEAD still naming the old one.
+    #[test]
+    fn an_origin_head_naming_a_branch_that_is_gone_falls_back() {
+        let repo = MockRepo {
+            origin_head: Some("origin/master".to_string()),
+            ..with_references(&["refs/remotes/origin/main"])
+        };
+        let base = resolve(&repo, &[]).unwrap();
+        assert_eq!(base.name, "origin/main");
+        let note = base.fallback_note.unwrap();
+        assert!(
+            note.contains("origin/HEAD points to origin/master, which no longer exists"),
+            "{note}"
+        );
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
+    }
+
+    /// Setting origin/HEAD again is the fix even when the fallback is local.
+    #[test]
+    fn a_gone_origin_head_says_how_to_set_it_whatever_the_fallback() {
+        let repo = MockRepo {
+            origin_head: Some("origin/master".to_string()),
+            ..with_references(&["refs/heads/main"])
+        };
+        let note = note_of(&repo, &[]).unwrap();
+        assert!(note.contains("the base is main"), "{note}");
+        assert!(note.contains("git remote set-head origin --auto"), "{note}");
+    }
+
+    #[test]
+    fn without_any_candidate_the_error_names_them_all() {
+        let error = base_of(&MockRepo::default(), &[]).unwrap_err().to_string();
+        for name in [
+            "origin/main",
+            "origin/master",
+            "main",
+            "master",
+            "gt <branch>",
+        ] {
+            assert!(error.contains(name), "{error}");
+        }
+    }
+
     /// What [`load_with_progress`] leaves behind when it fails partway.
     fn loading() -> AppMode {
         AppMode::Loading {
@@ -429,7 +718,7 @@ mod tests {
         );
 
         assert!(matches!(app.mode, AppMode::CommitList), "{:?}", app.mode);
-        assert!(app.status.is_error);
+        assert!(app.status.is_error());
     }
 
     fn commit(oid: &str) -> CommitInfo {

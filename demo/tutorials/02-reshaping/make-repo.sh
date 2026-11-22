@@ -130,6 +130,10 @@ config_rs | write src/config.rs
 log_rs | write src/log.rs
 commit "feat: add the server, config and logging"
 
+# What a clone has, so a bare `gt` finds main as its base without a note.
+git -C "$OUT" update-ref refs/remotes/origin/main main
+git -C "$OUT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
 git -C "$OUT" checkout -q -b work
 
 # --- 1. config's load region: first toucher. --------------------------------

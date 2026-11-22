@@ -21,7 +21,7 @@ pub use search::handle_search_event;
 use super::hunk_groups;
 use crate::VirtualOid;
 use crate::app::search::SearchDirection;
-use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode};
+use crate::app::{AppAction, AppMode, AppState, KeyCommand, SquashMode, StatusKind};
 use crate::fragmap::{CommitPos, TouchKind};
 use crate::views::palette::Colors;
 use ratatui::{
@@ -879,14 +879,12 @@ pub fn render_footer(frame: &mut Frame, app: &AppState, area: Rect) {
         return;
     }
     if let Some(msg) = &app.status.message {
-        let bg = if app.status.is_error {
-            Color::Red
-        } else {
-            Color::Green
+        let (fg, bg) = match app.status.kind {
+            StatusKind::Success => (Color::White, Color::Green),
+            StatusKind::Error => (Color::White, Color::Red),
+            StatusKind::Notice => (Color::White, Color::Blue),
         };
-        let style = app
-            .colors
-            .resolve_style(Style::new().fg(Color::White).bg(bg));
+        let style = app.colors.resolve_style(Style::new().fg(fg).bg(bg));
         frame.render_widget(Paragraph::new("").style(style), area);
         let text_area = Rect {
             x: area.x + 1,

@@ -29,25 +29,47 @@ use crate::app::search::{SearchDirection, SearchState};
 use crate::autofixup::AutofixupPair;
 use crate::domain::search::{SearchCase, search_regex};
 
+/// What a status message reports, which decides how it is drawn.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum StatusKind {
+    /// Shown with a green background.
+    #[default]
+    Success,
+    /// Shown with a red background.
+    Error,
+    /// Something to know that is neither a result nor a failure, shown with a
+    /// blue background.
+    Notice,
+}
+
 /// Transient status message shown in the footer, cleared on the next keypress.
 #[derive(Debug, Default)]
 pub struct StatusState {
     pub message: Option<String>,
-    /// Whether the message represents an error (red) or a success (green).
-    pub is_error: bool,
+    pub kind: StatusKind,
 }
 
 impl StatusState {
-    /// Set a success status message (shown with green background).
+    /// Set a success status message.
     pub fn set_success(&mut self, msg: impl Into<String>) {
         self.message = Some(msg.into());
-        self.is_error = false;
+        self.kind = StatusKind::Success;
     }
 
-    /// Set an error status message (shown with red background).
+    /// Set an error status message.
     pub fn set_error(&mut self, msg: impl Into<String>) {
         self.message = Some(msg.into());
-        self.is_error = true;
+        self.kind = StatusKind::Error;
+    }
+
+    /// Set a notice.
+    pub fn set_notice(&mut self, msg: impl Into<String>) {
+        self.message = Some(msg.into());
+        self.kind = StatusKind::Notice;
+    }
+
+    pub fn is_error(&self) -> bool {
+        self.kind == StatusKind::Error
     }
 
     /// Clear the transient status message.

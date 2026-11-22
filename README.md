@@ -53,7 +53,8 @@ distribution (and WSL2).
 gt main              # commits on top of main
 gt origin/main       # commits not yet pushed
 gt v1.2.3            # commits since a tag
-gt                   # auto-detect default branch (origin/HEAD, else main)
+gt                   # auto-detect default branch (origin/HEAD, else origin/main,
+                     # origin/master, main or master)
 ```
 
 The optional argument is the base: the branch or point you forked from,

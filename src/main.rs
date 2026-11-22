@@ -40,7 +40,9 @@ use crate::cli::Cli;
 use crate::dispatch::{LoopAction, PendingAutofixupSelection, dispatch_action};
 #[cfg(unix)]
 use crate::external_tool::with_tui_suspended;
-use crate::loader::{load_initial_commits, load_with_progress, reload, resolve_oid_bounds};
+use crate::loader::{
+    OidBounds, load_initial_commits, load_with_progress, reload, resolve_oid_bounds,
+};
 use crate::recovery::{check_journal_recovery, journal_refusal};
 use crate::session_lock::{LockRefusal, SessionLock};
 use crate::terminal_guard::setup_terminal;
@@ -126,8 +128,12 @@ fn main() -> Result<()> {
     }
 
     // TUI path: resolve bounds first (fast), then start the TUI immediately.
-    let Some((from_oid, reference_oid, include_reference_oid)) =
-        resolve_oid_bounds(&git_repo, &cli)?
+    let Some(OidBounds {
+        head_oid: from_oid,
+        reference_oid,
+        include_reference_oid,
+        fallback_note,
+    }) = resolve_oid_bounds(&git_repo, &cli)?
     else {
         return Ok(());
     };
@@ -167,10 +173,17 @@ fn main() -> Result<()> {
     // Working-tree rows alone are nothing to rewrite.
     if app.list.commits().all(|c| c.oid.as_oid().is_none()) {
         terminal_guard.shutdown()?;
+        if let Some(note) = fallback_note {
+            eprintln!("{note}");
+        }
         eprintln!("No commits to display.");
         return Ok(());
     }
 
+    // Before recovery, whose message matters more and replaces it.
+    if let Some(note) = fallback_note {
+        app.status.set_notice(note);
+    }
     check_journal_recovery(&mut git_repo, &mut app);
 
     // Outlives the loop: an autofixup batch can pause for several conflict

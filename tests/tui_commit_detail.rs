@@ -1203,7 +1203,7 @@ fn ctrl_n_without_another_match_stays_and_says_so() {
         assert!(matches!(action, AppAction::Handled), "{query:?}");
         assert_eq!(app.list.selection_index, 0);
         assert_eq!(app.detail.search.query, seeded);
-        assert!(app.status.is_error);
+        assert!(app.status.is_error());
     }
 }
 
@@ -1227,7 +1227,7 @@ fn ctrl_n_on_an_invalid_pattern_says_it_is_invalid() {
         KeyCommand::NextMatchingCommit,
     );
     assert_eq!(app.list.selection_index, 0);
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
     assert_eq!(
         app.status.message.as_deref(),
         Some("Invalid search pattern")

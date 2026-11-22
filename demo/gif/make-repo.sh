@@ -103,6 +103,10 @@ it is merged into `main`.
 MD
 commit "docs: add project README"
 
+# What a clone has, so a bare `gt` finds main as its base without a note.
+git -C "$OUT" update-ref refs/remotes/origin/main main
+git -C "$OUT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
 git -C "$OUT" checkout -q -b "$BRANCH"
 
 # ===========================================================================

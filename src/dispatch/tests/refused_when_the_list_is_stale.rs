@@ -68,7 +68,7 @@ fn when_head_cannot_be_read() {
     let mut app = AppState::default();
     handle_execute_move(&mut repo, &mut app, Oid::from("c".repeat(40)), None).unwrap();
     assert_eq!(repo.handed_tip, None, "the repository must not be asked");
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]

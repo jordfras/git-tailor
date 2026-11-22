@@ -2460,3 +2460,14 @@ carry the search into the detail view.
   antivirus, about 4 ms more per commit. The same split on CI runners went
   from 0.06 s to 0.15 s on Ubuntu, 0.5 s to 0.7–1.2 s on macOS, and 1.1 s to
   3.6 s on Windows: about 25 ms per commit there, the case `--no-fsync` is for.
+- [X] T246 P3 feat - Decide whether git-tailor should say which base it picked.
+  The default range is HEAD back to the merge-base with the upstream default
+  branch, auto-detected via `origin/HEAD` and falling back to `main` when that
+  ref is not set. A missing or wrong `origin/HEAD` makes the visible range
+  wrong, so an operation can span more history than the user believes it does.
+  Not a mechanical bug — the code does what it documents — but a "what does the
+  user think they are operating on" question, which is the kind that makes a
+  correct rewrite feel like a destructive one.
+  Scope: decide whether the chosen base and how it was found belong on screen,
+  and whether an unresolvable `origin/HEAD` should be surfaced rather than
+  silently falling back to `main`.

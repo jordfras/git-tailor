@@ -190,3 +190,48 @@ fn default_branch_reflects_non_main_default() {
         Some("origin/master".to_string())
     );
 }
+
+#[test]
+fn has_reference_finds_local_and_remote_tracking_branches() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    set_origin_head(&test.repo, "master");
+
+    let git_repo = test.git_repo();
+    assert!(git_repo.has_reference("refs/heads/main").unwrap());
+    assert!(
+        git_repo
+            .has_reference("refs/remotes/origin/master")
+            .unwrap()
+    );
+    assert!(!git_repo.has_reference("refs/remotes/origin/main").unwrap());
+}
+
+/// A tag is no branch, however it is named.
+#[test]
+fn has_reference_does_not_take_a_tag_for_a_branch() {
+    let test = common::TestRepo::new();
+    let oid = test.commit_file("a.txt", "content", "initial");
+    test.create_tag("master", oid);
+
+    let git_repo = test.git_repo();
+    assert!(!git_repo.has_reference("refs/heads/master").unwrap());
+}
+
+/// A symbolic ref left pointing at a branch that was pruned names nothing.
+#[test]
+fn has_reference_does_not_count_a_symbolic_ref_whose_target_is_gone() {
+    let test = common::TestRepo::new();
+    test.commit_file("a.txt", "content", "initial");
+    test.repo
+        .reference_symbolic(
+            "refs/remotes/origin/main",
+            "refs/remotes/origin/gone",
+            true,
+            "test setup",
+        )
+        .unwrap();
+
+    let git_repo = test.git_repo();
+    assert!(!git_repo.has_reference("refs/remotes/origin/main").unwrap());
+}

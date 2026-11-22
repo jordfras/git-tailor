@@ -76,17 +76,6 @@ Guidelines:
   Do this only if T222 concludes gix is viable, or if that testability argument
   becomes load-bearing on its own. Otherwise leave it: the seam is cheap to add
   later precisely because the git2 code is already confined to one directory.
-- [ ] T246 P3 idea - Decide whether git-tailor should say which base it picked.
-  The default range is HEAD back to the merge-base with the upstream default
-  branch, auto-detected via `origin/HEAD` and falling back to `main` when that
-  ref is not set. A missing or wrong `origin/HEAD` makes the visible range
-  wrong, so an operation can span more history than the user believes it does.
-  Not a mechanical bug — the code does what it documents — but a "what does the
-  user think they are operating on" question, which is the kind that makes a
-  correct rewrite feel like a destructive one.
-  Scope: decide whether the chosen base and how it was found belong on screen,
-  and whether an unresolvable `origin/HEAD` should be surfaced rather than
-  silently falling back to `main`.
 - [ ] T260 P3 idea - Spike only (timebox: one day): can the library back a VS
   Code extension through a napi-rs native module, with the fragmap matrix shown
   next to the commit list in a webview? Close this task either way with a

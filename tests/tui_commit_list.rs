@@ -242,13 +242,37 @@ fn test_status_bar_short_error() {
             "Initial commit",
         )]));
     app.list.selection_index = 0;
-    app.status.message = Some("Cannot split staged/unstaged changes".to_string());
-    app.status.is_error = true;
+    app.status.set_error("Cannot split staged/unstaged changes");
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
     }));
 }
+/// A notice is neither a success nor a failure, so it is drawn in neither of
+/// their colors.
+#[test]
+fn a_notice_is_drawn_white_on_blue() {
+    use ratatui::style::Color;
+
+    let mut harness = TuiTestHarness::short();
+    let mut app = AppState::new();
+    app.list
+        .set_rows(common::rows(vec![common::create_test_commit(
+            "abc123def456",
+            "Initial commit",
+        )]));
+    app.status
+        .set_notice("origin/HEAD is not set to a branch, so the base is main.");
+
+    let buffer = harness.render(|frame| {
+        views::commit_list::render(&mut app, frame);
+    });
+
+    let footer = buffer.area.height - 1;
+    let cell = &buffer[(1, footer)];
+    assert_eq!((cell.fg, cell.bg), (Color::White, Color::Blue));
+}
+
 // Footer is exactly 65 columns wide: left=" abc123def456abc123def456abc123def456abc1 1/1" (45 chars)
 // + 2 padding + hint "Press 'h' for help" (18 chars) = 65. Hint should be visible.
 #[test]
@@ -377,11 +401,9 @@ fn test_status_bar_long_error() {
             "Initial commit",
         )]));
     app.list.selection_index = 0;
-    app.status.message = Some(
-        "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs"
-            .to_string(),
+    app.status.set_error(
+        "Split failed: cannot apply patch — overlapping hunks detected in modified_file.rs",
     );
-    app.status.is_error = true;
 
     insta::assert_debug_snapshot!(harness.render(|frame| {
         views::commit_list::render(&mut app, frame);
@@ -446,7 +468,7 @@ fn stage_all_is_gated_to_the_unstaged_row() {
         views::commit_list::handle_key(KeyCommand::StageAll, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -484,7 +506,7 @@ fn edit_is_refused_on_a_synthetic_row() {
         views::commit_list::handle_key(KeyCommand::Edit, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -506,7 +528,7 @@ fn unstage_all_is_gated_to_the_staged_row() {
         views::commit_list::handle_key(KeyCommand::UnstageAll, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]
@@ -544,7 +566,7 @@ fn commit_staged_is_gated_to_the_staged_row() {
         views::commit_list::handle_key(KeyCommand::CommitStaged, &mut app),
         AppAction::Handled
     ));
-    assert!(app.status.is_error);
+    assert!(app.status.is_error());
 }
 
 #[test]

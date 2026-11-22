@@ -75,6 +75,14 @@ The format is based on
   a power cut can no longer leave a branch, the undo history or a stash naming
   something that never reached the disk. This costs a few milliseconds per
   commit written; `--no-fsync` turns it off
+- Without a base argument and with `origin/HEAD` not set, the base is now the
+  first of `origin/main`, `origin/master`, `main` and `master` that exists,
+  instead of always the local `main`, which could be behind `origin/main` and
+  list commits that are already upstream. A repository whose default branch is
+  `master` now starts without a base argument too, and so does one whose
+  `origin/HEAD` still names a default branch the remote has since renamed. gt
+  says which base it picked, in a blue notice in the footer at startup, or on
+  stderr with `--static`.
 
 ### Fixed
 
