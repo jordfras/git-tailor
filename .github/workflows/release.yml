@@ -81,3 +81,42 @@ jobs:
           checksum: sha256
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Points the formula in jordfras/homebrew-tap at this release. After
+  # upload-assets, so a failed build skips it instead of publishing a formula
+  # naming a missing archive. The binaries are out by then, so a failure here
+  # only leaves the formula a release behind: rerun the job, or run the script
+  # and commit to the tap by hand.
+  update-tap:
+    needs: upload-assets
+    # A manual run rebuilds binaries for an older tag, which must not move the
+    # formula back to it.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      # GITHUB_TOKEN cannot push to another repository; the deploy key is
+      # scoped to the tap alone.
+      - uses: actions/checkout@v5
+        with:
+          repository: jordfras/homebrew-tap
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
+          path: tap
+      - name: Write the formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/homebrew/update-formula.sh "$TAG" tap/Formula/git-tailor.rb
+      - name: Commit it to the tap
+        working-directory: tap
+        run: |
+          git add Formula/git-tailor.rb
+          if git diff --cached --quiet; then
+            echo "The formula already points at $TAG."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "git-tailor ${TAG#v}"
+          git push
