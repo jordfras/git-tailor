@@ -124,10 +124,19 @@ Pushing the `v<version>` tag triggers the **Release** workflow
 (`.github/workflows/release.yml`), which creates the GitHub Release (notes from
 `CHANGELOG.md`) and attaches pre-built `gt` binaries + SHA-256 checksums for
 Linux (x86_64 and arm64, musl, static), Windows (x86_64), and macOS (arm64 and
-x86_64).
+x86_64). Once the binaries are up, its last job commits "git-tailor <version>"
+to [jordfras/homebrew-tap](https://github.com/jordfras/homebrew-tap), pointing
+the formula at them — check that the commit landed. If that job failed, rerun
+it alone from the run's page, or write the formula locally and commit it to the
+tap by hand:
+
+```sh
+.github/homebrew/update-formula.sh v<version> ../homebrew-tap/Formula/git-tailor.rb
+```
 
 To (re)build binaries for a tag that already exists — without moving the tag —
-run the workflow manually:
+run the workflow manually. It leaves the tap alone, so rebuilding an old release
+does not move the formula back to it:
 
 ```sh
 gh workflow run release.yml -f tag=v<version>
