@@ -108,3 +108,52 @@ Guidelines:
   function returning the fragmap for HEAD, rendered as a matrix beside the
   commit list in a minimal webview. Outcome is either follow-up tasks for the
   extension or `[-]` WON'T DO with the evidence.
+
+## Conflict Resolution
+- [ ] T284 P2 bug - The built-in kdiff3 merge command lacks `--auto`, so kdiff3
+  opens its window even for conflicts it resolves on its own. Git's wrapper
+  (`mergetools/kdiff3`) passes it: kdiff3 then resolves what it can, saves and
+  exits without a window. Checked with `kdiff3 --auto` run headless: it resolves
+  edits to adjacent lines, and the same edit on both sides where one side also
+  changed the next line, without a window; git and libgit2 conflict on both.
+  Fix in `builtin_cmd` (`src/mergetool.rs`).
+  Related: `run_tool_for_file` stages the file whenever the tool exits 0, without
+  checking for leftover conflict markers. Git distrusts the exit code of tools
+  without `trustExitCode` and asks instead. Check `<<<<<<<`/`>>>>>>>` lines in
+  `$MERGED` before staging, and leave the file conflicted if any remain.
+- [ ] T285 P2 feat - Offer to resolve trivial conflicts in the conflict dialog,
+  one proposal at a time, before (or instead of) the merge tool. Git and libgit2
+  conflict on changes that merely touch; in git-tailor that is the common case:
+  a fold into a commit whose neighbor edited the next line.
+  **Finding the conflicts:** run `merge_file` on stages 1/2/3 with diff3 style
+  and a long `marker_size` (so file contents cannot be mistaken for markers),
+  then parse the output into clean and conflicting regions. Only libgit2's
+  conflicts are candidates, so this can only ever narrow them.
+  **Refining each conflict** (a pure function over the three line lists, unit
+  tested with no git), by line-diffing base→ours and base→theirs inside the
+  region:
+  * No base line is changed differently by both sides, and the two sides do not
+    insert at the same point: apply both. This covers adjacent edits, and the
+    same edit on both sides where one side also changed the next line. It is
+    what a 3-way merge already does when one unchanged line separates the edits.
+  * Both sides insert at the same point and change nothing else (imports,
+    changelog bullets, enum variants): propose ours-then-theirs or
+    theirs-then-ours, with the user picking. Never automatic.
+  * Anything else stays a conflict. A whitespace-only change on one side is a
+    candidate for later, not for this task.
+  **UI:** from `RebaseConflict` (and `StashConflict`), a key such as `a` steps
+  through the proposals. Each shows base, ours and theirs, and the proposed
+  result; keys accept, skip, or pick the order for an insert-insert. A file is
+  written and staged only when every conflict in it was accepted. A file with
+  anything skipped or unresolvable is left exactly as it was for the merge tool,
+  because 3-way tools read the index stages, not `$MERGED`, and would drop a
+  partial resolution. Afterwards the dialog shows what is left, and the merge
+  tool is the next step as now.
+  **Open questions:**
+  * The line diff: `git2::Patch::from_buffers` (no new dependency) or a small
+    LCS over the region, which is short.
+  * Whether "apply both" for clean adjacent edits should also need a key, or
+    only be shown. Start with a key; relax it if it proves tedious.
+  Alternatives for users meanwhile: git-mediate and mergiraf (`mergiraf solve`)
+  resolve trivial conflicts from the terminal, without asking. A built-in 3-way
+  editor is out of scope: `nvimdiff3`/`vimdiff3` already cover the terminal.

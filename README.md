@@ -82,7 +82,8 @@ handy while you are still learning the individual shortcut keys. With a commit
 selected you can:
 
 - **Squash** — merge it into an earlier commit (with an editable combined
-  message)
+  message). While choosing the target, `n` selects the commit it folds into
+  without conflict, the one drawn green
 - **Fixup** — like squash, but discard the selected commit's message
 - **Move** — reorder it to a new position
 - **Split** — divide it into smaller commits, by file, by hunk, by hunk group,
@@ -239,7 +240,7 @@ git config --global merge.tool vimdiff
 ### Rewriting history safely
 
 git-tailor rewrites branch history, so the usual rewrite caveats apply. To keep
-that safe, every operation is journalled before it runs: anything can be undone
+that safe, every operation is journaled before it runs: anything can be undone
 and redone, and an interrupted run is recovered the next time you start `gt`.
 Uncommitted changes are stashed around an operation and put back afterwards,
 or, with `--no-stash`, the operation refuses to run. As with any history
