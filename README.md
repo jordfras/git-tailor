@@ -240,7 +240,7 @@ git config --global merge.tool vimdiff
 ### Rewriting history safely
 
 git-tailor rewrites branch history, so the usual rewrite caveats apply. To keep
-that safe, every operation is journalled before it runs: anything can be undone
+that safe, every operation is journaled before it runs: anything can be undone
 and redone, and an interrupted run is recovered the next time you start `gt`.
 Uncommitted changes are stashed around an operation and put back afterwards,
 or, with `--no-stash`, the operation refuses to run. As with any history

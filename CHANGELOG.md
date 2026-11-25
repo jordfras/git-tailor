@@ -201,7 +201,7 @@ The format is based on
   The split itself was fine — the count in front of it was what failed
 - Retrying a squash after a failed resume keeps the commit message you wrote,
   instead of reopening the editor on the computed default
-- `--autostash` now names the untracked file standing in the way when it cannot
+- Auto-stash now names the untracked file standing in the way when it cannot
   put your changes back, instead of reporting a generic failure. Nothing was at
   risk — the reapply was already stopped — but clearing the path was guesswork
 - Splitting a commit now puts changes that have no hunk to pick (a binary
