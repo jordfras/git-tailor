@@ -82,7 +82,8 @@ handy while you are still learning the individual shortcut keys. With a commit
 selected you can:
 
 - **Squash** — merge it into an earlier commit (with an editable combined
-  message)
+  message). While choosing the target, `n` selects the commit it folds into
+  without conflict, the one drawn green
 - **Fixup** — like squash, but discard the selected commit's message
 - **Move** — reorder it to a new position
 - **Split** — divide it into smaller commits, by file, by hunk, by hunk group,
