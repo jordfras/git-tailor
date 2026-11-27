@@ -120,8 +120,20 @@ stays plain.
 
 ### Code Quality
 
-After any Rust code change, run `cargo fmt`, `cargo clippy --all-targets`, and
-`cargo test`. The codebase maintains zero clippy warnings.
+The codebase maintains zero clippy warnings, and every commit except a TDD
+red step passes its tests. Hooks in `.claude/settings.json` enforce this, so
+don't run the checks by habit: that only runs them twice.
+
+- Ending a turn with Rust changes runs `cargo fmt` and
+  `cargo clippy --all-targets -- -D warnings`, and refuses to stop until clippy
+  is clean.
+- `git commit` with Rust changes runs fmt, clippy and `cargo nextest run`. A
+  `test:` commit must fail its tests; any other commit must pass them.
+
+Run `cargo nextest run`, filtered when you can, when you need the result
+mid-task: to confirm a new test fails before the fix, or to check a change
+before building on it. Use nextest, not `cargo test`. The tools the hooks need
+are listed in `.claude/README.md`.
 
 ### Commit Conventions
 

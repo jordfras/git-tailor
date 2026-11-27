@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust-gate.sh\" stop",
+            "timeout": 600,
+            "statusMessage": "Checking fmt and clippy..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust-gate.sh\" commit",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -60,12 +60,9 @@ Wait for explicit approval. Stop if not approved.
 
 ### 6. Validate
 
-```
-cargo fmt
-cargo clippy --all-targets
-cargo test
-```
-Report pass/fail and any warnings. Fix only issues that block the task.
+Hooks enforce fmt, clippy and tests (see Code Quality in CLAUDE.md), so don't
+run them by habit. Run `cargo nextest run` only when you need the result, and
+report what the hooks reported. Fix only issues that block the task.
 
 ---
 
