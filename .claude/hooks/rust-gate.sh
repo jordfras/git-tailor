@@ -42,7 +42,7 @@ commit_mode() {
         exit 1
     fi
     local cmd
-    cmd=$(jq -r '.tool_input.command // empty')
+    cmd=$(jq -r '.tool_input.command // empty' | tr -d '\r')
     grep -Eq '(^|[;&|(])[[:space:]]*git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit([[:space:]]|$)' \
         <<<"$cmd" || exit 0
 

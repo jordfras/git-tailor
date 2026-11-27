@@ -1,0 +1,2 @@
+# bash rejects CRLF scripts, and Git for Windows checks out CRLF by default.
+*.sh text eol=lf
