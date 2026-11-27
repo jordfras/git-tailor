@@ -88,7 +88,7 @@ cd some/repo && /path/to/git-tailor/target/debug/gt main   # q to quit
 ## Test
 
 ```bash
-cargo fmt && cargo clippy --all-targets && cargo test
+cargo fmt && cargo clippy --all-targets && cargo nextest run
 ```
 
 ## Gotchas
